@@ -114,6 +114,54 @@ public sealed class TfTipsConformanceTests
     }
 
     [Test]
+    public void NextClassTip_ForAClassWithNoTips_IsEmptyAndLeavesTheIndex()
+    {
+        // `if ( 0 == iClassTipCount ) return L"";` (:158-159), before the index moves: the soldier's next is still his first.
+        TfTips tips = new(new UniformRandomStream());
+
+        Next(tips, 2).ShouldBeEmpty("the fixture gives the sniper no tips");
+        Next(tips, Soldier).ShouldBe("soldier one");
+    }
+
+    [Test]
+    public void NextClassTip_AnArenaWalk_AdvancesTheIndexTheClassesShare()
+    {
+        // `GetArenaTip` (:176) moves `m_iCurrentClassTip` (:197), the same member a class walk reads: after one arena tip
+        // the soldier's next is his SECOND.
+        Dictionary<string, string> strings = Strings();
+        strings["Tip_arena_Count"] = "2";
+        strings["Tip_arena_2"] = "arena two";
+        TfTips tips = new(new UniformRandomStream());
+
+        tips.NextClassTip(Soldier, true, strings.GetValueOrDefault, null).ShouldBe("arena one, press < NOT BOUND >");
+        tips.NextClassTip(Soldier, false, strings.GetValueOrDefault, null).ShouldBe("soldier two");
+        tips.NextClassTip(Soldier, true, strings.GetValueOrDefault, null).ShouldBe("arena one, press < NOT BOUND >", "2 wraps to 0 of 2");
+    }
+
+    [Test]
+    public void NextClassTip_AClassAboveNine_IsARandomTip()
+    {
+        // `iClass > TF_LAST_NORMAL_CLASS` (:148) is `GetRandomTip`: with twenty hours the default stream's 17 is no abuse
+        // tip and its next draw, 3, is the soldier's second — as for no class at all.
+        TfTips tips = new(new UniformRandomStream(), hoursPlayed: 20f);
+
+        Next(tips, 10).ShouldBe("soldier two");
+    }
+
+    [Test]
+    public void NextClassTip_ATipTokenNotFound_IsEmptyAndStillAdvances()
+    {
+        // `GetTip` hands `Find`'s null to `UTIL_ReplaceKeyBindings`, which writes an empty string (cdll_util.cpp:872-875);
+        // the index still moves (:168).
+        Dictionary<string, string> strings = Strings();
+        strings.Remove("Tip_3_1");
+        TfTips tips = new(new UniformRandomStream());
+
+        tips.NextClassTip(Soldier, false, strings.GetValueOrDefault, null).ShouldBeEmpty();
+        tips.NextClassTip(Soldier, false, strings.GetValueOrDefault, null).ShouldBe("soldier two");
+    }
+
+    [Test]
     public void NextClassTip_BeforeTheStringsAreLoaded_CountsThemOnceTheyAre()
     {
         // `Init` runs as a game system after the localisation is loaded; a call with no table yet must not latch zero

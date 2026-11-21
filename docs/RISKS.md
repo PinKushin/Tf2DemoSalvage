@@ -43679,6 +43679,11 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    (`Update_ASteadyCoachFrame_AllocatesNothing`; 1,832 with the distance cache broken).
    `Update_ACoachWhoseStudentMovesRenamesAndIsHurt_*` holds the invalidation — red with the name, and separately the
    health, change ignored.
+6. *Coverage* (Fable). New `TfTipsConformanceTests`: a class with no tips (empty, index unmoved), no tips at all (empty,
+   no draw; item 1), the arena walk moving the shared index (count 2), a class above 9 (random), a tip token not found
+   (empty, index still moves); `TfSpectatorGuiConformanceTests.Update_APovRecorderWithNoTipFmt_ShowsAnEmptyTip`. Each
+   sabotaged on its own and red: the empty class advancing, the arena walk not advancing, class 10 taken as a class, an
+   unfound token answering "?", a missing `#Tip_Fmt` falling back to `%s1`.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

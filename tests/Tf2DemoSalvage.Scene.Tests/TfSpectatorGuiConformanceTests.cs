@@ -320,6 +320,19 @@ public sealed class TfSpectatorGuiConformanceTests
         ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("Tip: watch the player count");
     }
 
+    [Test]
+    public void Update_APovRecorderWithNoTipFmt_ShowsAnEmptyTip()
+    {
+        // `ConstructString_safe( wzTipLabel, Find( "#Tip_Fmt" ), 1, wzTip )` (:486) with no format writes an empty string.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudState pov = Pov(state, strings, Soldier);
+
+        strings.Remove("Tip_Fmt");
+        gui.Update(pov);
+
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBeEmpty();
+    }
+
     /// <summary>A POV recorder on RED with the panel opened, his desired class given, and two tips each for scout and soldier.</summary>
     private static HudState Pov(HudState state, Dictionary<string, string> strings, int desiredClass)
     {
