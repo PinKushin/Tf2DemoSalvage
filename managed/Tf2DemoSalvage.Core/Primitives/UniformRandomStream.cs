@@ -95,21 +95,42 @@ public sealed class UniformRandomStream
         return ((maximum - minimum) * fraction) + minimum;
     }
 
-    /// <summary>An integer in an inclusive range, through the same stream.</summary>
+    /// <summary>An integer in an inclusive range — <c>RandomInt</c> (<c>0x18000fb70</c>), through the same stream.</summary>
     /// <param name="minimum">The lowest value.</param>
     /// <param name="maximum">The highest.</param>
     /// <returns>The value.</returns>
     /// <remarks>
-    /// *`CUniformRandomStream::RandomInt`'s own mapping is NOT read* — this takes the generator's number modulo the
-    /// span, which is the obvious reading and not an observed one. Nothing in the bullet path uses it; it is here so a
-    /// test can watch the raw stream. Flagged in `docs/findings/57` as owed.
+    /// Read from the shipped <c>vstdlib.dll</c>'s disassembly (B733), all in UNSIGNED 32-bit arithmetic: the span is
+    /// <c>maximum - minimum + 1</c>; a span of 1 or less — one value, a reversed range, or the whole <c>int</c> range,
+    /// which wraps to 0 — answers <c>minimum</c> WITHOUT a draw, and so does a difference above <c>0x7fffffff</c>. Else
+    /// <c>maxAcceptable = 0x7fffffff - 0x80000000 % span</c>, draws above it are refused and drawn again, and the answer
+    /// is <c>minimum + draw % span</c>. The `vstdlib-random int` probe calls the exported global <c>RandomInt</c> (a
+    /// thunk through the global stream's vtable) against this, range by range.
     /// </remarks>
     public int RandomInt(int minimum, int maximum)
     {
-        long span = (long)maximum - minimum + 1L;
+        uint difference = unchecked((uint)maximum - (uint)minimum);
+        uint span = unchecked(difference + 1u);
 
-        return (int)(minimum + (GenerateRandomNumber() % span));
+        if (span <= 1u || difference > MaxRandomRange)
+        {
+            return minimum;
+        }
+
+        uint maxAcceptable = MaxRandomRange - (0x80000000u % span);
+        uint draw;
+
+        do
+        {
+            draw = (uint)GenerateRandomNumber();
+        }
+        while (draw > maxAcceptable);
+
+        return unchecked(minimum + (int)(draw % span));
     }
+
+    /// <summary><c>MAX_RANDOM_RANGE</c>, <c>0x7fffffff</c> — the <c>mov ebx, 0x7fffffff</c> of <c>RandomInt</c>.</summary>
+    private const uint MaxRandomRange = 0x7fffffffu;
 
     /// <summary>One draw — <c>GenerateRandomNumber</c> (<c>0x18000f110</c>).</summary>
     private int GenerateRandomNumber()

@@ -397,14 +397,30 @@ public class TfHudPlayerHealth : VguiEditablePanel
 
         if (_health > 0)
         {
-            SetDialogVariable("Health", _health);
-            SetDialogVariable("MaxHealth", _maxHealth - _health >= 5 ? _maxHealth.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
+            // Each number's text kept by value, so a caller that sets the same health every frame — the engine's way —
+            // allocates nothing.
+            SetDialogVariable("Health", Digits(ref _healthText, _health));
+            SetDialogVariable("MaxHealth", _maxHealth - _health >= 5 ? Digits(ref _maxHealthText, _maxHealth) : string.Empty);
         }
         else
         {
             SetDialogVariable("Health", string.Empty);
             SetDialogVariable("MaxHealth", string.Empty);
         }
+    }
+
+    private (int Value, string Text) _healthText = (int.MinValue, string.Empty);
+    private (int Value, string Text) _maxHealthText = (int.MinValue, string.Empty);
+
+    /// <summary>A number's decimal digits, rebuilt only when it differs from the one the slot last held.</summary>
+    private static string Digits(ref (int Value, string Text) slot, int value)
+    {
+        if (slot.Value != value)
+        {
+            slot = (value, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        return slot.Text;
     }
 
     /// <summary>The bonus image shown, tinted, and grown by <paramref name="percent"/> of `HealthBonusPosAdj` each way.</summary>

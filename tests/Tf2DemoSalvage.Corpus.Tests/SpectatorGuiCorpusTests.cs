@@ -152,6 +152,37 @@ public sealed class SpectatorGuiCorpusTests
         Inside(host, id.TargetHealth).ShouldBeGreaterThan(0, "the health panel paints its cross");
     }
 
+    /// <summary>
+    /// B733's POV half, output-level: a point-of-view recorder's stock spectator bar, over the shipped `Spectator.res` and
+    /// `tf_english.txt`, reads a class tip under `#Tip_Fmt` — not the `.res` placeholder `%tip%` — the first of a fresh
+    /// tip index.
+    /// </summary>
+    [Test]
+    public void Frame_APovSpectatorRecorderOnTheStockLayout_ShowsAShippedTip()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo(PovSpecimen));
+        GameArchives archives = GameArchives.Open(GameInstall.Require()).WithoutCustom();
+        // The last `VGUIMenu` opening of `specgui`, which no close follows (tick 17200 of this specimen).
+        (int opened, _) = timeline.SpectatorGuiChanges.Last(change => change.Show);
+        HudState state = HudStates.For(timeline, opened);
+
+        state.IsHltv.ShouldBeFalse();
+        TfSpectatorGui.IsShown(state).ShouldBeTrue();
+        state.DesiredPlayerClass.ShouldBe(3, "the recorder's networked m_iDesiredPlayerClass, a soldier");
+
+        (VguiHud off, _) = Painted(archives, state, specGui: false);
+        string tip = ((VguiLabel)off.SpectatorGui.FindChildByName("TipLabel")!).Text;
+
+        // `GetNextClassTip( 3 )` on a FRESH `m_iCurrentClassTip` is `#Tip_3_1` (tf_tips.cpp:167), under `#Tip_Fmt` "Tip: %s1"
+        // (tf_spectatorgui.cpp:486) — both as tf_english.txt ships them. Not what TF2 showed: its index lives for the
+        // whole client process, so which tip it was depends on everything the watcher saw before (TfTips, interpolated).
+        tip.ShouldBe(
+            "Tip: As a Soldier, you can rocket jump to great heights or distances by simultaneously jumping and firing a rocket "
+            + "on nearby surfaces; crouching as you jump will increase the momentum you gain from the rocket.");
+    }
+
+    private const string PovSpecimen = "tf2-live-build11138802-spec-pov-cp_granary";
+
     /// <summary>`engine->IsHLTV()` is the ServerInfo's `is_hltv`, carried — a POV and an STV recording of ONE session differ in it.</summary>
     [Test]
     public void IsSourceTv_PovAndStvOfOneSession_IsTheServerInfosFlag()

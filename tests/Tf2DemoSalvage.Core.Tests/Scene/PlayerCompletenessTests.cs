@@ -282,6 +282,13 @@ public sealed class PlayerCompletenessTests
         ActiveTauntSlot = -1,
         LastDamageTimeMvMOnly = 61.75f,
         ForcedSkin = 62,
+
+        // A spy asked for, unlike PlayerClass 4, so a carry from the wrong field shows (B733).
+        DesiredPlayerClass = 8,
+
+        // Coaching player 6 (B733): the default is not coaching and no student.
+        IsCoaching = true,
+        Student = 6,
         Posture = new TfPosture(IsLoser: true, AirDashing: true),
     };
 
