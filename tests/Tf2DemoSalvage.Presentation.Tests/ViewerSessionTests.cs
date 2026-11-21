@@ -311,10 +311,7 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// B790: each of these the engine reads where it uses it — `r_lightmap_bicubic` in the shader's dynamic combo
-    /// (`lightmappedgeneric_dx9_helper.cpp:24`), `mat_disable_bloom` and `mat_force_tonemap_scale` in the post-process
-    /// pass (`viewpostprocess.cpp:57`, `:1128`), `cl_drawmonitors`, `r_3dsky` and `cl_drawhud` in the frame's view and HUD
-    /// draw, `cl_detaildist` and `cl_detailfade` in the detail props' frame — so a set from a key, the console or an exec'd
+    /// B790: each of these the engine reads where it uses it (cited at `SettingsPresenter.LiveDeviceConVars`) — so a set from a key, the console or an exec'd
     /// cfg mid-demo is the switch. Before, only the hand-over at device creation gave them to the device. The control is
     /// the hand-over itself: it set the property, and not to the key's value.
     /// </remarks>
@@ -349,6 +346,43 @@ public sealed class ViewerSessionTests
         device.Set.Skip(sets).ShouldBe([handed]);
         (rig.Window.Count("Redraw") - redraws).ShouldBe(1, "a paused viewer repaints once per set");
         rig.Log.Lines.ShouldContain($"[render] {set}");
+    }
+
+    /// <remarks>
+    /// B790 review 1: a device let go — released at shutdown, or one whose opening failed after the hand-over — takes no
+    /// later set. The control is the same key before the release, which reaches it.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void KeyPressed_ADeviceConVarAfterTheDeviceIsLetGo_ReachesNothing(bool failedOpening)
+    {
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"r_3dsky 0\"\nbind \"F8\" \"r_3dsky 1\"\n");
+        FakeViewerDevice device = new();
+        bool opened = rig.Session.OpenDevice(
+            () => rig.Device,
+            (_, specularOff, setFullbright) =>
+            {
+                rig.Settings.ApplyOver(device, specularOff, setFullbright);
+
+                if (failedOpening)
+                {
+                    throw new InvalidOperationException("no adapter");
+                }
+            },
+            1280,
+            720);
+
+        if (!failedOpening)
+        {
+            rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+            device.Set[^1].ShouldBe("Draw3dSky 0", "the control: a held device takes the set");
+            rig.Session.ReleaseDevice();
+        }
+
+        int sets = device.Set.Count;
+        rig.Session.KeyPressed(Key("F8", static _ => false));
+
+        (opened, device.Set.Count - sets).ShouldBe((!failedOpening, 0));
     }
 
     /// <remarks>

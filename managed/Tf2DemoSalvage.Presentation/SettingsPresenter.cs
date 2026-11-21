@@ -454,7 +454,6 @@ public sealed class SettingsPresenter
         ArgumentNullException.ThrowIfNull(specularOff);
         ArgumentNullException.ThrowIfNull(setFullbright);
 
-        _handed = device;
         device.VerticalSync = _settings.VerticalSync;
 
         // `mat_queue_mode` (B581, D228): which thread draws. -1 (TF2's default, D229) unless the config or `+mat_queue_mode` says otherwise.
@@ -502,6 +501,9 @@ public sealed class SettingsPresenter
         Hand(device, ViewerSettings.ThreeDimensionalSkyCommand);
         Hand(device, ViewerSettings.DetailDistanceCommand);
         Hand(device, ViewerSettings.DetailFadeCommand);
+
+        // Held once it has every setting, so a hand-over that throws part-way leaves no device for a later set.
+        _handed = device;
     }
 
     /// <summary>Hands the device one ConVar of <see cref="LiveDeviceConVars"/>, by name.</summary>
@@ -517,10 +519,13 @@ public sealed class SettingsPresenter
     /// config's `r_3dsky 0` or `cl_detaildist 0` (which `tf/cfg/low.cfg` ships: no grass) would be silently dropped — the
     /// null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`. **And each
     /// is the switch when set later**, because the engine reads it at its use: `r_lightmap_bicubic` in the shader's dynamic
-    /// combo (`lightmappedgeneric_dx9_helper.cpp:24`), `mat_disable_bloom` and `mat_force_tonemap_scale` in the
-    /// post-process pass (`viewpostprocess.cpp:57`, `:1128`), `cl_drawmonitors`, `r_3dsky` and `cl_drawhud` in the frame's
-    /// view and HUD draw, `cl_detaildist` and `cl_detailfade` in the detail props' frame. `r_shader_srgb`'s read point
-    /// (`shaderapidx9.dll`) is not read; it is taken as read at use like the rest (interpolated).
+    /// combo (`lightmappedgeneric_dx9_helper.cpp:932`), `mat_disable_bloom` and `mat_force_tonemap_scale` in the
+    /// post-process pass (`viewpostprocess.cpp:1435`, `:1136`), `cl_drawmonitors` and `r_3dsky` in the view
+    /// (`viewrender.cpp:2075`, `:4845-4849`), `cl_drawhud` each frame (`clientmode_shared.cpp:620-622`), `cl_detaildist` and
+    /// `cl_detailfade` in the detail props' frame (`detailobjectsystem.cpp:2057-2060`, `:2821-2822`; their level-load
+    /// rewrite is B800). `r_shader_srgb`'s read point (`shaderapidx9.dll`) is not read; it is taken as read at use like the
+    /// rest (interpolated). Not here: `mat_vsync` and `mat_queue_mode`, which a device takes at its creation (their read
+    /// points are in the closed material system, not read).
     /// </remarks>
     private static readonly (string Name, Action<IViewerDevice, ViewerSettings> Apply)[] LiveDeviceConVars =
     [

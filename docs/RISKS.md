@@ -42540,6 +42540,17 @@ viewer's default binding stay ungated; a config, a user's bind and a launch opti
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
 
+## B800 — a live `cl_detaildist` / `cl_detailfade` keeps the map's cap and outlives the level; the engine's overrides the cap and reverts at the next level (2026-11-21) — OPEN
+
+Found in B790's review (round 1, Fable). `CDetailObjectSystem::Init` captures the two ConVars once (`detailobjectsystem.cpp:370-371`), and
+`LevelInitPostEntity` overwrites them at every level load with `MIN( captured, env_detail_controller )`, or the captured
+pair with no controller (`:1524-1534`); the frame reads the ConVars themselves (`:2057-2060`, `:2821-2822`). So in TF2 a
+set mid-level takes effect at once — above a controller's cap too — and the next level load puts the captured value back.
+Ours (`Device3D.LiveDetailFade` → `DetailFade.ForLevel`) keeps the pair the settings hold and applies the map's `MIN` on
+the way out: since B790 a live set reaches the device, but it stays under the map's cap and survives the next level load.
+No map TF2 ships has a controller (0 of 234, `DetailFade.ForLevel`'s remark), so the cap half is for community maps; the
+revert half is every map. *Read from published source; not measured.*
+
 ## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — FIXED 2026-11-21
 
 **Fixed, and six more of the same kind:** `SettingsPresenter.LiveDeviceConVars` is one table of the ConVars the engine
@@ -42549,7 +42560,10 @@ reads where it uses them — the three here and `cl_drawmonitors`, `mat_force_to
 `ApplyLive`) both take it; the device the hand-over configured is held until `DetachDevice` lets it go. Tests:
 `KeyPressed_AKeyBoundToADeviceConVar_ReachesTheDevice`, nine rows (red before: no set reached the device; the hand-over's
 one set is the control) and `ApplyLive_ToTheHandedDeviceAndAfterItIsForgotten_SetsItOnlyWhileHeld` (a no-op forget
-reddens it). `r_shader_srgb`'s read point stays unread, taken as read at use (interpolated). Not verified by looking.
+reddens it). Review 1: the device is held only once the hand-over finished, and an opening that fails after it lets it
+go through `DetachDevice` (`KeyPressed_ADeviceConVarAfterTheDeviceIsLetGo_ReachesNothing`, a released and a failed
+device); the read sites are cited at the table. `r_shader_srgb`'s read point stays unread, taken as read at use
+(interpolated). The detail pair's level-load rewrite is B800. Not verified by looking.
 
 **As filed:**
 
