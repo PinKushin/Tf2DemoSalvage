@@ -240,6 +240,8 @@ public static class EngineConVars
         new("spec_autodirector", "1", Replicated: false, Cheat: false),                      // hltvcamera.cpp:25
         new("mat_disable_bloom", "0", Replicated: false, Cheat: false),                      // viewpostprocess.cpp:57
         new("r_lightmap_bicubic", "0", Replicated: false, Cheat: false),                     // lightmappedgeneric_dx9_helper.cpp:24
+        new("r_glint_alwaysdraw", "0", Replicated: false, Cheat: false),                     // studiorender.dll 0x180001060, B725
+        new("r_glint_procedural", "0", Replicated: false, Cheat: false),                     // studiorender.dll 0x1800010a0, B725
         new("mat_bumpmap", "1", Replicated: false, Cheat: false),                            // cvarlist.log, no flags; B720
         new("mat_force_tonemap_scale", "0.0", Replicated: false, Cheat: true),               // viewpostprocess.cpp:1128
         new("r_shader_srgb", "0", Replicated: false, Cheat: false),                          // shaderapidx9.dll 0x180001120

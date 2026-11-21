@@ -36,6 +36,23 @@ public enum EyeShader
 /// <param name="IllumFactor">Teeth's <c>$illumfactor</c>, 1 unstated.</param>
 /// <param name="RaytraceSphere">EyeRefract's <c>$raytracesphere</c>, the <c>RAYTRACESPHERE</c> combo; off unstated.</param>
 /// <param name="SphereTexKill"><c>$spheretexkillcombo</c> under the ray cast.</param>
+/// <param name="MouthShader">
+/// <c>$clientShader</c> is <c>MouthShader</c> (any case): the studio render's per-material flag, the only thing that lets
+/// <c>R_MouthSetupVertexShader</c> write <c>$forward</c>/<c>$illumfactor</c> into this material (B725 5e). Read from TF2's
+/// x64 <c>studiorender.dll</c>: the material load sets the flag to <c>!stricmp( $clientShader, "MouthShader" )</c>
+/// (<c>0x180058172-0x1800581cf</c>), the draw hands it to <c>R_StudioSetupSkinAndLighting</c> as its fifth argument
+/// (<c>0x180011b6d</c>, <c>0x1800520b8</c>), and the mouth is set up only where it is set and the model has a mouth
+/// (<c>0x1800045be-0x1800045d8</c>, then <c>0x180004666</c>).
+/// </param>
+/// <param name="BumpMap">
+/// Teeth's <c>$bumpmap</c>, read raw (<c>teeth.cpp:104</c>), or null: with one the material draws with <c>teeth_bump</c>
+/// (<c>teeth.cpp:88</c>, <c>params[BUMPMAP]->IsTexture()</c>), lit per pixel.
+/// </param>
+/// <param name="PhongExponent">
+/// Teeth's <c>$phongexponent</c>, the bump path's specular exponent (<c>teeth.cpp:247</c>); 0 takes it from the bump map's
+/// alpha (<c>teeth_bump_ps2x.fxc:70-71</c>). *Interpolated*: that an undefined parameter reads its declared default, 100
+/// (the material system that applies it is closed).
+/// </param>
 /// <remarks>
 /// **The defaults are <c>InitParams_Eyes_Refract</c>'s** (<c>eye_refract_helper.cpp:43-87</c>, values in
 /// <c>eye_refract_helper.h:50-62</c>), which set each where the material leaves it undefined; the parameters' own
@@ -58,8 +75,14 @@ public sealed record EyeMaterial(
     (float X, float Y, float Z) Forward = default,
     float IllumFactor = 1f,
     bool RaytraceSphere = false,
-    bool SphereTexKill = false)
+    bool SphereTexKill = false,
+    bool MouthShader = false,
+    MapTexture? BumpMap = null,
+    float PhongExponent = EyeMaterial.DefaultPhongExponent)
 {
+    /// <summary>Teeth's <c>$phongexponent</c> as declared (<c>teeth.cpp:41</c>, "100").</summary>
+    public const float DefaultPhongExponent = 100f;
+
     /// <summary><c>kDefaultDilation</c>.</summary>
     public const float DefaultDilation = 0.5f;
 
@@ -94,9 +117,10 @@ public sealed record EyeMaterial(
     /// <param name="cornea">EyeRefract's cornea, decoded.</param>
     /// <param name="occlusion">EyeRefract's occlusion map, decoded.</param>
     /// <param name="iris">Eyes' iris, decoded.</param>
+    /// <param name="bump">Teeth's <c>$bumpmap</c>, decoded raw, or null.</param>
     /// <returns>The parameters.</returns>
     public static EyeMaterial Read(
-        VmtMaterial material, EyeShader shader, MapTexture? cornea, MapTexture? occlusion, MapTexture? iris)
+        VmtMaterial material, EyeShader shader, MapTexture? cornea, MapTexture? occlusion, MapTexture? iris, MapTexture? bump = null)
     {
         ArgumentNullException.ThrowIfNull(material);
 
@@ -128,6 +152,9 @@ public sealed record EyeMaterial(
             // `kDefaultRaytraceSphere` and `kDefaultSphereTexKillCombo` are 0; the texkill combo is skipped without the ray
             // cast (`eye_refract_ps2x.fxc:32-33`).
             material.Number("$raytracesphere", 0f) != 0f,
-            material.Number("$raytracesphere", 0f) != 0f && material.Number("$spheretexkillcombo", 0f) != 0f);
+            material.Number("$raytracesphere", 0f) != 0f && material.Number("$spheretexkillcombo", 0f) != 0f,
+            string.Equals(material.Value("$clientshader"), "MouthShader", StringComparison.OrdinalIgnoreCase),
+            shader == EyeShader.Teeth ? bump : null,
+            material.Number("$phongexponent", DefaultPhongExponent));
     }
 }

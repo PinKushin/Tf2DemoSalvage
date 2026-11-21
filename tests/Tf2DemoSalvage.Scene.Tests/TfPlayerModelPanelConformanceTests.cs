@@ -220,6 +220,49 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.ApplySettings(KeyValuesTree.Load(Encoding.UTF8.GetBytes("r { }"), "r.res", _ => null), VguiModelPanelConformanceTests.Context());
     }
 
+    /// <remarks>
+    /// **The root's mouth is set up from the panel's own decaying flex controls, through Paint** (B725 5f, review 1 item 5).
+    /// The rule `lip + 1` over `lip` −1..1: paint 1, the control −0.95 gives `$illumfactor` 0.05; paint 2, −0.9025 gives
+    /// 0.0975. The zero controls a plain CMDLPanel draws with would give 1.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassModelWithTeethAndAMouth_SetsTheMouthFromTheDecayingControls()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        cache.Mouthed = true;
+        panel.SetToPlayerClass(1);
+
+        float[] expected = [0.05f, 0.0975f];
+
+        for (int paint = 0; paint < expected.Length; paint++)
+        {
+            VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+            panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+            MouthShading mouth = surface.Draws.ShouldHaveSingleItem().Models[0].Face.ShouldNotBeNull().Mouth.ShouldNotBeNull();
+            mouth.IllumFactor.ShouldBe(expected[paint], 1e-5f, $"paint {paint + 1}");
+        }
+    }
+
+    /// <remarks>
+    /// **The decay steps every paint whether or not anything reads the rules** (review 1 item 4): `SetupFlexWeights` runs at
+    /// each `OnPaint3D` (mdlpanel.cpp:459), so a class model without teeth still moves `m_flexWeight`: 0.025, then 0.04875.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassModelWithoutTeeth_StillStepsTheDecay()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        panel.SetToPlayerClass(1);
+
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.FlexWeightAt(0).ShouldBe(0.025f, 1e-6f);
+
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.FlexWeightAt(0).ShouldBe(0.04875f, 1e-6f);
+    }
+
     [Test]
     public void SetEyeGlowEffect_WithAnEyeglowAttachment_RendersTheGlowThere()
     {
@@ -363,6 +406,14 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         public void Load(string path) => _loaded.Add(path);
 
+        /// <summary>
+        /// The class model's face: teeth, a mouth on its bone reading descriptor 0, and one controller ranged −1..1 that the rule
+        /// `lip + 1` reads into descriptor 0 (B725 review 1 item 5); with <see cref="Mouthed"/> false, the controller alone.
+        /// </summary>
+        public bool Faced { get; set; }
+
+        public bool Mouthed { get; set; }
+
         public PropModels.ModelFrames? FindMdl(string path)
         {
             if (!_loaded.Contains(path))
@@ -382,10 +433,25 @@ public sealed class TfPlayerModelPanelConformanceTests
             PropModels.SkinnedModel activities = SyntheticSkinnedModel.WithActivities(
                 ("stand_primary", "ACT_MP_STAND_PRIMARY"), ("stand_secondary", "ACT_MP_STAND_SECONDARY"));
 
-            return new PropModels.ModelFrames(
+            PropModels.ModelFrames frames = new(
                 [], new Dictionary<int, (int, int, float)>(), [], [],
                 Skinned: SyntheticSkinnedModel.WithBones("bip_head") with { Sequences = activities.Sequences, Groups = activities.Groups },
                 Attachments: attachments);
+
+            IReadOnlyList<StudioMouth> mouths = Mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [];
+
+            return Faced && path == ScoutModel
+                ? frames with
+                {
+                    Mouths = mouths,
+                    HasTeeth = Mouthed,
+                    Flex = new StudioFlexData(
+                        ["lip"],
+                        [new StudioFlexController("default", "lip", -1f, 1f)],
+                        [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 1f), new StudioFlexOp(4, 0, 0f)])],
+                        []),
+                }
+                : frames;
         }
 
         public int FindBodygroup(string modelPath, string group) => group switch

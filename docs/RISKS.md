@@ -42388,6 +42388,135 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
+
+Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
+`engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
+`istudiorender.h:62-69`, the bitfields from bit 0) to `sv_cheats && mat_wireframe` (`0x1800f5855`-`0x1800f5873`; the
+ConVars at `0x180731d30` and `0x1806a0640`), and `bSoftwareSkin` (bit 1) with it. `studiorender.dll`
+`R_StudioSetupSkinAndLighting` (`0x1800041c0`; the test at `0x1800041ec`), with `bWireframe` set and no forced material, draws every mesh with the
+studio render's own wireframe material (`+0x8a8`, or `+0x8b0` under `bDrawZBufferedWireframe`) in place of the model's;
+the eyeball mesh setup also skips the glint (`0x18000f7d1`). The tool panel builds the same config from its own
+`m_bWireFrame` (`mdlpanel.cpp:293-307`, *source*).
+
+Ours draws every model with its own shaders in wireframe fill (`WorldRenderer.Wireframe`). The menu's and the default
+key's wireframe is not gated by `sv_cheats`: D253 as `ConfigConsole.cs:426` applies it (D246) — D253's own text exempts
+only the menus; the default-key exemption is that code's, for a built-in `mat_fullbright` key. A config's, a user's bind's or a launch option's
+`mat_wireframe` is TF2's command path, which D253 refuses without `sv_cheats` — and ours does not, B791. D253
+supersedes D75's sentence that a pasted config setting them works. So under `mat_wireframe` a model's edges are lit and textured as
+its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
+draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
+wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
+
+## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — OPEN
+
+Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
+while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `+name value` launch option — and reverted
+when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigConsole.cs:877`, `:927`;
+`LaunchOptions.cs:227`), and `mat_wireframe` is not in `EngineConVars`, so nothing marks it a cheat: a config's
+`mat_wireframe 1` with `sv_cheats 0` goes through. In TF2 it is `FCVAR_CHEAT` (`engine.dll` `0x180007b94`, flags
+`0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **The split is D253's**, not
+D75's: D75 says the gate is not implemented and that a pasted config setting these works; D253 supersedes that for a
+config, a user's bind and a launch option and exempts the viewer's menus; the default keys' exemption is D253 as
+`ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key. **Which applies where**: the menu item and the
+viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
+its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
+here.
+
+## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
+
+Found in B725's glint review (round 2, item 1, where the same gap was fixed for the two glint ConVars). The three are
+handed to the device once, at its creation (`SettingsPresenter.ApplyOver`, `device.DisableBloom`,
+`device.BicubicLightmap`, `device.ShaderSrgb`), and `ViewerSession.OnConVarSet` routes only `mat_phong`,
+`mat_bumpmap`, `mat_specular`, `mat_fullbright` and, now, `r_glint_alwaysdraw` and `r_glint_procedural`. So a key, the
+console or an exec'd cfg that sets any of the three mid-demo writes the settings and the picture does not change until
+the device is rebuilt. In TF2 each is read where it is used — `r_lightmap_bicubic` in the shader's dynamic combo
+(`lightmappedgeneric_dx9_helper.cpp:24`), `mat_disable_bloom` each frame (`viewpostprocess.cpp:57`) — so a set from
+anywhere is the switch (the B671 and B720 shape). `r_shader_srgb`'s read point (`shaderapidx9.dll` `0x180001120` is its
+declaration) is not read. **The fix**: three more `OnConVarSet` routes, each with a test that a bound key reaches the
+device.
+
+## B781 — no draw writes its depth into destination alpha, where TF2's main view and 3D sky do for every opaque model (2026-11-20) — OPEN
+
+Found in B725's review (round 1, item 7, Sonnet). `CRendering3dView::SetupCurrentView` sets
+`INT_RENDERPARM_WRITE_DEPTH_TO_DESTALPHA` for `VIEW_MAIN` and `VIEW_3DSKY` only (`viewrender.cpp:893`), and
+`ShouldWriteDepthToDestAlpha()` turns on the `WRITE_DEPTH_TO_DESTALPHA` combo: for a fully opaque `VertexLitGeneric`
+(`vertexlitgeneric_dx9_helper.cpp:1283-1285`), a fully opaque `Teeth` (`teeth.cpp:255`) and every `Eyes` draw
+(`eyes_dx8_dx9_helper.cpp:474`), whose `FinalOutput` then writes `DepthToDestAlpha( projZ )` =
+`projZ · OO_DESTALPHA_DEPTH_RANGE` (`common_ps_fxc.h:335-342`, :361-362) instead of the colour's alpha. `EyeRefract` passes
+no such argument and writes 1 (`eye_refract_ps2x.fxc:451`). **Ours writes no draw's depth there**: the generic shader writes
+the texel's alpha (or, in a refraction view, the water fog factor), the faces their base alpha or 1, and the screen
+overlays leave it (`WorldRenderer.ScreenOverlay.cs`, `PlainBlend`). The faces were left matching the generic path rather
+than ported alone, since the difference is renderer-wide. **No drawn value changes until a reader exists** (review 2):
+nothing in `managed/` reads destination-alpha depth today — no `$depthblend` feathering, no `_rt_FullFrameDepth`, no
+`OO_DESTALPHA_DEPTH_RANGE` (*measured*, a search of `managed/` for each, 2026-11-20). *The search's control* (review 3,
+Sonnet): the same search over `*.cs` finds the one destination-alpha path ours has, the water fog written there in a
+refraction view and read back by the water shader — `WriteWaterFogToAlpha` in `WorldRenderer.Water.cs`, `Device3D.cs` and
+`OffscreenTarget.cs` (the read, of `_rt_WaterRefraction`, is named only in comments, e.g.
+`managed/Tf2DemoSalvage.Render/WorldRenderer.cs:2288`)
+— so an absence is the code's, not the
+search's. The engine's consumers are the
+depth-feathered particles; porting one of them is what makes this entry matter.
+
+## B780 — the face view target follows our pass order, once a frame, where the engine sets it at every draw of every view (2026-11-20) — OPEN
+
+Filed from B725 5d, which ported the mechanism: one render-context view target, set by each C_BaseFlex face with flex
+controllers (a bone-merged worn item on a flexing wearer excepted, a dead player's corpse setting his) and each CMDL draw,
+read by every eye drawn after (`StudioViewTarget`). What differs is WHEN it is set.
+- *Engine*: `SetViewTarget` runs inside `C_BaseFlex::SetupWeights` (`c_baseflex.cpp:1147-1156`, :1304), the callback the
+  model render makes for each draw of the model (*read*, its comment: "Rendering callback to allow the client to set up all
+  the model specific flex weights"; the caller in `engine.dll` is closed and *not read*). So it is set again in every view
+  that draws the face — the render-to-texture shadow pass, a water reflection or refraction view, the main view, the 3D
+  skybox where an entity stands in it — and a `prop_dynamic` with eyes reads whichever face drew last in THAT order.
+  `CMDL::Draw` sets it for each HUD model panel model, which paint after the 3D views (TF2 `client.dll` `0x180937108`).
+- *Ours*: `EntityModelSet.FaceShading` runs once per drawn prop in `Instances`' order (the scene's prop list), and that one
+  value serves every view the prop is drawn in; the panels set it when the HUD paints. So a prop drawn just after a
+  different face in a reflection view than in the main view sees one target in ours and two in TF2's.
+- *History* (review 1, Sonnet): ours keeps the target across seeks and paused poses as across frames, so a `--shot` of a
+  controller-less eyed prop depends on what was drawn before the seek — the engine's does too across frames, but its
+  history is the frames TF2 drew, not the ones this viewer happened to draw. And in ours the HUD paints its model panels
+  before the frame draws (`VguiMdlPanel`: "the HUD paints, then the frame draws what it painted"), so on a first frame a
+  world prop reads a panel's target, where the engine's panels paint after the 3D views.
+- *Not read*: the engine's opaque-entity order within a view, and the render context's value before anything sets it
+  (taken as (0, 0, 0)). Visible only for an eyed `prop_dynamic` (or a C_BaseFlex without controllers, or a CModelPanel's
+  attached C_BaseAnimating) beside faces.
+
+## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — OPEN
+
+Found in B725 5f. `CMDL::Draw` (TF2 `client.dll` `0x180936f70`), for a model with flex descriptors, locks the studio
+render's flex weights (`LockFlexWeights`, `0x180937173`), runs the model's rules on `m_pFlexControls` into them
+(`RunFlexRules`, `0x18093718b`) and unlocks before `DrawModel` (`0x1809371f2`), so the mesh is drawn flexed: at zero
+controls for a `CMDLPanel` (`SetupFlexWeights` empty, `mdlpanel.h:101`), at the decayed controls for a
+`CTFPlayerModelPanel` (`tf_playermodelpanel.cpp:2275-2361`), and a `CModelPanelModel` as a C_BaseFlex at rest. Our panels
+(`VguiMdlPanel.Drawn`, `VguiModelPanel.PanelModel.Draw`) hand the frame no flex at all: the face is the mesh's rest
+pose. B725 now computes those weights for the mouth only. **When mesh flex lands, the gate in
+`TfPlayerModelPanel.RootFlexWeights` must go** (review 2): it runs the rules only for a model with a mouthed Teeth
+material because nothing else reads them today; the engine runs them every paint for every model with flex descriptors
+(`CMDL::Draw`, `0x180937138-0x1809371a7`), and so must ours once the mesh is flexed by them. *May bear on B559* (the HUD class portrait 15-20 per channel off
+TF2's, cause unknown): a flexed face moves vertices and their normals, which changes shading on the face — *interpolated*,
+not measured; the portrait's deficit is reported as depending on which way the surface faces, which a normal change would.
+
+## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
+
+Found in B725 5g. `CTFPlayerModelPanel::RenderStatTrack` draws its second-level merge with
+`m_StatTrackModel.m_MDL.Draw( m_StatTrackModel.m_MDLToWorld, … )` (`tf_playermodelpanel.cpp:1574`), a `CMDL::Draw` like
+any other: it sets the render context's view target to `m_MDLToWorld` applied to its (0, 0, 0) target (`client.dll`
+`0x1809370e3`) and draws its eyes, if any, through the face shaders. Ours (`VguiMdlPanel.DrawBoneMergedOnto`) neither sets
+the shared target nor builds a face, so the module's eyes keep the generic draw — for the player panel's StatTrak and for
+the embedded item panel's (`TfEmbeddedItemModelPanel.RenderingRootModel`, `TfEmbeddedItemModelPanel.cs:564`). *Not read*: where `m_MDLToWorld` is set for
+the StatTrak model. A stat clock has no eyeballs, so only the target it leaves behind could be seen, on an eyed model
+drawn after it.
+
+## B777 — `R_MouthSetupVertexShader` leaves `$forward` and `$illumfactor` in the shared material; ours sets them per draw (2026-11-20) — OPEN
+
+Found in B725 5e. TF2's `studiorender.dll` `R_MouthSetupVertexShader` (`0x18001df10`) writes the mouth into the MATERIAL:
+`FindVar( "$illumfactor" )` then `SetFloatValue` (`0x18001df8f-0x18001dfda`), `FindVar( "$forward" )` then `SetVecValue`
+(`0x18001dfe7-0x18001e012`). A material's vars are one object for every model that draws with it, so the values stay
+until the next mouth setup on that material: a flagged Teeth material drawn by a model with no mouth (`nummouths` 0, so no
+setup, `0x1800045be-0x1800045d8`), or with the mouth skipped (`r_teeth` off), draws with the last model's mouth, not
+the VMT's. Ours hands the mouth per draw (`BindEye`) and falls back to the VMT's own values. *Interpolated*: that nothing
+else resets the vars between draws (the material system is closed). Only HL2's Teeth materials are flagged.
+
 ## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — OPEN
 
 Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
@@ -44581,7 +44710,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
     `ClampCycle` again reddens the server 1.25 and client rows.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); teeth_bump ported 2026-11-20; Eyes' glint ported 2026-11-20; nothing open
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -44804,13 +44933,252 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    Not verified by looking. Left: whether SourceTV receives `ForcePlayerViewAngles`.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
-   `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
-4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
-5. *Smaller:* the static (colour-mesh) half of `DoLighting` is not added on these shaders; the height fog of a water
-   refraction view is not applied to them; Valve packs the binormal in `COLOR0` (`*0.5+0.5`), ours passes it whole; a
-   C_BaseAnimating (a `prop_dynamic`) never sets a view target and the render reuses the last model's — ours (0, 0, 0);
-   the mesh draw's `0xa0` argument that gates the mouth setup (`0x18000461a-0x1800045d8`) was not identified; a panel's
-   mouth is not set up (its flex weights are the panel's); a merge model's eyes in a panel keep the generic draw.
+   `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance. No TF2 model names an `Eyes` material.
+   **PORTED 2026-11-20** (`fix/b725-smaller`, `Scene.EyeGlint`, the renderer's `WriteGlint`). Read from TF2 x64
+   `studiorender.dll` and `engine.dll` with `llvm-objdump` (output nowhere in the repo); constants read from the bytes.
+   - *The sampling* (published): `eyes_vs20.fxc:139-140` projects `glintTC = dot( $glintu|$glintv, (pos, 1) )`;
+     `eyes_ps2x.fxc:52-57` adds `glint.rgb · fGlintDamping`, the glint sampler NOT sRGB (`eyes_dx8_dx9_helper.cpp:379-380`
+     turns sRGB on for samplers 0 and 1 only). `fGlintDamping` = saturated `GetAmbientLightCubeLuminance`, then 1 above
+     0.01, else `lum · SimpleSplineRemapVal( lum, 0, 0.01, 0, 1 )` (:445-453).
+   - *The projection* (`0x18001dbe0`, from the eyeball mesh setup at `0x18000f7c1`): `s = 0.5 / radius` (`0x180080414` is
+     0.5; `mstudioeyeball_t` +0x18), `$glintu = ( s · viewRight, 0.5 − org · it )`, `$glintv` the same with viewUp, `org`
+     the eyeball state's +0x38, the view basis the render context's (+0x54 right, +0x60 up, +0x48 origin) — which ours
+     recovers from the view-projection (columns 0, 1, 3), the origin as `EyePosition` does.
+   - *The texture* (`0x18001e020`, called when the config's `bWireframe`, byte +0x24 bit 7, is clear — `0x18000f7d1`):
+     with `r_glint_alwaysdraw` 0, an eye whose `ComputePixelWidthOfSphere( org, radius )` is under
+     `fEyeGlintPixelWidthLODThreshold` (config +0x10, `istudiorender.h:55`; `comiss`, `jae`: from 20 it draws) takes
+     `vgui/black`; else, with `r_glint_procedural` 0 at DX ≥ 90, `0x18001f510` renders the 32×32 BGRA8888 `_rt_eyeglint`
+     (`0x18001dcb0`), binding `vgui/black` instead when no light makes a glint (`0x18001f55a`); with it nonzero,
+     `CGlintTextureRegenerator` (`0x18001cbf0`, below). The threshold is `r_eyeglintlodpixels`: `engine.dll`
+     `UpdateStudioRenderConfig` copies it into config +0x10 (`0x1800f5929`, *read*), declared "20.0" with `FCVAR_CHEAT`
+     (`0x180006c1b`; the tool panel's own copy is `FCVAR_CHEAT` too, `mdlpanel.cpp:279`), so no user config changes it and
+     the constant 20 holds. Both glint cvars are flags 0 and default "0" (`0x180001060`, `0x1800010a0`): user-settable,
+     so a config's value reaches the viewer (`ViewerSettings`, D69).
+   - *The CPU regenerator* (`r_glint_procedural 1`; `0x18001cbf0` clears the 32×32 BGRA8888 `proc_eyeglint`,
+     `0x18001dd75`, and calls `0x18001d090` per glint): centre `(x + 0.5)·32` **truncated**, texels `trunc − 1 … trunc + 1`
+     at their own coordinate (no quarter shift), the kernel summed `(t(−,+) + t(+,+) + t(−,−) + t(+,−)) · 4/9 + t(0) · 20/9`
+     with `t = d² > 1 ? 0 : exp( −25 d² )` (`0x180080a80`, `0x180080aa4`, `0x180080aa8`), and each texel
+     `LinearToTexture( TextureToLinear( old ) + I · colour )` (`0x18005ac40`, `0x18005ac10`) through mathlib's tables
+     as `MathLib_Init( 2.2, 2.2, 0, 2 )` builds them (`0x180057b91`, `0x18005a760`; `color_conversion.cpp:201-217`,
+     :410-433). So the same glint is a different picture under the two settings: a 0.1 lamp's centre texel is 14 by the
+     GPU pass and 130 by the regenerator.
+   - *The glint points* (`0x18001d600`, max 16): `viewDelta = normalize( viewOrigin − org )`; iris radius `r/2`, cornea
+     `(float)( r · 0.6666666666666666 )` (`0x180080a98`, a double); `er = √(1 − ¼)`, `cr = √(1 − (iris/cornea)²)`; the
+     cornea's centre `org + forward · (er·r − cr·cornea)`. Per light, `0x180021680` at the cornea's centre; where
+     `dot( normalize( delta ), forward ) > 0` a glint at `( right · refl · cornea + dx, up · refl · cornea + dy )`,
+     `refl = normalize( delta + viewDelta )`; then `0x180021680` at `org`, and where that dot is **below** `er`
+     (`comiss`, `jae` skips) a second at `( right · refl, up · refl ) · r`, the first's `refl`, the centre's colour. Every
+     normalise is `rsqrtss` and one Newton step on `|v|² + 1e-10`; ours divides by the root exactly (*a few ULP apart*).
+     `rsqrtss` is an approximation whose bits differ between Intel and AMD, so the engine has no single answer here to
+     match; a glint centre landing on a texel boundary can round either way, so a texel can be ±1 on a rare tie.
+   - *The lights* (`0x180021680`, `0x180021900`): `LightDesc_t` at render context +0xd8, 0x58 each, count at +0x238;
+     delta `position − point`, `−direction` for a directional light; colour times the attenuation `m_Flags & 7` picks
+     (`0x1800962d8`): 0 past a nonzero range; `1/a0`, `1/(d·a1 + FLT_EPSILON)`, `1/(d·a1 + a0)`, `1/(d²·a2 + FLT_EPSILON)`,
+     `1/(d²·a2 + a0)`, `1/((d·a1 + FLT_EPSILON) + d²·a2)` (`0x18004f9c0`, summed in that order),
+     `1/((d·a1 + a0) + d²·a2)`, and 2²³ (`0x180080ab0`) with no term; no
+     cone. The sun's `LightDesc_t` (`engine.dll` `0x1800f2010`, the directional case `0x1800f229c`) has no terms of its
+     own, so the all-zero rule (`0x1800f2186`-`0x1800f2196`) gives it `a0 = 1`, and its range is 1.8e19 (`0x180391fdc`),
+     whose square cuts nothing. Ours hands the face shaders' four lights, the sun first, as `EyeLightCount` does.
+   - *The pass* (`0x18001f938` on): centre `((x + 0.5)·32, (y + 0.5)·32)` texels, a quad from `floor − 2` to `floor + 1`
+     at NDC `2X/32 − 0.984375` (`0x180080a90`), `y` negated, `tc` the texel position, the centre and colour per vertex;
+     `eyeglint_ps2x.fxc:14-31`, five Gaussians `saturate( exp( −25 |d|² ) )` (centre ×5) times 4/9 times the colour; ONE/ONE
+     into the cleared target, sRGB write off. The quad's edges sit a quarter texel inside the grid, so under D3D9's
+     integer pixel centres it covers `floor − 1 … floor + 1` with `tc = i − ¼` (*arithmetic*; D3D11's half-pixel centres
+     would cover `floor − 2 … floor` instead). **The glints are world units on a target one unit across** while
+     `$glintu` spans the eye's diameter: they agree only at radius 0.5 — the engine's arithmetic, ported as read.
+   - **Not parity in mechanism (a scheduling deviation)**: ours fills the target on the CPU — `EyeGlint.Rasterise`
+     evaluates the pixel shader at the texels D3D9 covers and blends each quad into eight bits before the next, round to
+     nearest — and uploads it per Eyes draw, where the engine renders it on the GPU per eye draw. Its bytes are the
+     engine's to within ±1 on a rare rounding tie (the normalises above). Where the engine binds `vgui/black` ours binds
+     one shared black texel and maps nothing.
+   *Tests* (counts as of review round 2: `EyeGlintConformanceTests` 30 rows, `EyeShaderRenderTests` 43): at the port,
+   `EyeGlintConformanceTests` (21 + 2 rows: projection; each attenuation flag and FLT_EPSILON near the light;
+   range; directional delta; a sun, a lamp beside and one behind make three glints at predicted places and colours; the
+   cap; one glint's texels, 139 at (16, 16) and, off-centre, (20, 10) = 10 that only D3D9's coverage draws; two
+   half-white glints 138 where one white is 139 — eight bits per quad; the LOD at 21.3 and 18.3 pixels; the view from a
+   `FreeCamera` matrix); `Shading_AnEyeWithAZOffset_TurnsItsAimByTwiceTheOffset` (forward and radius in the state);
+   `GlintLights_ASunAndFiveLamps_AreTheSunThenThreeLamps`; `DrawModelPose_EyesFacingALampAtTheCamera_AddsTheGlintTimesTheDamping`
+   (an eye of radius 600 on the view axis, lamp at the camera: pixel (34, 30) is texel (16, 16), 195; cube 0.005 damps it
+   to 4 (drawn 5); no lamp 0; 1e5 away, 1.5 pixels wide, 0). *Red first*: the stubbed `EyeGlint` failed 19 of 21; the
+   renderer before the port drew 0 for the 195 and 4 rows. *Sabotage*, each restored: D3D11's coverage — only the
+   off-centre texel row; the iris glint's `< er` turned — only the three-glint test; a quadratic-only light taken as
+   unattenuated — its flag row and its epsilon row; no FLT_EPSILON — the two epsilon rows; floor for round — the
+   one-glint texel rows; the LOD inverted — both LOD rows; up from column 2 — the view test; the state's forward before
+   the `zoffset` turn — the zoffset test; the damping held at 1 — the 0.005 row; the LOD skipped in the renderer — the
+   1e5 row; the glint not added — the 195 and 4 rows; the sun's `a0` 0 — the light-list test. Not verified by looking (no
+   TF2 model has an `Eyes` material to compare).
+   *Review round 1 (Sonnet, Fable, Gemini), fixed*: (1) `r_glint_alwaysdraw` ported, read from a config; (2)
+   `r_glint_procedural` ported with the CPU regenerator above, selected by the cvar (Fable's ruling over "ignore it": a
+   user-settable cvar that changes the picture is engine behaviour, not an unknown command); (3) the linear-and-quadratic
+   attenuation's order; (4) the damping's spline and its threshold observed — 0.008 is 20 where linear gives 19, 0.0101
+   is 255 and 0.0099 is 25; (5) `EyeShading.Forward` and `Radius` required; (6) `mat_wireframe` skips the glint as
+   `bWireframe` does — the rest of that, the studio render's wireframe material, filed as **B788**; (7) `vgui/black` bound
+   without a map; (8) these notes. *Tests*: `LightAt_ALinearAndQuadraticLight_AddsFltEpsilonAfterTheLinearTerm`,
+   `RegenerateProcedural_Glints_AreTheKernelThroughTheGammaTables` (130; 136 and 42; two half-glints 130),
+   `DrawModelPose_EyesWithASaturatedGlint_AreDampedBySimpleSplineUnderOneHundredth`,
+   `DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses` (always-draw 195 at 1e5; GPU 66 against procedural
+   189 for a 0.1 lamp; wireframe 0), `DrawModelPose_EyesWithoutAGlintAfterOneWith_TakeBlack` (195 then 0),
+   `Load_TheGlintConVars_ReadEachOverTheEngineDefaults`, `ApplyOver_*` (the device takes both). *Red first*: the old order
+   (1/2 where 1/(2 + 2ε)); the stubbed regenerator, 3 of 3. *Sabotage*, each restored, each reddening only its rows: the
+   quarter shift in the regenerator and the gamma tables dropped (both: its 3 rows); the spline made linear with the
+   threshold at 0.0102 (19 and 26); `r_glint_alwaysdraw` ignored (0), `r_glint_procedural` ignored (66), the wireframe
+   skip dropped (195), the stale target bound for black (195 then 195). Item 5 is held by the compiler (CS7036, seen).
+   *Review round 2 (Sonnet, Fable, Gemini), fixed*: (1) both glint ConVars set mid-demo reach the device through
+   `ViewerSession.OnConVarSet` (`KeyPressed_AKeyBoundToEachGlintConVar_ReachesTheDevice`; red first, sabotage the
+   procedural name unmatched) — the same gap for three other ConVars is **B790**, and a config's unrefused
+   `mat_wireframe` is **B791**; (3) `LinearToTexture`'s index takes `cvttss2si`'s overflow (0x80000000, so index 0,
+   `0x18005ac1a`) where .NET's cast saturates; (4) the regenerator's truncation, its 1023 clamp and its border clip each
+   have a row (a centre at −0.2 under a colour of 1e9: texel (1, 16) 51 and (0, 16) overflowed to 0; a sum of 23, 255;
+   a centre at 31.9, nothing written onto (0, 17)); red first on the overflow row; sabotage floor, a 1022 clamp and a
+   loop to column 32 reddened one row each. (5) `r_glint_procedural`'s ConVar is `0x1800010a0`. **The dxlevel branch**
+   (`0x18001e0ba`-`0x18001e0cd`, the material system's support level against 0x5a: below 90 the regenerator, whatever the cvar): ours is pinned at 95, Direct3D 9
+   hardware's (`EntityBeams.HardwareDxLevel`, `VmtMaterial`'s 95), so it never takes that branch; TF2's comes from the
+   card and the `-dxlevel` launch option, not from a config ConVar.
+4. *`teeth_bump`* — **PORTED 2026-11-20** (`fix/b725-smaller`). A Teeth material with a `$bumpmap` (`teeth.cpp:88`,
+   `params[BUMPMAP]->IsTexture()`) draws `teeth_bump_vs20`/`teeth_bump_ps20b`: the bump normal in the tangent frame
+   (`teeth_bump_ps2x.fxc:65-67`; the frame made and normalised after the bones, `teeth_bump_vs20.fxc:75-147`), lit by
+   `PixelShaderDoLighting` with `bHalfLambert` **true** (:74-78) and `PixelShaderDoSpecularLighting` at `$phongexponent`
+   (declared 100, `teeth.cpp:41`, :247; 0 takes it from the bump alpha, :69-71), `( specular · base.a + base.rgb · diffuse )
+   · darkening`, alpha 1 (:93, :100). *Tests*: `DrawModelPose_TeethWithABumpMap_LightsTheBumpedNormalHalfLambert` (flat
+   bump, lamp level: 0.35; tilted bump, lamp along the tangent: 1.1), `DrawModelPose_TeethWithABumpMap_AddTheSpecularByTheBaseAlpha`
+   (lamp 0.5 at the camera: `0.5 + 0.2158 · 0.6` at base alpha 255), `Read_ABumpMapAndPhongExponent_AreTeethsAlone`. Red
+   first: the generic draw gave 40 and 40 for the two diffuse rows (78 and 134 predicted), and 101 for both specular rows
+   (re-measured 2026-11-20 by sending the bump material down the generic draw again): base alpha 255 predicted 208
+   (207.4 counting the flat texel's 0.0039 tilt; drawn 207), base alpha 0 predicted 101 — which the generic draw also
+   gives, so that row tells the mask apart (its sabotage) and not the port.
+   *Sabotage*, each restored: no half-Lambert wrap — only the flat row; specular unmasked by base alpha — only the alpha-0
+   row; the bump's tangent component dropped — only the tilted row; the bump kept for every shader — only the Eyes read
+   row. *Interpolated*: that an undefined `$phongexponent` reads its declared 100. The one shipped `teeth_bump` material,
+   `models/alyx/fmouth`, is HL2's.
+   *Review (Sonnet, Fable, Gemini), test gaps closed*: the lamp at the camera makes R · L = 1, so no row observed the
+   exponent — `DrawModelPose_TeethWithABumpMapAndALampOffTheView_TakesTheSpecularExponent` puts a 0.5 lamp 11.5° up
+   (N · L 0.9808, R · L 0.9815 on the flat bump): k = 100 predicted 124 (drawn 125), k = 30 171, and `$phongexponent` 0
+   with a bump alpha of 128, k = 75.8, 136; `DrawModelPose_TeethWithABumpMapAndADarkeningMouth_IsDarkenedByItsForwardAndIllum`
+   (forward (0, −0.6, 0.8), illum 0.5: darkening 0.3, 42 where undarkened 78);
+   `DrawModelPose_TeethWithABumpAlongTheBinormal_TakesTheTangentsSign` (a bump along `(N × T) · w`, lamp above: w +1 134,
+   w −1 40); `DrawModelPose_TeethWithABumpMapUnderFourLamps_AddsEachSlot` (±x, ±z: 134, three slots 119). Red first, the
+   generic draw: 100, 100, 100; 40; 40 for w +1; 40. *Sabotage*, each restored, each reddening only its rows: the
+   exponent read from `$glossiness`'s value — the three exponent rows, all 205 (k = 1); the darkening held at 1 — the
+   darkening row (78); `|w|` for `w` — the w −1 row (134); the fourth slot's attenuation 0 — the four-lamp row (119).
+   *Engine behaviour, not guarded*: a mesh with no tangents makes `tangentS` zero and the normalised frame NaN; the
+   engine's shader has no guard either (`teeth_bump_vs20.fxc:97-101` normalises as it is), so neither has ours.
+5. *Smaller* — **all seven parts worked 2026-11-20** (`fix/b725-smaller`); what they found is filed as B777-B781. Review round 1
+   (Sonnet, Fable, Gemini) fixed on the branch: a bone-merged cosmetic's and a dead player's corpse's view target, a
+   CModelPanel's attached models, the TF panel's per-paint allocation, the merges' kept faces on `ClearMergeMDLs`; recorded
+   the faces' depth-to-alpha as B781.
+   - (a) *The static (colour-mesh) half of `DoLighting`* — **not a divergence, recorded**: all three vertex shaders hand
+     `DoLighting` a static colour of literal `float3( 0, 0, 0 )` and read no colour stream (`eye_refract_vs20.fxc:157`,
+     `Eyes_vs20.fxc:128-130`, `teeth_vs20.fxc:109-111`), so the half is `GammaToLinear( 0 · cOverbright )` = 0 whatever
+     `STATIC_LIGHT` says (`common_vs_fxc.h:868-875`, :900-903); ours adds nothing either. *Test*:
+     `DrawModelPose_AFaceShaderOverAColourMesh_TakesNoStaticLight` (EyeRefract and Teeth over a 0.5 colour mesh draw 134
+     and 0.55 as without). *Sabotage*: the colour mesh added in `VsEye` where one is bound reddened its two rows only.
+   - (b) *Height fog in a refraction view* — **fixed**: each face pixel shader ends in `FinalOutput( …,
+     CalcPixelFogFactor( PIXELFOGTYPE, … ) )` (`eye_refract_ps2x.fxc:450-451`, `eyes_ps2x.fxc:66-67`,
+     `teeth_ps2x.fxc:46-47`; the combo `GetPixelFogCombo1( true )`, `eye_refract_helper.cpp:367`), so under a water volume
+     it is `CalcWaterFogAlpha` blended unsquared (`common_ps_fxc.h:213-230`, :295-298). The generic shader's
+     height-or-range choice is now one function, `ViewFog`, that the faces end in too. Alpha unchanged (EyeRefract 1, the
+     others their base; no `WRITEWATERFOGTODESTALPHA` combo on them). *Review 1 item 7* (Sonnet): Eyes and Teeth also
+     carry `WRITE_DEPTH_TO_DESTALPHA` (`eyes_ps2x.fxc:67`, `teeth_ps2x.fxc:47`), on in TF2's main view and 3D sky
+     (`viewrender.cpp:893`; `eyes_dx8_dx9_helper.cpp:474`, `teeth.cpp:255` for a fully opaque one) — read, and **not ported
+     alone**: no draw of ours writes its depth there, the generic shader included, so the faces keep matching it; filed
+     renderer-wide as **B781**. *Test*:
+     `DrawModelPose_AFaceUnderARefractionViewsHeightFog_TakesTheFogColour` (3 rows: full height fog stores the fog's own
+     bytes, 10, 26, 58; before, the lit face). *Sabotage*: the three back to the range fog reddened the three rows only.
+   - (c) *The binormal in `COLOR0`* — **an exact inverse, nothing drawn changes, recorded**: the vertex shader packs
+     `B · 0.5 + 0.5` (`eye_refract_vs20.fxc:143`) and the pixel shader unpacks `· 2 − 1` (`eye_refract_ps2x.fxc:133`)
+     without renormalising. Both are affine, and linear interpolation commutes with an affine map, so the unpacked value at
+     every pixel is the interpolated binormal ours passes whole (*arithmetic*); a unit vector's components pack into
+     [0, 1], so the colour interpolator's clamp never bites. *Not read*: the precision of `COLOR0` under ps_2_b on the
+     hardware TF2 runs (under vs_3_0/ps_3_0 it is an ordinary float interpolator). No change, no test.
+   - (d) *A C_BaseAnimating's view target* — **mechanism ported** (the lead's ruling under D259, 2026-11-20: port the
+     mechanism, "the last one set" in our draw order, and file the order difference apart). The closed studio render keeps
+     one view target in its render context, set only by `SetEyeViewTarget` — a C_BaseFlex's `SetViewTarget`
+     (`c_baseflex.cpp:643`), reached from `SetupWeights` only for a model with flex controllers (`SetupGlobalWeights`
+     returns false at :1198-1207), or a CMDL's draw (`client.dll` `0x1809370f4-0x180937108`, eyes or none). Now one
+     `StudioViewTarget`, owned by `EntityModelSet` and reached by the HUD's panels through `IMdlCache.ViewTarget`: a player,
+     worn item or corpse with controllers sets it; a map prop (a class model's included), a C_BaseFlex without controllers
+     and a `CModelPanelModel` without controllers read the last value set; every CMDL draw sets it. It persists across
+     frames, as the engine's does. **Corrected in review 1** (Fable, Sonnet): a bone-merged worn item with controllers on a
+     C_BaseFlex parent that has controllers sets NONE — `CEconEntity::SetupWeights` runs the parent's
+     `SetupGlobalWeights` and returns with `SetViewTarget` commented out (`econ_entity.cpp:1361-1392`), falling to
+     `C_BaseFlex::SetupWeights` (:1397) only otherwise; a corpse whose player is dead sets the PLAYER's target, his
+     `UpdateLookAt` from his origin (`C_TFRagdoll::SetupWeights` → `pPlayer->SetupWeights`, `c_tf_player.cpp:634-637`;
+     `ClientThink` runs the look-at dead or alive, :5948-5955; the clamp taken in the corpse's attachment, *interpolated*);
+     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:467`). *Tests*:
+     `Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers` (2 rows),
+     `Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget` (2 rows),
+     `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. **Review 2**:
+     a corpse's player is found as `C_TFRagdoll::GetPlayer`'s EHANDLE finds him (`c_tf_player.h:1049`) — a DORMANT player
+     too, by his last life state and origin; dead and dormant, his look-at runs from his last origin (no dormant gate in
+     `client_thinklist.cpp:186-324` or `C_BaseEntity::SetDormant`); alive, or nobody, the corpse's own branch — and the
+     face's flex branch takes the same answer; a dead player placed nowhere sets no target (the pose fallback removed).
+     `Instances_ACorpseOfADormantPlayer_SetsHisTargetOnlyWhileHeIsDead` (3 rows: only the dormant-dead (512, 0, 0) row was
+     red before the fix; the dormant-alive and unknown rows are controls, green before and after),
+     `Instances_ACorpseOfADeadPlayerWithNoOrigin_SetsNoTarget`. **Review 3**: whose face the corpse draws follows the same
+     three branches, held by `FaceDriving_ACorpseOfAnUnknownOrDormantPlayer_IsHisFaceOnlyWhileHeIsDead` (the reviewers'
+     revert to `PlayerAlive?.Invoke(dead) == true` reddens its unknown and dormant-alive rows). *Tests*: `Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet` (2 rows:
+     after the player it looks at the player's (512, 0, 0); before, at the start's (0, 0, 0), and in the next pass at the
+     stale (512, 0, 0)), `Instances_APlayerWhoseModelHasNoControllers_SetsNoTargetAndReadsTheLast`,
+     `Paint_EachCmdlDraw_SetsTheSharedViewTargetAndTheLastDrawnWins` (2 rows), and
+     `Paint_AModelWithAnEyeAndNoControllers_LooksAtTheLastViewTargetSet`; the map-prop-wearing-a-class-model case now reads
+     player 2's target. The players' fixture gained a controller (a real face has them). *Sabotage*, each restored: readers
+     taking (0, 0, 0) instead of the shared value reddened the four world rows only; a CMDL draw writing a private target
+     only the two CMDL rows; the CModelPanel without controllers ignoring it only its row. Where our order differs from the
+     engine's — once a frame against every draw of every view — is **B780**.
+   - (e) *The mesh draw's `0xa0` argument* — **identified and its gate ported**: `0x1800041c0` is
+     `R_StudioSetupSkinAndLighting` (sixth argument the bind's `pClientRenderable` at `0x1800042b7`, the eighth the
+     lighting out-parameter written `LIGHTING_MOUTH` at `0x180004646`); `0xa0(%rsp)` is its fifth, **`materialFlags`** —
+     both callers pass `pMaterialFlags[ skinref[ mesh->material ] ]` (`0x180011b6d`, `0x1800520b8`), and the material
+     load sets that flag to `stricmp( $clientShader, "MouthShader" ) == 0` (`0x180058172-0x1800581cf`, string at
+     `0x180081348`). The mouth is set up where the flag is set and `nummouths ≥ 1` (`0x1800045be-0x1800045d8`), then with
+     `r_teeth` on, `R_MouthSetupVertexShader` (`0x180004666`). Ours handed the mouth to any Teeth material; now only a
+     flagged one (`EyeMaterial.MouthShader`). Every Teeth material TF2 mounts states the flag (15 in HL2's `hl2_misc`
+     VPKs, *measured*), so no shipped model changes. *Tests*: `Read_TeethWithAClientShader_IsFlaggedForTheMouthOnlyWhenItIsMouthShader`
+     (4 rows), `DrawModelPose_TeethWithAndWithoutTheMouthFlag_TakeTheDrawsMouthOnlyWhenFlagged` (unflagged: its own
+     `$illumfactor`, 0.55 where the mouth gives 1.1). *Sabotage*: the bind ignoring the flag reddened only the unflagged
+     row; a case-sensitive compare only the lower-case read row. The mouth the engine writes stays in the shared
+     material between draws: **B777**.
+   - (f) *A panel's mouth* — **done for all three**; CTFPlayerModelPanel was first left for the owner, then read further
+     (below, "the TF panel, read further"). A CMDL's draw
+     runs the flex rules on `m_pFlexControls` (`CMDL::Draw`, `client.dll` `0x180937138-0x1809371a7`), which
+     `CMDL::CMDL` zeroes (`0x180936e20`) and `CMDLPanel::SetupFlexWeights` leaves alone (empty, `mdlpanel.h:101`) — so a
+     CMDLPanel's (and CBaseModelPanel's, CEmbeddedItemModelPanel's) mouth reads the rules at zero controls. A
+     `CModelPanelModel` is a C_BaseFlex at rest: the rules at each controller's minimum (`c_baseflex.cpp:1220-1222`).
+     ~~`CTFPlayerModelPanel::SetupFlexWeights` (`tf_playermodelpanel.cpp:2313-2320`) writes each controller into
+     `m_pFlexControls[ localToGlobal ]` — the client-wide GLOBAL controller number, set by this session's registration
+     order — while `RunFlexRules` reads the array by local controller index (`studio.cpp:1456`): which value each rule
+     reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null).~~ **Superseded**
+     (the bounds check at :1456 was read as the index; the read at :1485-1486 is by `localToGlobal`): see "the TF panel,
+     read further" below. A CModelPanel's attached models are plain C_BaseAnimatings (`new C_BaseAnimating`,
+     `basemodelpanel.cpp:467`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
+     No TF2 class model has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
+     `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
+     *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. Neither panel flexes its
+     MESH by those weights, which `CMDL::Draw` does: **B779**.
+     *The TF panel, read further* (the lead's ruling: read where the global numbers come from): the reads are the model's,
+     not the session's. `AddGlobalFlexController` numbers names in first-seen order (`c_baseflex.cpp:1341-1361`), but
+     RunFlexRules' FETCH1 reads `src[ controller[ index ].localToGlobal ]` (`client.dll` `0x1803177ea-0x18031781f`, as
+     `studio.cpp:1481-1489`), and the panel writes each controller at that same slot (`tf_playermodelpanel.cpp:2317-2319`)
+     after linking the model itself (:2282-2289) — so each rule reads its own controller, whatever the number, except that
+     two controllers of one name share a slot and both read the later one. Per paint, `SetFlexWeight( i, GetFlexWeight( i ) ·
+     0.95 )` (:2300-2303) over `m_flexWeight[ 96 ]`, zeroed in the constructor (:129); no scene, no voice in a demo.
+     Ported (`TfPlayerModelPanel.DecayFlexWeights`, `SharedSlots`, `FlexControls`; review 1 item 4 made the step allocate
+     nothing and run the rules only for a mouthed model, the decay still stepping every paint). *Tests*:
+     `TfPlayerModelPanelFlexConformanceTests` (6 rows, the allocation row among them), and through Paint
+     `Paint_AClassModelWithTeethAndAMouth_SetsTheMouthFromTheDecayingControls` (0.05, then 0.0975) and
+     `Paint_AClassModelWithoutTeeth_StillStepsTheDecay`. *Sabotage*:
+     no name aliasing reddened only its row; no decay the three rows that read a decayed value; the clamp widened only the
+     above-zero row. **What does depend on the session**, kept as zero: a plain CMDL's FETCH1 on a model whose controllers no
+     C_BaseFlex has linked yet reads `m_pFlexControls[ −1 ]` (`localToGlobal` −1, `c_baseflex.cpp:1132-1142`) — the float
+     before the array, `m_flTime` (+0x1c, the array at +0x20, `CMDL::CMDL` `0x180936e20`); linked, the zero the constructor
+     wrote. Taken as linked.
+   - (g) *A merge model's eyes in a panel* — **done**: a merge CMDL keeps its constructor's target, (0, 0, 0) not world
+     space, which `CMDL::Draw` carries through the merge's identity `m_MDLToWorld` (`SetMergeMDL`, `mdlpanel.cpp:853`;
+     drawn at :499) to the world origin, unclamped. Merges now draw their eyes (and mouth, at zero controls) through the
+     face shaders. *Test*: `Paint_AMergeModelWithAnEye_LooksAtTheWorldOrigin` (`$irisu` (0, −1, 0); the camera would give
+     (0, 1, 0)). *Sabotage*: the merge looking at the camera reddened only its row. The StatTrak second-level merge
+     (`DrawBoneMergedOnto`) still draws its eyes generically and sets no shared target: **B778**.
+   *Not verified by looking*: every part was measured through `OffscreenTarget.DrawModelPose` or the panels' `Paint`.
 
 ## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12, the ramp and the integer volume too
 

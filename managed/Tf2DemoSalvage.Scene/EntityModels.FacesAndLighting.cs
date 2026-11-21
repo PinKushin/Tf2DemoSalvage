@@ -185,10 +185,12 @@ public sealed partial class EntityModelSet
     /// worn item's <c>m_viewtarget</c>, never set on the client and only zeroed in a debug build (`c_baseflex.cpp:129-131`)
     /// — (0, 0, 0) here; both through <c>C_BaseFlex::SetViewTarget</c>'s clamp in the <c>eyes</c> attachment's frame, with
     /// the actor's <c>eyes_updown</c>/<c>eyes_rightleft</c> global weights (<see cref="_faceGlobal"/>). A C_BaseAnimating
-    /// never sets one and the render keeps the last model's — taken as (0, 0, 0).
+    /// never sets one and reads the render context's last, <see cref="ViewTarget"/>, in this pass's draw order (B725 5d).
     ///
     /// **The mouth only for a model with a Teeth material** (<see cref="PropModels.ModelFrames.HasTeeth"/>): only a teeth
-    /// material reads <c>$forward</c> and <c>$illumfactor</c>. Its weight is the descriptor weight the face drew with this
+    /// material reads <c>$forward</c> and <c>$illumfactor</c>, and the bind hands it only to one flagged
+    /// <c>$clientShader MouthShader</c> (<see cref="EyeMaterial.MouthShader"/>, studiorender's own gate, B725 5e), so computing
+    /// it for every teeth model is a cost bound, not a second gate. Its weight is the descriptor weight the face drew with this
     /// frame (<see cref="FlexFor"/>), the resting rules for a C_BaseFlex no scene drives (kept per model), and zero for
     /// anything else (<c>LockFlexWeights</c>).
     ///
@@ -197,9 +199,22 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private StudioFace? FaceShading(SceneProp prop, PropModels.ModelFrames? model, Animation.Animating.BoneAccessor? bones)
     {
-        bool mouthed = model is { HasTeeth: true, Mouths.Count: > 0 };
+        if (model is null || bones is null)
+        {
+            return null;
+        }
 
-        if (model is null || bones is null || (model.Eyeballs.Count == 0 && !mouthed))
+        // **The render context's one view target** (B725 5d): set by a C_BaseFlex that reaches `SetViewTarget`, eyes or none,
+        // and read by every eye drawn after it, its own included.
+        if (SetsViewTarget(prop, model))
+        {
+            ViewTarget.Target = ViewTargetOf(prop, model, bones);
+        }
+
+        (float X, float Y, float Z) target = ViewTarget.Target;
+        bool mouthed = model.HasTeeth && model.Mouths.Count > 0;
+
+        if (model.Eyeballs.Count == 0 && !mouthed)
         {
             return null;
         }
@@ -214,7 +229,7 @@ public sealed partial class EntityModelSet
 
         if (model.Eyeballs.Count > 0)
         {
-            StudioEyes.FillEyes(face, model, bones, ViewTargetOf(prop, model, bones));
+            StudioEyes.FillEyes(face, model, bones, target);
         }
 
         face.Mouth = null;
@@ -326,11 +341,15 @@ public sealed partial class EntityModelSet
     /// returns, is found among <see cref="DormantPlayers"/>.
     /// </remarks>
     private (float X, float Y, float Z) LookTargetOf(SceneProp prop) =>
+        LookTargetFrom((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), prop.EntityIndex);
+
+    /// <summary><see cref="LookTargetOf"/> for player <paramref name="index"/> standing at <paramref name="origin"/>.</summary>
+    private (float X, float Y, float Z) LookTargetFrom((float X, float Y, float Z) origin, int index) =>
         StudioEyes.LookAt(
-            (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
-            LocalPlayerView is { } local && local.Index == prop.EntityIndex ? (local.Pitch, local.Yaw, 0f) : (0f, 0f, 0f),
+            origin,
+            LocalPlayerView is { } local && local.Index == index ? (local.Pitch, local.Yaw, 0f) : (0f, 0f, 0f),
             LookablePlayers(),
-            prop.EntityIndex);
+            index);
 
     /// <summary>
     /// The POV recorder — the local player during playback — as <c>UpdateLookAt</c> reads it: its index, its local angles
@@ -339,22 +358,119 @@ public sealed partial class EntityModelSet
     /// </summary>
     public (int Index, float Pitch, float Yaw, float EyeHeight)? LocalPlayerView { get; set; }
 
+    /// <summary>
+    /// A player's <c>GetAbsOrigin()</c> by index, dead or alive, or null where the scene does not know him: where a corpse
+    /// whose player is dead runs that player's <c>UpdateLookAt</c> from (B725 review 1).
+    /// </summary>
+    public Func<int, (float X, float Y, float Z)?>? PlayerOrigin { get; set; }
+
     /// <summary>The players out of the PVS this moment, which the eyes' look-at still finds by index (B725); null is none.</summary>
     public IReadOnlyList<SceneDormantPlayer>? DormantPlayers { get; set; }
 
-    /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
+    /// <summary>
+    /// Whether this draw sets the render context's view target: a C_BaseFlex — a player, a worn item, a corpse — whose model
+    /// has flex controllers. A C_BaseAnimating (a map prop, one wearing a class model included) never calls
+    /// <c>SetViewTarget</c>; nor does a C_BaseFlex without controllers, as <c>SetupGlobalWeights</c> returns false before
+    /// <c>SetupLocalWeights</c> (<c>c_baseflex.cpp:1198-1207</c>). Either reads the last target set.
+    /// </summary>
+    /// <remarks>
+    /// **A bone-merged worn item on a flexing C_BaseFlex sets none** (review 1): <c>CEconEntity::SetupWeights</c> runs the
+    /// parent's <c>SetupGlobalWeights</c> and its own rules and returns with <c>SetViewTarget</c> commented out
+    /// (<c>econ_entity.cpp:1361-1392</c>); it falls to <c>C_BaseFlex::SetupWeights</c> (:1397), which sets its own, only when
+    /// not bone-merged, not on a C_BaseFlex, or the parent's <c>SetupGlobalWeights</c> returns false — a parent model without
+    /// controllers (<c>c_baseflex.cpp:1198-1207</c>).
+    /// </remarks>
+    private bool SetsViewTarget(SceneProp prop, PropModels.ModelFrames model)
+    {
+        if (model.Flex.Controllers.Count == 0 || !(IsScenePlayer(prop) || IsCBaseFlex(prop)) || IsUnplacedDeadPlayersCorpse(prop))
+        {
+            return false;
+        }
+
+        if (prop.BoneMerged && prop.AttachedTo is { } parentIndex && _frameProps.TryGetValue(parentIndex, out SceneProp? parent)
+            && (IsScenePlayer(parent) || IsCBaseFlex(parent))
+            && FindMdl(parent.ModelPath) is { Flex.Controllers.Count: > 0 })
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The player behind a corpse as <c>C_TFRagdoll::SetupWeights</c> finds him (<c>c_tf_player.cpp:626-637</c>): his index,
+    /// <c>IsAlive()</c>, and where he stands; null where <c>GetPlayer()</c> has no one (<c>!pPlayer</c>) or the prop is no
+    /// corpse. <c>GetPlayer</c> is <c>return m_hPlayer;</c> (<c>c_tf_player.h:1049</c>), so a DORMANT player is found, by
+    /// his last life state and origin (<see cref="DormantPlayers"/>). With <see cref="PlayerAlive"/> unset every corpse's
+    /// player is taken for dead, placed nowhere.
+    /// </summary>
+    private (int Index, bool Alive, (float X, float Y, float Z)? Origin)? CorpsePlayer(SceneProp prop)
+    {
+        if (prop.FaceOf is not { } player)
+        {
+            return null;
+        }
+
+        if (PlayerAlive is null)
+        {
+            return (player, false, PlayerOrigin?.Invoke(player));
+        }
+
+        if (PlayerAlive(player) is { } alive)
+        {
+            return (player, alive, PlayerOrigin?.Invoke(player));
+        }
+
+        for (int at = 0; at < (DormantPlayers?.Count ?? 0); at++)
+        {
+            SceneDormantPlayer dormant = DormantPlayers![at];
+
+            if (dormant.EntityIndex == player)
+            {
+                return (player, dormant.IsAlive, (dormant.X, dormant.Y, dormant.Z));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A corpse whose player is dead and placed: <c>pPlayer->SetupWeights</c> (<c>c_tf_player.cpp:634-637</c>) sets the
+    /// player's target, his <c>UpdateLookAt</c> from his origin — which <c>ClientThink</c> keeps running while he is dead or
+    /// dormant (<c>c_tf_player.cpp:5948-5955</c>; no dormant gate in <c>client_thinklist.cpp:186-324</c>). Null for anything
+    /// else, and for a dead player with no origin, whom no look-at can run from (not reachable from <c>MomentScene</c>,
+    /// which fills <see cref="PlayerAlive"/> and <see cref="PlayerOrigin"/> from one <c>ScenePlayer</c>).
+    /// </summary>
+    private (int Index, (float X, float Y, float Z) Origin)? DeadPlayerOf(SceneProp prop) =>
+        CorpsePlayer(prop) is { Alive: false, Origin: { } origin } dead ? (dead.Index, origin) : null;
+
+    /// <summary>A corpse whose player is dead but placed nowhere: it sets no target (see <see cref="DeadPlayerOf"/>).</summary>
+    /// <remarks>
+    /// **The engine has no such state** (review 3): a resolved <c>m_hPlayer</c> always has an origin. Only a bare model set
+    /// reaches it — a dead player (<see cref="PlayerAlive"/> unset, which by this class's convention takes every corpse's
+    /// player for dead, or answering false) with <see cref="PlayerOrigin"/> unset or null. Kept so that such a caller gets no target
+    /// rather than a look-at from an origin nobody gave; <c>MomentScene</c> never reaches it.
+    /// </remarks>
+    private bool IsUnplacedDeadPlayersCorpse(SceneProp prop) => CorpsePlayer(prop) is { Alive: false, Origin: null };
+
+    /// <summary>The view target a C_BaseFlex's <c>SetViewTarget</c> hands the render (see <see cref="FaceShading"/>).</summary>
+    /// <remarks>
+    /// *Interpolated* for a corpse whose player is dead: the clamp is taken in the corpse's own <c>eyes</c> attachment, where
+    /// the engine takes the dead player's (<c>GetAttachment</c> on the player, <c>c_baseflex.cpp:574-583</c>), a model this
+    /// viewer does not pose once he is dead.
+    /// </remarks>
     private (float X, float Y, float Z) ViewTargetOf(
         SceneProp prop, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones)
     {
-        bool player = IsScenePlayer(prop);
-        (float X, float Y, float Z) target = player ? LookTargetOf(prop) : (0f, 0f, 0f);
+        (float X, float Y, float Z) target = (0f, 0f, 0f);
 
-        // A C_BaseAnimating never calls `SetViewTarget`; nor does a C_BaseFlex whose model has no controllers, as
-        // `SetupGlobalWeights` returns false before `SetupLocalWeights` (`c_baseflex.cpp:1198-1207`). The render then keeps
-        // the last model's target — taken as this one, unclamped.
-        if ((!IsPlayerModel(prop) && !IsCBaseFlex(prop)) || model.Flex.Controllers.Count == 0)
+        if (IsScenePlayer(prop))
         {
-            return target;
+            target = LookTargetOf(prop);
+        }
+        else if (DeadPlayerOf(prop) is { } player)
+        {
+            target = LookTargetFrom(player.Origin, player.Index);
         }
 
         // `eyeAng.x/y = g_flexweight[ pflex->localToGlobal ]` only where the model has the controller (`c_baseflex.cpp:596-606`).
@@ -439,7 +555,7 @@ public sealed partial class EntityModelSet
     /// bone-merged item on a player reads the player's (<c>CEconEntity::SetupWeights</c>, <c>econ_entity.cpp:1377</c>); a
     /// corpse reads its dead player's (<c>C_TFRagdoll::SetupWeights</c>, <c>c_tf_player.cpp:636</c>).
     /// </summary>
-    private IReadOnlyDictionary<string, float>? FaceDriving(SceneProp prop, double seconds)
+    internal IReadOnlyDictionary<string, float>? FaceDriving(SceneProp prop, double seconds)
     {
         int actor;
 
@@ -448,8 +564,9 @@ public sealed partial class EntityModelSet
 
         if (prop.FaceOf is { } dead)
         {
-            // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630).
-            if (PlayerAlive?.Invoke(dead) == true)
+            // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630): the same
+            // branch the view target takes (CorpsePlayer), a dormant player found by his handle (B725 review 2).
+            if (CorpsePlayer(prop) is not { Alive: false })
             {
                 return null;
             }

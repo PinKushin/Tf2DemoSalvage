@@ -385,6 +385,196 @@ public sealed class VguiModelPanelConformanceTests
         eye.IrisU.W.ShouldBe(0.5f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **A panel's root sets its mouth up from the flex weights its own draw computes** (B725 5f). `CMDLPanel`'s
+    /// `SetupFlexWeights` is empty (`mdlpanel.h:101`), so `m_pFlexControls` keeps `CMDL::CMDL`'s zeros (TF2 `client.dll`
+    /// `0x180936e20`), and `CMDL::Draw` runs the rules on them (`0x180937138-0x1809371a7`) before the mesh draw's
+    /// `R_MouthSetupVertexShader` reads descriptor 0. The rule `jaw + 0.25` over a controller ranged 0.5..1: 0.25 at the
+    /// zero control, where a C_BaseFlex at rest (the range's minimum) would give 0.75. The mouth's forward (1, 0, 0) on an
+    /// unrotated bone, negated: (−1, 0, 0).
+    /// </remarks>
+    [Test]
+    public void Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls()
+    {
+        PropModels.ModelFrames frames = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Mouths = [new StudioMouth(0, (1f, 0f, 0f), 0)],
+            HasTeeth = true,
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        };
+
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => frames)) { Wide = 100, Tall = 100 };
+
+        panel.SetMDL("models/humans/male_07.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        MouthShading mouth = surface.Draws[0].Models[0].Face.ShouldNotBeNull().Mouth.ShouldNotBeNull();
+        mouth.IllumFactor.ShouldBe(0.25f, 1e-6f);
+        mouth.Forward.X.ShouldBe(-1f, 1e-5f);
+        mouth.Forward.Y.ShouldBe(0f, 1e-5f);
+        mouth.Forward.Z.ShouldBe(0f, 1e-5f);
+    }
+
+    /// <remarks>
+    /// **A merge model's eyes look at the world origin** (B725 5g). A merge CMDL keeps its constructor's
+    /// `m_vecViewTarget` (0, 0, 0) and `m_bWorldSpaceViewTarget` false (`CMDL::CMDL`, TF2 `client.dll` `0x180936e20`), so
+    /// `CMDL::Draw` transforms the target by the `rootToWorld` it is handed (`0x1809370e3`), the merge's identity
+    /// `m_MDLToWorld` (`SetMergeMDL`, `mdlpanel.cpp:853`, drawn at :499): the world origin, unclamped. The merge's eye at
+    /// (10, 0, 0), up +z, iris scale 1: forward (−1, 0, 0), right = forward × up = (0, 1, 0), `$irisu` = −right = (0, −1, 0),
+    /// offset 0.5. Looking at the panel camera (50, 0, 10) instead would give (0, 1, 0).
+    /// </remarks>
+    [Test]
+    public void Paint_AMergeModelWithAnEye_LooksAtTheWorldOrigin()
+    {
+        PropModels.ModelFrames root = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames merge = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Eyeballs = [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
+        };
+
+        VguiMdlPanel panel = new(null, "model", new FramesCache(path => path.Contains("hat", StringComparison.Ordinal) ? merge : root))
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        surface.Draws[0].Models[0].Face.ShouldBeNull("the root has no eyes and no mouth");
+
+        EyeShading eye = surface.Draws[0].Models[1].Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisU.X.ShouldBe(0f, 1e-4f);
+        eye.IrisU.Y.ShouldBe(-1f, 1e-4f);
+        eye.IrisU.W.ShouldBe(0.5f, 1e-4f);
+    }
+
+    /// <remarks>
+    /// **Every CMDL draw sets the render context's one view target, eyes or none** (B725 5d): `CMDL::Draw` calls
+    /// `SetEyeViewTarget` before it draws (TF2 `client.dll` `0x1809370f4-0x180937108`), with the root's world-space camera
+    /// position (`mdlpanel.cpp:445-454`) and then each merge's origin carried by its identity matrix. So after the paint the
+    /// shared target is the camera, (50, 0, 10), or with a merge model drawn after the root, (0, 0, 0).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_EachCmdlDraw_SetsTheSharedViewTargetAndTheLastDrawnWins(bool merged)
+    {
+        PropModels.ModelFrames frames = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        FramesCache cache = new(_ => frames);
+
+        VguiMdlPanel panel = new(null, "model", cache)
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+
+        if (merged)
+        {
+            panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+        }
+
+        cache.ViewTarget.Target = (7f, 7f, 7f);
+        panel.Paint(new RecordingModelSurface(), Context());
+
+        (float X, float Y, float Z) target = cache.ViewTarget.Target;
+        target.X.ShouldBe(merged ? 0f : 50f, 1e-4f);
+        target.Y.ShouldBe(0f, 1e-4f);
+        target.Z.ShouldBe(merged ? 0f : 10f, 1e-4f);
+    }
+
+    /// <remarks>
+    /// **A cache that shares no target leaves the panel its own, kept between paints** (review 1 item 5): the root's draw
+    /// sets the camera position, (50, 0, 10), into the same object every paint.
+    /// </remarks>
+    [Test]
+    public void Paint_WithACacheSharingNoTarget_WritesThePanelsOwnKeptTarget()
+    {
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")))
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+        StudioViewTarget own = panel.SharedViewTarget;
+        own.Target = (7f, 7f, 7f);
+
+        panel.Paint(new RecordingModelSurface(), Context());
+
+        panel.SharedViewTarget.ShouldBeSameAs(own);
+        own.Target.X.ShouldBe(50f, 1e-4f);
+        own.Target.Z.ShouldBe(10f, 1e-4f);
+    }
+
+    /// <remarks>**The model set is the cache the panels share its target through** (review 1 item 5): one object.</remarks>
+    [Test]
+    public void ViewTarget_ThroughTheCacheInterface_IsTheModelSetsOwn()
+    {
+        EntityModelSet models = new();
+
+        ((IMdlCache)models).ViewTarget.ShouldBeSameAs(models.ViewTarget);
+    }
+
+    /// <remarks>
+    /// **Clearing the merge models drops their faces** (review 1 item 6): `ClearMergeMDLs` empties `m_aMergeMDLs`
+    /// (mdlpanel.cpp:948-962); the faces kept for them must go too, or a panel re-dressed every frame keeps one per old merge.
+    /// Three rounds of an eyed merge on an eyeless root leave one face kept — the current merge's — not three.
+    /// </remarks>
+    [Test]
+    public void ClearMergeMDLs_AfterEyedMergesWerePainted_KeepsNoFaceForThem()
+    {
+        PropModels.ModelFrames root = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames eyed = root with
+        {
+            Eyeballs = [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
+        };
+        VguiMdlPanel panel = new(null, "model", new FramesCache(path => path.Contains("hat", StringComparison.Ordinal) ? eyed : root))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+
+        for (int round = 0; round < 3; round++)
+        {
+            panel.ClearMergeMDLs();
+            panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+            panel.Paint(new RecordingModelSurface(), Context());
+        }
+
+        panel.KeptFaces.ShouldBe(1, "the current merge's face only");
+        panel.ClearMergeMDLs();
+        panel.KeptFaces.ShouldBe(0);
+    }
+
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {
@@ -1158,9 +1348,11 @@ public sealed class VguiModelPanelConformanceTests
         public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
-    /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>.</summary>
+    /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>, with its own render context target.</summary>
     private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
     {
+        public StudioViewTarget ViewTarget { get; } = new();
+
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
 
         public int FindBodygroup(string modelPath, string group) => -1;

@@ -4043,6 +4043,8 @@ are on). There is no server here to protect and no opponent to gain an advantage
 ceremony and is not implemented. `r_3dsky` is not cheat-gated by Valve either, which is the case that
 proves the distinction is real rather than convenient.
 
+Config, bind and launch-option paths: superseded by D253 (B791).
+
 **Implementation note that is part of the decision:** `mat_wireframe` builds a wireframe twin of
 every rasteriser state rather than one shared wireframe state. A single shared state would drop each
 pass's culling and depth bias, and would therefore answer "what is in the vertex buffer" instead of

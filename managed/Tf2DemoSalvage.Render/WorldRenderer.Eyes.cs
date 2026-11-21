@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -6,6 +7,7 @@ using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Render;
 
@@ -20,8 +22,8 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The <c>cbuffer Eye</c> register.</summary>
     private const int EyeConstantsSlot = 8;
 
-    /// <summary>Its size in floats: eight float4s.</summary>
-    private const int EyeConstantFloats = 32;
+    /// <summary>Its size in floats: ten float4s.</summary>
+    private const int EyeConstantFloats = 40;
 
     /// <summary>The cornea, occlusion and Eyes' iris slots.</summary>
     private const int EyeCorneaSlot = 17;
@@ -30,27 +32,41 @@ internal sealed unsafe partial class WorldRenderer
 
     private const int EyeIrisSlot = 19;
 
+    /// <summary>Teeth's <c>$bumpmap</c> slot (<c>teeth_bump</c>, B725).</summary>
+    private const int EyeBumpSlot = 21;
+
+    /// <summary>Eyes' <c>$glint</c> slot: the glint target this eye draw rendered (B725 item 3).</summary>
+    private const int EyeGlintSlot = 22;
+
+    /// <summary>The shader code <c>VsEye</c> reads for <c>teeth_bump</c>, past the three <see cref="Scene.EyeShader"/> values.</summary>
+    private const float TeethBumpCode = 4f;
+
     private const string EyeShaderText = """
 
         // **The face shaders' constants** (B725): what the studio render writes into the material before the mesh draws,
         // and the material's own parameters.
         cbuffer Eye : register(b8)
         {
-            float4 eyeOrigin;          // xyz `$eyeorigin`; w the shader: 1 EyeRefract, 2 Eyes, 3 Teeth
+            float4 eyeOrigin;          // xyz `$eyeorigin`; w the shader: 1 EyeRefract, 2 Eyes, 3 Teeth, 4 Teeth with a
+                                       // `$bumpmap` (teeth_bump)
             float4 eyeUp;              // xyz `$eyeup` (Eyes); w 1 for the HALFLAMBERT combo
             float4 eyeIrisU;           // `$irisu`
             float4 eyeIrisV;           // `$irisv`
-            float4 eyeScalars;         // `$dilation`, `$glossiness`, z 1 for an 8-bit cube (read through sRGB),
-                                       // `$corneabumpstrength`
+            float4 eyeScalars;         // `$dilation`, `$glossiness` (teeth_bump: `$phongexponent`), z 1 for an 8-bit cube
+                                       // (read through sRGB), `$corneabumpstrength`
             float4 eyeScalars2;        // x 1 under a `$lightwarptexture`, y `$eyeballradius`, z 1 `$raytracesphere`, 2 with
                                        // `$spheretexkillcombo`, w `$parallaxstrength`
             float4 eyeOcclusionColour; // `$ambientocclcolor`, raw (c5)
             float4 teethLighting;      // `$forward`, `$illumfactor` (teeth_vs20.fxc:22)
+            float4 eyeGlintU;          // `$glintu` (Eyes, eyes_vs20.fxc:139)
+            float4 eyeGlintV;          // `$glintv`
         };
 
         Texture2D eyeCornea    : register(t17);
         Texture2D eyeOcclusion : register(t18);
         Texture2D eyeIris      : register(t19);
+        Texture2D teethBumpMap : register(t21);
+        Texture2D eyeGlint     : register(t22);
 
         struct EyeVsOut
         {
@@ -65,6 +81,7 @@ internal sealed unsafe partial class WorldRenderer
             float4 falloffCosine23 : TEXCOORD7;
             float3 binormal        : TEXCOORD8;
             float2 irisUv          : TEXCOORD9;
+            float2 glintUv         : TEXCOORD10;
             float  clip            : SV_ClipDistance0;
         };
 
@@ -127,7 +144,9 @@ internal sealed unsafe partial class WorldRenderer
                    nSquared.z * ambientCube[isNegative.z + 4].rgb;
         }
 
-        // `DoLighting`'s dynamic half (common_vs_fxc.h:862-892), over this list.
+        // `DoLighting`'s dynamic half (common_vs_fxc.h:862-892), over this list. **Its static half is zero on all three**:
+        // each hands it a static colour of `float3( 0, 0, 0 )` and reads no colour stream (eye_refract_vs20.fxc:157,
+        // Eyes_vs20.fxc:128-130, teeth_vs20.fxc:109-111), so a baked prop's colour mesh never reaches a face (B725 5a).
         float3 EyeDoLighting(float3 wpos, float3 normal, bool halfLambert)
         {
             float3 light = EyeAmbient(normal);
@@ -195,11 +214,43 @@ internal sealed unsafe partial class WorldRenderer
             output.falloffCosine01 = float4(0.0f, 0.0f, 0.0f, 0.0f);
             output.falloffCosine23 = float4(0.0f, 0.0f, 0.0f, 0.0f);
             output.irisUv = float2(0.0f, 0.0f);
+            output.glintUv = float2(0.0f, 0.0f);
 
             bool halfLambert = eyeUp.w > 0.5f;
             float shader = eyeOrigin.w;
 
-            if (shader > 2.5f)
+            if (shader > 3.5f)
+            {
+                // teeth_bump (teeth_bump_vs20.fxc:75-147): `ApplyMorph` adds the normal's delta to the tangent too
+                // (common_vs_fxc.h:380-389), the skinning carries both and makes T = (N × S) · w (:740), and all three are
+                // normalised after the bones (:97-101). The darkening on that normal (:117); each light's attenuation per
+                // vertex (:136-139) for the pixel shader.
+                float3 tangentS = input.tangent.xyz;
+                float3 normal = posedNormal;
+
+                if (skinning.x >= 1.0f)
+                {
+                    float3 boneOrigin = SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x);
+                    normal = SkinPosition(input.nrm + input.flexNrm, input.bones, input.weights, skinning.x) - boneOrigin;
+                    tangentS = SkinPosition(input.tangent.xyz + input.flexNrm, input.bones, input.weights, skinning.x) - boneOrigin;
+                }
+
+                normal = mul(float4(normal, 0.0f), model).xyz;
+                tangentS = mul(float4(tangentS, 0.0f), model).xyz;
+                float3 tangentT = cross(normal, tangentS) * input.tangent.w;
+
+                output.nrm = normalize(normal);
+                output.tangent = normalize(tangentS);
+                output.binormal = normalize(tangentT);
+                output.vertexLight = float3(teethLighting.w * saturate(dot(output.nrm, teethLighting.xyz)), 0.0f, 0.0f);
+
+                int bumpCount = EyeLightCount();
+                output.falloffCosine01 = float4(
+                    bumpCount > 0 ? EyeLightAtten(0, wpos) : 0.0f, bumpCount > 1 ? EyeLightAtten(1, wpos) : 0.0f, 0.0f, 0.0f);
+                output.falloffCosine23 = float4(
+                    bumpCount > 2 ? EyeLightAtten(2, wpos) : 0.0f, bumpCount > 3 ? EyeLightAtten(3, wpos) : 0.0f, 0.0f, 0.0f);
+            }
+            else if (shader > 2.5f)
             {
                 // Teeth (teeth_vs20.fxc:84-121): the skinned normal as it is, DoLighting without half-Lambert, darkened.
                 float3 normal = mul(float4(posedNormal, 0.0f), model).xyz;
@@ -213,6 +264,7 @@ internal sealed unsafe partial class WorldRenderer
                 normal = normalize(normalDotUp * eyeUp.xyz + normal);
                 output.vertexLight = EyeDoLighting(wpos, normal, halfLambert);
                 output.irisUv = float2(dot(eyeIrisU, float4(wpos, 1.0f)), dot(eyeIrisV, float4(wpos, 1.0f)));
+                output.glintUv = float2(dot(eyeGlintU, float4(wpos, 1.0f)), dot(eyeGlintV, float4(wpos, 1.0f)));
             }
             else
             {
@@ -406,18 +458,74 @@ internal sealed unsafe partial class WorldRenderer
             result += reflection * vertexLight;
             result += highlights;
 
-            return float4(PixelFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
+            // `FinalOutput( result, CalcPixelFogFactor( PIXELFOGTYPE, … ) )` (:450-451): the view's fog, a refraction view's
+            // height fog included (B725 5b); alpha 1, the default `bWriteDepthToDestAlpha` false (common_ps_fxc.h:345, :364).
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
         }
 
-        // **`eyes_ps2x.fxc:36-58`**: the iris over the base by its alpha, times the light. The glint render target is not
-        // drawn here (B725 open), so its term is zero.
+        // `eyes_dx8_dx9_helper.cpp:445-453`: the ambient cube's luminance, saturated, and above 0.01 the glint at full;
+        // below, that luminance times `SimpleSplineRemapVal( lum, 0, 0.01, 0, 1 )` (SimpleSpline: 3x² − 2x³).
+        float EyeGlintDamping()
+        {
+            float luminance = EyeAverageAmbient();
+            float x = luminance / 0.01f;
+            return luminance > 0.01f ? 1.0f : luminance * (3.0f * x * x - 2.0f * x * x * x);
+        }
+
+        // **`eyes_ps2x.fxc:36-58`**: the iris over the base by its alpha, times the light, plus the glint target this eye
+        // draw rendered (linear: no sRGB read on its sampler) times the damping (B725 item 3).
         float4 PsEyes(EyeVsOut input) : SV_TARGET
         {
             float4 baseSample = albedoMap.Sample(wrapSampler, input.uv);
             float4 irisSample = eyeIris.Sample(clampSampler, input.irisUv);
             float3 result = lerp(baseSample.rgb, irisSample.rgb, irisSample.a) * input.vertexLight;
+            result += eyeGlint.Sample(clampSampler, input.glintUv).rgb * EyeGlintDamping();
 
-            return float4(PixelFog(result, input.wpos, tintControl.z, tintControl.w), baseSample.a);
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), baseSample.a);
+        }
+
+        // **`teeth_bump_ps2x.fxc:54-101`, ps_2_b** (B725 open 4): the bump map's normal in the tangent frame, lit by
+        // `PixelShaderDoLighting` with `bHalfLambert` TRUE (:74-78) — the ambient cube by that normal plus each light's
+        // `color · atten · saturate( N · L · 0.5 + 0.5 )²` (common_vertexlitgeneric_dx9.h:86-136, :259-319) — and
+        // `PixelShaderDoSpecularLighting` (:321-390) at `$phongexponent`, or from the bump's alpha where that is 0
+        // (:69-71); `( specular · base.a + base.rgb · diffuse ) · darkening`, alpha 1 (:93, :100).
+        float4 PsTeethBump(EyeVsOut input) : SV_TARGET
+        {
+            float4 baseSample = albedoMap.Sample(wrapSampler, input.uv);
+            float4 normalTexel = teethBumpMap.Sample(wrapSampler, input.uv);
+            float3 tangentNormal = 2.0f * normalTexel.xyz - 1.0f;
+            float3 normal = normalize(tangentNormal.x * input.tangent + tangentNormal.y * input.binormal + tangentNormal.z * input.nrm);
+
+            float specularExponent = eyeScalars.y;
+
+            if (specularExponent == 0.0f)
+            {
+                specularExponent = 1.0f * (1.0f - normalTexel.w) + 150.0f * normalTexel.w;
+            }
+
+            float3 eyeDir = normalize(eyePosition.xyz - input.wpos);
+            float3 diffuse = EyeAmbient(normal);
+            float3 specular = float3(0.0f, 0.0f, 0.0f);
+            int count = EyeLightCount();
+
+            [unroll]
+            for (int light = 0; light < 4; light++)
+            {
+                if (light < count)
+                {
+                    float3 toward = EyePixelToward(light, input.wpos);
+                    float3 colour = EyeLightColour(light) * EyeFalloff(input, light);
+                    float wrapped = saturate(dot(normal, toward) * 0.5f + 0.5f);
+                    diffuse += colour * wrapped * wrapped;
+
+                    float3 reflected = 2.0f * normal * dot(normal, eyeDir) - eyeDir;
+                    specular += pow(saturate(dot(reflected, toward)), specularExponent) * saturate(dot(normal, toward)) * colour;
+                }
+            }
+
+            float3 result = (specular * baseSample.a + baseSample.rgb * diffuse) * input.vertexLight.x;
+
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
         }
 
         // **`teeth_ps2x.fxc:37-48`**: the base times the vertex's light.
@@ -425,18 +533,37 @@ internal sealed unsafe partial class WorldRenderer
         {
             float4 baseSample = albedoMap.Sample(wrapSampler, input.uv);
 
-            return float4(PixelFog(baseSample.rgb * input.vertexLight, input.wpos, tintControl.z, tintControl.w), baseSample.a);
+            return float4(ViewFog(baseSample.rgb * input.vertexLight, input.wpos, tintControl.z, tintControl.w), baseSample.a);
         }
         """;
 
     /// <summary>Each face material by index, with its cornea, occlusion map and Eyes' iris uploaded.</summary>
-    private readonly Dictionary<int, (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris)> _eyes = [];
+    private readonly Dictionary<int, (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris, ComPtr<ID3D11ShaderResourceView> Bump)> _eyes = [];
 
     private ComPtr<ID3D11VertexShader> _eyeVertex;
     private ComPtr<ID3D11PixelShader> _eyeRefractPixel;
     private ComPtr<ID3D11PixelShader> _eyesPixel;
     private ComPtr<ID3D11PixelShader> _teethPixel;
+    private ComPtr<ID3D11PixelShader> _teethBumpPixel;
     private ComPtr<ID3D11Buffer> _eyeConstants;
+
+    /// <summary>
+    /// <c>_rt_eyeglint</c> or <c>proc_eyeglint</c>: 32×32, eight bits a channel, linear (<c>studiorender.dll</c>
+    /// <c>0x18001dcb0</c>), rewritten for each Eyes draw that has a glint into <see cref="_glintTexels"/>.
+    /// </summary>
+    private ComPtr<ID3D11Texture2D> _glintTexture;
+
+    private ComPtr<ID3D11ShaderResourceView> _glintView;
+
+    /// <summary><c>vgui/black</c>, which the engine binds for an eye with no glint (<c>0x18001e0a1</c>, <c>0x18001f55a</c>).</summary>
+    private ComPtr<ID3D11Texture2D> _glintBlackTexture;
+
+    private ComPtr<ID3D11ShaderResourceView> _glintBlack;
+
+    private readonly byte[] _glintTexels = new byte[Scene.EyeGlint.Size * Scene.EyeGlint.Size * 4];
+
+    /// <summary><c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> (B725 glint review 1, 2).</summary>
+    internal Scene.GlintSwitches Glint { get; set; }
 
     /// <summary>The face materials whose own cube is 8-bit (<see cref="IsByteCube"/>), so the eye shader reads it through sRGB.</summary>
     private readonly HashSet<int> _eyeByteCubes = [];
@@ -460,7 +587,8 @@ internal sealed unsafe partial class WorldRenderer
             eye,
             eye.Cornea is { } cornea ? Upload(device, context, cornea, srgb: false) : default,
             eye.AmbientOcclusion is { } occlusion ? Upload(device, context, occlusion) : default,
-            eye.Iris is { } iris ? Upload(device, context, iris) : default);
+            eye.Iris is { } iris ? Upload(device, context, iris) : default,
+            eye.BumpMap is { } bump ? Upload(device, context, bump, srgb: false) : default);
 
         if (cube is { } own && IsByteCube(own.Faces))
         {
@@ -488,11 +616,12 @@ internal sealed unsafe partial class WorldRenderer
 
     private void ReleaseEyes()
     {
-        foreach ((Scene.EyeMaterial _, ComPtr<ID3D11ShaderResourceView> cornea, ComPtr<ID3D11ShaderResourceView> occlusion, ComPtr<ID3D11ShaderResourceView> iris) in _eyes.Values)
+        foreach ((Scene.EyeMaterial _, ComPtr<ID3D11ShaderResourceView> cornea, ComPtr<ID3D11ShaderResourceView> occlusion, ComPtr<ID3D11ShaderResourceView> iris, ComPtr<ID3D11ShaderResourceView> bump) in _eyes.Values)
         {
             cornea.Dispose();
             occlusion.Dispose();
             iris.Dispose();
+            bump.Dispose();
         }
 
         _eyes.Clear();
@@ -506,7 +635,12 @@ internal sealed unsafe partial class WorldRenderer
         _eyeRefractPixel.Dispose();
         _eyesPixel.Dispose();
         _teethPixel.Dispose();
+        _teethBumpPixel.Dispose();
         _eyeConstants.Dispose();
+        _glintView.Dispose();
+        _glintTexture.Dispose();
+        _glintBlack.Dispose();
+        _glintBlackTexture.Dispose();
     }
 
     /// <summary>
@@ -520,6 +654,8 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="mouth">The draw's mouth, or null for the material's own <c>$forward</c> and <c>$illumfactor</c>.</param>
     /// <param name="byteCube">Whether the cube bound for this batch — its own, or the placed one an <c>env_cubemap</c>
     /// material takes — is a byte cube (<see cref="IsByteCube"/>).</param>
+    /// <param name="sun">The draw's sun, for an Eyes glint.</param>
+    /// <param name="locals">The draw's lamps, for an Eyes glint.</param>
     /// <returns>Whether the face shaders are bound; the caller then calls <see cref="UnbindEye"/> after the draw.</returns>
     private bool BindEye(
         ComPtr<ID3D11DeviceContext> context,
@@ -527,9 +663,11 @@ internal sealed unsafe partial class WorldRenderer
         int eyeball,
         IReadOnlyList<Scene.EyeShading>? eyes,
         Scene.MouthShading? mouth,
-        bool byteCube)
+        bool byteCube,
+        SunLight? sun,
+        IReadOnlyList<LocalLight>? locals)
     {
-        if (!_eyes.TryGetValue(material, out (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris) eye))
+        if (!_eyes.TryGetValue(material, out (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris, ComPtr<ID3D11ShaderResourceView> Bump) eye))
         {
             return false;
         }
@@ -548,19 +686,37 @@ internal sealed unsafe partial class WorldRenderer
 
         EnsureEyeShaders();
 
+        Scene.EyeMaterial parameters = eye.Material;
+
+        // **Eyes renders its glint for this draw first** (B725 item 3): `0x18000f7c1` sets `$glintu`/`$glintv` and binds
+        // `$glint` as the mesh's material is set up.
+        (((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) glint,
+            ComPtr<ID3D11ShaderResourceView> glintTexture) =
+            parameters.Shader == Scene.EyeShader.Eyes ? WriteGlint(context, state, sun, locals) : (default, _glintBlack);
+
         MappedSubresource mapped = default;
 
         SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_eyeConstants, 0, Map.WriteDiscard, 0, ref mapped));
 
         float* into = (float*)mapped.PData;
-        Scene.EyeMaterial parameters = eye.Material;
-        (float X, float Y, float Z) forward = mouth?.Forward ?? parameters.Forward;
 
-        Put(into, 0, state.Origin.X, state.Origin.Y, state.Origin.Z, (float)parameters.Shader);
+        // **Only a material flagged `$clientShader MouthShader` takes the draw's mouth** (B725 5e): studiorender's
+        // `R_StudioSetupSkinAndLighting` sets the mouth up where that per-material flag is set and the model has a mouth
+        // (0x1800045be-0x1800045d8, 0x180004666); any other keeps its own `$forward` and `$illumfactor`.
+        Scene.MouthShading? drawn = parameters.MouthShader ? mouth : null;
+        (float X, float Y, float Z) forward = drawn?.Forward ?? parameters.Forward;
+
+        // `teeth_bump` (`hasBump = params[BUMPMAP]->IsTexture()`, teeth.cpp:88): the shader code 4, and `$phongexponent` in
+        // the glossiness slot, which Teeth otherwise leaves unread.
+        bool teethBump = parameters.Shader == Scene.EyeShader.Teeth && eye.Bump.Handle is not null;
+
+        Put(into, 0, state.Origin.X, state.Origin.Y, state.Origin.Z, teethBump ? TeethBumpCode : (float)parameters.Shader);
         Put(into, 4, state.Up.X, state.Up.Y, state.Up.Z, parameters.HalfLambert ? 1f : 0f);
         Put(into, 8, state.IrisU.X, state.IrisU.Y, state.IrisU.Z, state.IrisU.W);
         Put(into, 12, state.IrisV.X, state.IrisV.Y, state.IrisV.Z, state.IrisV.W);
-        Put(into, 16, parameters.Dilation, parameters.Glossiness, byteCube ? 1f : 0f, parameters.CorneaBumpStrength);
+        Put(
+            into, 16, parameters.Dilation, teethBump ? parameters.PhongExponent : parameters.Glossiness, byteCube ? 1f : 0f,
+            parameters.CorneaBumpStrength);
         float rayCast = parameters.SphereTexKill ? 2f : 1f;
 
         Put(
@@ -572,13 +728,16 @@ internal sealed unsafe partial class WorldRenderer
         Put(
             into, 24,
             parameters.AmbientOcclusionColour.Red, parameters.AmbientOcclusionColour.Green, parameters.AmbientOcclusionColour.Blue, 0f);
-        Put(into, 28, forward.X, forward.Y, forward.Z, mouth?.IllumFactor ?? parameters.IllumFactor);
+        Put(into, 28, forward.X, forward.Y, forward.Z, drawn?.IllumFactor ?? parameters.IllumFactor);
+        Put(into, 32, glint.U.X, glint.U.Y, glint.U.Z, glint.U.W);
+        Put(into, 36, glint.V.X, glint.V.Y, glint.V.Z, glint.V.W);
 
         context.Unmap(_eyeConstants, 0);
 
         ComPtr<ID3D11PixelShader> pixel = parameters.Shader switch
         {
             Scene.EyeShader.Eyes => _eyesPixel,
+            Scene.EyeShader.Teeth when teethBump => _teethBumpPixel,
             Scene.EyeShader.Teeth => _teethPixel,
             _ => _eyeRefractPixel,
         };
@@ -590,6 +749,8 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(EyeCorneaSlot, 1, ref eye.Cornea);
         context.PSSetShaderResources(EyeOcclusionSlot, 1, ref eye.Occlusion);
         context.PSSetShaderResources(EyeIrisSlot, 1, ref eye.Iris);
+        context.PSSetShaderResources(EyeBumpSlot, 1, ref eye.Bump);
+        context.PSSetShaderResources(EyeGlintSlot, 1, ref glintTexture);
 
         return true;
     }
@@ -626,6 +787,7 @@ internal sealed unsafe partial class WorldRenderer
         _eyeRefractPixel = PixelShader(_device, compiler, "PsEyeRefract");
         _eyesPixel = PixelShader(_device, compiler, "PsEyes");
         _teethPixel = PixelShader(_device, compiler, "PsTeeth");
+        _teethBumpPixel = PixelShader(_device, compiler, "PsTeethBump");
 
         BufferDesc buffer = new()
         {
@@ -636,5 +798,145 @@ internal sealed unsafe partial class WorldRenderer
         };
 
         SilkMarshal.ThrowHResult(_device.CreateBuffer(in buffer, null, ref _eyeConstants));
+
+        Texture2DDesc glint = new()
+        {
+            Width = Scene.EyeGlint.Size,
+            Height = Scene.EyeGlint.Size,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ShaderResource,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in glint, null, ref _glintTexture));
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_glintTexture, null, ref _glintView));
+
+        // `vgui/black`: one black texel, made once.
+        Texture2DDesc black = glint with { Width = 1, Height = 1, Usage = Usage.Immutable, CPUAccessFlags = 0 };
+        uint opaqueBlack = 0xFF000000u;
+        SubresourceData initial = new() { PSysMem = &opaqueBlack, SysMemPitch = 4 };
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in black, in initial, ref _glintBlackTexture));
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_glintBlackTexture, null, ref _glintBlack));
+    }
+
+    /// <summary>
+    /// <c>studiorender.dll</c> <c>0x18001e020</c> and <c>0x18001f510</c> for one Eyes draw: the glints of this eye under this
+    /// draw's lights through the current view, drawn into the glint target — black where the eye is under
+    /// <c>r_eyeglintlodpixels</c> wide or no light makes a glint, as <c>vgui/black</c> is — and <c>$glintu</c>/<c>$glintv</c>.
+    /// </summary>
+    /// <param name="context">The context.</param>
+    /// <param name="eye">The eye's state.</param>
+    /// <param name="sun">The draw's sun, the first of its lights where it reaches the model.</param>
+    /// <param name="locals">Its lamps, after the sun, four lights in all as the face shaders take them.</param>
+    /// <returns>The projection, and the texture <c>$glint</c> takes: the filled target, or <c>vgui/black</c>.</returns>
+    /// <remarks>
+    /// **Not parity in mechanism: the CPU fills the target** that the engine renders with a quad per glint through
+    /// <c>eyeglint_ps2x</c>. <see cref="Scene.EyeGlint.Rasterise"/> evaluates that pixel shader at the texels D3D9's
+    /// rasteriser covers and blends each quad into eight bits before the next, so the target's bytes are the engine's to
+    /// within one on a rare rounding tie (the normalises, B725). Under <c>r_glint_procedural</c> the engine's own CPU
+    /// regenerator, <see cref="Scene.EyeGlint.RegenerateProcedural"/>, fills it instead.
+    /// </remarks>
+    private (((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) Projection,
+        ComPtr<ID3D11ShaderResourceView> Texture) WriteGlint(
+        ComPtr<ID3D11DeviceContext> context, Scene.EyeShading eye, SunLight? sun, IReadOnlyList<LocalLight>? locals)
+    {
+        (float X, float Y, float Z) origin = _eye ?? (0f, 0f, 0f);
+        float viewportHeight = 0f;
+
+        // The viewport only for the level of detail, which `r_glint_alwaysdraw` skips.
+        if (!Glint.AlwaysDraw)
+        {
+            uint viewports = 1;
+            Viewport viewport = default;
+
+            context.RSGetViewports(ref viewports, ref viewport);
+            viewportHeight = viewport.Height;
+        }
+
+        ((float X, float Y, float Z) right, Core.Scene.ScreenFadeView screen) =
+            Scene.EyeGlint.View(_cameraContents.AsSpan(0, 16), origin, viewportHeight);
+        ((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) projection =
+            Scene.EyeGlint.Projection(eye.Origin, eye.Radius, right, screen.Up);
+
+        // **`mat_wireframe` (with `sv_cheats`, engine.dll `0x1800f5855`-`0x1800f5873`) sets the config's `bWireframe`, and
+        // the mesh setup skips the glint under it** (`0x18000f7d1`). The engine then draws the model with studiorender's
+        // own wireframe material (`R_StudioSetupSkinAndLighting`, `0x1800041c0`), not this shader at all — B788; here the
+        // glint is black. The menu and the viewer's default keys are ungated by `sv_cheats` (D253 as
+        // `ConfigConsole.KeyDown` applies it, D246); a config's, a bind's or a launch option's set is B791.
+        if (Wireframe || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
+        {
+            return (projection, _glintBlack);
+        }
+
+        Span<Scene.EyeGlintPoint> glints = stackalloc Scene.EyeGlintPoint[Scene.EyeGlint.MaxGlints];
+        Span<Scene.GlintLight> lights = stackalloc Scene.GlintLight[LocalLightSlots];
+        int lit = GlintLights(sun, locals, lights);
+        int count = Scene.EyeGlint.Glints(eye.Origin, eye.Forward, eye.Radius, right, screen.Up, origin, lights[..lit], glints);
+
+        if (Glint.Procedural)
+        {
+            // `CGlintTextureRegenerator`: the procedural texture, cleared and drawn even with no glint.
+            Scene.EyeGlint.RegenerateProcedural(glints[..count], _glintTexels);
+        }
+        else if (count == 0)
+        {
+            // `0x18001f55a`: no glint, `vgui/black`, and nothing rendered.
+            return (projection, _glintBlack);
+        }
+        else
+        {
+            Scene.EyeGlint.Rasterise(glints[..count], _glintTexels);
+        }
+
+        MappedSubresource mapped = default;
+        const int rowBytes = Scene.EyeGlint.Size * 4;
+
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_glintTexture, 0, Map.WriteDiscard, 0, ref mapped));
+
+        for (int row = 0; row < Scene.EyeGlint.Size; row++)
+        {
+            _glintTexels.AsSpan(row * rowBytes, rowBytes).CopyTo(new Span<byte>((byte*)mapped.PData + (row * mapped.RowPitch), rowBytes));
+        }
+
+        context.Unmap(_glintTexture, 0);
+
+        return (projection, _glintView);
+    }
+
+    /// <summary>
+    /// The draw's lights as the glint reads them, in the face shaders' order (<c>EyeLightCount</c>): the sun first,
+    /// <c>MATERIAL_LIGHT_DIRECTIONAL</c> with the all-zero rule's <c>a0 = 1</c> and the range the engine gives it, which
+    /// cuts nothing (<c>engine.dll</c> <c>0x1800f229c</c>, <c>0x1800f2196</c>, <c>0x1800f22cd</c>); then the lamps.
+    /// </summary>
+    /// <param name="sun">The draw's sun, or null.</param>
+    /// <param name="locals">Its lamps, or null.</param>
+    /// <param name="into">Where they go; its length is the most taken.</param>
+    /// <returns>How many.</returns>
+    internal static int GlintLights(SunLight? sun, IReadOnlyList<LocalLight>? locals, Span<Scene.GlintLight> into)
+    {
+        int count = 0;
+
+        if (sun is { } direct)
+        {
+            into[count++] = new Scene.GlintLight(
+                true, default, (direct.DirectionX, direct.DirectionY, direct.DirectionZ), (direct.Red, direct.Green, direct.Blue),
+                0f, 1f, 0f, 0f);
+        }
+
+        for (int index = 0; locals is not null && index < locals.Count && count < into.Length; index++)
+        {
+            LocalLight lamp = locals[index];
+
+            into[count++] = new Scene.GlintLight(
+                lamp.Directional, (lamp.X, lamp.Y, lamp.Z), lamp.Direction, (lamp.Red, lamp.Green, lamp.Blue), lamp.Range,
+                lamp.Constant, lamp.Linear, lamp.Quadratic);
+        }
+
+        return count;
     }
 }

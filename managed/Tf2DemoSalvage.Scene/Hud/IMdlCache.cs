@@ -11,4 +11,10 @@ public interface IMdlCache : IModelBodygroups
     /// <param name="path">The model's path.</param>
     /// <returns>The model's frames, skins and parts, or null when it is not loaded.</returns>
     public PropModels.ModelFrames? FindMdl(string path);
+
+    /// <summary>
+    /// The studio render context's one view target the panels' draws share with the world's models (B725 5d), or null for a
+    /// cache with no render context behind it (a panel then keeps its own).
+    /// </summary>
+    public StudioViewTarget? ViewTarget => null;
 }

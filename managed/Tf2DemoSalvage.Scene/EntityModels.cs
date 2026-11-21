@@ -291,6 +291,19 @@ public sealed class StudioFace(EyeShading[] eyes)
     public MouthShading? Mouth { get; set; }
 }
 
+/// <summary>
+/// The studio render context's one eye view target (B725 5d): written only by <c>SetEyeViewTarget</c> — a C_BaseFlex's
+/// <c>SetViewTarget</c> (<c>c_baseflex.cpp:643</c>), a CMDL's draw (TF2 <c>client.dll</c> <c>0x180937108</c>) — and read by
+/// every eyeball drawn after, so a model that sets none (a C_BaseAnimating, a C_BaseFlex without controllers) takes the
+/// last one set. Shared by the world's models and the HUD's model panels, as the engine's one render context is.
+/// </summary>
+/// <remarks>*Interpolated*: the context's value before anything sets it, taken as (0, 0, 0) (the closed context's start is not read).</remarks>
+public sealed class StudioViewTarget
+{
+    /// <summary>The last target set, world space.</summary>
+    public (float X, float Y, float Z) Target { get; set; }
+}
+
 /// <summary>The light a colour-mesh static prop's decals draw with: the full state at its lighting origin (B642).</summary>
 /// <param name="Cube">The ambient cube.</param>
 /// <param name="Sun">The sun reaching it, or null.</param>
@@ -432,6 +445,9 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <inheritdoc/>
     public PropModels.ModelFrames? FindMdl(string path) =>
         _frames.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
+
+    /// <summary>The studio render context's one view target, which the HUD's model panels reach through this cache (B725 5d).</summary>
+    public StudioViewTarget ViewTarget { get; } = new();
 
     /// <summary>What was posed and how, reported under `props` as the prop loader does.</summary>
     private readonly ILogger _props;

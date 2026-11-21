@@ -10,11 +10,16 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Up"><c>$eyeup</c>: the eye's own <c>up</c>, in its bone's space — the engine does not rotate it.</param>
 /// <param name="IrisU"><c>$irisu</c>, <c>eyeballstate_t.mat[0]</c>: the iris's planar projection, x y z then the offset.</param>
 /// <param name="IrisV"><c>$irisv</c>, <c>mat[1]</c>.</param>
+/// <param name="Forward">Where the eye looks, world space, after its <c>zoffset</c> turn: <c>eyeballstate_t.forward</c>
+/// (<c>+0x44</c>), which the glint reads (<see cref="EyeGlint"/>).</param>
+/// <param name="Radius">The eyeball's radius, <c>mstudioeyeball_t.radius</c>: the glint's scale and its LOD sphere.</param>
 public readonly record struct EyeShading(
     (float X, float Y, float Z) Origin,
     (float X, float Y, float Z) Up,
     (float X, float Y, float Z, float W) IrisU,
-    (float X, float Y, float Z, float W) IrisV);
+    (float X, float Y, float Z, float W) IrisV,
+    (float X, float Y, float Z) Forward,
+    float Radius);
 
 /// <summary>What it writes into a teeth material: <c>$forward</c> and <c>$illumfactor</c> (B725).</summary>
 /// <param name="Forward">The mouth's forward, world space, negated as the engine sends it.</param>
@@ -87,7 +92,9 @@ public static class StudioEyes
             origin,
             eye.Up,
             (u.X, u.Y, u.Z, 0.5f - Dot(origin, u)),
-            (v.X, v.Y, v.Z, 0.5f - Dot(origin, v)));
+            (v.X, v.Y, v.Z, 0.5f - Dot(origin, v)),
+            forward,
+            eye.Radius);
     }
 
     /// <summary><c>R_MouthSetupVertexShader</c>: the first mouth's forward and flex weight.</summary>
@@ -318,7 +325,7 @@ public static class StudioEyes
     /// <c>VectorNormalize</c> on x86, which the studio render and the client both use: <c>v · rsqrt( |v|² + 1e-10 )</c>
     /// (<c>vector.h:2239-2252</c>; the studio render's own copy at <c>0x18001e2c3</c>).
     /// </summary>
-    private static (float X, float Y, float Z) Normalise((float X, float Y, float Z) v) =>
+    internal static (float X, float Y, float Z) Normalise((float X, float Y, float Z) v) =>
         Scale(v, 1f / MathF.Sqrt(Dot(v, v) + NormaliseEpsilon));
 
     private static (float X, float Y, float Z) Transform((float X, float Y, float Z) v, ReadOnlySpan<float> m) => (
@@ -344,15 +351,15 @@ public static class StudioEyes
             (x * m[2]) + (y * m[6]) + (z * m[10]));
     }
 
-    private static (float X, float Y, float Z) Add((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+    internal static (float X, float Y, float Z) Add((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
         (a.X + b.X, a.Y + b.Y, a.Z + b.Z);
 
-    private static (float X, float Y, float Z) Sub((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+    internal static (float X, float Y, float Z) Sub((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
         (a.X - b.X, a.Y - b.Y, a.Z - b.Z);
 
-    private static (float X, float Y, float Z) Scale((float X, float Y, float Z) a, float s) => (a.X * s, a.Y * s, a.Z * s);
+    internal static (float X, float Y, float Z) Scale((float X, float Y, float Z) a, float s) => (a.X * s, a.Y * s, a.Z * s);
 
-    private static float Dot((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+    internal static float Dot((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
         (a.X * b.X) + (a.Y * b.Y) + (a.Z * b.Z);
 
     private static (float X, float Y, float Z) Cross((float X, float Y, float Z) a, (float X, float Y, float Z) b) => (
