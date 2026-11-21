@@ -237,8 +237,11 @@ public static class LaunchOptionsReader
 
                 if (ViewerSettings.IsCheat(command) && !cheats)
                 {
+                    // The ConVar's own name, as the console's refusal prints it (B791 review 10).
+                    string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? cheat) ? cheat.Name : command;
+
                     log.LogInformation(
-                        "{Message}", $"Can't use cheat cvar {command} in multiplayer, unless the server has sv_cheats set to 1.");
+                        "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
                     continue;
                 }
 

@@ -42660,7 +42660,12 @@ keeps rather than the settings. Tests: `LaunchOptionsTests.Read_ACheatConVarInUp
 `ConfigConsoleConformanceTests.KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused` (mixed-case rows),
 `…KeyDown_AMixedCaseToggleOfMatWireframeWithCheatsOn_AnnouncesTheSet`,
 `ViewerSessionTests.OpenDevice_AfterAConfigSetMatWireframeWithCheats_DrawsWireframe`, `EngineConVarsLookupTests`
-(Core.Tests); each reddened red-first or under its sabotage. That reverses, for `sv_cheats` alone, the rule that a
+(Core.Tests); each reddened red-first or under its sabotage. Review 10: a config line read after the settings attach is
+announced under the ConVar's own name as well (`…Load_AMixedCaseLineAfterTheSettingsAreAttached_AnnouncesTheConVarsOwnName`,
+red with the typed case), and the launch line's refusal names the ConVar as it spells itself. **Not gated, by D253**: the
+viewer's own settings file — a hand-written `mat_wireframe 1` there turns wireframe on at the device's opening with
+`sv_cheats 0`, as `mat_fullbright` there always has, because that file keeps the menus' choices
+(`OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice` pins it). That reverses, for `sv_cheats` alone, the rule that a
 replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
 default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's

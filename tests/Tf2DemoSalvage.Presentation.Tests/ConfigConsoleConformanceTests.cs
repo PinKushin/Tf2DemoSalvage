@@ -751,6 +751,23 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A config line read once the settings are attached is announced under the ConVar's own name too** (B791 review 10,
+    /// Fable): `MAT_WIREFRAME 1` from a cfg exec'd at run time reaches the settings as `mat_wireframe 1`.
+    /// </remarks>
+    [Test]
+    public void Load_AMixedCaseLineAfterTheSettingsAreAttached_AnnouncesTheConVarsOwnName()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.ReadSettingsFrom(_ => null);
+
+        console.Load("sv_cheats 1\nMAT_WIREFRAME 1");
+
+        set.ShouldBe(["sv_cheats 1", "mat_wireframe 1"]);
+    }
+
+    /// <remarks>
     /// **With cheats on, a mixed-case `toggle` toggles** (B791 review 9): the current value is found case-insensitively, so
     /// `toggle MAT_WIREFRAME` announces `mat_wireframe 1` as the lower-case one does.
     /// </remarks>

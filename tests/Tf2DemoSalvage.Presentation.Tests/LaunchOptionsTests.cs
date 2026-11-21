@@ -365,6 +365,14 @@ public sealed class LaunchOptionsTests
         Read("+sv_cheats", "1", "+MAT_WIREFRAME", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
     }
 
+    /// <remarks>
+    /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
+    /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
+    /// </remarks>
+    [Test]
+    public void Parse_AClientConVarInUpperCase_IsKept() =>
+        ViewerSettings.Parse("TF_HUD_TARGET_ID_ALPHA 50", null).ConVarText("tf_hud_target_id_alpha").ShouldBe("50");
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }

@@ -3297,7 +3297,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         // **A wireframe twin of every state, for the fill.** Under `mat_wireframe` a studio model also swaps to the
         // studio render's wireframe material (no depth test, no fog, unlit; B788); this twin is the FILL, which ours applies
-        // to every pass while TF2's fill comes from the drawn material's `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`)
+        // to every pass while the SDK sets the fill as the drawn material's `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`;
+        // whether anything closed also forces it is B808)
         // — a forced material without it, and the world's brushes, are open questions (B808, B803). Each pass keeps its own
         // culling and its own depth bias and differs only in fill. Building
         // one shared wireframe state instead would quietly answer a different question — "what is
@@ -6331,16 +6332,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private int DrawnMaterial(WorldBatch batch, IReadOnlyDictionary<int, int>? skin, string? overrideMaterial, string modelPath)
     {
-        int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
-            ? swapped
-            : batch.MaterialIndex;
+        // The skin's swap and the forced override are `Resolved`'s, which the war-paint composite also asks: TF2 builds a
+        // composite when the item is set up (`c_tf_player.cpp:3488`), drawn or not, so it does not ask the wireframe swap.
+        int material = Resolved(batch, skin, overrideMaterial);
+        bool forced = overrideMaterial is not null && _overrideMaterials.ContainsKey(overrideMaterial);
 
-        if (overrideMaterial is not null && _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
-        {
-            return forced;
-        }
-
-        return Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
+        return !forced && Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
     }
 
     /// <summary>The animation frame a material shows now, or a null handle (B341).</summary>

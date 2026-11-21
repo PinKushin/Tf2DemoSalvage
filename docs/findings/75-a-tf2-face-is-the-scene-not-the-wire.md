@@ -234,9 +234,9 @@ shading", which is what ours drew. Three reads settled it.
   and drawn through everything in front of it. Ours drew the model's textures, fogged and depth-tested — a wireframe that
   looked plausible and answered a different question (what is in front) from the engine's (where are all the edges).
 - **A forced material beats it.** The swap's first test is `+0x250`, `m_pForcedMaterial`, null (`0x1800041f2`): a gold
-  corpse under `mat_wireframe` stays gold (*read*). Whether it is drawn as edges or solid is not: the line fill is the
-  `Wireframe` shader's own `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), which gold lacks, and ours fills every pass
-  as edges (B808, open).
+  corpse under `mat_wireframe` stays gold (*read*). Whether it is drawn as edges or solid is not: in the SDK the line
+  fill is the `Wireframe` shader's own `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), which gold lacks; whether
+  anything closed also forces it is not read, and ours fills every pass as edges (B808, open).
 
 Ported in `WorldRenderer.DrawModel` with the material loaded at map load (`MapAssets.Wireframe`); the `$ignorez` depth
 state is *interpolated* (the flag's render state is the closed shaderlib's), the skybox's depth state being the precedent (its shader sets `MATERIAL_VAR_IGNOREZ` itself; this one reads the VMT's).

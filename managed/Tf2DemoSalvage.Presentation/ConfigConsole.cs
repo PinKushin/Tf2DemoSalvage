@@ -827,9 +827,13 @@ public sealed class ConfigConsole
         // they are its one copy (D215), so a config line read after that reaches them as a run-time set does.
         if (SetConVar(tokens) && _settingValue is not null)
         {
-            ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+            ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
         }
     }
+
+    /// <summary>A typed ConVar name as the ConVar spells it, or as typed when nothing declares it (B791 review 9).</summary>
+    private static string OwnName(string typed) =>
+        EngineConVars.TryByConsoleName(typed, out EngineConVar? declared) ? declared.Name : typed;
 
     /// <summary>A client ConVar's value as last set — through the attached settings, else the configs — or null when none did.</summary>
     /// <param name="name">The ConVar's engine name.</param>
@@ -1138,8 +1142,7 @@ public sealed class ConfigConsole
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
                 // after startup is announced for the host to apply (D215). A config line at load is not.
                 // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
-                string name = EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? set) ? set.Name : tokens[0];
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(name, tokens[1]));
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
                 acted = true;
                 continue;
             }
