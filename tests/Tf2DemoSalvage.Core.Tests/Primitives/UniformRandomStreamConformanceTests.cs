@@ -40,6 +40,28 @@ public sealed class UniformRandomStreamConformanceTests
     }
 
     /// <remarks>
+    /// <c>-|seed|</c> in machine code, two's complement and not trapping, leaves <c>int.MinValue</c> as itself, and the
+    /// warm-up's <c>-idum</c> is then below 1 and clamps to 1: the engine draws it as seed 1. *Measured* (B787 review 2):
+    /// 200 draws of the shipped `vstdlib.dll` at seed <c>int.MinValue</c> equal its draws at seed 1. A hashed seed
+    /// (`ParticleEffects.SeedFor`, B787) can be it.
+    /// </remarks>
+    [Test]
+    public void SetSeed_TheMostNegativeSeed_DrawsAsSeedOne()
+    {
+        UniformRandomStream stream = new();
+        UniformRandomStream one = new();
+
+        stream.SetSeed(int.MinValue);
+        one.SetSeed(1);
+
+        int[] drawn = [stream.RandomInt(0, int.MaxValue - 1), stream.RandomInt(0, int.MaxValue - 1), stream.RandomInt(0, int.MaxValue - 1)];
+        int[] expected = [one.RandomInt(0, int.MaxValue - 1), one.RandomInt(0, int.MaxValue - 1), one.RandomInt(0, int.MaxValue - 1)];
+
+        stream.Position.Seed.ShouldBe(int.MinValue);
+        drawn.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **The determinism the whole feature rests on.** `FX_FireBullets` reseeds with `iSeed` at the top of every bullet
     /// and increments it afterwards, so a shotgun's pellets are a seed RUN — two streams seeded alike must agree for as
     /// long as they are asked.

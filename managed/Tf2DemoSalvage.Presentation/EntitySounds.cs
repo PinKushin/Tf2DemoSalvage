@@ -97,5 +97,9 @@ public static class EntitySounds
     /// <param name="tick">When.</param>
     /// <param name="entity">The entity.</param>
     /// <returns>The seed.</returns>
-    public static int SeedFor(int tick, int entity) => ImpactSounds.SeedFor((tick * 64) + entity);
+    /// <remarks>
+    /// Both whole in one 64-bit key, hashed (<see cref="Scene.ParticleEffects.SeedFor"/>): `tick · 64 + entity` gave
+    /// `( t, e )` and `( t + k, e − 64k )` one stream, and edicts run to 2047 (B787).
+    /// </remarks>
+    public static int SeedFor(int tick, int entity) => Scene.ParticleEffects.SeedFor(((long)tick << 32) | (uint)entity);
 }
