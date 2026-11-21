@@ -285,7 +285,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|EntityAlphaFrom|Private|(Tf2DemoSalva
 Tf2DemoSalvage.Scene.EntityModelSet|method|EntityFadeFrom|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`3[System.Single,System.Single,System.Single],System.ValueTuple`3[System.Single,System.Single,System.Single],System.Nullable`1[Tf2DemoSalvage.Core.Scene.ScreenFadeView])|System.Byte
 Tf2DemoSalvage.Scene.EntityModelSet|method|EntityFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel)|Tf2DemoSalvage.Animation.Animating.AnimatingEntity
 Tf2DemoSalvage.Scene.EntityModelSet|method|EyeController|Private|(Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.String)|System.Single
-Tf2DemoSalvage.Scene.EntityModelSet|method|FaceDriving|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Single]
+Tf2DemoSalvage.Scene.EntityModelSet|method|FaceDriving|Assembly|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FaceShading|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,Tf2DemoSalvage.Animation.Animating.BoneAccessor)|Tf2DemoSalvage.Scene.StudioFace
 Tf2DemoSalvage.Scene.EntityModelSet|method|FileStaticProps|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|FileWaterEntries|Private|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Double)|System.Void

@@ -332,6 +332,40 @@ public sealed class StudioFaceWiringTests
     }
 
     /// <remarks>
+    /// **Whose face a corpse draws follows the same three branches** (review 3 item 1): `( pPlayer &amp;&amp; pPlayer->IsAlive() )
+    /// || !pPlayer` takes the corpse's own `SetupWeights` (`c_tf_player.cpp:630-633`), the dead player's otherwise
+    /// (:634-637). `FaceDriving` answers the global weights of the face that drives the corpse — the player's — or null for
+    /// the corpse's own. Player 2 unknown (neither in the frame nor dormant): its own. Dormant and alive: its own. Dormant
+    /// and dead: his.
+    /// </remarks>
+    [TestCase(false, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(true, false, true)]
+    public void FaceDriving_ACorpseOfAnUnknownOrDormantPlayer_IsHisFaceOnlyWhileHeIsDead(bool known, bool alive, bool hisFace)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => null,
+            PlayerOrigin = _ => null,
+            DormantPlayers = known ? [new SceneDormantPlayer(2, 0f, 0f, 0f, alive)] : [],
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+
+        models.Add([corpse], _ => Faced());
+
+        IReadOnlyDictionary<string, float>? driving = models.FaceDriving(corpse, 1d);
+
+        (driving is not null).ShouldBe(hisFace, hisFace ? "the dead player's face" : "the corpse's own SetupWeights");
+    }
+
+    /// <remarks>
     /// **A dead player the scene places nowhere sets no target from the corpse** (review 2 item 2): reachable only off
     /// `MomentScene`, which fills `PlayerAlive` and `PlayerOrigin` from the same `ScenePlayer`. With no origin there is no
     /// look-at to run, so the corpse leaves the context's (7, 7, 7) as it found it, where the old fallback ran the look-at

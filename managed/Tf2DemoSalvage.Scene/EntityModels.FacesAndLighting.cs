@@ -549,7 +549,7 @@ public sealed partial class EntityModelSet
     /// bone-merged item on a player reads the player's (<c>CEconEntity::SetupWeights</c>, <c>econ_entity.cpp:1377</c>); a
     /// corpse reads its dead player's (<c>C_TFRagdoll::SetupWeights</c>, <c>c_tf_player.cpp:636</c>).
     /// </summary>
-    private IReadOnlyDictionary<string, float>? FaceDriving(SceneProp prop, double seconds)
+    internal IReadOnlyDictionary<string, float>? FaceDriving(SceneProp prop, double seconds)
     {
         int actor;
 
