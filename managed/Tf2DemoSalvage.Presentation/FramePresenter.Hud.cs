@@ -282,11 +282,6 @@ public sealed partial class FramePresenter
         _panelModels.Clear();
         _vguiHud.AddModelsToPrecache(_panelModels);
         _models.PrecacheChanged(_panelModels);
-
-        // A frame of a level: the panels now hold what this level's models gave them, so the next load shuts it down
-        // (`g_bLevelInitialized`, cdll_client_int.cpp:1612, :1714-1715; B779 review 11). Only after a load, so the frames
-        // before the first one arm nothing.
-        _levelInitialized |= _aLoadHappened;
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;

@@ -43026,7 +43026,34 @@ the twice row at its control, the first release).
 
 *Sabotage*, run apart: the arming deleted (the after-a-frame row and the twice row), armed without the after-a-load guard
 (the before-any-level row alone), the flag's clearing deleted (the twice row alone). The analyzer refused two wordings of
-the second break (a null test the flow analysis then distrusted); the one run arms on any frame.
+the second break (a null test the flow analysis then distrusted); the one run arms on any frame. *Superseded by review
+12*: the flag is gone.
+
+**Review round 12** (the flag was a wrong turn; removed):
+1. *A frame before the first load set panels up and the first load kept them* (Sonnet): our HUD can run before any load
+   (an install open), setting its panels up from the model set, and the first load's `EntityModelSet.LevelShutdown`
+   clears that set — but `_aLoadHappened` was false, so the HUD's shutdown was skipped. The engine's first-load early
+   return (`cdll_client_int.cpp:1714-1715`) holds because it has no entities before its first level; ours has panel
+   models.
+2. *Every arming site was a place the flag could miss* (Fable): `SkipHudFrame` (`FramePresenter.Hud.cs:150`) sets panels
+   up through events (`TfHudMatchStatus.cs:505-533`) without passing `BuildOverlay`'s arming, safe only while `FindMdl`
+   returns null after a shutdown until the next precache.
+
+**The wrong turn, reviews 9-11**: a `g_bLevelInitialized` copy was armed at `LevelInit` (9), then at
+`ViewerPresenter.Apply` (10), then in `BuildOverlay` after a load (11). Each move fixed a route the last one missed and
+left another, because the engine's flag stands for "entities exist", which ours never tracks in one place. **The fix**:
+`FramePresenter.ClearMap` runs `HudViewport.LevelShutdown` at every load. `ForgetLevel` on a panel holding nothing does
+nothing, so a load with nothing set up releases nothing — the engine's early return in effect — and the release is always
+paired with the model set forgetting (`ViewerPresenter.ClearMap`). `_levelInitialized`, `_aLoadHappened` and the arming
+line are deleted.
+
+*Tests* (`FramePresenterHudTests`): `ClearMap_WithNothingSetUp_ReleasesNothingAndMarksThePanelDirty` (replaces the
+before-any-level row; a control, green on both codes), `ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty`
+(red first: kept), `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween` (replaces the twice row; the sign set up again
+with no frame, as a skip's events do; red first: kept), and `ClearMap_AfterAFrameOfALevel_…` (control reworded).
+
+*Sabotage*, run apart: `LevelShutdown` deleted from `ClearMap` (the pre-load, after-a-frame and twice rows), `NewMap`
+deleted (all four rows).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

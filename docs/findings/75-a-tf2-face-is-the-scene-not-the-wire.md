@@ -215,7 +215,11 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — so between the old level's end
   and the next set-up `m_hModel.Get()` is null, and `SetSequence` or `SetBodyGroup` finds nothing. **But not at the first
   load**: `LevelShutdown` returns at once while no level was initialised (:1714-1715; `g_bLevelInitialized`, set at
-  :1612), so the first map's load releases nothing and only the event marks the panel dirty (review 9). **A wrong turn,
+  :1612), so the first map's load releases nothing and only the event marks the panel dirty (review 9). The engine
+  returns there because no entity exists yet. Ours can have panel models before its first load (a HUD frame with no
+  demo), so a copy of the flag kept them while the model set forgot: three placements of it each missed a route (reviews
+  9-11, *wrong turn*). Ours now shuts the panels down at every load and releases exactly what they hold, which is nothing
+  when nothing was set up — the early return in effect (review 12). **A wrong turn,
   kept** (review 7): reading the event handler alone — dirty, and `DeleteModelData` only at the next `SetupModel`
   (:395) — the port kept the model until the set-up. True for the event, wrong for the level change our viewport's walk
   is called at, where the shutdown has released it already. And the HUD's precache of the panels' models must not survive the level its

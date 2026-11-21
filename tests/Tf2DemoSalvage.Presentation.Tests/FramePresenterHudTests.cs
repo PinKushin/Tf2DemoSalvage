@@ -156,11 +156,10 @@ public sealed class FramePresenterHudTests
     /// 10). Both halves run from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every load: the old
     /// level's shutdown releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`,
     /// `cdll_client_int.cpp:1735`), and the new map's `game_newmap` marks the panel dirty (`basemodelpanel.cpp:56`,
-    /// :196-205) so it sets its model up again from the new level's frames. **The shutdown half is armed by a frame of a
-    /// level** (B779 review 11): the HUD's own precache of its panel models, in `BuildOverlay`, after a load — whatever the
-    /// load came to (a map, none, superseded, failed), the frames that ran after it are the level the panels hold — as
-    /// `g_bLevelInitialized` arms the engine's (:1714-1715). Here: a first load (nothing to release), a frame, a second load.
-    /// The control: the round sign, set up, is clean before the change.
+    /// :196-205) so it sets its model up again from the new level's frames. **The shutdown runs at every load** (B779 review
+    /// 12): it releases exactly what the panels hold, paired with the model set forgetting its models, whatever the load
+    /// before came to (a map, none, superseded, failed). Here: a frame, a load, the sign set up again, a frame, a second
+    /// load. The control: the round sign, set up, is clean before the change.
     /// </remarks>
     [Test]
     public void ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty()
@@ -170,7 +169,7 @@ public sealed class FramePresenterHudTests
 
         window.Frames.ClearMap();
         sign.UpdateModel();
-        sign.SetUpModel.ShouldNotBeNull("the control: the first load released nothing, and the sign is set up");
+        sign.SetUpModel.ShouldNotBeNull("the control: set up again after the first load");
         window.Overlay(101);
         window.Frames.ClearMap();
 
@@ -179,45 +178,67 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **A shutdown disarms itself** (B779 review 10 item 1): the engine clears `g_bLevelInitialized` in `LevelShutdown`
-    /// (`cdll_client_int.cpp:1717`), so a second shutdown with no level started between them returns at once (:1714-1715).
-    /// A load, a frame of its level, a second load (the model released), the sign set up again, and a third load with no
-    /// frame between: the model kept.
+    /// **A frame before the first load is a level the panels hold** (B779 review 12): our HUD can run before any load (an
+    /// install open, no demo), setting its panels up from the model set, and the first load's model-set shutdown clears
+    /// that set (`EntityModelSet.LevelShutdown`). The engine's first-load early return (`cdll_client_int.cpp:1714-1715`)
+    /// rests on it having no entities before its first level; ours has panel models, so they are released with the set
+    /// (B779 review 12; review 9's flag kept them).
+    /// The control: the sign was set up by that frame (`SignWithAModel`).
     /// </remarks>
     [Test]
-    public void ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst()
+    public void ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty()
     {
         Window window = new();
         VguiModelPanel sign = SignWithAModel(window);
 
         window.Frames.ClearMap();
-        window.Overlay(101);
-        window.Frames.ClearMap();
-        sign.SetUpModel.ShouldBeNull("the control: the first load after a level released it");
 
-        sign.UpdateModel();
-        object model = sign.SetUpModel.ShouldNotBeNull("the control: set up again");
-        window.Frames.ClearMap();
-
-        sign.SetUpModel.ShouldBeSameAs(model);
+        sign.SetUpModel.ShouldBeNull("the first load released what the pre-load frame set up");
+        sign.PanelDirty.ShouldBeTrue();
     }
 
     /// <remarks>
-    /// **The first level's load releases nothing** (B779 review 9 item 1): `CHLClient::LevelShutdown` returns at once while
-    /// no level was initialised (`cdll_client_int.cpp:1714-1715`; `g_bLevelInitialized` is set at `LevelInitPreEntity`,
-    /// :1610-1612). So a load before any level was initialised leaves the panel's model, and the new map's event still marks
-    /// the panel dirty. The control: the sign held a model.
+    /// **Every load releases what was set up since the last** (B779 review 12, replacing review 10's flag): the model set
+    /// forgets its models at every load (`ViewerPresenter.ClearMap`), so the panels must too, whatever ran between — a
+    /// frame or only a skip's events setting the panel up. A load, the sign set up again with no frame, a second load:
+    /// released again.
     /// </remarks>
     [Test]
-    public void ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty()
+    public void ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween()
     {
         Window window = new();
         VguiModelPanel sign = SignWithAModel(window);
-        object model = sign.SetUpModel.ShouldNotBeNull();
+
+        window.Frames.ClearMap();
+        sign.SetUpModel.ShouldBeNull("the control: the first load released it");
+
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldNotBeNull("the control: set up again with no frame between");
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull();
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **Nothing set up, nothing released** (B779 reviews 9 and 12): `CHLClient::LevelShutdown` returns at once while no
+    /// level was initialised (`cdll_client_int.cpp:1714-1715`), because no entity exists yet. Ours runs the shutdown at every
+    /// load and releases exactly what the panels hold, so a HUD whose panels set nothing up loses nothing, and the new map's
+    /// event still marks the panel dirty. The control: the sign was clean before the load.
+    /// </remarks>
+    [Test]
+    public void ClearMap_WithNothingSetUp_ReleasesNothingAndMarksThePanelDirty()
+    {
+        Window window = new();
+        window.Overlay(100);
+        VguiModelPanel sign = window.Frames.Hud.ShouldNotBeNull().MatchStatus.RoundSignModel;
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldBeNull("the control: nothing set up");
+        sign.PanelDirty.ShouldBeFalse("the control: clean before the load");
 
         window.Frames.ClearMap();
 
-        sign.SetUpModel.ShouldBeSameAs(model);
+        sign.SetUpModel.ShouldBeNull();
         sign.PanelDirty.ShouldBeTrue();
     }
 
