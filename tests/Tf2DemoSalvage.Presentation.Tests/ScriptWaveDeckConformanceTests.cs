@@ -172,7 +172,8 @@ public sealed class ScriptWaveDeckConformanceTests
 
     /// <remarks>
     /// B789, a patch: its start played nothing, so its later change names nothing playing. The change must not fall
-    /// through to a start of its own — `S_AlterChannel`'s fall-through is `svc_Sounds`', not a client patch's. The
+    /// through to a start of its own: its emit returns at `EmitSoundByHandle`'s failed lookup
+    /// (`SoundEmitterSystem.cpp:465-470`) before any `SND_CHANGE_*` handling (`:474`). The
     /// declared row is the control: its start plays, and — this sink holding no voice — its change finds nothing playing
     /// and falls through to a second start, as `S_AlterChannel` returning 0 does.
     /// </remarks>
@@ -193,6 +194,30 @@ public sealed class ScriptWaveDeckConformanceTests
         presenter.Update(sink, 40, Listener, Right, now: 0.6d);
 
         return sink.Started.Count;
+    }
+
+    /// <remarks>
+    /// B789, a patch's stop: its start played nothing, so its stop names nothing — not the wave its producer drew, which
+    /// another voice on the key could be playing (review 2, Fable). The declared row is the control: its stop names the
+    /// wave its start played.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_APatchTheCatalogDeclaresOrNotThenAStop_SilencesOnlyItsDeclaredStart(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 6, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
+
+        presenter.Schedule = new SoundSchedule([loop, loop with { Tick = 30, IsStop = true }]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        return sink.Silenced.Count;
     }
 
     /// <remarks>The same for a sound the client emits during play, the pass's other road to the deck (B789).</remarks>

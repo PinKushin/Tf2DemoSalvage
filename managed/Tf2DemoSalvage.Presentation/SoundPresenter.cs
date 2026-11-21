@@ -670,7 +670,11 @@ public sealed partial class SoundPresenter(
             if (scheduled)
             {
                 // A skip dispatches only `svc_Sounds`, which name their wave (`SkipDispatched`): nothing to deal.
-                if ((skipping ? next : Dealt(next)) is { } sound && InRange(sound, listener))
+                if ((skipping ? next : Dealt(next)) is not { } sound)
+                {
+                    NotInCatalog(next);
+                }
+                else if (InRange(sound, listener))
                 {
                     Start(output, sound, listener, right);
                 }
@@ -680,12 +684,7 @@ public sealed partial class SoundPresenter(
 
             if (Dealt(next) is not { } live)
             {
-                // Its script is not in the level's catalog, so `EmitSoundByHandle` emits nothing (B789).
-                if (audio.IsEnabled(LogLevel.Debug))
-                {
-                    audio.LogDebug("{Message}", $"'{next.WaveDraw?.Script}' is not in the catalog: nothing plays (tick {next.Tick.ToString(CultureInfo.InvariantCulture)})");
-                }
-
+                NotInCatalog(next);
                 continue;
             }
 
@@ -886,6 +885,17 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
 
+    /// <summary>Logs a sound <see cref="Dealt"/> dropped: its script is not in the level's catalog, so `EmitSoundByHandle` emits nothing (B789).</summary>
+    private void NotInCatalog(SceneSound sound)
+    {
+        if (audio.IsEnabled(LogLevel.Debug))
+        {
+            audio.LogDebug(
+                "{Message}",
+                $"'{sound.WaveDraw?.Script}' is not in the catalog: nothing plays (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
+        }
+    }
+
     /// <summary>
     /// A script sound with what the deck deals it now — or null, nothing to play, when the catalog lacks its script (B789);
     /// a stop or change named as its start was dealt; anything else as it is.
@@ -894,9 +904,10 @@ public sealed partial class SoundPresenter(
     {
         if (!Deals(sound))
         {
-            // A change of a patch whose script the catalog lacks: its start played nothing, and a change must not fall
-            // through to a start of its own (B789). A stop of it stops nothing either way.
-            if (!sound.IsStop && Scripts is { } catalog && sound.WaveDraw is { } draw && !ScriptWaveDeck.Declares(draw, catalog.Entries, out _))
+            // A change or stop of a patch whose script the catalog lacks: its start played nothing (B789), so a change must
+            // not fall through to a start of its own, and a stop, which would name the producer's wave, must not stop
+            // another voice playing it.
+            if (Scripts is { } catalog && sound.WaveDraw is { } draw && !ScriptWaveDeck.Declares(draw, catalog.Entries, out _))
             {
                 return null;
             }

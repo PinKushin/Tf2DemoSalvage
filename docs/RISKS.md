@@ -42416,7 +42416,9 @@ parity never removes a feature without asking): keep the default keys ungated as
 **Fixed:** `ScriptWaveDeck.Deal` returns nothing for a script sound whose script the catalog does not declare (still
 releasing the head it followed), and every caller (`SoundPresenter.Dealt`: the pass's scheduled and emitted starts, a
 skip frame's deal count and hash) plays and counts nothing for it. A CHANGE of a patch whose script the catalog lacks
-plays nothing either, where it fell through to a start of its own (review 1, Fable); a stop of it stops nothing. Tests:
+plays nothing either, where it fell through to a start of its own (review 1, Fable); and its STOP stops nothing, where
+it named the producer's wave and could stop another voice playing it (review 2, Fable;
+`Update_APatchTheCatalogDeclaresOrNotThenAStop_SilencesOnlyItsDeclaredStart`, red before: 1 silenced). Tests:
 `Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared` and its emitted twin (red before: the undeclared one
 started; the declared row the control), `Update_APatchTheCatalogDeclaresOrNotThenAChange_PlaysNothingWhenUndeclared`
 (red before: 1 start), and `Deal_AnImpactWhoseScriptIsMissingAtDealTime_PlaysNothingAndReleasesItsShrapnel`. The skip
