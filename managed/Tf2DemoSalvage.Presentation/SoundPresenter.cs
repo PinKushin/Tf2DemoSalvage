@@ -273,6 +273,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        StopLevelPatches(output, listener, right);
         DispatchSkipReads(output, listener, right);
         FollowListener(output, listener, right);
     }
@@ -335,6 +336,56 @@ public sealed partial class SoundPresenter(
         // back, with nothing reported anywhere.
         soundscape.Clear();
         _late.Clear();
+
+        ForgetPatches();
+    }
+
+    /// <summary>
+    /// Every patch ended — by a reload's `S_StopAllSounds` (B550), or a level change's `CSoundControllerImp::SystemReset`
+    /// (`soundenvelope.cpp:862-878`) and its release of the client entity list (`cdll_client_int.cpp:1734-1735`), whose
+    /// ragdolls' destructors free their slots (`C_TFRagdoll::~C_TFRagdoll` → `PhysCleanupFrictionSounds` →
+    /// `ShutdownFriction`, `c_tf_player.cpp:590-593`, `physics.cpp:711-717, 1024-1031`; that `Release` reaches the
+    /// destructor is inferred, B782 review round 3): the deck forgets them, so nothing
+    /// names one again, and the scrape slots go with their patches, so no change names a patch nothing holds. The wave
+    /// flags stay (B504).
+    /// </summary>
+    /// <param name="ended">Where to add each forgotten patch's entity, channel and wave when the caller has not already
+    /// silenced everything; null after `SilenceAll`.</param>
+    private void ForgetPatches(List<(int Entity, int Channel, string Wave)>? ended = null)
+    {
+        _deck.ForgetPlaying(ended);
+        _frictionSounds.Clear();
+    }
+
+    /// <summary>The patches a level change ended, stopped at the next pass — the first that reaches the sink.</summary>
+    private readonly List<(int Entity, int Channel, string Wave)> _levelStops = [];
+
+    /// <summary>
+    /// Stops what a level change ended: `ShutdownFriction` → `SoundDestroy` (`physics.cpp:711-717`) and `SystemReset` →
+    /// `Shutdown` (`soundenvelope.cpp:862-878`) STOP each patch, they do not only forget it.
+    /// </summary>
+    /// <remarks>
+    /// **Each through the stop every named stop takes** (<see cref="Start"/>, B416): by its wave, so only the patch's own
+    /// voice goes — not another sound on the key, a voice line the voice presenter started there included — on any channel,
+    /// <c>CHAN_AUTO</c> too (the by-name stop has no auto-channel guard); the loop tracking is told; and a patch still
+    /// waiting for its wave is dropped from the late starts (finding 90), so it never starts when its data arrives. First
+    /// in the pass, before anything it starts: the stop belongs to the level change, which came before them. So its tick, which
+    /// only a "stopped while loading" log line reads, is whatever tick the last pass left set — after a skip, its last batch's — on
+    /// every path: <see cref="Update"/> and <see cref="PlaySkipFrames"/> set theirs only after the stops, and
+    /// <see cref="FollowListener"/> sets none.
+    /// </remarks>
+    private void StopLevelPatches(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        foreach ((int entity, int channel, string wave) in _levelStops)
+        {
+            Start(
+                output,
+                new SceneSound(_originTick, wave, ExplosionSounds.NotPrecached, entity, channel, 0f, 0, 0, 0f, 0f, 0f, 0f) { IsStop = true },
+                listener,
+                right);
+        }
+
+        _levelStops.Clear();
     }
 
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
@@ -354,17 +405,34 @@ public sealed partial class SoundPresenter(
     /// <remarks>
     /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
     /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
+    ///
+    /// **Set when an install opens (`LevelSystems.Publish`) and again for each map (`LevelSystems.Load`)** — twice for the
+    /// first level — and a level change ends every patch and scrape loop (<see cref="ForgetPatches"/>) and STOPS them at
+    /// the next pass, which is the first to reach the sink. In this viewer both setters run while a demo opens
+    /// (`ViewerPresenter`'s map read and demo load), and that demo's new <see cref="Schedule"/> makes its first pass a
+    /// reload that silences everything; the stops here do not rely on it, as the engine stops the patches at the level
+    /// change itself. Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
+    /// change — `CSoundEmitterSystem::LevelShutdownPostEntity` calls `ClearSoundOverrides`, which ships closed in
+    /// soundemittersystem.dll and was not disassembled; keeping them is this port's reading, not an observation.
     /// </remarks>
-    public SoundScriptCatalog? Scripts { get; set; }
+    public SoundScriptCatalog? Scripts
+    {
+        get;
+        set
+        {
+            field = value;
+            ForgetPatches(_levelStops);
+        }
+    }
 
     /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
     private readonly List<SceneSound> _emitted = [];
 
-    /// <summary>Every script's wave flags, as the sounds played so far left them (B503).</summary>
+    /// <summary>Every script's wave flags, as the sounds played so far left them (B503), and what each draw was dealt (B782).</summary>
     private readonly ScriptWaveDeck _deck = new();
 
-    /// <summary>The wave each script draw was dealt, for the stop or change that names it.</summary>
-    private readonly Dictionary<ScriptWaveDraw, string> _dealtWaves = [];
+    /// <summary>How many patches the deck holds for a later stop or change (B782 review).</summary>
+    internal int PatchesHeld => _deck.PatchesHeld;
 
     /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
     /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
@@ -383,6 +451,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        StopLevelPatches(output, listener, right);
         output.Reclaim();
         Attenuate(output, listener, right);
     }
@@ -456,6 +525,7 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         long began = Stopwatch.GetTimestamp();
+        StopLevelPatches(output, listener, right);
         _originTick = tick;
         loops.Headphones = Headphones();
 
@@ -806,37 +876,16 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
 
-    /// <summary>A script sound with the wave the deck gives it now; anything else as it is.</summary>
+    /// <summary>A script sound with what the deck deals it now; a stop or change named as its start was dealt; anything else as it is.</summary>
     private SceneSound Dealt(SceneSound sound)
     {
         if (!Deals(sound))
         {
-            return Named(sound);
+            return _deck.Named(sound);
         }
 
-        return sound.WaveDraw is { } draw && Deal(draw) is { } wave ? sound with { Name = wave } : sound;
+        return Scripts is { } scripts ? _deck.Deal(sound, scripts.Entries) : sound;
     }
-
-    /// <summary>Picks a script's wave against the deck, remembering it for the stop or change that names it later.</summary>
-    private string? Deal(ScriptWaveDraw draw)
-    {
-        if (Scripts?.Entries.TryGetValue(draw.Script, out SoundScriptEntry entry) != true || entry.Waves.Count == 0)
-        {
-            return null;
-        }
-
-        string wave = entry.Waves[_deck.Pick(draw.Script, entry.Waves.Count, draw.Draw, draw.Emitted)];
-        _dealtWaves[draw] = wave;
-
-        return wave;
-    }
-
-    /// <summary>
-    /// A stop, a change, or a re-established loop, named as the start it belongs to was dealt — `CSoundPatch` and
-    /// `S_AlterChannel` act on the wave already playing, and pick nothing.
-    /// </summary>
-    private SceneSound Named(SceneSound sound) =>
-        sound.WaveDraw is { } draw && _dealtWaves.TryGetValue(draw, out string? wave) ? sound with { Name = wave } : sound;
 
     /// <summary>
     /// `SND_Spatialize` over every followed channel (B724): each moved to where its entity now is, then re-gained and

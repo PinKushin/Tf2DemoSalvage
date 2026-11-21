@@ -65,6 +65,12 @@ public sealed class UniformRandomStream
     private int _seed;
     private int _last;
 
+    /// <summary>The seed <see cref="SetSeed"/> was last given, as given; 0 for a stream never seeded, whose state is seed 0's.</summary>
+    private int _seedGiven;
+
+    /// <summary>How many numbers <see cref="GenerateRandomNumber"/> has made since the stream was seeded.</summary>
+    private int _drawn;
+
     /// <summary>Seeds the stream — <c>SetSeed</c> (<c>0x18000fb10</c>), which is two writes and no draw.</summary>
     /// <param name="seed">The seed; its sign is discarded.</param>
     /// <remarks>
@@ -75,6 +81,24 @@ public sealed class UniformRandomStream
     {
         _last = 0;
         _seed = -Math.Abs(seed);
+        _seedGiven = seed;
+        _drawn = 0;
+    }
+
+    /// <summary>Where the stream is: the seed it was last given and how many numbers it has made since.</summary>
+    /// <remarks>Not the engine's: how a sound carries its stream to the moment the engine draws from it (B782).</remarks>
+    public RandomStreamPosition Position => new(_seedGiven, _drawn);
+
+    /// <summary>Puts the stream at a position — seeded as it was, then that many numbers made and thrown away.</summary>
+    /// <param name="position">A <see cref="Position"/> read from this stream or another.</param>
+    public void MoveTo(RandomStreamPosition position)
+    {
+        SetSeed(position.Seed);
+
+        for (int made = 0; made < position.Drawn; made++)
+        {
+            GenerateRandomNumber();
+        }
     }
 
     /// <summary>A float in a range — <c>RandomFloat</c> (<c>0x18000f9b0</c>).</summary>
@@ -141,6 +165,7 @@ public sealed class UniformRandomStream
         }
 
         _seed = Advance(_seed);
+        _drawn++;
 
         // `(int)(iy + (iy >> 0x1f & 0x3ffffff)) >> 0x1a` — a signed divide by 2^26, rounding toward zero.
         int index = _last / IndexDivisor;

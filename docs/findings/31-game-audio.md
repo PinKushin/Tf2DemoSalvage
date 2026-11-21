@@ -1141,6 +1141,16 @@ carries its draw, and the presenter — the one place both the schedule and the 
 deals it. A stop or a volume/pitch change names the wave its start was dealt, as `CSoundPatch` and `S_AlterChannel`
 act on the wave already playing.
 
+**Correction (B782, 2026-11-20): the "plain modulo that always consumes one number" was the port's, not vstdlib's.**
+B733 read vstdlib's `RandomInt` (`0x18000fb70`, finding 57): a span of one takes NO number, and a number above
+`0x7fffffff - 2^31 % span` is refused and drawn again. So the raw-number trick took one number too many for every sound
+with one wave available — a one-wave script, and the last card of every deal — and moved the soundlevel drawn after
+it, and on a shared stream everything after that. The design survived; its carrier did not. A sound now carries its
+stream's POSITION (seed, numbers made) to the deal, and the deal makes `GetParametersForSound`'s four draws there,
+which is where FUN_180003370 makes them: the pick and its clear sit between the pitch and the soundlevel in one call.
+Two sounds on one stream — a shrapnel then its impact, a scrape's own draw then its patch's `Init` — are a chain the
+deal replays, the earlier with the count it was dealt.
+
 **Seeking — the first answer was the intuitive one, and wrong.** The first version rebuilt the deck at a seek "as if
 played to the tick": every scheduled sound through it, plus a ledger of live deals (4,601 sounds, 17.2 ms on f12). That
 is a property a viewer wants, not one the engine has. Reading `demo_gototick` settled it (B504): the engine cannot

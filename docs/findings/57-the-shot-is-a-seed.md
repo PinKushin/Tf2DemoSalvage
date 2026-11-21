@@ -181,4 +181,14 @@ it mod the wave count at play time. The engine takes no number at all when one w
 every sound of a one-wave entry and the last card of every deal of a longer one — so there ours takes one number more;
 with more waves the engine refuses a draw with probability `(2^31 % count - 1)` over the `2^31 - 2` numbers, about
 4.7e-10 for three.
-Filed as its own divergence, **B782** (OPEN), with why it is structural: the deck is dealt at play time (B503-B505).
+Filed as its own divergence, **B782**, with why it is structural: the deck is dealt at play time (B503-B505).
+
+**Fixed the same day, by moving the draws rather than the deal** (B782). Re-reading `GetParametersForSound`
+(FUN_180003370) for the fix settled which of the two orders was the engine's: the deal is not a step after the draws
+but INSIDE them — volume, pitch, FUN_180005680's pick and its clear, soundlevel, one call — and the client makes that
+call when it emits, so in a viewer it belongs where the sound plays. A sound now carries its stream's position (seed
+and numbers made) instead of a number, and the deal draws all four there. What that cost is a chain: two sounds on one
+stream (a shrapnel then its impact, a scrape's own draw then its patch's) are no longer independent, because how many
+numbers the first takes decides where the second starts — the deal replays the first with the count it was dealt.
+*Read from the shipped binary's disassembly* for the order; *measured* that f12's only explosion script fixes every
+range (volume 1, pitch 100, soundlevel 95), so on that demo the fix changes no value at all.

@@ -282,6 +282,9 @@ public sealed partial class SoundPresenter
     /// <summary>The corpses' scrape loops (`friction_t`).</summary>
     private readonly PhysicsFrictionSounds _frictionSounds = new();
 
+    /// <summary>The corpses' scrape loops, for a test to drive without a corpse pass.</summary>
+    internal PhysicsFrictionSounds FrictionSounds => _frictionSounds;
+
     /// <summary>`gpGlobals->curtime` for the scrape loops: the demo time the frames have covered.</summary>
     private double _frictionClock;
 

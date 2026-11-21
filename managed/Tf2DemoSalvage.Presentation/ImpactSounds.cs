@@ -81,11 +81,17 @@ public static class ImpactSounds
 
         random.SetSeed(seed);
 
+        // The impact's script, resolved first (no draw) so the shrapnel knows whether a draw follows it on this stream.
+        SoundScriptEntry? impact = landing.ImpactSound is { } name && scripts.TryGetValue(name, out SoundScriptEntry found) &&
+            found.Waves.Count > 0
+                ? found
+                : null;
+
         // `random->RandomInt( 1, 10 ) <= 3`, asked only when `Impact` returned true for a bullet.
         if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
             scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true) with
+            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true, leads: impact is not null) with
             {
                 AudibleWithin = AudibleWithin,
                 Order = landing.Order,
@@ -93,10 +99,12 @@ public static class ImpactSounds
             });
         }
 
-        if (landing.ImpactSound is { } name &&
-            scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
+        if (impact is { } struck)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true) with
+            // On the shrapnel's stream after it, so its draws start where the shrapnel's wave and soundlevel left it (B782).
+            ScriptWaveDraw? after = sounds.Count > 0 ? sounds[^1].WaveDraw : null;
+
+            sounds.Add(ExplosionSounds.FromWorldAt(struck, random, landing.Tick, landing.At, emitted: true, after) with
             {
                 AudibleWithin = AudibleWithin,
                 Order = landing.Order,
