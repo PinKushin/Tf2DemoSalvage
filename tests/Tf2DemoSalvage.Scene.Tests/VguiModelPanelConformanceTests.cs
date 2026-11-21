@@ -505,6 +505,76 @@ public sealed class VguiModelPanelConformanceTests
         target.Z.ShouldBe(merged ? 0f : 10f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **A cache that shares no target leaves the panel its own, kept between paints** (review 1 item 5): the root's draw
+    /// sets the camera position, (50, 0, 10), into the same object every paint.
+    /// </remarks>
+    [Test]
+    public void Paint_WithACacheSharingNoTarget_WritesThePanelsOwnKeptTarget()
+    {
+        VguiMdlPanel panel = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")))
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+        StudioViewTarget own = panel.SharedViewTarget;
+        own.Target = (7f, 7f, 7f);
+
+        panel.Paint(new RecordingModelSurface(), Context());
+
+        panel.SharedViewTarget.ShouldBeSameAs(own);
+        own.Target.X.ShouldBe(50f, 1e-4f);
+        own.Target.Z.ShouldBe(10f, 1e-4f);
+    }
+
+    /// <remarks>**The model set is the cache the panels share its target through** (review 1 item 5): one object.</remarks>
+    [Test]
+    public void ViewTarget_ThroughTheCacheInterface_IsTheModelSetsOwn()
+    {
+        EntityModelSet models = new();
+
+        ((IMdlCache)models).ViewTarget.ShouldBeSameAs(models.ViewTarget);
+    }
+
+    /// <remarks>
+    /// **Clearing the merge models drops their faces** (review 1 item 6): `ClearMergeMDLs` empties `m_aMergeMDLs`
+    /// (mdlpanel.cpp:948-962); the faces kept for them must go too, or a panel re-dressed every frame keeps one per old merge.
+    /// Three rounds of an eyed merge on an eyeless root leave one face kept — the current merge's — not three.
+    /// </remarks>
+    [Test]
+    public void ClearMergeMDLs_AfterEyedMergesWerePainted_KeepsNoFaceForThem()
+    {
+        PropModels.ModelFrames root = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames eyed = root with
+        {
+            Eyeballs = [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
+        };
+        VguiMdlPanel panel = new(null, "model", new FramesCache(path => path.Contains("hat", StringComparison.Ordinal) ? eyed : root))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+
+        for (int round = 0; round < 3; round++)
+        {
+            panel.ClearMergeMDLs();
+            panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+            panel.Paint(new RecordingModelSurface(), Context());
+        }
+
+        panel.KeptFaces.ShouldBe(1, "the current merge's face only");
+        panel.ClearMergeMDLs();
+        panel.KeptFaces.ShouldBe(0);
+    }
+
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {

@@ -366,7 +366,16 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     }
 
     /// <summary><c>ClearMergeMDLs</c> (<c>mdlpanel.cpp:948</c>).</summary>
-    public void ClearMergeMDLs() => _merges.Clear();
+    public void ClearMergeMDLs()
+    {
+        // The faces kept for them go with them (B725 review 1), or a panel re-dressed each frame keeps one per old merge.
+        foreach (VguiMdl merge in _merges)
+        {
+            _faces.Remove(merge);
+        }
+
+        _merges.Clear();
+    }
 
     /// <summary><c>CMDLPanel::SetModelAnglesAndPosition</c> (<c>mdlpanel.h:89</c>, mdlpanel.cpp:233-237):
     /// <c>AngleMatrix( angRot, vecPos, m_RootMDL.m_MDLToWorld )</c>.</summary>
@@ -554,7 +563,10 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// The studio render context's one view target, shared with the world's models through the cache
     /// (<see cref="IMdlCache.ViewTarget"/>), or this panel's own where the cache has none (B725 5d).
     /// </summary>
-    protected StudioViewTarget SharedViewTarget => MdlCache.ViewTarget ?? _ownViewTarget;
+    protected internal StudioViewTarget SharedViewTarget => MdlCache.ViewTarget ?? _ownViewTarget;
+
+    /// <summary>How many CMDL faces this panel keeps, for the test that clearing the merges drops theirs.</summary>
+    internal int KeptFaces => _faces.Count;
 
     private readonly StudioViewTarget _ownViewTarget = new();
 
