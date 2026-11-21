@@ -173,6 +173,9 @@ internal sealed class FakeRenderDevice : IRenderDevice
     public DebugModes Debug { get; set; }
 
     /// <inheritdoc/>
+    public Scene.GlintSwitches EyeGlint { get; set; }
+
+    /// <inheritdoc/>
     public bool PostProcessingSettled { get; set; } = true;
 
     /// <inheritdoc/>

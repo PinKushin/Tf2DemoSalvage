@@ -265,6 +265,23 @@ public sealed partial class ViewerSession
         {
             SetFullbright((Fullbright)_settingsOwner.Fullbright);
         }
+
+        // **The glint ConVars too** (B725): the studio render reads both at every eye draw (`studiorender.dll`
+        // `0x18001e071`, `0x18001e0ad`), so a set from anywhere is the switch.
+        else if (set.Name.Equals(Scene.ViewerSettings.GlintAlwaysDrawCommand, StringComparison.OrdinalIgnoreCase) ||
+                 set.Name.Equals(Scene.ViewerSettings.GlintProceduralCommand,StringComparison.OrdinalIgnoreCase))
+        {
+            Scene.GlintSwitches glint = _settingsOwner.EyeGlint;
+
+            _renderLog.LogInformation("{Message}", $"{set.Name} {set.Value}");
+
+            if (_device is { } device)
+            {
+                device.EyeGlint = glint;
+            }
+
+            _window.Redraw();
+        }
     }
 
     // The one route `mat_phong` and `mat_bumpmap` take from the menu, a key, the console or an exec'd cfg: logged, handed

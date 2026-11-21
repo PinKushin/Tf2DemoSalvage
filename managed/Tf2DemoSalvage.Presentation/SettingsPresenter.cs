@@ -441,6 +441,9 @@ public sealed class SettingsPresenter
     /// <summary>`mat_bumpmap` and `mat_phong` as the settings hold them, whoever set them last (B720).</summary>
     public Scene.MaterialSwitches MaterialSwitches => new(_settings.BumpMap, _settings.Phong);
 
+    /// <summary>`r_glint_alwaysdraw` and `r_glint_procedural` as the settings hold them, whoever set them last (B725).</summary>
+    public Scene.GlintSwitches EyeGlint => _settings.EyeGlint;
+
     /// <summary>Hands a new device every setting it takes, in the order the window did.</summary>
     /// <param name="device">The device, just created.</param>
     /// <param name="specularOff">Unticks the menu's Reflections item, which is what switches `mat_specular` off.</param>
