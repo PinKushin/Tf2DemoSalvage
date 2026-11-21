@@ -447,8 +447,8 @@ public sealed partial class EntityModelSet
     /// <summary>A corpse whose player is dead but placed nowhere: it sets no target (see <see cref="DeadPlayerOf"/>).</summary>
     /// <remarks>
     /// **The engine has no such state** (review 3): a resolved <c>m_hPlayer</c> always has an origin. Only a bare model set
-    /// reaches it — <see cref="PlayerAlive"/> unset, which by this class's convention takes every corpse's player for dead
-    /// (the flex tests rely on it), or set without <see cref="PlayerOrigin"/>. Kept so that such a caller gets no target
+    /// reaches it — a dead player (<see cref="PlayerAlive"/> unset, which by this class's convention takes every corpse's
+    /// player for dead, or answering false) with <see cref="PlayerOrigin"/> unset or null. Kept so that such a caller gets no target
     /// rather than a look-at from an origin nobody gave; <c>MomentScene</c> never reaches it.
     /// </remarks>
     private bool IsUnplacedDeadPlayersCorpse(SceneProp prop) => CorpsePlayer(prop) is { Alive: false, Origin: null };

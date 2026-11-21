@@ -42404,7 +42404,7 @@ nothing in `managed/` reads destination-alpha depth today — no `$depthblend` f
 `OO_DESTALPHA_DEPTH_RANGE` (*measured*, a search of `managed/` for each, 2026-11-20). *The search's control* (review 3,
 Sonnet): the same search over `*.cs` finds the one destination-alpha path ours has, the water fog written there in a
 refraction view and read back by the water shader — `WriteWaterFogToAlpha` in `WorldRenderer.Water.cs`, `Device3D.cs` and
-`OffscreenTarget.cs`, and `_rt_WaterRefraction`'s read in `WorldRenderer.cs` — so an absence is the code's, not the
+`OffscreenTarget.cs` (the read is named in a comment at `WorldRenderer.cs:2288`, not by that string in code) — so an absence is the code's, not the
 search's. The engine's consumers are the
 depth-feathered particles; porting one of them is what makes this entry matter.
 
