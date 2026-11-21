@@ -94,6 +94,9 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>The view target where the cache shares none (B725 5d).</summary>
     private readonly StudioViewTarget _ownViewTarget = new();
+
+    /// <summary>The render context's view target this panel's draws write and read: the cache's, else its own.</summary>
+    internal StudioViewTarget ViewTarget => _mdlCache.ViewTarget ?? _ownViewTarget;
     private readonly BoneFrameCounter _clock = new();
     private bool _panelDirty = true;
     private int _defaultAnimation;
@@ -424,7 +427,12 @@ public class VguiModelPanel : VguiEditablePanel
                 continue;
             }
 
-            model.Attached.Add(new PanelModel(attachedPath, attachedFrames, attachedModel, NewEntity(attachedModel)) { Skin = skin >= 0 ? skin : 0 });
+            // `new C_BaseAnimating` (basemodelpanel.cpp:467): no flex of its own, no view target (B725 review 1).
+            model.Attached.Add(new PanelModel(attachedPath, attachedFrames, attachedModel, NewEntity(attachedModel))
+            {
+                Skin = skin >= 0 ? skin : 0,
+                IsBaseFlex = false,
+            });
         }
 
         _model = model;
@@ -592,7 +600,7 @@ public class VguiModelPanel : VguiEditablePanel
             locals = [new LocalLight(0f, 0f, 200f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, direction, MathF.Cos(0.035f), MathF.Cos(0.873f), 5f, Spot: true)];
         }
 
-        StudioViewTarget viewTarget = _mdlCache.ViewTarget ?? _ownViewTarget;
+        StudioViewTarget viewTarget = ViewTarget;
         List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget)];
 
         foreach (PanelModel attached in model.Attached)
@@ -660,6 +668,12 @@ public class VguiModelPanel : VguiEditablePanel
         public int Skin { get; set; }
 
         public int Body { get; set; }
+
+        /// <summary>
+        /// A <c>CModelPanelModel</c>, a C_BaseFlex (<c>basemodelpanel.h:23</c>); false for an attached model, a plain
+        /// C_BaseAnimating whose <c>SetupWeights</c> is empty.
+        /// </summary>
+        public bool IsBaseFlex { get; init; } = true;
 
         private float[] PoseValues => _poseValues ??= DefaultPoses(Skinned);
 
@@ -765,7 +779,7 @@ public class VguiModelPanel : VguiEditablePanel
         {
             // **The render context's one view target** (B725 5d): set where the model has controllers (its `SetViewTarget`,
             // its own target clamped), and read by its eyes either way — so without controllers they take the last one set.
-            if (Frames.Flex.Controllers.Count > 0)
+            if (IsBaseFlex && Frames.Flex.Controllers.Count > 0)
             {
                 shared.Target = StudioEyes.ClampedTarget(
                     (0f, 0f, 0f),
@@ -792,7 +806,13 @@ public class VguiModelPanel : VguiEditablePanel
 
             StudioEyes.FillEyes(_face, Frames, Entity.Bones, shared.Target);
 
-            _restingWeights ??= mouthed ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex)) : null;
+            // A C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender 0x1800584b0, B513): every descriptor 0.
+            if (mouthed && _restingWeights is null)
+            {
+                _restingWeights = IsBaseFlex
+                    ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
+                    : new float[Frames.Flex.Descriptors.Count];
+            }
             _face.Mouth = mouthed && _restingWeights is { } weights
                 ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), weights)
                 : null;
