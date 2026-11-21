@@ -3295,9 +3295,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalPolyOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in polyOffset, ref decalPolyOffset));
 
-        // **A wireframe twin of every state, because `mat_wireframe` changes the FILL and nothing
-        // else.** Valve's is `MATERIAL_FILLMODE_WIREFRAME`, applied to whatever is being drawn, so
-        // each pass keeps its own culling and its own depth bias and differs only in fill. Building
+        // **A wireframe twin of every state, for the fill.** Under `mat_wireframe` a studio model also swaps to the
+        // studio render's wireframe material (no depth test, no fog, unlit; B788); this twin is the FILL, which ours applies
+        // to every pass while TF2's fill comes from the drawn material's `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`)
+        // — a forced material without it, and the world's brushes, are open questions (B808, B803). Each pass keeps its own
+        // culling and its own depth bias and differs only in fill. Building
         // one shared wireframe state instead would quietly answer a different question — "what is
         // in the vertex buffer" rather than "what is being drawn" — and the difference between
         // those two is exactly what a missing-geometry hunt turns on.

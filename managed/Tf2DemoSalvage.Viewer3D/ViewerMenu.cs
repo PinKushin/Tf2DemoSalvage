@@ -470,7 +470,7 @@ internal sealed class ViewerMenu : IDisposable
         // triangles actually submitted: no props, no models, nothing about what reached the GPU.
         //
         // This one is TF2's: studio models draw the studio render's own wireframe material, through
-        // everything (`$ignorez`, B788), and the world's brushes a rasteriser fill mode (B803), so an
+        // everything (`$ignorez`, B788), and ours draws the world's brushes in rasteriser fill, where TF2's is unread (B803), so an
         // edge on screen means that triangle was drawn — "not submitted" against "submitted and
         // invisible", which nothing else in this viewer can distinguish.
         Wireframe = new ToolStripMenuItem("&Wireframe")

@@ -42510,6 +42510,18 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
+## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — OPEN
+
+Found in B788's review 7 (Fable). Ours applies `mat_wireframe`'s fill to every pass through a wireframe twin of each
+rasteriser state (`WorldRenderer`), so a model whose forced material wins over the studio render's wireframe material
+(a gold corpse, B788) draws its forced material as edges. In the SDK the wireframe fill is the WIREFRAME shader's own
+flag, `SET_FLAGS( MATERIAL_VAR_WIREFRAME )` (`wireframe_dx9.cpp:37`, *read*); whether the material system or shader API
+also forces a line fill under `mat_wireframe` for any other material is in closed code (shaderlib, shaderapidx9,
+materialsystem) and not read. If the flag is the only source, TF2 draws that gold corpse SOLID under `mat_wireframe`.
+`DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne` reads only an edge pixel, so it holds either way.
+Next: disassemble where `MATERIAL_VAR_WIREFRAME` becomes a poly mode (shaderapidx9's shadow state) and whether anything
+else sets it under `mat_wireframe`. The world's brushes are the same question, B803.
+
 ## B807 — a map's own `Wireframe` material is resolved as a full VertexLitGeneric, where the shader reads none of its parameters (2026-11-21) — OPEN
 
 Found in B788's review 4 (Fable). `Wireframe_DX9` hands VertexLitGeneric's helper a default-constructed
@@ -42600,7 +42612,12 @@ its own would draw through everything (none found; every pass sets its own, the 
 state); the real-install test asserts the material is appended last, which `OcclusionQueriesRenderTests` relies on.
 Review 6: the pass filter keys on the drawn material, so under the swap a mesh whose own material is translucent draws in
 the opaque pass with the (opaque) wireframe material; what studiorender does with that split under wireframe is not read
-(*interpolated* from the swap happening before the material is asked anything).
+(*interpolated* from the swap happening before the material is asked anything). Review 7, known and left: at the first
+device open the real menu's tick reports into `SetWireframe` as well as the direct call, so `mat_wireframe 1` is logged
+and redrawn twice (nothing drawn differs); the two diagnostic lines through `DrawnMaterial` are read, not asserted by a
+test; `MainForm.ShowWireframe`, the window end of the config-to-device route, is covered by no test (the presentation
+tests use `FakeViewerWindow`; `ShowSpecular` has the same gap). Fable's review 7 also found the fill question filed as
+B808.
 *Not verified by looking*: no viewer was launched. Out of this entry: the
 world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
@@ -42630,7 +42647,9 @@ menu's tick (`ViewerSession.OnConVarSet`, `IViewerWindow.ShowWireframe`), which 
 the menu records its value for the run as fullbright's does, so `toggle mat_wireframe` reads it and `sv_cheats 0` reverts it.
 The menu and the default `CTRL+w` key stay ungated (D253; the key is B792's question, unchanged). Found on the way and fixed
 with it: a bind to `sv_cheats` on a key that has a viewer default (`F8`) lost the key to the default, because `sv_cheats`
-is replicated and `ConfigConsole.SetsState` did not count it. **`r_drawworld` and `r_drawentities`**: neither is declared
+is replicated and `ConfigConsole.SetsState` did not count it. That reverses, for `sv_cheats` alone, the rule that a
+replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
+default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
 set does nothing and there is nothing to refuse; they are engine ConVars (`view.cpp:296` finds `r_drawentities` by name;
 the game's own declaration of neither is in the SDK — `matsys_controls/mdlpanel.cpp:272` declares an `r_drawentities`
