@@ -180,9 +180,9 @@ public sealed class FramePresenterHudTests
     /// <remarks>
     /// **A frame before the first load is a level the panels hold** (B779 review 12): our HUD can run before any load (an
     /// install open, no demo), setting its panels up from the model set, and the first load's model-set shutdown clears
-    /// that set (`EntityModelSet.LevelShutdown`). The engine's first-load early return (`cdll_client_int.cpp:1714-1715`)
-    /// rests on it having no entities before its first level; ours has panel models, so they are released with the set
-    /// (B779 review 12; review 9's flag kept them).
+    /// that set (`EntityModelSet.LevelShutdown`). The engine's first load returns early (`cdll_client_int.cpp:1714-1715`)
+    /// and would keep such a model until the dirty `SetupModel` replaces it; ours releases it with the set, a recorded
+    /// divergence (`FramePresenter.ClearMap`; interpolated that the engine sets no panel up before its first level).
     /// The control: the sign was set up by that frame (`SignWithAModel`).
     /// </remarks>
     [Test]
@@ -221,13 +221,13 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **Nothing set up, nothing released** (B779 reviews 9 and 12): `CHLClient::LevelShutdown` returns at once while no
-    /// level was initialised (`cdll_client_int.cpp:1714-1715`), because no entity exists yet. Ours runs the shutdown at every
-    /// load and releases exactly what the panels hold, so a HUD whose panels set nothing up loses nothing, and the new map's
-    /// event still marks the panel dirty. The control: the sign was clean before the load.
+    /// **Nothing set up, the panel still marked dirty** (B779 reviews 9, 12 and 13): ours runs the shutdown at every load,
+    /// and the new map's event (`game_newmap`, basemodelpanel.cpp:196-205) marks a panel dirty whether or not it held a
+    /// model. Only deleting the event half can redden this; with nothing set up, no shutdown fault is visible, so it claims
+    /// no release. The control: the sign was clean before the load.
     /// </remarks>
     [Test]
-    public void ClearMap_WithNothingSetUp_ReleasesNothingAndMarksThePanelDirty()
+    public void ClearMap_WithNothingSetUp_MarksThePanelDirty()
     {
         Window window = new();
         window.Overlay(100);

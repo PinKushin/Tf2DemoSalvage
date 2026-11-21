@@ -411,12 +411,13 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
     public IMdlCache? MdlCache { get; set; }
 
-    /// <summary>A level's end, as the HUD's model panels see it — the half of a level change that a first load lacks.</summary>
+    /// <summary>A level's end, as the HUD's model panels see it: the shutdown half of a level change, run at every load.</summary>
     /// <remarks>
     /// `CHLClient::LevelShutdown` releases every client entity (`cdll_client_int.cpp:1735`), a <c>CModelPanel</c>'s model
     /// among them (<see cref="VguiModelPanel.ForgetLevel"/>, B779 review 8); a <c>CMDLPanel</c> drops what it keeps by the old
-    /// level's path or frames (<see cref="VguiMdlPanel.ForgetLevel"/>, review 3 item 4). It returns at once while no level was
-    /// initialised (:1714-1715), so a caller runs this only after a level (review 9). At any depth — production's model panels
+    /// level's path or frames (<see cref="VguiMdlPanel.ForgetLevel"/>, review 3 item 4). The engine returns at once while no
+    /// level was initialised (:1714-1715); ours has no such guard and is run at every load (B779 review 12), releasing
+    /// exactly what the panels hold, so a panel holding nothing loses nothing. At any depth — production's model panels
     /// are the match status's children, the viewport's grandchildren. Its one production caller is <c>FramePresenter.ClearMap</c>.
     /// </remarks>
     public void LevelShutdown() => Walk(this, static panel =>

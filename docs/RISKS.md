@@ -43047,13 +43047,27 @@ nothing, so a load with nothing set up releases nothing — the engine's early r
 paired with the model set forgetting (`ViewerPresenter.ClearMap`). `_levelInitialized`, `_aLoadHappened` and the arming
 line are deleted.
 
-*Tests* (`FramePresenterHudTests`): `ClearMap_WithNothingSetUp_ReleasesNothingAndMarksThePanelDirty` (replaces the
+*Tests* (`FramePresenterHudTests`): `ClearMap_WithNothingSetUp_…` (review 13: `…_MarksThePanelDirty`; replaces the
 before-any-level row; a control, green on both codes), `ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty`
 (red first: kept), `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween` (replaces the twice row; the sign set up again
 with no frame, as a skip's events do; red first: kept), and `ClearMap_AfterAFrameOfALevel_…` (control reworded).
 
 *Sabotage*, run apart: `LevelShutdown` deleted from `ClearMap` (the pre-load, after-a-frame and twice rows), `NewMap`
 deleted (all four rows).
+
+**Review 13** (Fable, Sonnet, Gemini OK; low findings only):
+1. *An unsourced engine claim*: "holds because it has no entities before its first level" (item 1 above) is not in the
+   source; `cdll_client_int.cpp:1713` calls the check a hack. Marked *interpolated* in finding 75, `FramePresenter.ClearMap`
+   and the test remarks, and the remaining difference stated as a divergence: a model set up before the first load is
+   released at ours, kept by the engine's until the dirty `SetupModel` (basemodelpanel.cpp:395). Not visible: both
+   callers that could see it (`TfHudMatchStatus.SetDoors`, `ShowRoundSign`) set the model up first when none is held.
+2. *A test name claimed more than it could fail for*: the nothing-set-up row is now
+   `ClearMap_WithNothingSetUp_MarksThePanelDirty`; only deleting `NewMap` reddens it.
+3. *Stale names and comments*: `HudViewport.LevelShutdown`'s remark said a caller ran it only after a level; reworded.
+   The rows cited in reviews 3, 4 and 9-11 are gone — `ClearMap_AfterAMaplessLevel_…` and
+   `ClearMap_BeforeAnyLevel_…` became `ClearMap_AfterAFrameBeforeAnyLoad_…` and `ClearMap_WithNothingSetUp_MarksThePanelDirty`,
+   and `ClearMap_TwiceWithNoLevelBetween_…` became `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween`; every "only
+   after a level started" condition in those entries was removed by review 12.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

@@ -273,9 +273,14 @@ public sealed partial class FramePresenter
         // A map load as the HUD's model panels see it. **The shutdown half at every load** (B779 review 12): it releases each
         // `CModelPanel`'s model as `CHLClient::LevelShutdown` does with every client entity (`cl_entitylist->Release()`,
         // cdll_client_int.cpp:1735; review 8), always paired with the model set forgetting its models
-        // (`ViewerPresenter.ClearMap`). The engine's early return before any level (:1714-1715) holds because no entity
-        // exists then; ours releases exactly what the panels hold, so a panel holding nothing loses nothing, and one a
-        // frame or a skip's events set up before the first load is released with the set. No flag: reviews 9-11 armed
+        // (`ViewerPresenter.ClearMap`). The engine returns early before any level (:1714-1715; its own comment, :1713,
+        // calls that a hack and gives no other reason). Ours releases exactly what the panels hold, so a panel holding
+        // nothing loses nothing. **Divergence, kept:** a model a frame or a skip's events set up before the first load is
+        // released here, where the engine's first load would keep it until the dirty `SetupModel` replaces it
+        // (basemodelpanel.cpp:395). Only a `SetSequence`/`SetBodyGroup` between the load and the next `UpdateModel` could
+        // see it, and both callers (`TfHudMatchStatus.SetDoors`, `ShowRoundSign`) set the model up first when
+        // none is held. Interpolated: that the engine sets no model
+        // panel up before its first level is not read from source. No flag: reviews 9-11 armed
         // one, and every arming site was a place it could miss. **The event half at every load**: the next map's
         // `game_newmap` marks the panel dirty, so it sets its models up again from the next level's frames
         // (basemodelpanel.cpp:196-205, review 2). Here rather than at `LevelInit`, which only a load that succeeds reaches
