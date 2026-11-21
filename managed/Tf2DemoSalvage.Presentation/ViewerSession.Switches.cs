@@ -195,7 +195,9 @@ public sealed partial class ViewerSession
     /// </remarks>
     public void SetWireframe(bool on)
     {
-        if (Wireframes(_settingsOwner.Current.ConVarText(WireframeCommand) ?? "0") != on)
+        // The client value wherever it lives — the settings, or a watcher config's line the console keeps — so a config's
+        // `mat_wireframe 2` is not recorded over as "1" when the device opens (B791 review 14).
+        if (Wireframes(ClientConVar(WireframeCommand) ?? "0") != on)
         {
             _settingsOwner.SetConVar(WireframeCommand, on ? "1" : "0");
         }

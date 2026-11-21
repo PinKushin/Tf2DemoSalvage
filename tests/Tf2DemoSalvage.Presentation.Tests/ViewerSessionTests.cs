@@ -331,6 +331,24 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A config's own `mat_wireframe 2` keeps its value when the device opens** (B791 review 14, Fable): the hand-over's
+    /// tick finds the console's value already on and records nothing over it, so `toggle mat_wireframe 2 0` goes 2 to 0,
+    /// as TF2's would. Before, the settings recorded "1", which shadowed the console's "2", and the toggle set 2 again.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_ATwoZeroToggleAfterAConfigsWireframeTwo_TurnsItOff()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nmat_wireframe 2\nbind \"F7\" \"toggle mat_wireframe 2 0\"\n");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+        rig.WithDevice();
+        rig.Device.Wireframe.ShouldBeTrue("the control: the config's line reached the device");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **`sv_cheats 0` reverts a wireframe the menu turned on, too** (B791 review 11, Sonnet): the menu records its value for
     /// the run, so the revert finds `mat_wireframe 1` and announces `0`, which unticks the item and clears the device.
     /// </remarks>
