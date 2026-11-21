@@ -42388,6 +42388,49 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
+seeds `ImpactSounds.SeedFor( tick * 64 + entity )`, so entity 64 at tick t and entity 0 at tick t + 1 — and any
+`( t, e )`, `( t + k, e - 64k )` — share a stream, and draw the same volume, pitch, wave number and soundlevel. Edict
+indices run to 2047 (`MAX_EDICTS`, `const.h`), and players alone reach 33, so props, weapons and corpses are over 64 as
+a rule. *Arithmetic.* The engine has no such seed: it draws from the client's one global stream, which no demo records
+(finding 57), so ours is interpolated either way — the defect is only that two sounds the interpolation means to keep
+apart are not. Everything through `EntitySounds.Emit`, `Stream` and `SeedFor` shares it: footsteps, animation-event and
+decapitation sounds, physics impacts, medigun patches, corpse scrapes.
+
+## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
+`if ( Impact( … ) ) { … if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET ) ) … }` —
+the `&&` evaluates left to right, so every in-range impact that `Impact` accepts takes the number, and only then is the
+damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs:85`) asks
+`landing.Ricochets && random.RandomInt( 1, 10 ) <= 3`, where `Ricochets` is already "`Impact` returned true for a
+`DMG_BULLET`" — so a non-bullet hit skips the draw and its impact sound starts one number early (volume, pitch, wave,
+soundlevel all shift). *Read from published source.* Related: B783 (the camera test comes first of all).
+
+## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
+resolves the script with `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` — a plain
+`GetParametersForSound`, `isbeingemitted` false, so FUN_180003370 clears no wave — and plays the resolved WAVE with
+`enginesound->EmitSound( filter, SOUND_FROM_WORLD, CHAN_STATIC, params.soundname, … )`, which never passes through
+`EmitSoundByHandle`. Ours (`TracerWhiz.SoundAt`, `managed/Tf2DemoSalvage.Presentation/TracerWhiz.cs:55`) passes
+`emitted: true`, so every whiz clears a wave of `Bullets.DefaultNearmiss` and the next whiz is dealt from a smaller
+deck; the engine's never changes. `ScriptWaveDeckConformanceTests.Producers_EverySoundEmittedByName_Deals` lists the
+whiz among the emitters, which this contradicts. *Read from published source.* (The same function's 0.1 s
+`flNextWhizTime` gate, 200-unit minimum and 64-unit whiz distance were not compared here.)
+
+## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `HudSounds.Emit` (`managed/Tf2DemoSalvage.Presentation/HudSounds.cs:49`)
+seeds `ImpactSounds.SeedFor( tick * 131 + scriptName.GetHashCode( StringComparison.Ordinal ) )`. .NET's string hash is
+randomized per process (on by default since .NET Core), so the same demo draws a different HUD volume, pitch, wave
+number and soundlevel on every run — and, through the shared deck (B503), deals a different wave to every later sound
+of that script. The draws are interpolated in any case (the engine's global stream is unrecorded, finding 57); the
+defect is that the interpolation is not repeatable, which `ExplosionSounds`' remark names as its point ("so a seek
+replays the same draws"). A stable hash (FNV over the name, or the script's index) would fix it.
+
 ## B783 — a bullet impact beyond 1024 units deals its wave; the engine's never emits it (2026-11-20) — OPEN
 
 Found while fixing B782. **Not fixed here.**
@@ -42516,6 +42559,26 @@ measurable in the corpus.
 **Cost.** `ScriptWaveDraw` is now a class (it names the draw before it), one small allocation per script sound a
 producer makes — producers already allocate a stream per sound. A deal re-primes its stream (40 steps) and replays at
 most a few numbers; it allocates nothing.
+
+**Review round 1 (Sonnet, Fable, Gemini; no blocker), each fixed with its test seen red and a sabotage:**
+
+1. *A scrape's change built a draw it threw away.* The change path now reseeds a stream `PhysicsFrictionSounds` keeps
+   and draws only the volume (the first number); only the start builds draws. A steady scrape's change allocates only
+   the list `Step` returns (`Step_ASteadyScrapesChange_AllocatesOnlyTheListItReturns`: 848 bytes before, 440 = the
+   control after).
+2. *The dealt table grew for the whole playback.* Only the LAST deal is held for a chain (a chain's draws are dealt
+   one after another), and only patches (`Scaled`) are held for the change or stop that names them, until that stop.
+   `Clear` forgets both; a reload's `S_StopAllSounds` ends every patch, so `StopForReload` calls `ForgetPlaying`. No
+   level-change reset: the engine's flags do not reset there and neither do ours.
+3. *A scaled first draw was not scaled at its start.* `Deal` now scales a patch whatever its place in a chain. The
+   medigun's heal and detach are patches (`controller.Play( patch, 1.f, 100.f )`, `tf_weapon_medigun.cpp:2061`,
+   `:2327`), so they are now `Scaled` at volume 1, which makes the case live.
+4. *A replayed earlier draw that was never dealt lost its emit.* It now replays with its own `isbeingemitted`, clearing
+   its pick as `EmitSoundByHandle` would (`tf_fx_impacts.cpp:88`).
+5. Tests for a re-deal over changed flags and for a change whose patch was never dealt.
+6. Pre-existing divergences the reviewers found, filed OPEN, not fixed here: B784 (HUD seeds by a per-process string
+   hash), B785 (the whiz deals a script the engine only reads), B786 (the ricochet draw skipped for non-bullet hits),
+   B787 (`EntitySounds` seed collisions above entity 63).
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
