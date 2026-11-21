@@ -13,7 +13,7 @@ None of these changes was verified by looking against a TF2 frame. Each follows 
   - The eyes' look-at target is one value shared by every face, as in TF2: a worn item on a player with flex controls sets none, a model panel's model with no flex controls sets none, and a corpse uses its player's target while that player is dead, a dormant player included.
   - The HUD's three model panels draw their model's mouth.
   - `teeth_bump`, a Half-Life 2 material, is lit per pixel as TF2's shader does it.
-  - The Eyes shader's glint is drawn. By default it is the glint TF2 renders on the GPU (the viewer computes it on the CPU to the same values); `r_glint_procedural 1` (default 0, set in your config) selects TF2's other glint instead, the one TF2 makes on the CPU with that setting, and `r_glint_alwaysdraw 1` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
+  - The Eyes shader's glint is drawn. By default it is the glint TF2 renders on the GPU (the viewer computes it on the CPU to the same values, apart from a rare rounding tie); `r_glint_procedural 1` (default 0, set in your config) selects TF2's other glint instead, the one TF2 makes on the CPU with that setting, and `r_glint_alwaysdraw 1` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
   - Under `mat_wireframe`, the Eyes glint is skipped, as TF2 does; the rest of the wireframe is still not TF2's (see *Known gaps*).
 - **Other changes since beta.68:** two more face-shader behaviors were checked against TF2 and need no change: the shaders take no static light from a color mesh, and EyeRefract's packed binormal reads the same value as ours (B725).
 
@@ -1251,7 +1251,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Sound draws (beta.69), open:**
   a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);
   the stream seed for an entity of 64 or higher is the same as a lower-numbered entity's at a later tick, so the two draw the same values (B787);
-  an impact draws the ricochet number only for bullet damage, where TF2 draws it for any impact it accepts (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
+  an impact draws the ricochet number only for bullet damage, where TF2 draws it for any in-range impact it accepts (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
