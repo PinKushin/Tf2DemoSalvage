@@ -59,17 +59,20 @@ public sealed class StudioEyesConformanceTests
     /// <remarks>
     /// `zoffset` 0.5 turns the aim by TWICE it along right: forward (1, 0, 0) + 1 · (0, −1, 0), normalised, is
     /// (√½, −√½, 0); right is then (−√½, −√½, 0) and U = −right. Once would give forward (1, −0.5, 0)/|…| and
-    /// U = (0.4472, 0.8944, 0).
+    /// U = (0.4472, 0.8944, 0). The state's forward (<c>eyeballstate_t +0x44</c>, the glint's) is that turned one, and its
+    /// radius the eyeball's, 0.75 here.
     /// </remarks>
     [Test]
     public void Shading_AnEyeWithAZOffset_TurnsItsAimByTwiceTheOffset()
     {
-        StudioEyeball eye = new(0, (0f, 0f, 0f), 0.5f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f);
+        StudioEyeball eye = new(0, (0f, 0f, 0f), 0.5f, 0.75f, (0f, 0f, 1f), (1f, 0f, 0f), 1f);
 
         EyeShading shading = StudioEyes.Shading(eye, Identity, (100f, 0f, 0f));
 
         float half = MathF.Sqrt(0.5f);
         Near(shading.IrisU, (half, half, 0f, 0.5f));
+        Near(shading.Forward, (half, -half, 0f));
+        shading.Radius.ShouldBe(0.75f);
     }
 
     /// <remarks>The mouth's (1, 0, 0) turned a quarter is (0, 1, 0) and sent negated; a weight of 1.4 is clamped to 1.</remarks>

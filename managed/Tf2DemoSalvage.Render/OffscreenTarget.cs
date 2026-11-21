@@ -912,6 +912,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="eyes">Each eyeball's eye-shader values, by <see cref="WorldBatch.Eyeball"/>, or null (B725).</param>
     /// <param name="mouth">The teeth shader's values, or null for the material's own (B725).</param>
     /// <param name="weaponSkin">The war paint a <c>WeaponSkin</c> material binds as its base, or null (B754).</param>
+    /// <param name="heightFog">A water volume's height fog, as a refraction view sets it before its models draw, or null; cleared after.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -949,7 +950,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool bumpMap = true,
         IReadOnlyList<EyeShading>? eyes = null,
         MouthShading? mouth = null,
-        WeaponSkin? weaponSkin = null)
+        WeaponSkin? weaponSkin = null,
+        VolumeFog? heightFog = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -963,6 +965,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.Seconds = Seconds;
         _world.DrawBumped = bumpMap;
         _world.ModelVertexCap = ModelVertexCap;
+        _world.Glint = Glint;
+        _world.Wireframe = Wireframe;
 
         // **Not again for the world's own assets**: an upload releases the world's material classes and
         // its translucent sort, so a DrawTranslucentWorld after this model would draw nothing (B426).
@@ -1017,6 +1021,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _world.SetCamera(
                 _device, _context, camera, surfaceColours, specular, fullbright, debug, phong, fog: fog);
 
+            if (heightFog is { } volume)
+            {
+                _world.SetWaterView(_context, HeightClip.None, volume);
+            }
+
             Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
             _context.RSSetViewports(1, in viewport);
@@ -1042,6 +1051,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         finally
         {
             _world.LinearLightScale = before;
+
+            if (heightFog is not null)
+            {
+                _world.SetWaterView(_context, HeightClip.None);
+            }
         }
     }
 
@@ -1084,6 +1098,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>
     internal int? ModelVertexCap { get; set; }
+
+    /// <summary><c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> for <see cref="DrawModelPose"/> (B725).</summary>
+    internal Scene.GlintSwitches Glint { get; set; }
+
+    /// <summary><c>mat_wireframe</c> for <see cref="DrawModelPose"/>.</summary>
+    internal bool Wireframe { get; set; }
 
     /// <summary>Draws decals on the model the last <see cref="DrawModelPose"/> drew, as <c>Device3D</c> does after it.</summary>
     /// <param name="vertices">The decal's corners.</param>

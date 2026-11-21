@@ -10,8 +10,8 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <remarks>
 /// **Through `EntityModelSet.Instances`, the production pass**, on a synthetic skinned model: one bone at its origin, so
 /// its bone-to-world is the entity's placement, (100, 0, 0) unrotated. An eyeball on that bone at (0, 0, 10) with up +z
-/// and iris scale 1, and a mouth facing +x. The prop is neither a player nor a C_BaseFlex, so its view target is (0, 0, 0)
-/// unclamped (a C_BaseAnimating's, taken as the origin) and its mouth weight zero (`LockFlexWeights`).
+/// and iris scale 1, and a mouth facing +x. The prop is neither a player nor a C_BaseFlex, so it sets no view target and reads the
+/// render context's, (0, 0, 0) with nothing set before it (B725 5d), and its mouth weight zero (`LockFlexWeights`).
 ///
 /// *Arithmetic*: the eye at (100, 0, 10) looks along `normalize( (−100, 0, −10) )`; `right = forward × up`, `up' = right ×
 /// forward`, `$irisu = −right` with offset `0.5 − origin · $irisu`. The mouth's `$forward` is the bone's +x negated.
@@ -19,6 +19,8 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class StudioFaceWiringTests
 {
     private const float Tolerance = 1e-4f;
+
+    private const string Hat = "models/player/items/scout/hat.mdl";
 
     [Test]
     public void Instances_ASkinnedModelWithAnEyeAndTeeth_CarryTheEyesProjectionAndTheMouth()
@@ -120,7 +122,7 @@ public sealed class StudioFaceWiringTests
     /// class model (index 3, which the scene does not know as a player, `PlayerAlive` null) is neither looked at nor a
     /// looker. Player 2 at the origin, the prop ahead at (100, 0, 0), player 5 at (200, 50, 0): player 2 looks at 5, which
     /// turns its eye off the x axis; taken as alive, the prop — the lower index — would be found first and the eye would
-    /// stay on the axis. The prop itself looks at (0, 0, 0), not at player 5 ahead of it.
+    /// stay on the axis. The prop itself sets no view target and takes player 2's, the last one set (B725 5d).
     /// </remarks>
     [Test]
     public void Instances_AMapPropWearingAPlayerModel_IsNeitherLookedAtNorALooker()
@@ -139,10 +141,258 @@ public sealed class StudioFaceWiringTests
         looker.X.ShouldBe(expected.X, Tolerance);
         looker.Y.ShouldBe(expected.Y, Tolerance);
 
+        // The prop, a C_DynamicProp, sets no target and takes the last one set: player 2's, drawn just before it (B725 5d).
         (float X, float Y, float Z) prop = IrisUAt(instances, 3);
-        (float X, float Y, float Z) atOrigin = Rightward((100f, 0f, 10f), (0f, 0f, 0f));
-        prop.X.ShouldBe(atOrigin.X, Tolerance);
-        prop.Y.ShouldBe(atOrigin.Y, Tolerance);
+        (float X, float Y, float Z) atPlayer5 = Rightward((100f, 0f, 10f), (200f, 50f, 0f));
+        prop.X.ShouldBe(atPlayer5.X, Tolerance);
+        prop.Y.ShouldBe(atPlayer5.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **One view target for every draw, and a prop_dynamic sets none** (B725 5d). The studio render keeps one target in its
+    /// render context, written only by `SetEyeViewTarget`: a C_BaseFlex's `SetViewTarget` hands it over at the end
+    /// (`modelrender->SetViewTarget`, `c_baseflex.cpp:643`), reached from `SetupWeights` only for a model with flex
+    /// controllers (`SetupGlobalWeights` returns false at :1198-1207); a CMDL's draw sets it (TF2 `client.dll` `0x180937108`).
+    /// A `C_DynamicProp` is a C_BaseAnimating, whose `SetupWeights` sets nothing, so its eyes take the last value set — in
+    /// draw order, here the order the pass draws. Player 2 alone at the origin, its model with a controller, looks 512 along
+    /// +x. A map prop drawn after it, at (100, 0, 0) with an eye at (100, 0, 10), looks at (512, 0, 0). Drawn before it, it
+    /// looks at the context's starting (0, 0, 0) — and in the next pass at what player 2 left, (512, 0, 0).
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet(bool after)
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        SceneProp player = Player(2, 0f, 0f);
+        SceneProp prop = new(
+            7,
+            "models/props_gameplay/resupply_locker.mdl",
+            ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true);
+        List<SceneProp> props = after ? [player, prop] : [prop, player];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) first = IrisUAt(instances, 7);
+        (float X, float Y, float Z) expected = Rightward((100f, 0f, 10f), after ? (512f, 0f, 0f) : (0f, 0f, 0f));
+        first.X.ShouldBe(expected.X, Tolerance);
+        first.Y.ShouldBe(expected.Y, Tolerance);
+        models.ViewTarget.Target.ShouldBe((512f, 0f, 0f), "player 2 set it last");
+
+        instances.Clear();
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) next = IrisUAt(instances, 7);
+        (float X, float Y, float Z) stale = Rightward((100f, 0f, 10f), (512f, 0f, 0f));
+        next.X.ShouldBe(stale.X, Tolerance);
+        next.Y.ShouldBe(stale.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A C_BaseFlex whose model has no flex controllers sets nothing either** (`SetupGlobalWeights` returns false before
+    /// `SetupLocalWeights`, `c_baseflex.cpp:1198-1207`): player 2's model without controllers leaves the context at
+    /// (0, 0, 0), and its own eyes read that, not its `UpdateLookAt` target.
+    /// </remarks>
+    [Test]
+    public void Instances_APlayerWhoseModelHasNoControllers_SetsNoTargetAndReadsTheLast()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        List<SceneProp> props = [Player(2, 0f, 0f)];
+
+        models.Add(props, _ => Faced() with { Flex = StudioFlexData.None });
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (0f, 300f, 0f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), (0f, 300f, 0f));
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+        models.ViewTarget.Target.ShouldBe((0f, 300f, 0f));
+    }
+
+    /// <remarks>
+    /// **A bone-merged cosmetic on a flexing wearer sets no view target** (review 1, item 1): `CEconEntity::SetupWeights`
+    /// (`econ_entity.cpp:1359-1399`), for a model with controllers bone-merged onto a C_BaseFlex, runs the PARENT's
+    /// `SetupGlobalWeights` and its own rules and returns with `// SetViewTarget( hdr );` commented out (:1383). Only when
+    /// that parent's `SetupGlobalWeights` returns false — a parent without controllers (`c_baseflex.cpp:1198-1207`) — does
+    /// it fall to `C_BaseFlex::SetupWeights` (:1397) and set its own: `m_viewtarget` (0, 0, 0), no `eyes` attachment, so
+    /// unclamped. Started at (7, 7, 7); player 2 then its hat. Wearer with controllers: the player's (512, 0, 0) stays.
+    /// Without: the player sets nothing and the hat sets (0, 0, 0).
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers(bool wearerFlexes)
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        SceneProp player = Player(2, 0f, 0f);
+        SceneProp hat = new(
+            8, Hat, ScenePropTrack.Classify(Hat), new ScenePose(), AttachedTo: 2, ClientSideAnimated: true, BoneMerged: true);
+        List<SceneProp> props = [player, hat];
+
+        models.Add(props, path => path == Hat || wearerFlexes ? Faced() : Faced() with { Flex = StudioFlexData.None });
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe(wearerFlexes ? (512f, 0f, 0f) : (0f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **A corpse whose player is dead draws its player's face, view target included** (review 1, item 3):
+    /// `C_TFRagdoll::SetupWeights` hands the draw to `pPlayer->SetupWeights` while the player is dead
+    /// (`c_tf_player.cpp:626-637`), so the target set is the PLAYER's `m_viewtarget` — `UpdateLookAt`, which `ClientThink`
+    /// runs alive or dead (:5948-5955): from the player's origin along +x, 512 units. Player 2 dead at (0, 0, 0), its corpse at
+    /// (100, 0, 0): the corpse sets (512, 0, 0) and its eye looks there. With the player alive again, the corpse takes its
+    /// own `C_BaseFlex::SetupWeights`, `m_viewtarget` (0, 0, 0).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget(bool playerAlive)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = index => index == 2 ? playerAlive : null,
+            PlayerOrigin = index => index == 2 ? (0f, 0f, 0f) : null,
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) target = playerAlive ? (0f, 0f, 0f) : (512f, 0f, 0f);
+        models.ViewTarget.Target.ShouldBe(target);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 9);
+        (float X, float Y, float Z) expected = Rightward((100f, 0f, 10f), target);
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A corpse whose player is DORMANT** (review 2 item 1): `C_TFRagdoll::GetPlayer` is `return m_hPlayer;`
+    /// (`c_tf_player.h:1049`), an EHANDLE, and a dormant player is still in the client entity list, so it resolves; the
+    /// branch is chosen by his `IsAlive()` on the life state last received (`c_tf_player.cpp:630-637`). Dead, the corpse
+    /// runs his `SetupWeights`, his `m_viewtarget` from `UpdateLookAt`, which his `ClientThink` keeps running dormant — no
+    /// dormant gate in the think list (`client_thinklist.cpp:186-220`, :266-324) nor in `C_BaseEntity::SetDormant`
+    /// (`c_baseentity.cpp:4015-4024`) — from his last origin: player 2 dormant at (0, 0, 0), 512 along +x. Alive (a corpse
+    /// of an earlier life), the corpse's own branch: (0, 0, 0). Neither in the frame nor dormant: `!pPlayer`, its own too.
+    /// </remarks>
+    [TestCase(false, true, 512f)]
+    [TestCase(true, true, 0f)]
+    [TestCase(false, false, 0f)]
+    public void Instances_ACorpseOfADormantPlayer_SetsHisTargetOnlyWhileHeIsDead(bool alive, bool known, float expectedX)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => null,
+            PlayerOrigin = _ => null,
+            DormantPlayers = known ? [new SceneDormantPlayer(2, 0f, 0f, 0f, alive)] : [],
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe((expectedX, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **Whose face a corpse draws follows the same three branches** (review 3 item 1): `( pPlayer &amp;&amp; pPlayer->IsAlive() )
+    /// || !pPlayer` takes the corpse's own `SetupWeights` (`c_tf_player.cpp:630-633`), the dead player's otherwise
+    /// (:634-637). `FaceDriving` answers the global weights of the face that drives the corpse — the player's — or null for
+    /// the corpse's own. Player 2 unknown (neither in the frame nor dormant): its own. Dormant and alive: its own. Dormant
+    /// and dead: his.
+    /// </remarks>
+    [TestCase(false, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(true, false, true)]
+    public void FaceDriving_ACorpseOfAnUnknownOrDormantPlayer_IsHisFaceOnlyWhileHeIsDead(bool known, bool alive, bool hisFace)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => null,
+            PlayerOrigin = _ => null,
+            DormantPlayers = known ? [new SceneDormantPlayer(2, 0f, 0f, 0f, alive)] : [],
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+
+        models.Add([corpse], _ => Faced());
+
+        IReadOnlyDictionary<string, float>? driving = models.FaceDriving(corpse, 1d);
+
+        (driving is not null).ShouldBe(hisFace, hisFace ? "the dead player's face" : "the corpse's own SetupWeights");
+    }
+
+    /// <remarks>
+    /// **A dead player the scene places nowhere sets no target from the corpse** (review 2 item 2): reachable only off
+    /// `MomentScene`, which fills `PlayerAlive` and `PlayerOrigin` from the same `ScenePlayer`. With no origin there is no
+    /// look-at to run, so the corpse leaves the context's (7, 7, 7) as it found it, where the old fallback ran the look-at
+    /// from the corpse's own position.
+    /// </remarks>
+    [Test]
+    public void Instances_ACorpseOfADeadPlayerWithNoOrigin_SetsNoTarget()
+    {
+        EntityModelSet models = new() { PlayerAlive = index => index == 2 ? false : null };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe((7f, 7f, 7f));
     }
 
     /// <remarks>
@@ -385,11 +635,16 @@ public sealed class StudioFaceWiringTests
             null,
             ClientSideAnimated: true);
 
+    /// <summary>
+    /// An eye, a mouth, teeth and one flex controller — a real face has controllers, without which a C_BaseFlex never
+    /// reaches <c>SetViewTarget</c> (B725 5d). Not an eye controller, so nothing deflects.
+    /// </summary>
     private static PropModels.ModelFrames Faced() => ModelFramesFixture.OneSecondLoop(string.Empty) with
     {
         Eyeballs = [new StudioEyeball(0, (0f, 0f, 10f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
         Mouths = [new StudioMouth(0, (1f, 0f, 0f), 0)],
         HasTeeth = true,
+        Flex = new StudioFlexData([], [new StudioFlexController("default", "jaw", 0f, 1f)], [], []),
     };
 
     private static (float X, float Y, float Z) Normalise((float X, float Y, float Z) v)

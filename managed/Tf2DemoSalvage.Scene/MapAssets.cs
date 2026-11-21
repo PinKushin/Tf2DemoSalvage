@@ -3316,10 +3316,9 @@ public sealed class MapAssets
             first = colour with { Cloak = cloak };
         }
 
-        // **The face shaders** (B725): only on a model's path, which is the only one with eyeballs and a mouth. `teeth_bump`
-        // (a `$bumpmap`) lights per pixel and is not ported; it keeps the generic draw.
-        if (model && first is { } face && EyeMaterial.ShaderOf(material.Shader) is { } eyeShader &&
-            !(eyeShader == EyeShader.Teeth && material.BumpMap is not null))
+        // **The face shaders** (B725): only on a model's path, which is the only one with eyeballs and a mouth. A Teeth
+        // material with a `$bumpmap` draws `teeth_bump`, lit per pixel (`teeth.cpp:88`).
+        if (model && first is { } face && EyeMaterial.ShaderOf(material.Shader) is { } eyeShader)
         {
             first = face with { Eye = ResolveEye(eyeShader) };
         }
@@ -3377,7 +3376,8 @@ public sealed class MapAssets
                 shader,
                 shader == EyeShader.EyeRefract ? Named("$corneatexture", "cornea texture") : null,
                 shader == EyeShader.EyeRefract ? Named("$ambientoccltexture", "eye occlusion texture") : null,
-                shader == EyeShader.Eyes ? Named("$iris", "iris") : null);
+                shader == EyeShader.Eyes ? Named("$iris", "iris") : null,
+                shader == EyeShader.Teeth && material.BumpMap is { } bump ? MapTexture.Of(Load(bump, "teeth bump map")) : null);
         }
 
         MapTexture? ResolveBlendModulation()

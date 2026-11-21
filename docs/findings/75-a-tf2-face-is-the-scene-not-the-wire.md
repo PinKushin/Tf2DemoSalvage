@@ -144,3 +144,64 @@ soldier's resting face moves nothing — the control.
 - **And a wrong turn it caught.** That control first disagreed by exactly two on every file: the cache's rate is
   `info >> 14 & 0x1ffff` (`CAudioSourceWave` from the cache, `0x18004f870`), and the remainder pass had shifted by 15 —
   every sentence length it reported was doubled, which nothing downstream could have shown.
+
+## The studio render's face state, beyond the wire (B725, item 5)
+
+What the eye and teeth shaders are handed at the draw, read after the shaders themselves were ported.
+
+- **The mouth is a material flag, not the Teeth shader.** It was believed — and built — that a mouth is set up for any
+  Teeth material on a model with a mouth, with the mesh draw's gating argument at `0xa0` "not identified". TF2's x64
+  `studiorender.dll` names it: the function at `0x1800041c0` is `R_StudioSetupSkinAndLighting`, `0xa0(%rsp)` its fifth
+  argument `materialFlags`, which both callers fill from `pMaterialFlags[ skinref[ mesh->material ] ]`, and the material
+  load sets each to `stricmp( $clientShader, "MouthShader" ) == 0` (`0x180058172-0x1800581cf`, *read*). So the VMT key
+  `$clientShader`, which no shader reads, is what lets `R_MouthSetupVertexShader` write `$forward`/`$illumfactor`. Every
+  shipped Teeth material states it (15 in HL2's VPKs, *measured*), which is why the wrong belief drew nothing wrong.
+- **A model panel's CMDL starts zeroed and is never clamped.** `CMDL::CMDL` (tier3, linked into TF2's `client.dll`
+  at `0x180936e20`) zeroes the 0x600 bytes of flex controls, the view target and its world-space flag; `CMDL::Draw`
+  (`0x180936f70`) transforms a non-world-space target by the matrix it is drawn with and runs the flex rules on those
+  controls (*read*). A merge model is drawn with an identity matrix (`mdlpanel.cpp:853`, *source*), so its eyes look at
+  the world origin; a CMDLPanel's controls stay zero, which is NOT where a C_BaseFlex rests (each controller's minimum,
+  `c_baseflex.cpp:1222`).
+- **The global flex number looked like session history and is not — a wrong turn, kept.** CTFPlayerModelPanel writes
+  `m_pFlexControls[ localToGlobal ]` (`tf_playermodelpanel.cpp:2317-2319`), and the first reading, that `RunFlexRules`
+  reads by LOCAL index (the bounds check at `studio.cpp:1456` names `numflexcontrollers`), concluded each rule read
+  whatever controller happened to own that global number this session. Three lines further, FETCH1 reads
+  `src[ pFlexcontroller( index )->localToGlobal ]` (`studio.cpp:1485-1486`, *source*; TF2's `client.dll` the same at
+  `0x180317816`, *read*): the rules index by the global number too, so each reads its own controller. The client's own
+  path agrees — `C_BaseFlex::RunFlexRules` hands the rules `g_flexweight`, the global array (`c_baseflex.cpp:336`). What
+  IS session history: a model no C_BaseFlex has linked keeps `localToGlobal` −1, and a CMDL drawing it reads
+  `m_pFlexControls[ −1 ]` — the CMDL's `m_flTime`, four bytes before the array (*read*, the layout from `CMDL::CMDL`).
+- **A prop's eyes see whatever the last face drawn looked at.** The view target is render-context state that only
+  `SetEyeViewTarget` writes (a C_BaseFlex's `SetViewTarget`, only with flex controllers; a CMDL's draw, always); a
+  `prop_dynamic` writes none, so its eyes follow the previous draw's target (*source* for the writers; the reader is the
+  eyeball setup at `0x18001e1b0`). Ported as one shared target in our draw order; the engine's order across views is B780.
+- **Two "gaps" were not.** The face vertex shaders hand `DoLighting` a literal zero static colour, so a colour mesh never
+  reaches a face (*source*); and EyeRefract's binormal packed into `COLOR0` as `B · 0.5 + 0.5` and unpacked `· 2 − 1`
+  is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
+  (*arithmetic*).
+
+## The Eyes glint (B725, item 3)
+
+The `Eyes` shader adds a 32×32 render target the studio render draws for every eye draw (`studiorender.dll`
+`0x18001e020`, `0x18001f510`, *read*). Three things in it are not what the published shaders suggest.
+
+- **The glints are placed in world units on a target one unit across.** `0x18001d600` writes each glint as
+  `right · refl · cornearadius + dx` — world units on the eye — and the pass centres it at `(x + 0.5) · 32` texels, so the
+  target spans ±0.5 units; `$glintu`, though, is `0.5 / radius` along the view's right, so the target is stretched over
+  the eye's diameter. The two agree only for an eye of radius 0.5 (*read*, *arithmetic*). Ported as the engine does it.
+- **The second glint is where the light is OUTSIDE the cornea's cap.** It reads like a back-of-the-iris highlight for a
+  light "behind" the cornea; the branch (`comiss`, `jae` skips) draws it where `N · L` from the eye's centre is *below*
+  `√(1 − ¼)`. Believed the other way round at first, from a summary written before the instruction was re-read.
+- **The pass's quads sit a quarter texel inside the grid.** NDC `2X/32 − 0.984375` is a quarter texel, not the half
+  that would align D3D9's pixel centres; under D3D9 it covers `floor − 1 … floor + 1` sampled at `i − ¼`, under D3D11's
+  centres it would cover `floor − 2 … floor` (*arithmetic*). An earlier note said the two agree; they do not.
+- **The sun is a light like any lamp to the glint.** Its `LightDesc_t`, read in `engine.dll`, has no attenuation terms
+  and so gets `a0 = 1` from the same all-zero rule as a lamp (`0x1800f2186`), and a range of 1.8e19 whose square
+  overflows to infinity and cuts nothing (*read*).
+- **`r_glint_procedural` is a second picture, not a slower copy of the first.** The CPU regenerator (`0x18001d090`)
+  uses the same five-Gaussian kernel but truncates the centre, evaluates each texel at its own coordinate, and adds in
+  linear through mathlib's 2.2 gamma tables — so a dim glint the GPU pass stores as 14 it stores as 130 (*read*,
+  *arithmetic*). A review's first answer was to ignore the cvar; it is user-settable, so it was ported.
+- **`mat_wireframe` reaches the glint through `sv_cheats`.** The engine's `bWireframe` is `sv_cheats && mat_wireframe`
+  (`0x1800f5855`), and under it the studio render skips the glint and draws the model with its own wireframe material
+  — the second half is B788 (*read*).

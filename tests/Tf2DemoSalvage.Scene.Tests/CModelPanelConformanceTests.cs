@@ -382,24 +382,131 @@ public sealed class CModelPanelConformanceTests
         eye.IrisU.W.ShouldBe(0.5f - ((120f * u.X) + (5f * u.Y)), 1e-3);
     }
 
-    private static VguiModelPanel Framed(bool startFramed, bool eyed = false)
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c>'s mouth is set up from its rules at rest** (B725 5f): a C_BaseFlex nothing drives runs its
+    /// rules on each controller's minimum (`m_flexWeight` zero rescaled, `c_baseflex.cpp:1220-1222`), and the mesh draw's
+    /// `R_MouthSetupVertexShader` reads descriptor 0. The rule `jaw + 0.25` over a controller ranged 0.5..1 gives 0.75 — a
+    /// CMDL's zero controls would give 0.25. The mouth's forward (1, 0, 0) on the unrotated bone, negated: (−1, 0, 0).
+    /// </remarks>
+    [Test]
+    public void Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights()
     {
-        PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
-        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
+        VguiModelPanel panel = Framed(startFramed: false, mouthed: true);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        MouthShading mouth = surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem().Face.ShouldNotBeNull().Mouth.ShouldNotBeNull();
+        mouth.IllumFactor.ShouldBe(0.75f, 1e-6f);
+        mouth.Forward.X.ShouldBe(-1f, 1e-5f);
+        mouth.Forward.Y.ShouldBe(0f, 1e-5f);
+        mouth.Forward.Z.ShouldBe(0f, 1e-5f);
+    }
+
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c> without controllers reads the render context's view target** (B725 5d): its
+    /// `SetupGlobalWeights` returns false before `SetViewTarget` (`c_baseflex.cpp:1198-1207`), so it sets none and its eyes
+    /// take the last one set. Left at (120, 300, 5) by an earlier draw: the eye at (120, 5, 5) looks along +y, right =
+    /// forward × up = (1, 0, 0), `$irisu` = (−1, 0, 0) — where looking at the origin gives the case above.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelWithAnEyeAndNoControllers_LooksAtTheLastViewTargetSet()
+    {
+        StudioViewTarget shared = new() { Target = (120f, 300f, 5f) };
+        VguiModelPanel panel = Framed(startFramed: false, eyed: true, viewTarget: shared);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        EyeShading eye = surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem().Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisU.X.ShouldBe(-1f, 1e-4f);
+        eye.IrisU.Y.ShouldBe(0f, 1e-4f);
+        shared.Target.ShouldBe((120f, 300f, 5f), "it sets none");
+    }
+
+    /// <remarks>
+    /// **A CModelPanel's attached model is a plain C_BaseAnimating** (review 1 item 2): `new C_BaseAnimating`
+    /// (`basemodelpanel.cpp:467`), whose `SetupWeights` is empty — so it sets no view target and reads the last one set, and
+    /// its flex weights are the zeros `LockFlexWeights` hands a draw nobody fills (studiorender `0x1800584b0`, B513). The root
+    /// here has no controllers, so it sets nothing either; the shared target left at (120, 300, 5) by an earlier draw stays,
+    /// and the attached eye at (120, 5, 5) looks along +y: `$irisu` (−1, 0, 0). Its mouth reads descriptor 0 at zero: 0 —
+    /// where run as a C_BaseFlex at rest it would set (0, 0, 0) and read 0.75.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex()
+    {
+        StudioViewTarget shared = new() { Target = (120f, 300f, 5f) };
+        VguiModelPanel panel = Framed(startFramed: false, viewTarget: shared, attached: Frames(eyed: true, mouthed: true));
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        IReadOnlyList<ModelInstance> models = surface.Draws.ShouldHaveSingleItem().Models;
+        models.Count.ShouldBe(2);
+        StudioFace face = models[1].Face.ShouldNotBeNull();
+        face.Eyes[0].IrisU.X.ShouldBe(-1f, 1e-4f);
+        face.Eyes[0].IrisU.Y.ShouldBe(0f, 1e-4f);
+        face.Mouth.ShouldNotBeNull().IllumFactor.ShouldBe(0f);
+        shared.Target.ShouldBe((120f, 300f, 5f), "neither the root nor the attached model sets one");
+    }
+
+    /// <remarks>
+    /// **A CModelPanelModel with controllers sets the shared target** (`SetViewTarget`, `c_baseflex.cpp:643`): its
+    /// `m_viewtarget` (0, 0, 0), no `eyes` attachment so unclamped. From (7, 7, 7) to (0, 0, 0) — into the cache's shared
+    /// one, or, with a cache that shares none, the panel's own, which persists between paints.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Paint_ARootWithControllers_SetsTheSharedTargetOrThePanelsOwn(bool cacheShares)
+    {
+        StudioViewTarget shared = new() { Target = (7f, 7f, 7f) };
+        VguiModelPanel panel = Framed(startFramed: false, eyed: true, mouthed: true, viewTarget: shared, sharedTarget: cacheShares);
+
+        StudioViewTarget written = cacheShares ? shared : panel.ViewTarget;
+
+        if (!cacheShares)
         {
-            Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
-        };
+            written.ShouldNotBeSameAs(shared);
+            written.Target = (7f, 7f, 7f);
+        }
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context!);
+
+        written.Target.ShouldBe((0f, 0f, 0f), "the paint wrote the target the panel reports");
+        panel.ViewTarget.ShouldBeSameAs(written);
+    }
+
+    private static VguiModelPanel Framed(
+        bool startFramed,
+        bool eyed = false,
+        bool mouthed = false,
+        StudioViewTarget? viewTarget = null,
+        PropModels.ModelFrames? attached = null,
+        bool sharedTarget = true)
+    {
+        PropModels.ModelFrames frames = Frames(eyed, mouthed);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        VguiModelPanel panel = new(viewport, "Framed", new FramesCache(frames)) { Wide = 640, Tall = 480 };
+        FramesCache cache = new(
+            path => attached is not null && path == AttachedPath ? attached : frames,
+            sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
+        VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
+        string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";
 
         panel.ApplySettings(
             KeyValuesTree.Load(Encoding.UTF8.GetBytes($$"""
                 "Framed"
                 {
                     "fieldName" "Framed" "wide" "640" "tall" "480" "start_framed" "{{(startFramed ? 1 : 0)}}"
-                    "model" { "modelname" "models/plain.mdl" "modelname_hwm" "models/plain_hwm.mdl" "animation" { "name" "ref" "sequence" "ref" "default" "1" } }
+                    "model" { "modelname" "models/plain.mdl" "modelname_hwm" "models/plain_hwm.mdl" "animation" { "name" "ref" "sequence" "ref" "default" "1" } {{attachedLine}} }
                 }
                 """), "framed.res", _ => null),
             context);
@@ -407,10 +514,35 @@ public sealed class CModelPanelConformanceTests
         return panel;
     }
 
-    /// <summary>Every path answers the given frames.</summary>
-    private sealed class FramesCache(PropModels.ModelFrames frames) : IMdlCache
+    private const string AttachedPath = "models/attached.mdl";
+
+    /// <summary>A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1.</summary>
+    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed)
     {
-        public PropModels.ModelFrames? FindMdl(string path) => frames;
+        PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+
+        return new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
+        {
+            Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
+            Mouths = mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [],
+            HasTeeth = mouthed,
+            Flex = mouthed
+                ? new StudioFlexData(
+                    ["jaw"],
+                    [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                    [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                    [])
+                : StudioFlexData.None,
+        };
+    }
+
+    /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames> find, StudioViewTarget? viewTarget) : IMdlCache
+    {
+        public StudioViewTarget? ViewTarget { get; } = viewTarget;
+
+        public PropModels.ModelFrames? FindMdl(string path) => find(path);
 
         public int FindBodygroup(string modelPath, string group) => -1;
 

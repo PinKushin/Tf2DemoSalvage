@@ -18,6 +18,9 @@ public interface IRenderDevice
     /// <summary>Valve's <c>mat_specular</c>.</summary>
     public bool Specular { get; set; }
 
+    /// <summary>Valve's <c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> (B725).</summary>
+    public Scene.GlintSwitches EyeGlint { get; set; }
+
     /// <summary>Valve's <c>mat_phong</c>.</summary>
     public bool Phong { get; set; }
 

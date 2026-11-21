@@ -1072,6 +1072,143 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
     }
 
+    /// <summary><c>MAXSTUDIOFLEXCTRL</c>: the size of <c>m_flexWeight</c> (tf_playermodelpanel.h:193).</summary>
+    internal const int MaxStudioFlexCtrl = 96;
+
+    /// <summary><c>m_flexWeight</c>: zeroed in the constructor (:129) and never reset, whatever model the root becomes.</summary>
+    private readonly float[] _flexWeight = new float[MaxStudioFlexCtrl];
+
+    /// <summary>The root's descriptor weights, rewritten each paint.</summary>
+    private float[] _flexRuleWeights = [];
+
+    /// <summary>What each FETCH1 reads this paint, by local controller, rewritten each paint.</summary>
+    private float[] _flexSource = [];
+
+    /// <summary>The model <see cref="_flexSlots"/> were computed for.</summary>
+    private StudioFlexData? _flexSlotsFor;
+
+    /// <summary>Each local controller's shared global slot (<see cref="SharedSlots"/>), computed once per model.</summary>
+    private int[] _flexSlots = [];
+
+    /// <summary><c>m_flexWeight[ index ]</c>, for the test that the decay steps every paint.</summary>
+    internal float FlexWeightAt(int index) => _flexWeight[index];
+
+    /// <summary>One paint's <see cref="RootFlexWeights"/>, for the tests of its cache and its allocation.</summary>
+    internal float[]? StepRootFlex(string path, PropModels.ModelFrames frames) => RootFlexWeights(path, frames);
+
+    /// <summary>
+    /// <c>SetupFlexWeights</c> (:2275-2361) then <c>CMDL::Draw</c>'s <c>RunFlexRules</c> (B725 5f): the controls decayed one
+    /// paint, the rules run on them. No scene plays and no voice speaks in a demo's panel, so <c>m_pScene</c> and the visemes
+    /// add nothing.
+    /// </summary>
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **The decay steps every paint; the rules run only for a model whose mouth reads them** (B725 review 1): the engine runs
+    /// both each paint, and its rules also flex the panel's mesh — which ours does not draw (B779) — so for a model without a
+    /// mouthed Teeth material nothing here reads them. When B779 is fixed the rules run for every model with flex.
+    /// </remarks>
+    protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
+        IReadOnlyList<StudioFlexController> controllers = frames.Flex.Controllers;
+        DecayFlexWeights(_flexWeight, controllers);
+
+        if (!frames.HasTeeth || frames.Mouths.Count == 0)
+        {
+            return null;
+        }
+
+        if (!ReferenceEquals(_flexSlotsFor, frames.Flex))
+        {
+            _flexSlotsFor = frames.Flex;
+            _flexSlots = SharedSlots(controllers);
+            _flexSource = new float[controllers.Count];
+            _flexRuleWeights = new float[frames.Flex.Descriptors.Count];
+        }
+
+        FlexControls(_flexWeight, controllers, _flexSlots, _flexSource);
+        StudioFlexRules.Run(frames.Flex, _flexSource, _flexRuleWeights);
+        return _flexRuleWeights;
+    }
+
+    /// <summary>One paint of <c>SetupFlexWeights</c>' decay, in place: <c>SetFlexWeight( i, GetFlexWeight( i ) * 0.95 )</c>.</summary>
+    /// <param name="flexWeight"><c>m_flexWeight</c>, 0..1 per local controller.</param>
+    /// <param name="controllers">The root model's controllers.</param>
+    /// <remarks>
+    /// `GetFlexWeight( i ) * 0.95` multiplies by a double literal and is handed back as a float, as here. Controllers past
+    /// <see cref="MaxStudioFlexCtrl"/> are not stepped (the engine would write past its array).
+    /// </remarks>
+    internal static void DecayFlexWeights(float[] flexWeight, IReadOnlyList<StudioFlexController> controllers)
+    {
+        ArgumentNullException.ThrowIfNull(flexWeight);
+        ArgumentNullException.ThrowIfNull(controllers);
+
+        for (int index = 0; index < controllers.Count && index < flexWeight.Length; index++)
+        {
+            StudioFlexController controller = controllers[index];
+            float range = controller.Max - controller.Min;
+            float weight = flexWeight[index];
+
+            // Get (:2254-2270), scaled by the double 0.95, then Set (:2233-2249).
+            float value = range != 0f ? (weight * range) + controller.Min : weight;
+            value = (float)(value * 0.95);
+
+            flexWeight[index] = range != 0f ? Math.Clamp((value - controller.Min) / range, 0f, 1f) : value;
+        }
+    }
+
+    /// <summary>
+    /// Each local controller's global slot as a FETCH1 reads it: one per name (<c>AddGlobalFlexController</c>'s stricmp), and
+    /// the highest index of that name is the one written last.
+    /// </summary>
+    /// <param name="controllers">The model's controllers.</param>
+    /// <returns>For each local controller, the local index whose value its slot holds.</returns>
+    internal static int[] SharedSlots(IReadOnlyList<StudioFlexController> controllers)
+    {
+        ArgumentNullException.ThrowIfNull(controllers);
+
+        int[] slots = new int[controllers.Count];
+        Dictionary<string, int> last = new(StringComparer.OrdinalIgnoreCase);
+
+        for (int index = 0; index < controllers.Count; index++)
+        {
+            last[controllers[index].Name] = index;
+        }
+
+        for (int index = 0; index < controllers.Count; index++)
+        {
+            slots[index] = last[controllers[index].Name];
+        }
+
+        return slots;
+    }
+
+    /// <summary>
+    /// <c>m_pFlexControls[ localToGlobal ] = w · ( max − min ) + min</c> (:2317-2319) as the rules read it:
+    /// <c>src[ localToGlobal ]</c> (<c>client.dll</c> <c>0x180317816</c>), into <paramref name="into"/> by local controller.
+    /// </summary>
+    /// <param name="flexWeight"><c>m_flexWeight</c>.</param>
+    /// <param name="controllers">The model's controllers.</param>
+    /// <param name="slots">From <see cref="SharedSlots"/>.</param>
+    /// <param name="into">One value per controller.</param>
+    internal static void FlexControls(float[] flexWeight, IReadOnlyList<StudioFlexController> controllers, int[] slots, float[] into)
+    {
+        ArgumentNullException.ThrowIfNull(flexWeight);
+        ArgumentNullException.ThrowIfNull(controllers);
+        ArgumentNullException.ThrowIfNull(slots);
+        ArgumentNullException.ThrowIfNull(into);
+
+        for (int index = 0; index < controllers.Count; index++)
+        {
+            int slot = slots[index];
+            StudioFlexController owner = controllers[slot];
+            float weight = slot < flexWeight.Length ? flexWeight[slot] : 0f;
+
+            into[index] = (weight * (owner.Max - owner.Min)) + owner.Min;
+        }
+    }
+
     /// <summary>`PostPaint3D` (:1363-1405): the glow color alternates, flags reset, stale systems deleted, then the base renders.</summary>
     /// <inheritdoc/>
     protected override void PostPaint3D(VguiRenderContext renderContext)

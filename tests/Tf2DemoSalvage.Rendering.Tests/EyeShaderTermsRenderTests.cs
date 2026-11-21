@@ -293,7 +293,7 @@ public sealed class EyeShaderTermsRenderTests
             return;
         }
 
-        EyeShading centred = new((0f, 0f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, -99.25f));
+        EyeShading centred = new((0f, 0f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, -99.25f), (0f, -1f, 0f), 0.5f);
 
         Draw(target, EyeRefract(iris: IrisRows(), rayCast: rayCast, radius: 100f), centred, []);
 
@@ -411,7 +411,7 @@ public sealed class EyeShaderTermsRenderTests
     }
 
     private static EyeShading Below() =>
-        new((0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f));
+        new((0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f), (0f, 0f, 1f), 0.5f);
 
     private static int Pixel(float light) => Encode(LinearGrey * light);
 
@@ -515,7 +515,7 @@ public sealed class EyeShaderTermsRenderTests
     }
 
     private static MapAssets Teeth() => MapAssets.ForMaterials(
-        [Uniform4(128, 128, 128, 255) with { Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false) }],
+        [Uniform4(128, 128, 128, 255) with { Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, MouthShader: true) }],
         ["Teeth"]);
 
     private static void Draw(

@@ -1452,6 +1452,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>Valve's <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass.</summary>
     public bool DisableBloom { get; set { Lock(); field = value; } }
 
+    /// <summary>Valve's <c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c>, default 0: handed to the eyes (B725).</summary>
+    public Scene.GlintSwitches EyeGlint
+    {
+        get;
+        set
+        {
+            Lock();
+            field = value;
+
+            if (_world is not null)
+            {
+                _world.Glint = value;
+            }
+        }
+    }
+
     /// <summary>Valve's <c>r_lightmap_bicubic</c>, default 0: handed to the world's lightmap reads (<see cref="WorldRenderer.BicubicLightmap"/>, B679).</summary>
     public bool BicubicLightmap
     {
@@ -5953,6 +5969,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.DrawWorld = _drawWorld;
         _world.ShaderSrgb = ShaderSrgb;
         _world.BicubicLightmap = BicubicLightmap;
+        _world.Glint = EyeGlint;
         _world.DrawBumped = BumpMap;
         _world.SetGammaTwin(_backBufferView, _gammaView);
     }

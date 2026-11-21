@@ -505,6 +505,21 @@ public sealed class ViewerSettingsTests
         settings.DrawHud.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// `r_glint_alwaysdraw` and `r_glint_procedural`, both default 0 and flags 0 in `studiorender.dll` (`0x180001060`,
+    /// `0x1800010a0`), read from a config as a user's own would set them (D69, B725).
+    /// </summary>
+    [TestCase("", false, false)]
+    [TestCase("r_glint_alwaysdraw 1\n", true, false)]
+    [TestCase("r_glint_procedural 1\n", false, true)]
+    public void Load_TheGlintConVars_ReadEachOverTheEngineDefaults(string contents, bool alwaysDraw, bool procedural)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, contents);
+
+        ViewerSettings.Load(file).EyeGlint.ShouldBe(new GlintSwitches(alwaysDraw, procedural));
+    }
+
     /// <summary>`mat_bumpmap`, default 1 in TF2's own `cvarlist.log`, read from a config; TF2's shipped `low.cfg` sets 0 (B720).</summary>
     [TestCase("", true)]
     [TestCase("mat_bumpmap 0\n", false)]

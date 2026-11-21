@@ -287,6 +287,30 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// B725 glint review 2: `r_glint_alwaysdraw` and `r_glint_procedural` are read by the studio render at each eye draw
+    /// (`studiorender.dll` `0x18001e071`, `0x18001e0ad`), so a set from a key, the console or an exec'd cfg mid-demo is the
+    /// switch, as B671's are. Before, only the hand-over at device creation gave them to the device.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AKeyBoundToEachGlintConVar_ReachesTheDevice()
+    {
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"r_glint_alwaysdraw 1\"\nbind \"F8\" \"r_glint_procedural 1\"\n").WithDevice();
+        GlintSwitches before = rig.Device.EyeGlint;
+        int redraws = rig.Window.Count("Redraw");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        GlintSwitches afterAlways = rig.Device.EyeGlint;
+        int afterFirst = rig.Window.Count("Redraw") - redraws;
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        (before, afterAlways, rig.Device.EyeGlint).ShouldBe(
+            (default(GlintSwitches), new GlintSwitches(true, false), new GlintSwitches(true, true)));
+        (afterFirst, rig.Window.Count("Redraw") - redraws).ShouldBe((1, 2), "a paused viewer repaints once per set");
+        rig.Log.Lines.Where(static line => line.StartsWith("[render] r_glint_", StringComparison.Ordinal))
+            .ShouldBe(["[render] r_glint_alwaysdraw 1", "[render] r_glint_procedural 1"]);
+    }
+
+    /// <remarks>
     /// **The menu writes the ConVar too** (B671 review, D215), as `SetPhong` does: unticked from the menu, `mat_specular`
     /// must read 0 to a later `toggle`, which then turns reflections back on; and a menu fullbright must be in the settings
     /// for `sv_cheats 0` to put it back to 0, as TF2 reverts every cheat ConVar it holds. Before, the toggle read 1 and set

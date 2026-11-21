@@ -366,7 +366,16 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     }
 
     /// <summary><c>ClearMergeMDLs</c> (<c>mdlpanel.cpp:948</c>).</summary>
-    public void ClearMergeMDLs() => _merges.Clear();
+    public void ClearMergeMDLs()
+    {
+        // The faces kept for them go with them (B725 review 1), or a panel re-dressed each frame keeps one per old merge.
+        foreach (VguiMdl merge in _merges)
+        {
+            _faces.Remove(merge);
+        }
+
+        _merges.Clear();
+    }
 
     /// <summary><c>CMDLPanel::SetModelAnglesAndPosition</c> (<c>mdlpanel.h:89</c>, mdlpanel.cpp:233-237):
     /// <c>AngleMatrix( angRot, vecPos, m_RootMDL.m_MDLToWorld )</c>.</summary>
@@ -385,9 +394,6 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <c>m_PoseParameters</c> and draw, each enabled merge model <c>SetupBonesWithBoneMerge</c> onto it and drawn then
     /// <see cref="RenderingMergedModel"/>, then <see cref="RenderingRootModel"/>, then <see cref="PostPaint3D"/>.
     /// </summary>
-    /// <summary>The root's eye values, kept across paints (see <see cref="OnPaint3D"/>).</summary>
-    private StudioFace? _rootFace;
-
     protected override void OnPaint3D(VguiRenderContext renderContext)
     {
         ArgumentNullException.ThrowIfNull(renderContext);
@@ -407,22 +413,10 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         // Mann Co. collection-crafting menu's `ReturnModel` (`collection_crafting_panel.cpp:113`), a menu panel this viewer
         // does not build, and otherwise only by the tools' model picker (`mdlpicker.cpp:321`); `CMDLPanel` reads no `.res`
         // key for it. So every panel here keeps it, and `OnPaint3D` sets a world-space view target at the
-        // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. *Interpolated*: that `CMDL::Draw` (closed,
-        // tier3) hands that target to `SetEyeViewTarget` as it stands. A merge model's own target is not read; its eyes keep the
-        // generic draw.
-        // One face kept per panel, rewritten each paint: the HUD paints, then the frame draws what it painted (B725 review).
-        StudioFace? rootFace = null;
-
-        if (rootFrames.Eyeballs.Count > 0)
-        {
-            if (_rootFace is null || _rootFace.Eyes.Length != rootFrames.Eyeballs.Count)
-            {
-                _rootFace = new StudioFace(new EyeShading[rootFrames.Eyeballs.Count]);
-            }
-
-            rootFace = _rootFace;
-            StudioEyes.FillEyes(rootFace, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z));
-        }
+        // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. `CMDL::Draw` takes a world-space target
+        // as it stands (see CmdlFace).
+        StudioFace? rootFace = CmdlFace(
+            _root, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z), RootFlexWeights(rootPath, rootFrames));
 
         ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones)) with { Face = rootFace };
 
@@ -440,7 +434,12 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             merged.Follows = root;
             merged.SetupBones(FullBoneMask, CycleTime);
 
-            renderContext.Models.Add(Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones)));
+            // A merge's CMDL keeps its constructor's view target, (0, 0, 0) in model space, carried by its identity
+            // `m_MDLToWorld` (`SetMergeMDL`, mdlpanel.cpp:853) to the world origin; its flex controls stay zero.
+            StudioFace? mergeFace = CmdlFace(merge, mergeFrames, merged.Bones, (0f, 0f, 0f), ZeroControlWeights(mergePath, mergeFrames));
+
+            renderContext.Models.Add(
+                Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones)) with { Face = mergeFace });
 
             RenderingMergedModel(renderContext, mergeFrames, mergePath, merged.Bones);
         }
@@ -558,6 +557,108 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         return model.Realtime(sequence)
             ? StudioSequences.ClampCycle(raw, loops: true)
             : StudioSequences.ClampCycle(raw, model.Loops(sequence));
+    }
+
+    /// <summary>
+    /// The studio render context's one view target, shared with the world's models through the cache
+    /// (<see cref="IMdlCache.ViewTarget"/>), or this panel's own where the cache has none (B725 5d).
+    /// </summary>
+    protected internal StudioViewTarget SharedViewTarget => MdlCache.ViewTarget ?? _ownViewTarget;
+
+    /// <summary>How many CMDL faces this panel keeps, for the test that clearing the merges drops theirs.</summary>
+    internal int KeptFaces => _faces.Count;
+
+    private readonly StudioViewTarget _ownViewTarget = new();
+
+    /// <summary>Each drawn CMDL's face values, kept and rewritten each paint: the HUD paints, then the frame draws it (B725).</summary>
+    private readonly Dictionary<VguiMdl, StudioFace> _faces = [];
+
+    /// <summary>Each model's descriptor weights at zero flex controls, by path, computed once.</summary>
+    private readonly Dictionary<string, float[]> _zeroControlWeights = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What <c>CMDL::Draw</c> hands the studio render for one model's eyes and mouth (B725 5f, 5g), or null for a model with
+    /// neither.
+    /// </summary>
+    /// <param name="mdl">The CMDL.</param>
+    /// <param name="frames">Its model.</param>
+    /// <param name="bones">Its bone-to-world.</param>
+    /// <param name="target">The world-space view target the draw sets.</param>
+    /// <param name="weights">The descriptor weights the draw's flex rules give, or null where they are not modelled (no
+    /// mouth is set up then).</param>
+    /// <returns>The face, written into this CMDL's own.</returns>
+    /// <remarks>
+    /// **Read** from TF2's x64 <c>client.dll</c>, where tier3's <c>CMDL</c> is linked (disassembled): <c>CMDL::CMDL</c>
+    /// (<c>0x180936e20</c>) zeroes <c>m_pFlexControls</c> (0x600 bytes at +0x20), <c>m_vecViewTarget</c> (+0x620) and
+    /// <c>m_bWorldSpaceViewTarget</c> (+0x62c). <c>CMDL::Draw</c> (<c>0x180936f70</c>) hands <c>SetEyeViewTarget</c> the target
+    /// as it stands when world-space, else <c>VectorTransform( m_vecViewTarget, rootToWorld )</c> (<c>0x1809370b8-0x180937108</c>),
+    /// unclamped; then, for a model with flex descriptors, <c>LockFlexWeights</c> and <c>RunFlexRules( m_pFlexControls, … )</c>
+    /// (<c>0x180937138-0x1809371a7</c>) — the descriptor weights the mesh draw's <c>R_MouthSetupVertexShader</c> reads.
+    /// </remarks>
+    private StudioFace? CmdlFace(
+        VguiMdl mdl, PropModels.ModelFrames frames, Animation.Animating.BoneAccessor bones, (float X, float Y, float Z) target, float[]? weights)
+    {
+        // Every CMDL draw sets the render context's one target first, eyes or none (`0x1809370f4-0x180937108`, B725 5d).
+        SharedViewTarget.Target = target;
+
+        bool mouthed = frames is { HasTeeth: true, Mouths.Count: > 0 } && weights is not null;
+
+        if (frames.Eyeballs.Count == 0 && !mouthed)
+        {
+            return null;
+        }
+
+        if (!_faces.TryGetValue(mdl, out StudioFace? face) || face.Eyes.Length != frames.Eyeballs.Count)
+        {
+            face = new StudioFace(new EyeShading[frames.Eyeballs.Count]);
+            _faces[mdl] = face;
+        }
+
+        StudioEyes.FillEyes(face, frames, bones, target);
+        face.Mouth = mouthed && frames.Mouths[0].Bone is >= 0 and var mouthBone && mouthBone < bones.Count
+            ? StudioEyes.Mouth(frames.Mouths[0], bones.Bone(mouthBone), weights)
+            : null;
+
+        return face;
+    }
+
+    /// <summary>
+    /// The root CMDL's descriptor weights as its draw computes them from the flex controls <c>SetupFlexWeights</c> leaves
+    /// (<c>mdlpanel.cpp:459</c>): CMDLPanel's own is empty (<c>mdlpanel.h:101</c>), so the controls are the constructor's
+    /// zeros. Null where a panel's override is not modelled.
+    /// </summary>
+    /// <remarks>
+    /// **Zero only for a model whose controllers are linked.** FETCH1 reads <c>src[ localToGlobal ]</c> (<c>client.dll</c>
+    /// <c>0x180317816</c>), and <c>localToGlobal</c> lives in the shared model data, −1 until a C_BaseFlex (or
+    /// CTFPlayerModelPanel) links it (<c>c_baseflex.cpp:1132-1142</c>). Unlinked, a rule reads <c>m_pFlexControls[ −1 ]</c>,
+    /// the float before the array: <c>m_flTime</c> (+0x1c; the array is +0x20, <c>CMDL::CMDL</c> <c>0x180936e20</c>). Whether
+    /// a model was linked depends on what the session drew before (B725 5f); taken as linked, the common case for a model a
+    /// player also wears.
+    /// </remarks>
+    /// <param name="path">The root's model path.</param>
+    /// <param name="frames">The root's model.</param>
+    /// <returns>One weight per descriptor, or null.</returns>
+    protected virtual float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(frames);
+
+        return ZeroControlWeights(path, frames);
+    }
+
+    /// <summary><c>RunFlexRules</c> over all-zero controls (<c>CMDL::CMDL</c>'s), kept per model path.</summary>
+    private float[] ZeroControlWeights(string path, PropModels.ModelFrames frames)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(frames);
+
+        if (!_zeroControlWeights.TryGetValue(path, out float[]? weights))
+        {
+            weights = FaceFlex.Rules(frames.Flex, new float[frames.Flex.Controllers.Count]);
+            _zeroControlWeights[path] = weights;
+        }
+
+        return weights;
     }
 
     /// <summary>One model as <c>CMDL::Draw</c> draws it: its skin row from the model's own table

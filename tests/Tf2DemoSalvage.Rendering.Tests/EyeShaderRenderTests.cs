@@ -45,7 +45,7 @@ public sealed class EyeShaderRenderTests
 
     /// <summary>The eye 1e5 units below: its normal is +z.</summary>
     private static readonly EyeShading Below = new(
-        (0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f));
+        (0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f), (0f, 0f, 1f), 0.5f);
 
     /// <remarks>
     /// **The normal is the eye's, not the mesh's.** A lamp straight in front lights the vertex normals fully, but the eye's
@@ -171,7 +171,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        EyeShading behind = new((0f, Far, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, 0f, -1f, 0.5f));
+        EyeShading behind = new((0f, Far, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, 0f, -1f, 0.5f), (0f, -1f, 0f), 0.5f);
         LocalLight dim = new(0f, -Far, 0f, 0.1f, 0.1f, 0.1f, 1f, 0f, 0f, 0f);
 
         Draw(target, EyeRefract(corneaMask: masked), behind, locals: [dim]);
@@ -221,6 +221,34 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **The draw's mouth reaches only a material flagged `$clientShader MouthShader`** (B725 5e): studiorender sets the
+    /// mouth up where the material's flag is set and the model has a mouth (`0x1800045be-0x1800045d8`, then
+    /// `R_MouthSetupVertexShader` at `0x180004666`). A mouth facing the lamp at full weight, (0, −1, 0) and 1, lights the
+    /// flagged teeth `0.1 + 1` = 1.1; unflagged, the material's own `$forward` (0, −1, 0) and `$illumfactor` 0.5 give 0.55.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void DrawModelPose_TeethWithAndWithoutTheMouthFlag_TakeTheDrawsMouthOnlyWhenFlagged(bool flagged)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, Teeth(halfLambert: false, mouthShader: flagged), null, locals: [Lamp(0f, -Far, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        int expected = Pixel(flagged ? Cube + 1f : (Cube + 1f) * 0.5f);
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth flagged {flagged}: centre {centre}, predicted {expected}");
+        Near(centre, expected, flagged ? "the draw's mouth" : "the material's own $forward and $illumfactor");
+    }
+
+    /// <remarks>
     /// **Teeth never wrap**: a material flagged `$halflambert`, a lamp level with the surface (N · L = 0) and forward along
     /// the normal: `0.1`, 40, where the wrap would add 0.25.
     /// </remarks>
@@ -260,7 +288,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        EyeShading eye = new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f));
+        EyeShading eye = new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 0.5f);
 
         Draw(target, Eyes(), eye, locals: [Lamp(0f, -Far, 0f)]);
 
@@ -270,6 +298,439 @@ public sealed class EyeShaderRenderTests
         TestContext.Out.WriteLine($"eyes: centre {centre}, predicted {bent}, unbent {Pixel(Cube + MathF.Sqrt(0.5f))}");
         Near(centre, bent, "lerp( base, iris, iris.a ) · DoLighting( bent normal )");
     }
+
+    /// <remarks>
+    /// **Eyes adds its glint, rendered for this eye and this view, times the ambient damping** (B725 item 3,
+    /// `eyes_ps2x.fxc:56`, `eyes_dx8_dx9_helper.cpp:445-453`; the target from `studiorender.dll` `0x18001e020`,
+    /// `0x18001f510`, `0x18001d600`, as <see cref="EyeGlint"/> ports them). The eye on the view's axis 600 units of radius
+    /// (texels 4 pixels wide), forward at the camera, a lamp at the camera: the glint is at (0, 0), so texel (16, 16) is 139
+    /// (`EyeGlintConformanceTests`) and the rest of its 3×3 is 0. `$glintu`/`$glintv` put that texel's centre `r / 32` =
+    /// 18.75 units right of and above the eye's axis: pixel (34, 30). The iris's alpha is 0 over a black base, so the lit
+    /// colour is 0 and the pixel is the glint alone, linear (the glint is not read through sRGB, `:378-381` enable it only
+    /// on samplers 0 and 1).
+    /// - Cube 0.1: luminance 0.1 &gt; 0.01, damping 1: 139/255.
+    /// - Cube 0.005: damping `0.005 · SimpleSpline( 0.5 )` = 0.0025.
+    /// - No lamp: no glint, 0 — the control that the pixel is the glint.
+    /// - The eye 1e5 away: `ComputePixelWidthOfSphere` ≈ 1.5 pixels &lt; `r_eyeglintlodpixels` 20, so `vgui/black`: 0.
+    /// </remarks>
+    [TestCase(Cube, true, 1200f, 139f / 255f)]
+    [TestCase(0.005f, true, 1200f, 139f / 255f * 0.0025f)]
+    [TestCase(Cube, false, 1200f, 0f)]
+    [TestCase(Cube, true, Far, 0f)]
+    public void DrawModelPose_EyesFacingALampAtTheCamera_AddsTheGlintTimesTheDamping(float cube, bool lamp, float depth, float expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+        AmbientCube dim = new((cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube));
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: lamp ? [Lamp(0f, -300f, 0f)] : [], cube: dim);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes glint, cube {cube}, lamp {lamp}, depth {depth}: {texel}, predicted {Encode(expected)}");
+        Near(texel, Encode(expected), "the glint texel times the damping");
+    }
+
+    /// <remarks>
+    /// **The glint's switches** (`studiorender.dll` `0x18001e020`; the eye and lamp of the test above, pixel (34, 30) on
+    /// texel (16, 16)):
+    /// - `r_glint_alwaysdraw 1` skips the level of detail (`0x18001e071`-`0x18001e07c`): the eye 1e5 away, 1.5 pixels wide,
+    ///   still draws 139, 195.
+    /// - `r_glint_procedural` with a lamp of 0.1: the GPU pass gives `0.1 · 0.5438 · 255` = 14 (66 encoded); the CPU
+    ///   regenerator (`0x18001e0ad`) gives 130 through mathlib's gamma tables (189) — `EyeGlintConformanceTests`.
+    /// - `mat_wireframe` (with `sv_cheats`, `engine.dll` `0x1800f5855`) sets `bWireframe`, and the mesh setup skips the
+    ///   glint (`0x18000f7d1`): the pixel, on the quad's diagonal edge, is the lit iris alone, 0 — 195 without it.
+    /// </remarks>
+    [TestCase(true, false, false, Far, 1f, 139f / 255f)]
+    [TestCase(false, false, false, 1200f, 0.1f, 14f / 255f)]
+    [TestCase(false, true, false, 1200f, 0.1f, 130f / 255f)]
+    [TestCase(false, false, true, 1200f, 1f, 0f)]
+    public void DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses(
+        bool alwaysDraw, bool procedural, bool wireframe, float depth, float lamp, float expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+
+        target.Glint = new GlintSwitches(alwaysDraw, procedural);
+        target.Wireframe = wireframe;
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [new LocalLight(0f, -300f, 0f, lamp, lamp, lamp, 1f, 0f, 0f, 0f)]);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine(
+            $"eyes glint, alwaysdraw {alwaysDraw}, procedural {procedural}, wireframe {wireframe}: {texel}, predicted {Encode(expected)}");
+        Near(texel, Encode(expected), "the glint the switches choose");
+    }
+
+    /// <remarks>
+    /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
+    /// drawn with a lamp at the camera (195), then again without one, is 0 — the target, left as the first draw filled it,
+    /// is not bound.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_EyesWithoutAGlintAfterOneWith_TakeBlack()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, 1200f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [Lamp(0f, -300f, 0f)]);
+        (int R, int G, int B) first = target.PixelAt(34, 30);
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: []);
+        (int R, int G, int B) second = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes glint then none: {first}, then {second}");
+        Math.Abs(first.R - 195).ShouldBeLessThanOrEqualTo(1, "the control: the first draw has its glint");
+        second.ShouldBe((0, 0, 0), "vgui/black");
+    }
+
+    /// <remarks>
+    /// **The damping is `lum · SimpleSpline( lum / 0.01 )` below 0.01 and 1 above** (`eyes_dx8_dx9_helper.cpp:445-453`).
+    /// Two lamps at the camera put two glints on texel (16, 16), 139 + 139, saturated to 255, so the pixel is the damping
+    /// itself (linear, encoded):
+    /// - Luminance 0.008: `SimpleSpline( 0.8 )` = 0.896, damping 0.007168, 20 (20.35) — where `lum · x` would give 19
+    ///   (18.77) and `lum` alone 22; exact, since the spline is the only thing the row tells apart.
+    /// - 0.0101, just above the threshold: 1, so 255.
+    /// - 0.0099, just below: `0.0099 · 0.9997`, 25.
+    /// </remarks>
+    [TestCase(0.008f, 20, 0)]
+    [TestCase(0.0101f, 255, 1)]
+    [TestCase(0.0099f, 25, 1)]
+    public void DrawModelPose_EyesWithASaturatedGlint_AreDampedBySimpleSplineUnderOneHundredth(float cube, int expected, int tolerance)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, 1200f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+        AmbientCube dim = new((cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube));
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [Lamp(0f, -300f, 0f), Lamp(0f, -300f, 0f)], cube: dim);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes saturated glint, luminance {cube}: {texel}, predicted {expected}");
+        Math.Abs(texel.R - expected).ShouldBeLessThanOrEqualTo(tolerance, "the saturated glint times the damping");
+    }
+
+    /// <remarks>
+    /// **The glint's lights are the face shaders' four, the sun first** (`EyeLightCount`), each as the engine builds its
+    /// `LightDesc_t` (`engine.dll` `0x1800f2010`): the sun `MATERIAL_LIGHT_DIRECTIONAL` with no terms of its own, which
+    /// the all-zero rule makes `a0 = 1` (`0x1800f2186`-`0x1800f2196`), and no range that cuts (0x1800f22cd, 1.8e19); a
+    /// lamp with its own terms, range and kind. A sun and five lamps keep the sun and three.
+    /// </remarks>
+    [Test]
+    public void GlintLights_ASunAndFiveLamps_AreTheSunThenThreeLamps()
+    {
+        Span<GlintLight> lights = stackalloc GlintLight[4];
+        LocalLight lamp = new(1f, 2f, 3f, 4f, 5f, 6f, 0f, 0.5f, 0.25f, 300f);
+        LocalLight panel = lamp with { Directional = true, Direction = (0f, 0f, -1f) };
+
+        int count = WorldRenderer.GlintLights(new SunLight(7f, 8f, 9f, 0f, 1f, 0f), [lamp, panel, lamp, lamp, lamp], lights);
+
+        count.ShouldBe(4);
+        lights[0].ShouldBe(new GlintLight(true, default, (0f, 1f, 0f), (7f, 8f, 9f), 0f, 1f, 0f, 0f));
+        lights[1].ShouldBe(new GlintLight(false, (1f, 2f, 3f), lamp.Direction, (4f, 5f, 6f), 300f, 0f, 0.5f, 0.25f));
+        lights[2].Directional.ShouldBeTrue();
+        lights[2].Direction.ShouldBe((0f, 0f, -1f));
+    }
+
+    /// <remarks>
+    /// **A colour mesh never reaches a face shader** (B725 open 5a). All three vertex shaders hand `DoLighting` a static
+    /// colour of literal zero and read no colour stream (`eye_refract_vs20.fxc:157`, `Eyes_vs20.fxc:128-130`,
+    /// `teeth_vs20.fxc:109-111`), so its static half is `GammaToLinear( 0 · cOverbright )` = 0 whatever `STATIC_LIGHT`
+    /// says (`common_vs_fxc.h:868-875`, :900-903). A baked static prop's colour mesh of 0.5 on every vertex, which the
+    /// generic draw ADDS to the cube and lamps (B424), leaves each face pixel as it is without one: EyeRefract under a lamp
+    /// above 134, Teeth 0.55 (both predicted by the cases above); added, they would be 0.5 brighter.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DrawModelPose_AFaceShaderOverAColourMesh_TakesNoStaticLight(bool teeth)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        float[] baked = [.. Enumerable.Repeat(0.5f, 18)];
+
+        if (teeth)
+        {
+            Draw(target, Teeth(halfLambert: false), null, locals: [Lamp(0f, -Far, 0f)], baked: baked);
+        }
+        else
+        {
+            Draw(target, EyeRefract(), Below, locals: [Lamp(0f, 0f, Far)], baked: baked);
+        }
+
+        int expected = teeth ? Pixel((Cube + 1f) * 0.5f) : Pixel(Cube + 1f);
+        int added = teeth ? Pixel(((Cube + 1f) * 0.5f) + 0.5f) : Pixel(Cube + 1f + 0.5f);
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth {teeth} over a colour mesh: centre {centre}, predicted {expected}, with the mesh added {added}");
+
+        (added - expected).ShouldBeGreaterThan(1, "the instrument: an added colour mesh is told apart");
+        Near(centre, expected, "the face's DoLighting is handed zero for its static colour");
+    }
+
+    /// <remarks>
+    /// **A refraction view's height fog reaches the faces** (B725 open 5b). Each face pixel shader ends in
+    /// `FinalOutput( result, CalcPixelFogFactor( PIXELFOGTYPE, … ), PIXELFOGTYPE, TONEMAP_SCALE_LINEAR )`
+    /// (`eye_refract_ps2x.fxc:450-451`, `eyes_ps2x.fxc:66-67`, `teeth_ps2x.fxc:46-47`), the combo from
+    /// `GetPixelFogCombo1( true )` (`eye_refract_helper.cpp:367`), so under a water volume's fog it is
+    /// `lerp( colour, g_LinearFogColor, saturate( CalcWaterFogAlpha ) )` (`common_ps_fxc.h:213-230`, :260-263, :295-298).
+    /// The water's surface at the eye's z (0) and a range of one unit: below the eye, `f = (0 − z) / (0 − z)` = 1 and
+    /// `projZ · 1` saturates, so the factor is 1 and a pixel below the centre is the fog colour's own bytes (the sRGB
+    /// decode in, the encode out, B653). Without the fog it is the lit iris, far from them.
+    /// </remarks>
+    [TestCase(EyeShader.EyeRefract)]
+    [TestCase(EyeShader.Eyes)]
+    [TestCase(EyeShader.Teeth)]
+    public void DrawModelPose_AFaceUnderARefractionViewsHeightFog_TakesTheFogColour(EyeShader shader)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        VolumeFog fog = new(
+            HeightFog: true, FogZ: 0f, Color: (10f / 255f, 26f / 255f, 58f / 255f), Start: 0f, End: 1f, MaxDensity: 1f);
+        IReadOnlyList<LocalLight> lamp = [Lamp(0f, -Far, 0f)];
+
+        switch (shader)
+        {
+            case EyeShader.Teeth:
+                Draw(target, Teeth(halfLambert: false), null, locals: lamp, heightFog: fog);
+                break;
+            case EyeShader.Eyes:
+                Draw(target, Eyes(), new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 0.5f), locals: lamp, heightFog: fog);
+                break;
+            default:
+                Draw(target, EyeRefract(), Below, locals: lamp, heightFog: fog);
+                break;
+        }
+
+        // Eight rows down: about 57 units below the eye, inside the quad (which ends near row 46 at a 75° view).
+        (int R, int G, int B) below = target.PixelAt(Centre, Centre + 8);
+
+        TestContext.Out.WriteLine($"{shader} under full height fog: below the centre {below}, the fog (10, 26, 58)");
+
+        below.ShouldBe((10, 26, 58), "full height fog: the volume's colour, decoded and encoded back");
+    }
+
+    /// <remarks>
+    /// **A Teeth material with a `$bumpmap` lights per pixel** (B725 open 4, `teeth_bump`): `teeth.cpp:88`, `:101-137`,
+    /// `:228-257` choose `teeth_bump_vs20`/`teeth_bump_ps20b`, whose pixel shader takes the normal from the bump map in the
+    /// tangent frame (`teeth_bump_ps2x.fxc:65-67`) and lights it with `PixelShaderDoLighting( …, bHalfLambert = true )`
+    /// (:74-78, `common_vertexlitgeneric_dx9.h:86-136`, :259-319) — half-Lambert, where plain Teeth passes false — then
+    /// `( specular · base.a + base.rgb · diffuse ) · darkening` (:93), darkening `$illumfactor · saturate( N · $forward )`
+    /// on the vertex normal (`teeth_bump_vs20.fxc:117`). Base grey 128 with alpha 0 (no specular); `$forward` (0, −1, 0),
+    /// `$illumfactor` 1, so the darkening is 1.
+    /// - A flat bump (128, 128, 255) and a lamp level with the surface (N · L = 0): `0.1 + (0 · 0.5 + 0.5)²` = 0.35; plain
+    ///   Teeth would light 0.1.
+    /// - A bump tilted to the tangent (255, 128, 128) and a lamp along +x (the tangent): the bumped normal faces it,
+    ///   `0.1 + 1²`; the vertex normal alone would give 0.35.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DrawModelPose_TeethWithABumpMap_LightsTheBumpedNormalHalfLambert(bool tilted)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapTexture bump = tilted ? Uniform4(255, 128, 128, 255) : Uniform4(128, 128, 255, 255);
+
+        Draw(target, TeethBump(bump, baseAlpha: 0), null, locals: [Lamp(Far, 0f, 0f)], mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        // The flat texel is (0.0039, 0.0039, 1) before normalising: within the ±1 the pixel allows.
+        int expected = Pixel(Cube + (tilted ? 1f : 0.25f));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, tilted {tilted}: centre {centre}, predicted {expected}, plain teeth {Pixel(Cube)}");
+        Near(centre, expected, "PixelShaderDoLighting on the bumped normal, half-Lambert");
+    }
+
+    /// <remarks>
+    /// **The specular is the base alpha's** (`teeth_bump_ps2x.fxc:85-93`): `PixelShaderDoSpecularLighting` with
+    /// `$phongexponent` (`teeth.cpp:247`, declared default 100), `R = 2N(N · E) − E`, `pow( saturate( R · L ), k ) ·
+    /// saturate( N · L ) · colour · atten` (`common_vertexlitgeneric_dx9.h:167-198`). A lamp of 0.5 at the camera on the flat
+    /// bump: R · L = 1, so the specular is the lamp's 0.5; with base alpha 255 the pixel is `0.5 + 0.2158 · (0.1 + 0.5)`,
+    /// with alpha 0 `0.2158 · 0.6`.
+    /// </remarks>
+    [TestCase(255)]
+    [TestCase(0)]
+    public void DrawModelPose_TeethWithABumpMap_AddTheSpecularByTheBaseAlpha(int baseAlpha)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), (byte)baseAlpha), null,
+            locals: [new LocalLight(0f, -Far, 0f, 0.5f, 0.5f, 0.5f, 1f, 0f, 0f, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        float specular = 0.5f * baseAlpha / 255f;
+        int expected = Encode(specular + (LinearGrey * (Cube + 0.5f)));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, base alpha {baseAlpha}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "specular · base.a + base · diffuse");
+    }
+
+    /// <remarks>
+    /// **`$phongexponent` is the specular's, or the bump's alpha's where it is 0** (`teeth_bump_ps2x.fxc:69-71`,
+    /// `teeth.cpp:247`). A lamp of 0.5 off the view, at (0, −1e5, 20306) — 11.5° up, N · L = 0.9808 on the flat bump
+    /// (whose texel 128 tilts the normal 0.0039 along the tangent and the binormal), R · L = 0.9815 — with base alpha 255:
+    /// `0.9815^k · 0.9808 · 0.5 + 0.2158 · (0.1 + 0.5 · (0.9808 · 0.5 + 0.5)²)`: 124 at k = 100, 171 at k = 30; at
+    /// `$phongexponent` 0 with a bump alpha of 128, `k = lerp( 1, 150, 0.502 )` = 75.8, 136. Read from `$glossiness`'s slot
+    /// as it was before teeth_bump took it, k would be 1: 205.
+    /// </remarks>
+    [TestCase(100f, 255, 124)]
+    [TestCase(30f, 255, 171)]
+    [TestCase(0f, 128, 136)]
+    public void DrawModelPose_TeethWithABumpMapAndALampOffTheView_TakesTheSpecularExponent(float exponent, int bumpAlpha, int expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, (byte)bumpAlpha), 255, exponent), null,
+            locals: [new LocalLight(0f, -Far, 20306f, 0.5f, 0.5f, 0.5f, 1f, 0f, 0f, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, $phongexponent {exponent}, bump alpha {bumpAlpha}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "pow( R · L, k ) · N · L · colour · base.a + base · diffuse");
+    }
+
+    /// <remarks>
+    /// **The darkening on the bump path** (`teeth_bump_vs20.fxc:117`): `$illumfactor · saturate( N · $forward )` on the vertex
+    /// normal, here the draw's mouth: forward (0, −0.6, 0.8) against N (0, −1, 0) at illum 0.5 is 0.3. The flat bump, base
+    /// alpha 0, a lamp along the tangent: `(0.1 + 0.502²) · 0.2158 · 0.3` = 42; undarkened 78.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TeethWithABumpMapAndADarkeningMouth_IsDarkenedByItsForwardAndIllum()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), baseAlpha: 0), null, locals: [Lamp(Far, 0f, 0f)],
+            mouth: new MouthShading((0f, -0.6f, 0.8f), 0.5f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump darkened 0.3: centre {centre}, predicted 42, undarkened 78");
+        Near(centre, 42, "the lit bump times illumfactor · saturate( N · forward )");
+    }
+
+    /// <remarks>
+    /// **The binormal is `(N × T) · w`** (`teeth_bump_vs20.fxc`, the skinning's `:740`): N (0, −1, 0) and T (1, 0, 0) make
+    /// it +z, or −z where the tangent's w is −1. A bump tilted along it (128, 255, 128) and a lamp above (+z): with w +1 the
+    /// bumped normal faces the lamp, `0.1 + 1²` = 134; with w −1 it faces away, `0.1 + 0²` = 40.
+    /// </remarks>
+    [TestCase(1f, 134)]
+    [TestCase(-1f, 40)]
+    public void DrawModelPose_TeethWithABumpAlongTheBinormal_TakesTheTangentsSign(float tangentW, int expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 255, 128, 255), baseAlpha: 0), null, locals: [Lamp(0f, 0f, Far)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f), tangentW: tangentW);
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump along the binormal, w {tangentW}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "the bump's green along (N × T) · w");
+    }
+
+    /// <remarks>
+    /// **Every light slot reaches the bump path**: four lamps along ±x and ±z on the flat bump, each `(±0.0039 · 0.5 +
+    /// 0.5)²`, sum to 1: `0.2158 · 1.1` = 134. Without the fourth slot, 119.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TeethWithABumpMapUnderFourLamps_AddsEachSlot()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), baseAlpha: 0), null,
+            locals: [Lamp(Far, 0f, 0f), Lamp(0f, 0f, Far), Lamp(-Far, 0f, 0f), Lamp(0f, 0f, -Far)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump under four lamps: centre {centre}, predicted 134, three 119");
+        Near(centre, 134, "the four slots' half-Lambert terms");
+    }
+
+    /// <summary>A Teeth material with a `$bumpmap`, flagged for the mouth, `$forward` (0, −1, 0), `$illumfactor` 1.</summary>
+    private static MapAssets TeethBump(MapTexture bump, byte baseAlpha, float phongExponent = EyeMaterial.DefaultPhongExponent) =>
+        MapAssets.ForMaterials(
+            [Uniform4(128, 128, 128, baseAlpha) with
+            {
+                Eye = new EyeMaterial(
+                    EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 1f, MouthShader: true, BumpMap: bump,
+                    PhongExponent: phongExponent),
+            }],
+            ["Teeth"]);
 
     private static OffscreenTarget? Target()
     {
@@ -318,16 +779,17 @@ public sealed class EyeShaderRenderTests
             lightWarps: warp ? [Uniform4(64, 64, 64, 255)] : null);
     }
 
-    private static MapAssets Teeth(bool halfLambert) => MapAssets.ForMaterials(
+    /// <summary>A Teeth material, flagged <c>$clientShader MouthShader</c> as every shipped one is unless said otherwise.</summary>
+    private static MapAssets Teeth(bool halfLambert, bool mouthShader = true) => MapAssets.ForMaterials(
         [Uniform4(128, 128, 128, 255) with
         {
             IsHalfLambert = halfLambert,
-            Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 0.5f),
+            Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 0.5f, MouthShader: mouthShader),
         }],
         ["Teeth"]);
 
-    private static MapAssets Eyes() => MapAssets.ForMaterials(
-        [Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: 255)) }],
+    private static MapAssets Eyes(byte irisAlpha = 255) => MapAssets.ForMaterials(
+        [Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: irisAlpha)) }],
         ["Eyes"]);
 
     private static void Draw(
@@ -335,7 +797,11 @@ public sealed class EyeShaderRenderTests
         MapAssets assets,
         EyeShading? eye,
         IReadOnlyList<LocalLight>? locals = null,
-        MouthShading? mouth = null)
+        MouthShading? mouth = null,
+        float[]? baked = null,
+        VolumeFog? heightFog = null,
+        AmbientCube? cube = null,
+        float tangentW = 1f)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -346,7 +812,7 @@ public sealed class EyeShaderRenderTests
                 TangentX = 1f,
                 TangentY = 0f,
                 TangentZ = 0f,
-                TangentW = 1f,
+                TangentW = tangentW,
             };
 
         List<WorldVertex> vertices =
@@ -382,11 +848,14 @@ public sealed class EyeShaderRenderTests
             camera,
             identity,
             assets,
-            light: Uniform,
+            light: cube ?? Uniform,
             bothSides: true,
             locals: locals,
             eyes: eye is { } shading ? [shading] : null,
-            mouth: mouth);
+            mouth: mouth,
+            bakedColours: baked,
+            toneMapScale: 1f,
+            heightFog: heightFog);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)

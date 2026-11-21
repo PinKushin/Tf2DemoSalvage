@@ -183,7 +183,8 @@ public sealed class FogConstantsTests
 
         view[8].ShouldBe(red, 1e-6f);
         view[11].ShouldBe(grey, 1e-6f);
-        WorldRenderer.CompiledShaderSourceText.ShouldContain("FogTarget(tintControl.z, heightFogColour.rgb, heightFogColour.w)", Case.Sensitive);
+        // In `ViewFog`, which every lit shader's height-fog branch goes through since B725 5b; `mode` is the material's fog mode.
+        WorldRenderer.CompiledShaderSourceText.ShouldContain("FogTarget(mode, heightFogColour.rgb, heightFogColour.w)", Case.Sensitive);
     }
 
     /// <remarks>Without height fog every one of the view's fog floats is zero, whatever the span held, so a caller needs no clear first.</remarks>

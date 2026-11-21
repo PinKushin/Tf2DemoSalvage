@@ -44,6 +44,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public bool BicubicLightmap { get => false; set => Note(nameof(BicubicLightmap), value); }
 
+    public GlintSwitches EyeGlint { get => default; set => Note(nameof(EyeGlint), value); }
+
     public bool BumpMap { get => true; set => Note(nameof(BumpMap), value); }
 
     public float ForceToneMapScale { get => 0f; set => Note(nameof(ForceToneMapScale), value); }
