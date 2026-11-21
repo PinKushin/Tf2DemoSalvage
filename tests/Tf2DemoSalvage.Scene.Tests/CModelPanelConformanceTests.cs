@@ -549,16 +549,17 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **A level change releases the panel's model; the next paint sets it up again** (B779 reviews 3, 7, 8). `NewMap` is
-    /// the level change: the engine's `CHLClient::LevelShutdown` releases every client entity (`cl_entitylist->Release()`,
-    /// `cdll_client_int.cpp:1735`; `CClientEntityList::Release`, `cliententitylist.cpp:63-93`), the panel's client-only
-    /// `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel`; the new map's `game_newmap`
-    /// marks the panel dirty (`basemodelpanel.cpp:196-205`). So before the next paint the panel has no model and
-    /// `SetSequence` finds none; the paint sets a new one up. The CMDL panels drop the faces and weights they keep by
-    /// frames at the same moment. The controls: both held them.
+    /// **A level's shutdown releases the panel's model; the next paint sets it up again** (B779 reviews 3, 7, 8, 9). A level
+    /// change is two halves: `HudViewport.LevelShutdown`, the engine's `CHLClient::LevelShutdown` releasing every client
+    /// entity (`cl_entitylist->Release()`, `cdll_client_int.cpp:1735`; `CClientEntityList::Release`,
+    /// `cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until
+    /// the next `SetupModel`; then `HudViewport.NewMap`, the new map's `game_newmap`, which marks the panel dirty
+    /// (`basemodelpanel.cpp:196-205`). So before the next paint the panel has no model and `SetSequence` finds none; the
+    /// paint sets a new one up. The CMDL panels drop the faces and weights they keep by frames at the shutdown. The controls:
+    /// both held them.
     /// </remarks>
     [Test]
-    public void NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces()
+    public void LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces()
     {
         VguiModelPanel panel = Framed(startFramed: false, flexed: true);
         HudViewport viewport = (HudViewport)panel.Parent!;
@@ -640,11 +641,11 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **`game_newmap` releases a CMDL panel's merge models' mesh faces too** (B779 review 4 item 2): `ForgetLevel` walks the
-    /// merge list as well as the root. The control: the drawn merge held one.
+    /// **A level's shutdown releases a CMDL panel's merge models' mesh faces too** (B779 review 4 item 2): `HudViewport.LevelShutdown`
+    /// calls the panel's `ForgetLevel`, which walks the merge list as well as the root. The control: the drawn merge held one.
     /// </remarks>
     [Test]
-    public void NewMap_AMergeModelDrawnWithAMeshFace_ReleasesIt()
+    public void LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt()
     {
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
         PropModels.ModelFrames flexed = Frames(eyed: false, mouthed: false, flexed: true);
@@ -665,11 +666,12 @@ public sealed class CModelPanelConformanceTests
     /// <remarks>
     /// **A CMDL panel poses the next level's model on a skeleton made from it** (B779 review 6 item 4): the panel keeps one
     /// posing entity per path, built from that model's `NewSkeleton()`; kept across a level, the path read again from the next
-    /// map's files would be posed on the old model's skeleton, and keep the old level's model alive. `ForgetLevel` drops them
-    /// with the faces. The control: within a level, the same path keeps its entity.
+    /// map's files would be posed on the old model's skeleton, and keep the old level's model alive. `ForgetLevel`, called at
+    /// the level's shutdown (`HudViewport.LevelShutdown`), drops them with the faces. The control: within a level, the same
+    /// path keeps its entity.
     /// </remarks>
     [Test]
-    public void NewMap_ThenThePathReadAgain_PosesItOnANewEntity()
+    public void LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity()
     {
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
         PropModels.ModelFrames current = Frames(eyed: false, mouthed: false);

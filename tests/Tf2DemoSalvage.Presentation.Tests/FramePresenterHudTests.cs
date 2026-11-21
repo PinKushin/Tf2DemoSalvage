@@ -152,23 +152,49 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **Every level change tells the HUD's model panels the map is new** (B779 review 3 item 1a, review 4 item 5): each
-    /// `CModelPanel` hears `game_newmap` (`basemodelpanel.cpp:56`, :196-205) and sets its model up again from the new level's
-    /// frames. Production sends it from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every level's
-    /// shutdown — so a load that then fails, after the model set has forgotten every model, still reaches the panels, where
-    /// `LevelInit` runs only after a load that succeeded. The control: the round sign, set up, is clean before the change.
+    /// **A level change after a level releases the HUD's model panels' models and marks them dirty** (B779 reviews 3, 4, 8, 9,
+    /// 10). Both halves run from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every load: the old
+    /// level's shutdown releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`,
+    /// `cdll_client_int.cpp:1735`), and the new map's `game_newmap` marks the panel dirty (`basemodelpanel.cpp:56`,
+    /// :196-205) so it sets its model up again from the new level's frames. **The shutdown half is armed by a level having
+    /// started** — `FramePresenter.LevelStarted`, which `ViewerPresenter.Apply` calls where every demo's models are
+    /// precached, a map read or not — as `g_bLevelInitialized` arms the engine's (:1714-1715). Here the level is a mapless
+    /// one: no `LevelInit`, as a demo whose map is missing never reaches it, and the release still happens, as the model
+    /// set's own forgetting does. The control: the round sign, set up, is clean before the change.
     /// </remarks>
     [Test]
-    public void ClearMap_AfterALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty()
+    public void ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty()
     {
         Window window = new();
         VguiModelPanel sign = SignWithAModel(window);
 
-        window.Frames.LevelInit(SyntheticMap.Read(Timeline), doPixelVisibility: true);
+        window.Frames.LevelStarted();
         window.Frames.ClearMap();
 
         sign.SetUpModel.ShouldBeNull("the level's shutdown released it (cdll_client_int.cpp:1735)");
         sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A shutdown disarms itself** (B779 review 10 item 1): the engine clears `g_bLevelInitialized` in `LevelShutdown`
+    /// (`cdll_client_int.cpp:1717`), so a second shutdown with no level started between them returns at once (:1714-1715).
+    /// A level, a load (the model released), the sign set up again, and a second load with no level started: the model kept.
+    /// </remarks>
+    [Test]
+    public void ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Frames.LevelStarted();
+        window.Frames.ClearMap();
+        sign.SetUpModel.ShouldBeNull("the control: the first load after a level released it");
+
+        sign.UpdateModel();
+        object model = sign.SetUpModel.ShouldNotBeNull("the control: set up again");
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeSameAs(model);
     }
 
     /// <remarks>

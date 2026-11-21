@@ -42795,8 +42795,8 @@ the HUD through an install of nothing; the call is tested since review 3.
 
 **Review round 3** (no high; every item fixed here, two world gaps filed):
 1. *The production wiring was untested* (medium). Through the presenter's own harness (`FramePresenterHudTests.Window`):
-   `LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty` held `FramePresenter.LevelInit`'s `NewMap` (now `ClearMap`'s,
-   held by `ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty`, review 4 item 5), on the real HUD's
+   a level-init row (since replaced; now `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`,
+   reviews 4, 9 and 10) held `FramePresenter.LevelInit`'s `NewMap` (now `ClearMap`'s, review 4 item 5), on the real HUD's
    round sign — a grandchild of the viewport, as all of production's `CModelPanel`s are; and
    `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels` holds the frame's precache, counted where the set
    takes the ask (`EntityModelSet.PrecacheAsks`). The walk's depth: `CModelPanelConformanceTests.NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty`.
@@ -42813,11 +42813,14 @@ the HUD through an install of nothing; the call is tested since review 3.
 4. *Panels pinned the old level's frames* (low): at `game_newmap` a `CModelPanel` drops its model, and
    `HudViewport.NewMap` tells each CMDL panel to drop the faces and zero-control weights it keeps by frames
    (`VguiMdlPanel.ForgetLevel`, the StatTrak CMDLs too) — memory, not behaviour.
-   `CModelPanelConformanceTests.NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces` (red first: the model held).
+   A release row (red first: the model held), renamed since: now
+   `CModelPanelConformanceTests.LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
    *Corrected in review 7, and that correction corrected in review 8*: the `game_newmap` event alone only marks the panel
    dirty (`DeleteModelData` at the next `SetupModel`, :395), but `NewMap` is the level change, whose shutdown releases every
    client entity (`cdll_client_int.cpp:1735`), the panel's model among them — so releasing it there was right, as the
-   shutdown's half. The row is now `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
+   shutdown's half. The row is now `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
+   *Superseded by review 9*: `HudViewport.NewMap` no longer releases anything; the release is `HudViewport.LevelShutdown`'s,
+   run only after a level started.
 5. *The world's same gaps*, filed: **B809** (a C_BaseFlex without controllers runs its rules) and **B810** (the per-path
    resting weights and flexed corners outlive the level). Not fixed here.
 
@@ -42832,7 +42835,7 @@ release row, at the CMDL panel).
    enumerator; by index now. `VguiHudPrecacheTests.AddModelsToPrecacheThenPrecacheChanged_AnUnchangedFrame_AllocatesNothing`
    measures the whole frame route — the HUD filling the kept list, an attached model among its panels, then the set's
    comparison (red first: 48 bytes a frame).
-2. *`ForgetLevel`'s other paths*: `CModelPanelConformanceTests.NewMap_AMergeModelDrawnWithAMeshFace_ReleasesIt`,
+2. *`ForgetLevel`'s other paths*: `CModelPanelConformanceTests.LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt`,
    `TfPlayerModelPanelConformanceTests.ForgetLevel_AfterTheStatTrakModuleWasDrawnFlexed_ReleasesItsMeshFace`,
    `TfEmbeddedItemModelPanelConformanceTests.ForgetLevel_AStatTrakModuleWithAMeshFace_ReleasesIt` (its face seeded as the
    draw builds it; the embedded panel's strange-weapon draw needs a schema and a weapon model).
@@ -42850,7 +42853,8 @@ release row, at the CMDL panel).
    shutdown at every level change, while `LevelInit` follows only a load that succeeded. `NewMap` moved to
    `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here — *superseded in
    review 5*: a panel that finds a model missing keeps it and sets itself up again once the precache brings it).
-   `FramePresenterHudTests.ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty` replaces the level-init row (red first).
+   A `ClearMap` row replaced the level-init row (red first); it is now
+   `FramePresenterHudTests.ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` (reviews 9, 10).
 6. *Test-only wrappers*: `VguiMdlPanel.ModelsToPrecache()` and `VguiModelPanel.ModelsToPrecache()` removed (D180); their
    two tests use `AddModelsToPrecache`.
 7. *Stale names*: this entry's fix paragraph, the panel-only test's remark and `docs/HANDOFF-hud.md` now name
@@ -42898,7 +42902,7 @@ nothing, and was redone).
 3. *"Stays dirty until its models load"*: superseded notes on round 3 item 2 and round 4 items 4 and 5 above, and the
    wording in `FramePresenter.ClearMap` and the two late rows' remarks.
 4. *A CMDL panel posed the next level's model on the old one's skeleton*: its posing entities, one per path built from that
-   model's `NewSkeleton()`, outlived the level. `ForgetLevel` clears them. `CModelPanelConformanceTests.NewMap_ThenThePathReadAgain_PosesItOnANewEntity`
+   model's `NewSkeleton()`, outlived the level. `ForgetLevel` clears them. `CModelPanelConformanceTests.LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity`
    (red first: the same entity after the level change).
 5. *When a model first named is packed*, read in the code: in one overlay frame `FramePresenter.BuildOverlay` builds the
    panels' list and precaches it (`FramePresenter.Hud.cs:283-284`) before the HUD paints (`_vguiHud.Frame(`, :300), and
@@ -42915,8 +42919,9 @@ new-entity row).
    (`basemodelpanel.cpp:196-205`); `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339).
    Ours cleared it at the event, so `SetSequence` (:708) and `SetBodyGroup` (:367-382) between the event and the next
    paint found no model. The event now only marks the panel dirty; `SetupModel` already cleared the model first.
-   *Tests*: `CModelPanelConformanceTests.SetSequence_AfterNewMapBeforeThePaint_ReachesTheModel` (red first: false) and
-   `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (the round-3 row, changed: the model held after the event
+   *Tests*: a `SetSequence` row (red first: false; since review 8
+   `CModelPanelConformanceTests.SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel`) and
+   `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (the round-3 row, changed: the model held after the event
    and replaced at the next paint; red first: null after the event). Round 3 item 4 is corrected above.
 2. *The posing entity was keyed on the path alone*: a path answered with new frames without a level change posed the new
    model on the old skeleton (unreachable in production today). `EntityFor` keeps the skinned model with the entity and
@@ -42941,8 +42946,9 @@ new-frames row), the embedded panel not drawing its module (the embedded draw ro
    (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — `m_hModel.Get()` null until
    the next `SetupModel`. Round 7 had moved the release to the set-up for the event's sake, which the event alone is.
    Now two halves: `VguiModelPanel.ForgetLevel` (the shutdown's: the model released) and `OnGameEvent( "game_newmap" )`
-   (the event's: dirty only), both called by the viewport's walk at a level change. *Tests*:
-   `CModelPanelConformanceTests.NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (after the level change, no
+   (the event's: dirty only), both called by the viewport's walk at a level change (*superseded by review 9*: two walks,
+   `HudViewport.LevelShutdown` and `HudViewport.NewMap`, the first only after a level started). *Tests*:
+   `CModelPanelConformanceTests.LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (after the level change, no
    model and `SetSequence` false; a new model at the paint — red first: the old model held) and
    `SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel` (the event alone, driven directly: the model
    kept). *Sabotage*: the event clearing the model (the event row); the walk not calling `ForgetLevel` (the level-change
@@ -42960,9 +42966,9 @@ new-frames row), the embedded panel not drawing its module (the embedded draw ro
    initialised (`cdll_client_int.cpp:1714-1715`; `g_bLevelInitialized` set at `LevelInitPreEntity`, :1610-1612, cleared at
    :1717). The viewport's walk is now two: `HudViewport.LevelShutdown` (the shutdown's half) and `HudViewport.NewMap` (the
    event's). `FramePresenter.ClearMap` runs the first only after a `LevelInit` (a `_levelInitialized` flag in its place),
-   the second at every load. *Test*: `FramePresenterHudTests.ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty`
+   the second at every load (*superseded by review 10*: armed by `LevelStarted` in `ViewerPresenter.Apply`, map or not). *Test*: `FramePresenterHudTests.ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty`
    (red first: released).
-2. *The presenter's row held only the flag*: `ClearMap_AfterALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` gives the
+2. *The presenter's row held only the flag*: `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` gives the
    real HUD's round sign a model the presenter's set packed, loads a level, and asserts the model released and the panel
    dirty — the wiring through the viewport's walk end to end, to a grandchild of the viewport.
 3. *`VguiModelPanel.ForgetLevel` kept the missed names*: cleared now. `CModelPanelConformanceTests.ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames`
@@ -42975,6 +42981,30 @@ new-frames row), the embedded panel not drawing its module (the embedded draw ro
 *Sabotage*: batch A — the shutdown half at every load (the before-any-level row), `_missed` kept (item 3's row), the
 buffers kept with the data dropped (item 4's row); batch B — the data kept with the buffers dropped (item 4's row), the
 flag inverted (both presenter rows; a never-shutdown break was refused by the analyzer as dead code).
+
+**Review round 10** (lows; fixed here):
+1. *The flag's clearing was untested*: `FramePresenterHudTests.ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst` — a
+   level, a load (released), the sign set up again, a second load with no level between: the model kept, as the engine's
+   cleared `g_bLevelInitialized` (`cdll_client_int.cpp:1717`) makes its second shutdown return at once.
+2. *A mapless level never armed the HUD's shutdown*: the flag was set only by `LevelInit`, which a missing map never
+   reaches (`ViewerPresenter.ReadMapNamed` returns first), while the model set forgets at every load
+   (`LevelSystems.Shutdown` → `EntityModelSet.LevelShutdown`). The engine has no mapless level; ours does, so the HUD
+   follows the model set: `FramePresenter.LevelStarted` arms the flag, called in `ViewerPresenter.Apply` right after
+   `DemoModels.Precache` — where every demo's models are packed, map or not, on both load routes — and `LevelInit` no longer
+   arms it. *Test*: the presenter's row is now `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`
+   (no `LevelInit`; red first: kept). The `Apply` call itself is read, not run by a test.
+3. *Names and remarks*: the three Scene rows whose release is `LevelShutdown`'s are `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`,
+   `LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt` and `LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity`,
+   with remarks naming the two walks.
+4. *The presenter row's remark* names the release, the event and what arms the release.
+5. *Round 3 item 4's and round 8 item 1's notes* carry "superseded by review 9" pointers; round 9 item 1 one to review 10.
+6. *The flag's threads*: written in `LevelStarted` (from `ViewerPresenter.Apply`, which the async route runs inside
+   `_view.OnUi`, `ViewerPresenter.cs:979-981`, and the synchronous route on its caller's thread, the UI's) and read in
+   `ClearMap` (from `ViewerPresenter.ClearMap`, the async route's inside `_view.OnUi` at :919-927) — the UI thread both
+   ways, now that the worker-side `LevelInit` no longer writes it; stated on the field.
+
+*Sabotage*, run apart: the flag's clearing deleted (the twice row alone), `LevelStarted` not arming (the mapless row, and
+the twice row at its control, the first release).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
