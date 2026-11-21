@@ -159,8 +159,8 @@ reflective surfaces with no base texture. The default is `1`.
 
 `r_glint_procedural` and `r_glint_alwaysdraw` are read from your config or the command line, like TF2's cvars of those
 names, and a change while a demo plays takes effect. They control the glint on a model whose eye material uses the Eyes
-shader; no TF2 model does, so they change nothing on TF2's players. `r_glint_procedural 1` makes the glint on the CPU
-instead of on the GPU, as TF2 does with that setting, and `r_glint_alwaysdraw 1` draws it on every eye however small on screen
+shader; no TF2 model does, so they change nothing on TF2's players. `r_glint_procedural 1` selects the glint TF2
+makes on the CPU with that setting, instead of the one TF2 renders on the GPU (the viewer computes both on the CPU), and `r_glint_alwaysdraw 1` draws it on every eye however small on screen
 (TF2 skips an eye under 20 pixels wide). Both default to `0`.
 
 Sound settings are read from your TF2 config, or from `settings.cfg`, or for one run from the command line

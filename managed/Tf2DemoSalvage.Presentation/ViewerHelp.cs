@@ -122,8 +122,8 @@ public static class ViewerHelp
                                      low.cfg sets this); models also lose phong. Default 1.
           mat_specular 0             Draw no cubemap reflections where TF2 drops them: surfaces
                                      with a base texture. Default 1 (the Reflections menu item).
-          r_glint_procedural 1       Make the Eyes shader's glint on the CPU, as TF2's setting
-                                     of that name does, instead of on the GPU. Default 0. Only
+          r_glint_procedural 1       Use TF2's CPU-made Eyes glint, as TF2's setting of that
+                                     name does, instead of its GPU-rendered one. Default 0. Only
                                      models whose eye material uses the Eyes shader are affected
                                      (none of TF2's own).
           r_glint_alwaysdraw 1       Draw that glint on every eye, however small on screen.
