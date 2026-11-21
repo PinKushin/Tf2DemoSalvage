@@ -42388,29 +42388,39 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B796 — a bullet landing on an entity sounds whatever its team; `ImpactCallback` plays nothing when the damage type equals the struck entity's apparent team (2026-11-21) — OPEN
+## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — OPEN
 
-Found in B785/B786's review (round 1, Fable). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:36-49`) sets `bImpact`
-false — no `Impact`, no ricochet draw, no impact sound — when `m_nDamageType` (TF2 sends the shooter's team there) equals
-the struck entity's team, or the disguise team of a disguised spy. `ModelDecalFor` already refuses the same-team decal
-(`DecalEffects.cs:557`); the sound path has neither half: `DecalEffects.LandingsOver` (`:658-666`) builds a landing for
-every server impact on an entity. *Read from published source; not measured on the corpus.*
+Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:35-49`):
+`bImpact = ( data.m_nDamageType != pEntity->GetTeamNumber() || pEntity->GetTeamNumber() < FIRST_GAME_TEAM )`, and false
+again for a disguised player whose disguise team equals `m_nDamageType` (`:37-49`). With `bImpact` false nothing follows —
+no `Impact`, no ricochet draw, no impact sound, MvM's robot and tank sounds included (`:51-134`). For a bullet,
+`m_nDamageType` is the damage BITS (`FireBullet`'s `UTIL_ImpactTrace( &trace, nDamageType )`, `tf_player_shared.cpp:10526`),
+not a team: the gate fires when the bits numerically equal the struck entity's team number, and `DMG_BULLET` is 2,
+`TF_TEAM_RED` — so every exactly-`DMG_BULLET` impact on a RED entity makes no sound and no decal. *Arithmetic from the
+source; which weapons send exactly 2 is not checked.* Entities on team 0 or 1 always impact. `ModelDecalFor` refuses the
+equal-number decal (`DecalEffects.cs:557`) but not the disguise half; the sound path has neither: server impacts on
+entities (`DecalEffects.LandingsOver`, `:658-666`) are ungated, and the client's own bullets (`:464-471`) test only
+`victim.Team == bullet.Team`, which is `FireBullet`'s teammate rule (`tf_player_shared.cpp:10524`), not this gate.
+*Read from published source; not measured on the corpus.*
 
 ## B795 — a landing `Impact` refuses still draws the ricochet number and can ricochet (2026-11-21) — OPEN
 
-Found in B785/B786's review (round 1, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:79-91`) draws
+Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:79-90`) draws
 `RandomInt( 1, 10 )` and offers `Bounce.Shrapnel` only inside `if ( Impact( … ) )`, while the impact sound
-(`:92-133`) plays either way. `Impact` (`fx_impact.cpp:117-190`) returns false when `decalNumber` is -1 (`:131`), when
-`FX_AffectRagdolls` hit a ragdoll (`:122-125`, `:183`), and when the client's own decal trace found nothing
-(`tr.fraction == 1`, `:183`), which a player decal does whenever `C_TFPlayer::AddDecal` (`c_tf_player.cpp:7883-7927`)
-returns before tracing: the victim stealthed, disguised, a miniboss, invulnerable, or `tr.startsolid`; and also when
+(`:92-134`) plays either way — on the server's origin and surfaceprop when the client's trace did not hit
+(`fx_impact.cpp:378-390`), which is what a server landing already uses. `Impact` (`fx_impact.cpp:102-187`) zeroes the
+trace (`:109-110`) and returns false when `decalNumber` is -1 (`:131-132`), when `FX_AffectRagdolls` hit a ragdoll
+(`:122-125`, `:183`), and when its decal trace found nothing (`tr.fraction == 1`, `:183`), which a player decal does
+whenever `C_TFPlayer::AddDecal` (`c_tf_player.cpp:7883-7927`) returns before tracing — the victim stealthed, disguised,
+a miniboss or invulnerable (its `tr.startsolid` test is dead on this path, the trace having been zeroed) — and also when
 `AddStudioDecal`'s `ClipRayToEntity` misses the hitboxes (`c_baseentity.cpp:3620-3624`), or a flesh decal is skipped
 (Pyro vision, low violence, truce, `fx_impact.cpp:138-145`). Ours takes every landing as accepted
 (`ImpactSounds.For`, B786): an own bullet on an enemy (`DecalEffects.cs:471`) and a server impact on an entity (`:661`)
 draw the number and can ricochet in those cases. `ModelDecalFor` (`:554-610`) already tests most of them for the decal;
 a server landing is built at load, before any player's conditions at its tick are known. A world landing is kept only
-where the decal trace hit (`ServerImpacts.cs:111`), so only its `decalNumber == -1` case is open. *Read from published
-source.*
+where the decal trace hit (`ServerImpacts.cs:110-113`), so its `decalNumber == -1` and ragdoll cases are open. Not
+checked: the invulnerable return's `g_pEffects->Ricochet` (`c_tf_player.cpp:7900-7906`), which may be an effect we
+lack. *Read from published source.*
 
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
