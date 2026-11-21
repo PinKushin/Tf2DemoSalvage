@@ -188,14 +188,15 @@ public sealed class ScriptWaveDeck
     /// (`soundenvelope.cpp:862-878`, "level change, etc.": every patch `Shutdown`) ends: every patch, which nothing can
     /// name after it, and any chain, which cannot span it. The flags stay (B504).
     /// </summary>
-    /// <param name="ended">Where to add each forgotten patch's entity and channel, for a caller that must stop them; or null.</param>
-    public void ForgetPlaying(ICollection<(int Entity, int Channel)>? ended = null)
+    /// <param name="ended">Where to add each forgotten patch's entity, channel and dealt wave, for a caller that must stop
+    /// them by name; or null.</param>
+    public void ForgetPlaying(ICollection<(int Entity, int Channel, string Wave)>? ended = null)
     {
         if (ended is not null)
         {
             foreach (Dealt patch in _patches.Values)
             {
-                ended.Add((patch.Entity, patch.Channel));
+                ended.Add((patch.Entity, patch.Channel, patch.Wave));
             }
         }
 

@@ -261,33 +261,128 @@ public sealed class ScriptWaveDeckConformanceTests
     /// <remarks>
     /// A level change STOPS the scrape, it does not only forget it: `ShutdownFriction` → `SoundDestroy`
     /// (`physics.cpp:711-717`) and `SystemReset` → `Shutdown` (`soundenvelope.cpp:862-878`) end the patch's channel. The
-    /// sink is only reached in a pass, so the stop lands at the next one, before anything else.
+    /// stop names its wave, as every stop does (`S_AlterChannel`, B416): the patch's own channel and nothing else on the
+    /// key. The sink is only reached in a pass, so the stop lands at the next one, before anything else.
     /// </remarks>
     [Test]
-    public void Scripts_ALevelChange_StopsAPlayingScrapeAtTheNextPass()
+    public void Scripts_ALevelChange_StopsAPlayingScrapeByNameAtTheNextPass()
     {
-        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape);
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+        sink.SilencedChannels.ShouldBeEmpty("the stop names its wave; it does not free the whole key");
+    }
+
+    [Test]
+    public void PlaySkipFrames_AfterALevelChange_StopsThePatch()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.PlaySkipFrames(sink, Listener, Right);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+    }
+
+    [Test]
+    public void FollowListener_AfterALevelChange_StopsThePatch()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.FollowListener(sink, Listener, Right);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+    }
+
+    /// <remarks>
+    /// The stop belongs to the level change, which came before anything the next pass starts: a start on the same entity
+    /// and channel after it is the new level's, and survives — the stop is issued first.
+    /// </remarks>
+    [Test]
+    public void Update_AStartOnThePatchsChannelAfterALevelChange_IsNotStopped()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape(out SceneSound scrape);
+        sink.Events.Clear();
+
+        LevelChange(presenter);
+        presenter.Emit(scrape with { Tick = 27 });
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.Events.ShouldBe([$"stop 40/{scrape.Channel} a.wav", $"start 40/{scrape.Channel} a.wav"]);
+    }
+
+    /// <remarks>
+    /// A patch still waiting for its wave at the level change is a channel too — the engine keeps a loading channel in its
+    /// active set (finding 90) — so the stop frees it, and it never starts when its data arrives.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_DropsAPatchStillLoading()
+    {
+        bool[] arrived = [false];
+        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape, arrived);
+        Silent sink = new();
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        sink.Started.ShouldBeEmpty("the condition: the scrape waits for its wave");
+
+        LevelChange(presenter);
+        arrived[0] = true;
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.Started.ShouldNotContain((40, "a.wav"));
+    }
+
+    /// <remarks>
+    /// A reload silences everything (`SilenceAll`), so no level stop may outlive it; and a pass drains the queue before it
+    /// reloads, so none can — pinned here.
+    /// </remarks>
+    [Test]
+    public void Update_AReloadAfterALevelChange_LeavesNoLevelStopQueued()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.LevelStopsQueued.ShouldBe(1, "the condition: the level change queued its patch");
+        presenter.Update(sink, 10, Listener, Right, now: 1d);
+
+        presenter.LevelStopsQueued.ShouldBe(0);
+    }
+
+    /// <summary>A level change: the level's scripts set again.</summary>
+    private static void LevelChange(SoundPresenter presenter)
+    {
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+    }
+
+    /// <summary>A presenter whose corpse scrape plays at tick 26, and the sink it plays on.</summary>
+    private static (SoundPresenter Presenter, Silent Sink) PlayingScrape() => PlayingScrape(out _);
+
+    /// <summary>A presenter whose corpse scrape plays at tick 26, the sink it plays on, and the scrape's start.</summary>
+    private static (SoundPresenter Presenter, Silent Sink) PlayingScrape(out SceneSound scrape)
+    {
+        SoundPresenter presenter = PresenterWithAScrape(out scrape);
         Silent sink = new();
         presenter.Emit(scrape with { Tick = 26 });
         presenter.Update(sink, 26, Listener, Right, now: 0.42d);
         sink.Started.ShouldContain((40, "a.wav"), "the condition: the scrape plays");
-        sink.SilencedChannels.ShouldBeEmpty("the condition: nothing stopped it yet");
+        sink.Silenced.ShouldBeEmpty("the condition: nothing stopped it yet");
 
-        SoundScriptCatalog? level = presenter.Scripts;
-        presenter.Scripts = level;
-        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
-
-        sink.SilencedChannels.ShouldBe([(40, scrape.Channel)]);
+        return (presenter, sink);
     }
 
     /// <summary>A presenter played to tick 25 with one corpse scrape loop playing.</summary>
     private static SoundPresenter PresenterWithAScrape() => PresenterWithAScrape(out _);
 
     /// <summary>A presenter played to tick 25 with one corpse scrape loop playing, and that loop's start.</summary>
-    private static SoundPresenter PresenterWithAScrape(out SceneSound scrape)
+    private static SoundPresenter PresenterWithAScrape(out SceneSound scrape, bool[]? arrived = null)
     {
         List<string> played = [];
-        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"));
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"), arrived);
         presenter.Schedule = new SoundSchedule([Dealt(20, 0)]);
 
         VphysicsSurfaceProps surfaces = new([]);
@@ -750,7 +845,12 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     /// <summary>A presenter whose samples record the name each start asked for, resolving through a catalog of one entry.</summary>
-    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry)
+    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry) => Presenter(played, entry, arrived: null);
+
+    /// <param name="played">Every name the presenter asked to open.</param>
+    /// <param name="entry">The catalog's one entry.</param>
+    /// <param name="arrived">While its one value is false, every wave is still loading: opening answers null.</param>
+    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry, bool[]? arrived)
     {
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
@@ -758,12 +858,13 @@ public sealed class ScriptWaveDeckConformanceTests
             name =>
             {
                 played.Add(name);
-                return Sample(name);
+                return arrived is null || arrived[0] ? Sample(name) : null;
             },
             NullLogger.Instance)
         {
             // A stop asks what is held, which records no play: every wave here is held once dealt.
-            Held = static name => Sample(name),
+            Held = name => arrived is null || arrived[0] ? Sample(name) : null,
+            Loading = _ => arrived is not null && !arrived[0],
         };
 
         string waves = string.Concat(Array.ConvertAll([.. entry.Waves], wave => $"\t\t\"wave\" \"{wave}\"\n"));
@@ -791,9 +892,13 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public List<(int Entity, string Wave)> Started { get; } = [];
 
+        /// <summary>Every start and stop, in the order the sink was asked.</summary>
+        public List<string> Events { get; } = [];
+
         public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Started.Add((entity, NameOf[sample]));
+            Events.Add($"start {entity}/{channel} {NameOf[sample]}");
             return 0;
         }
 
@@ -814,11 +919,18 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public List<(int Entity, int Channel)> SilencedChannels { get; } = [];
 
-        public void Silence(int entity, int channel) => SilencedChannels.Add((entity, channel));
+        public void Silence(int entity, int channel)
+        {
+            SilencedChannels.Add((entity, channel));
+            Events.Add($"stop-all {entity}/{channel}");
+        }
 
         public int Silence(int entity, int channel, SoundSample sample)
         {
-            Silenced.Add(NameOf[sample]);
+            // A wave not yet held is named by a key-only sample, which no recorded sample is.
+            string name = NameOf.TryGetValue(sample, out string? known) ? known : $"key:{sample.Key}";
+            Silenced.Add(name);
+            Events.Add($"stop {entity}/{channel} {name}");
             return 0;
         }
     }

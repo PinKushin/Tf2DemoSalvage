@@ -273,7 +273,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        StopLevelPatches(output);
+        StopLevelPatches(output, listener, right);
         DispatchSkipReads(output, listener, right);
         FollowListener(output, listener, right);
     }
@@ -337,6 +337,8 @@ public sealed partial class SoundPresenter(
         soundscape.Clear();
         _late.Clear();
 
+        // Everything is silenced, so no level stop is left to make (a pass drains them before it reloads in any case).
+        _levelStops.Clear();
         ForgetPatches();
     }
 
@@ -349,26 +351,40 @@ public sealed partial class SoundPresenter(
     /// names one again, and the scrape slots go with their patches, so no change names a patch nothing holds. The wave
     /// flags stay (B504).
     /// </summary>
-    /// <param name="ended">Where to add each forgotten patch's entity and channel when the caller has not already
+    /// <param name="ended">Where to add each forgotten patch's entity, channel and wave when the caller has not already
     /// silenced everything; null after `SilenceAll`.</param>
-    private void ForgetPatches(List<(int Entity, int Channel)>? ended = null)
+    private void ForgetPatches(List<(int Entity, int Channel, string Wave)>? ended = null)
     {
         _deck.ForgetPlaying(ended);
         _frictionSounds.Clear();
     }
 
-    /// <summary>The channels of the patches a level change ended, stopped at the next pass — the first that reaches the sink.</summary>
-    private readonly List<(int Entity, int Channel)> _levelStops = [];
+    /// <summary>The patches a level change ended, stopped at the next pass — the first that reaches the sink.</summary>
+    private readonly List<(int Entity, int Channel, string Wave)> _levelStops = [];
+
+    /// <summary>How many level-change stops wait for the next pass — read by tests only.</summary>
+    internal int LevelStopsQueued => _levelStops.Count;
 
     /// <summary>
     /// Stops what a level change ended: `ShutdownFriction` → `SoundDestroy` (`physics.cpp:711-717`) and `SystemReset` →
     /// `Shutdown` (`soundenvelope.cpp:862-878`) STOP each patch, they do not only forget it.
     /// </summary>
-    private void StopLevelPatches(IAudioSink output)
+    /// <remarks>
+    /// **Each through the stop every named stop takes** (<see cref="Start"/>, B416): by its wave, so only the patch's own
+    /// voice goes — not another sound on the key, a voice line the voice presenter started there included — on any channel,
+    /// <c>CHAN_AUTO</c> too (the by-name stop has no auto-channel guard); the loop tracking is told; and a patch still
+    /// waiting for its wave is dropped from the late starts (finding 90), so it never starts when its data arrives. First
+    /// in the pass, before anything it starts: the stop belongs to the level change, which came before them.
+    /// </remarks>
+    private void StopLevelPatches(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
-        foreach ((int entity, int channel) in _levelStops)
+        foreach ((int entity, int channel, string wave) in _levelStops)
         {
-            output.Silence(entity, channel);
+            Start(
+                output,
+                new SceneSound(_originTick, wave, ExplosionSounds.NotPrecached, entity, channel, 0f, 0, 0, 0f, 0f, 0f, 0f) { IsStop = true },
+                listener,
+                right);
         }
 
         _levelStops.Clear();
@@ -437,7 +453,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        StopLevelPatches(output);
+        StopLevelPatches(output, listener, right);
         output.Reclaim();
         Attenuate(output, listener, right);
     }
@@ -511,7 +527,7 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         long began = Stopwatch.GetTimestamp();
-        StopLevelPatches(output);
+        StopLevelPatches(output, listener, right);
         _originTick = tick;
         loops.Headphones = Headphones();
 

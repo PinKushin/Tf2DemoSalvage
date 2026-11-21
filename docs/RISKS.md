@@ -42643,6 +42643,18 @@ emit replay confirmed against the engine), each fixed with its test seen red and
 2. Round 3 item 1's entity teardown is cited and its unread step marked inferred.
 3. The missing-script comment no longer says "nothing plays" of ours; filed as B789.
 
+**Review round 5 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A patch still loading at the level change started when its wave arrived.* The level stops now go through the
+   presenter's one named-stop path (`Start` with `IsStop`), which drops the matching late start as every stop does
+   (finding 90).
+2. *The level stop freed the whole entity/channel key.* The same path stops by the dealt wave (`S_AlterChannel`, B416),
+   tells the loop tracking, and has no `CHAN_AUTO` guard — the by-name `IAudioSink.Silence` in `AudioOutput` matches
+   any channel (`AudioOutput.cs`, the explicit interface implementation), unlike the by-key `Stop`, which returns on
+   `CHAN_AUTO`. Nothing else on the key — a voice line the voice presenter started there — is cut.
+3. Tests that `PlaySkipFrames` and `FollowListener` drain the queue, that the stop comes first in a pass (a start on the
+   patch's channel after the level change survives), and that a reload leaves none queued (`StopForReload` clears them).
+
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
 TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
