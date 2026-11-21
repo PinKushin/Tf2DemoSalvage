@@ -1,4 +1,21 @@
-# Tf2DemoSalvage 0.1.0-beta.68
+# Tf2DemoSalvage 0.1.0-beta.69
+
+## Changes in 0.1.0-beta.69
+
+None of these changes was verified by looking against a TF2 frame. Each follows TF2's published source or its binaries, read by disassembly, and is held by tests. Each merge in this release passed the merge gate: all 12 test assemblies with no failures, then 93 of 93 UI tests. The last gate before this release (B782): core 3166, cli 75, logging 37, fonts 5, animation 5455, scene 5270, audio 672, presentation 1662, content 2176, corpus 273, rendering 1725, viewer 186.
+
+- **A point-of-view demo's spectator bar shows a tip, and training and coaching demos follow TF2 (B733).** In a recording made by a player, the bar's tip line now reads one of TF2's shipped tips, chosen from the class the recorder asked to play, as TF2's tip list does. In a training session the class label is empty, as in TF2. In a coaching demo the bar uses TF2's coach layout (`SpectatorCoach.res`) and shows the student's name, health, key hints and distance in meters. The student's Steam avatar is not shown, since a demo cannot carry it. Which random tip appears cannot match TF2's: TF2 draws from a global random stream that no demo records. No demo in our collection is a coaching demo, so that part is tested on synthetic data only. The test on a real recording reads a shipped tip on a point-of-view demo.
+- **Random integers match TF2's library (B733).** The viewer's `RandomInt` now follows TF2's own: no number is drawn for a range of one value, and a number too large to divide evenly is refused and drawn again. 2,100 calls were compared equal against TF2's shipped library.
+- **Soundscript waves are dealt and drawn when the sound plays, as TF2 does (B782).** A sound script with several waves picks one when the sound plays, from the waves still unused, and the volume, pitch, wave and sound level are drawn in TF2's order at that moment. When one wave is left, TF2 draws no number for the wave and neither does the viewer now, and a number it refuses is drawn again. Before, the viewer drew one number when it built the sound and took it modulo the waves left. A level change now stops the sound patches it forgets, such as a looping scrape or a medigun's heal loop, by name, as TF2 does when a level ends. On `cp_process_f12` all 2,629 explosions play one three-wave script with fixed volume, pitch and sound level, so every value this change moves is the same there either way. The random numbers are still the viewer's own, not TF2's (see *Known gaps*, B503).
+- **Faces follow TF2's eye and teeth shaders more closely (B725).** No TF2 model uses the Eyes shader, and only Half-Life 2's models use the Teeth materials that carry a mouth flag, so the Eyes and `teeth_bump` changes affect only models from other games.
+  - A face seen through water takes the water fog, as TF2's eye, teeth and Eyes shaders do.
+  - Only a Teeth material that carries the mouth flag takes the mouth's opening, as in TF2.
+  - The eyes' look-at target is one value shared by every face, as in TF2: a worn item on a player with flex controls sets none, a model panel's model with no flex controls sets none, and a corpse uses its player's target while that player is dead, a dormant player included.
+  - The HUD's three model panels draw their model's mouth.
+  - `teeth_bump`, a Half-Life 2 material, is lit per pixel as TF2's shader does it.
+  - The Eyes shader's glint is drawn. By default it is the glint TF2 renders on the GPU (the viewer computes it on the CPU to the same values, apart from a rare rounding tie); `r_glint_procedural 1` (default 0, set in your config) selects TF2's other glint instead, the one TF2 makes on the CPU with that setting, and `r_glint_alwaysdraw 1` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
+  - Under `mat_wireframe`, the Eyes glint is skipped, as TF2 does; the rest of the wireframe is still not TF2's (see *Known gaps*).
+- **Other changes since beta.68:** two more face-shader behaviors were checked against TF2 and need no change: the shaders take no static light from a color mesh, and EyeRefract's packed binormal reads the same value as ours (B725).
 
 ## Changes in 0.1.0-beta.68
 
@@ -1223,6 +1240,19 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **Faces and wireframe (beta.69), open:**
+  under `mat_wireframe` a model keeps its own materials where TF2 draws its flat wireframe material (B788);
+  a config's, a bound key's or a launch option's `mat_wireframe 1` is not refused while `sv_cheats` is 0, which D253 says TF2's command paths do (B791);
+  `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set while a demo plays do not reach the picture until the device is rebuilt (B790);
+  no draw writes its depth into destination alpha as TF2's main view and 3D sky do, and nothing here reads it yet, so no drawn value changes (B781);
+  the shared eye target is set once a frame in our draw order, where TF2 sets it at every draw of every view (B780);
+  a model panel's face mesh is drawn without its flex (B779), and the StatTrak module's eyes and target in a player model panel are not TF2's (B778);
+  a Teeth material's mouth values are set per draw, where TF2 leaves them in the shared material (B777).
+- **Sound draws (beta.69), open:**
+  a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);
+  the stream seed for an entity of 64 or higher is the same as a lower-numbered entity's at a later tick, so the two draw the same values (B787);
+  an impact draws the ricochet number only for bullet damage, where TF2 draws it for any in-range impact it accepts (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
+
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
   one player's shadow has been compared against live TF2 by looking (f12, viewer tick 6652); the blob, corpses and the secondary views have not.
@@ -1342,7 +1372,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Trigger soundscape limits (B483):** the camera has no body, so a view can enter a trigger up to 24 units
   later than a player would; the Enable and Disable inputs are not recorded in a demo, so a trigger the map turns
   off mid-match is not followed.
-- **Sound wave draws are approximated (B503):** the deck is dealt as the game does, but the game's random stream
+- **Sound wave draws are approximated (B503):** the deck is dealt as the game does, and since beta.69 each sound's draws are made when it plays (B782), but the game's random stream
   cannot be reproduced, so each sound's random draw is the viewer's own.
 - **Seeks are slower than before (B504):** forward seeks replay the skipped ticks, and a rewind restarts from
   the beginning, as the game does, except in a point-of-view demo whose file the viewer can show is simple (beta.53, D234). Faster rewind through checkpoints is planned.
