@@ -42388,10 +42388,26 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B781 — no draw writes its depth into destination alpha, where TF2's main view and 3D sky do for every opaque model (2026-11-20) — OPEN
+
+Found in B725's review (round 1, item 7, Sonnet). `CRendering3dView::SetupCurrentView` sets
+`INT_RENDERPARM_WRITE_DEPTH_TO_DESTALPHA` for `VIEW_MAIN` and `VIEW_3DSKY` only (`viewrender.cpp:893`), and
+`ShouldWriteDepthToDestAlpha()` turns on the `WRITE_DEPTH_TO_DESTALPHA` combo: for a fully opaque `VertexLitGeneric`
+(`vertexlitgeneric_dx9_helper.cpp:1283-1285`), a fully opaque `Teeth` (`teeth.cpp:255`) and every `Eyes` draw
+(`eyes_dx8_dx9_helper.cpp:474`), whose `FinalOutput` then writes `DepthToDestAlpha( projZ )` =
+`projZ · OO_DESTALPHA_DEPTH_RANGE` (`common_ps_fxc.h:335-342`, :361-362) instead of the colour's alpha. `EyeRefract` passes
+no such argument and writes 1 (`eye_refract_ps2x.fxc:451`). **Ours writes no draw's depth there**: the generic shader writes
+the texel's alpha (or, in a refraction view, the water fog factor), the faces their base alpha or 1, and the screen
+overlays leave it (`WorldRenderer.ScreenOverlay.cs`, `PlainBlend`). The faces were left matching the generic path rather
+than ported alone, since the difference is renderer-wide. *Not read*: which of our passes reads the main target's alpha
+afterwards (the engine's consumers are the depth-feathered particles' `_rt_FullFrameDepth`), so whether any drawn value
+changes is open.
+
 ## B780 — the face view target follows our pass order, once a frame, where the engine sets it at every draw of every view (2026-11-20) — OPEN
 
 Filed from B725 5d, which ported the mechanism: one render-context view target, set by each C_BaseFlex face with flex
-controllers and each CMDL draw, read by every eye drawn after (`StudioViewTarget`). What differs is WHEN it is set.
+controllers (a bone-merged worn item on a flexing wearer excepted, a dead player's corpse setting his) and each CMDL draw,
+read by every eye drawn after (`StudioViewTarget`). What differs is WHEN it is set.
 - *Engine*: `SetViewTarget` runs inside `C_BaseFlex::SetupWeights` (`c_baseflex.cpp:1147-1156`, :1304), the callback the
   model render makes for each draw of the model (*read*, its comment: "Rendering callback to allow the client to set up all
   the model specific flex weights"; the caller in `engine.dll` is closed and *not read*). So it is set again in every view
@@ -42401,8 +42417,14 @@ controllers and each CMDL draw, read by every eye drawn after (`StudioViewTarget
 - *Ours*: `EntityModelSet.FaceShading` runs once per drawn prop in `Instances`' order (the scene's prop list), and that one
   value serves every view the prop is drawn in; the panels set it when the HUD paints. So a prop drawn just after a
   different face in a reflection view than in the main view sees one target in ours and two in TF2's.
+- *History* (review 1, Sonnet): ours keeps the target across seeks and paused poses as across frames, so a `--shot` of a
+  controller-less eyed prop depends on what was drawn before the seek — the engine's does too across frames, but its
+  history is the frames TF2 drew, not the ones this viewer happened to draw. And in ours the HUD paints its model panels
+  before the frame draws (`VguiMdlPanel`: "the HUD paints, then the frame draws what it painted"), so on a first frame a
+  world prop reads a panel's target, where the engine's panels paint after the 3D views.
 - *Not read*: the engine's opaque-entity order within a view, and the render context's value before anything sets it
-  (taken as (0, 0, 0)). Visible only for an eyed `prop_dynamic` (or a C_BaseFlex without controllers) beside faces.
+  (taken as (0, 0, 0)). Visible only for an eyed `prop_dynamic` (or a C_BaseFlex without controllers, or a CModelPanel's
+  attached C_BaseAnimating) beside faces.
 
 ## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — OPEN
 
@@ -42422,7 +42444,8 @@ Found in B725 5g. `CTFPlayerModelPanel::RenderStatTrack` draws its second-level 
 `m_StatTrackModel.m_MDL.Draw( m_StatTrackModel.m_MDLToWorld, … )` (`tf_playermodelpanel.cpp:1574`), a `CMDL::Draw` like
 any other: it sets the render context's view target to `m_MDLToWorld` applied to its (0, 0, 0) target (`client.dll`
 `0x1809370e3`) and draws its eyes, if any, through the face shaders. Ours (`VguiMdlPanel.DrawBoneMergedOnto`) neither sets
-the shared target nor builds a face, so the module's eyes keep the generic draw. *Not read*: where `m_MDLToWorld` is set for
+the shared target nor builds a face, so the module's eyes keep the generic draw — for the player panel's StatTrak and for
+the embedded item panel's (`TfEmbeddedItemModelPanel.RenderingRootModel`, `TfEmbeddedItemModelPanel.cs:564`). *Not read*: where `m_MDLToWorld` is set for
 the StatTrak model. A stat clock has no eyeballs, so only the target it leaves behind could be seen, on an eyed model
 drawn after it.
 
@@ -44488,7 +44511,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
     `ClampCycle` again reddens the server 1.25 and client rows.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20 (B777-B780 filed from them); the glint target and teeth_bump open, listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); the glint target and teeth_bump open, listed last
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -44713,7 +44736,10 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
 4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
-5. *Smaller* — **all seven parts worked 2026-11-20** (`fix/b725-smaller`); what they found is filed as B777-B780.
+5. *Smaller* — **all seven parts worked 2026-11-20** (`fix/b725-smaller`); what they found is filed as B777-B781. Review round 1
+   (Sonnet, Fable, Gemini) fixed on the branch: a bone-merged cosmetic's and a dead player's corpse's view target, a
+   CModelPanel's attached models, the TF panel's per-paint allocation, the merges' kept faces on `ClearMergeMDLs`; recorded
+   the faces' depth-to-alpha as B781.
    - (a) *The static (colour-mesh) half of `DoLighting`* — **not a divergence, recorded**: all three vertex shaders hand
      `DoLighting` a static colour of literal `float3( 0, 0, 0 )` and read no colour stream (`eye_refract_vs20.fxc:157`,
      `Eyes_vs20.fxc:128-130`, `teeth_vs20.fxc:109-111`), so the half is `GammaToLinear( 0 · cOverbright )` = 0 whatever
@@ -44725,7 +44751,11 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `teeth_ps2x.fxc:46-47`; the combo `GetPixelFogCombo1( true )`, `eye_refract_helper.cpp:367`), so under a water volume
      it is `CalcWaterFogAlpha` blended unsquared (`common_ps_fxc.h:213-230`, :295-298). The generic shader's
      height-or-range choice is now one function, `ViewFog`, that the faces end in too. Alpha unchanged (EyeRefract 1, the
-     others their base; no `WRITEWATERFOGTODESTALPHA` combo on them). *Test*:
+     others their base; no `WRITEWATERFOGTODESTALPHA` combo on them). *Review 1 item 7* (Sonnet): Eyes and Teeth also
+     carry `WRITE_DEPTH_TO_DESTALPHA` (`eyes_ps2x.fxc:67`, `teeth_ps2x.fxc:47`), on in TF2's main view and 3D sky
+     (`viewrender.cpp:893`; `eyes_dx8_dx9_helper.cpp:474`, `teeth.cpp:255` for a fully opaque one) — read, and **not ported
+     alone**: no draw of ours writes its depth there, the generic shader included, so the faces keep matching it; filed
+     renderer-wide as **B781**. *Test*:
      `DrawModelPose_AFaceUnderARefractionViewsHeightFog_TakesTheFogColour` (3 rows: full height fog stores the fog's own
      bytes, 10, 26, 58; before, the lit face). *Sabotage*: the three back to the range fog reddened the three rows only.
    - (c) *The binormal in `COLOR0`* — **an exact inverse, nothing drawn changes, recorded**: the vertex shader packs
@@ -44742,7 +44772,16 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `StudioViewTarget`, owned by `EntityModelSet` and reached by the HUD's panels through `IMdlCache.ViewTarget`: a player,
      worn item or corpse with controllers sets it; a map prop (a class model's included), a C_BaseFlex without controllers
      and a `CModelPanelModel` without controllers read the last value set; every CMDL draw sets it. It persists across
-     frames, as the engine's does. *Tests*: `Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet` (2 rows:
+     frames, as the engine's does. **Corrected in review 1** (Fable, Sonnet): a bone-merged worn item with controllers on a
+     C_BaseFlex parent that has controllers sets NONE — `CEconEntity::SetupWeights` runs the parent's
+     `SetupGlobalWeights` and returns with `SetViewTarget` commented out (`econ_entity.cpp:1361-1392`), falling to
+     `C_BaseFlex::SetupWeights` (:1397) only otherwise; a corpse whose player is dead sets the PLAYER's target, his
+     `UpdateLookAt` from his origin (`C_TFRagdoll::SetupWeights` → `pPlayer->SetupWeights`, `c_tf_player.cpp:634-637`;
+     `ClientThink` runs the look-at dead or alive, :5948-5955; the clamp taken in the corpse's attachment, *interpolated*);
+     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:467`). *Tests*:
+     `Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers` (2 rows),
+     `Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget` (2 rows),
+     `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. *Tests*: `Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet` (2 rows:
      after the player it looks at the player's (512, 0, 0); before, at the start's (0, 0, 0), and in the next pass at the
      stale (512, 0, 0)), `Instances_APlayerWhoseModelHasNoControllers_SetsNoTargetAndReadsTheLast`,
      `Paint_EachCmdlDraw_SetsTheSharedViewTargetAndTheLastDrawnWins` (2 rows), and
@@ -44770,11 +44809,14 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `CMDL::CMDL` zeroes (`0x180936e20`) and `CMDLPanel::SetupFlexWeights` leaves alone (empty, `mdlpanel.h:101`) — so a
      CMDLPanel's (and CBaseModelPanel's, CEmbeddedItemModelPanel's) mouth reads the rules at zero controls. A
      `CModelPanelModel` is a C_BaseFlex at rest: the rules at each controller's minimum (`c_baseflex.cpp:1220-1222`).
-     `CTFPlayerModelPanel::SetupFlexWeights` (`tf_playermodelpanel.cpp:2313-2320`) writes each controller into
+     ~~`CTFPlayerModelPanel::SetupFlexWeights` (`tf_playermodelpanel.cpp:2313-2320`) writes each controller into
      `m_pFlexControls[ localToGlobal ]` — the client-wide GLOBAL controller number, set by this session's registration
      order — while `RunFlexRules` reads the array by local controller index (`studio.cpp:1456`): which value each rule
-     reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null). No TF2 class model
-     has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
+     reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null).~~ **Superseded**
+     (the bounds check at :1456 was read as the index; the read at :1485-1486 is by `localToGlobal`): see "the TF panel,
+     read further" below. A CModelPanel's attached models are plain C_BaseAnimatings (`new C_BaseAnimating`,
+     `basemodelpanel.cpp:467`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
+     No TF2 class model has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
      `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
      *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. Neither panel flexes its
      MESH by those weights, which `CMDL::Draw` does: **B779**.
@@ -44785,7 +44827,11 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      after linking the model itself (:2282-2289) — so each rule reads its own controller, whatever the number, except that
      two controllers of one name share a slot and both read the later one. Per paint, `SetFlexWeight( i, GetFlexWeight( i ) ·
      0.95 )` (:2300-2303) over `m_flexWeight[ 96 ]`, zeroed in the constructor (:129); no scene, no voice in a demo.
-     Ported (`TfPlayerModelPanel.StepFlexControls`). *Tests*: `TfPlayerModelPanelFlexConformanceTests` (5 rows). *Sabotage*:
+     Ported (`TfPlayerModelPanel.DecayFlexWeights`, `SharedSlots`, `FlexControls`; review 1 item 4 made the step allocate
+     nothing and run the rules only for a mouthed model, the decay still stepping every paint). *Tests*:
+     `TfPlayerModelPanelFlexConformanceTests` (6 rows, the allocation row among them), and through Paint
+     `Paint_AClassModelWithTeethAndAMouth_SetsTheMouthFromTheDecayingControls` (0.05, then 0.0975) and
+     `Paint_AClassModelWithoutTeeth_StillStepsTheDecay`. *Sabotage*:
      no name aliasing reddened only its row; no decay the three rows that read a decayed value; the clamp widened only the
      above-zero row. **What does depend on the session**, kept as zero: a plain CMDL's FETCH1 on a model whose controllers no
      C_BaseFlex has linked yet reads `m_pFlexControls[ −1 ]` (`localToGlobal` −1, `c_baseflex.cpp:1132-1142`) — the float
