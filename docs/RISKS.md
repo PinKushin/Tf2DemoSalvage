@@ -44521,7 +44521,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
     `ClampCycle` again reddens the server 1.25 and client rows.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); teeth_bump ported 2026-11-20; Eyes' glint read and still to port (not for the owner: the port is unfinished work), listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); teeth_bump ported 2026-11-20; Eyes' glint ported 2026-11-20; nothing open
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -44744,30 +44744,62 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    Not verified by looking. Left: whether SourceTV receives `ForcePlayerViewAngles`.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
-   `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
-   **Read 2026-11-20, port still OPEN** — not for the owner: the engine is read and unambiguous so far; the port is a
-   multi-function job that did not fit the session that finished item 4. What the next one starts from (TF2 x64
-   `studiorender.dll`, `llvm-objdump`; output nowhere in the repo):
+   `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance. No TF2 model names an `Eyes` material.
+   **PORTED 2026-11-20** (`fix/b725-smaller`, `Scene.EyeGlint`, the renderer's `WriteGlint`). Read from TF2 x64
+   `studiorender.dll` and `engine.dll` with `llvm-objdump` (output nowhere in the repo); constants read from the bytes.
    - *The sampling* (published): `eyes_vs20.fxc:139-140` projects `glintTC = dot( $glintu|$glintv, (pos, 1) )`;
      `eyes_ps2x.fxc:52-57` adds `glint.rgb · fGlintDamping`, the glint sampler NOT sRGB (`eyes_dx8_dx9_helper.cpp:379-380`
      turns sRGB on for samplers 0 and 1 only). `fGlintDamping` = saturated `GetAmbientLightCubeLuminance`, then 1 above
      0.01, else `lum · SimpleSplineRemapVal( lum, 0, 0.01, 0, 1 )` (:445-453).
-   - *The projection* (`0x18001dbe0`, from the eyeball mesh setup at `0x18000f7c1`): `s = 0.5 / radius`
-     (`mstudioeyeball_t` +0x18; the constant at `0x180080414` is the 0.5 the other paths use — *read the bytes before
-     relying on it*), `$glintu = ( s · viewRight, 0.5 − org · it )`, `$glintv = ( s · viewUp, … )`, `org` the eyeball
-     state's world origin (+0x38), the view basis the render context's (+0x54 right, +0x60 up; +0x48 the origin).
-   - *The texture* (`0x18001e020`, called when the config byte at +0x24 is non-negative): with a glint LOD texture and
-     `r_glint_alwaysdraw` 0, an eye whose `ComputePixelWidthOfSphere( org, radius )` is below the config's threshold (+0x10)
-     takes the static LOD texture; else, with `r_glint_procedural` 0 and dxlevel ≥ 90, it renders the 32×32 `_rt_eyeglint`
-     (made at `0x18001dcb0`) by `0x18001f510`; otherwise the CPU-regenerated `proc_eyeglint` (`CGlintTextureRegenerator`).
-   - *The glint points* (`0x18001d600`, called from `0x18001f54e`): the view delta normalised; the cornea offset along the
-     eye's forward from the iris and cornea radii (`radius · 0.5` and the constant at `0x180080a98`); per light from
-     `0x180021680` (index, point, out direction, out colour), a front glint where the reflected direction faces the
-     view and a second, back pass scaled by `radius`; each written as (x, y, colour) records of 0x14 bytes.
-   - *The pass* (`0x18001f510`): additive `EyeGlint` quads into the target — `eyeglint_vs20.fxc` passes `tc`, the glint
-     centre and colour; `eyeglint_ps2x.fxc:20-36` sums five Gaussian taps `saturate( exp( −25 |d|² ) )` (centre ×5) and
-     scales by 4/9. Still to read: the quad layout and the texel mapping (`0x18001f938` on, constants `0x180080a90`,
-     `0x180080aa0`), and `0x180021680`'s light list.
+   - *The projection* (`0x18001dbe0`, from the eyeball mesh setup at `0x18000f7c1`): `s = 0.5 / radius` (`0x180080414` is
+     0.5; `mstudioeyeball_t` +0x18), `$glintu = ( s · viewRight, 0.5 − org · it )`, `$glintv` the same with viewUp, `org`
+     the eyeball state's +0x38, the view basis the render context's (+0x54 right, +0x60 up, +0x48 origin) — which ours
+     recovers from the view-projection (columns 0, 1, 3), the origin as `EyePosition` does.
+   - *The texture* (`0x18001e020`, called when the config byte at +0x24 is non-negative): with `r_glint_alwaysdraw` 0, an
+     eye whose `ComputePixelWidthOfSphere( org, radius )` is under the threshold (`comiss`, `jae`: from 20 it draws) takes
+     `vgui/black`; else, with `r_glint_procedural` 0 at DX ≥ 90, `0x18001f510` renders the 32×32 BGRA8888 `_rt_eyeglint`
+     (`0x18001dcb0`), binding `vgui/black` instead when no light makes a glint. The CPU `proc_eyeglint` path is not the
+     default and is not ported. *Interpolated*: that the threshold is `r_eyeglintlodpixels` (default "20.0", read
+     beside it in `engine.dll`); the mapping of the config field to that cvar is not read.
+   - *The glint points* (`0x18001d600`, max 16): `viewDelta = normalize( viewOrigin − org )`; iris radius `r/2`, cornea
+     `(float)( r · 0.6666666666666666 )` (`0x180080a98`, a double); `er = √(1 − ¼)`, `cr = √(1 − (iris/cornea)²)`; the
+     cornea's centre `org + forward · (er·r − cr·cornea)`. Per light, `0x180021680` at the cornea's centre; where
+     `dot( normalize( delta ), forward ) > 0` a glint at `( right · refl · cornea + dx, up · refl · cornea + dy )`,
+     `refl = normalize( delta + viewDelta )`; then `0x180021680` at `org`, and where that dot is **below** `er`
+     (`comiss`, `jae` skips) a second at `( right · refl, up · refl ) · r`, the first's `refl`, the centre's colour. Every
+     normalise is `rsqrtss` and one Newton step on `|v|² + 1e-10`; ours divides by the root exactly (*a few ULP apart*).
+   - *The lights* (`0x180021680`, `0x180021900`): `LightDesc_t` at render context +0xd8, 0x58 each, count at +0x238;
+     delta `position − point`, `−direction` for a directional light; colour times the attenuation `m_Flags & 7` picks
+     (`0x1800962d8`): 0 past a nonzero range; `1/a0`, `1/(d·a1 + FLT_EPSILON)`, `1/(d·a1 + a0)`, `1/(d²·a2 + FLT_EPSILON)`,
+     `1/(d²·a2 + a0)`, `1/(d·a1 + FLT_EPSILON + d²·a2)`, `1/(d·a1 + a0 + d²·a2)`, and 2²³ (`0x180080ab0`) with no term; no
+     cone. The sun's `LightDesc_t` (`engine.dll` `0x1800f2010`, the directional case `0x1800f229c`) has no terms of its
+     own, so the all-zero rule (`0x1800f2186`-`0x1800f2196`) gives it `a0 = 1`, and its range is 1.8e19 (`0x180391fdc`),
+     whose square cuts nothing. Ours hands the face shaders' four lights, the sun first, as `EyeLightCount` does.
+   - *The pass* (`0x18001f938` on): centre `((x + 0.5)·32, (y + 0.5)·32)` texels, a quad from `floor − 2` to `floor + 1`
+     at NDC `2X/32 − 0.984375` (`0x180080a90`), `y` negated, `tc` the texel position, the centre and colour per vertex;
+     `eyeglint_ps2x.fxc:14-31`, five Gaussians `saturate( exp( −25 |d|² ) )` (centre ×5) times 4/9 times the colour; ONE/ONE
+     into the cleared target, sRGB write off. The quad's edges sit a quarter texel inside the grid, so under D3D9's
+     integer pixel centres it covers `floor − 1 … floor + 1` with `tc = i − ¼` (*arithmetic*; D3D11's half-pixel centres
+     would cover `floor − 2 … floor` instead). **The glints are world units on a target one unit across** while
+     `$glintu` spans the eye's diameter: they agree only at radius 0.5 — the engine's arithmetic, ported as read.
+   - **Not parity in mechanism (a scheduling deviation)**: ours fills the target on the CPU — `EyeGlint.Rasterise`
+     evaluates the pixel shader at the texels D3D9 covers and blends each quad into eight bits before the next, round to
+     nearest — and uploads it per Eyes draw, where the engine renders it on the GPU per eye draw.
+   *Tests*: `EyeGlintConformanceTests` (21 + 2 rows: projection; each attenuation flag and FLT_EPSILON near the light;
+   range; directional delta; a sun, a lamp beside and one behind make three glints at predicted places and colours; the
+   cap; one glint's texels, 139 at (16, 16) and, off-centre, (20, 10) = 10 that only D3D9's coverage draws; two
+   half-white glints 138 where one white is 139 — eight bits per quad; the LOD at 21.3 and 18.3 pixels; the view from a
+   `FreeCamera` matrix); `Shading_AnEyeWithAZOffset_TurnsItsAimByTwiceTheOffset` (forward and radius in the state);
+   `GlintLights_ASunAndFiveLamps_AreTheSunThenThreeLamps`; `DrawModelPose_EyesFacingALampAtTheCamera_AddsTheGlintTimesTheDamping`
+   (an eye of radius 600 on the view axis, lamp at the camera: pixel (34, 30) is texel (16, 16), 195; cube 0.005 damps it
+   to 4 (drawn 5); no lamp 0; 1e5 away, 1.5 pixels wide, 0). *Red first*: the stubbed `EyeGlint` failed 19 of 21; the
+   renderer before the port drew 0 for the 195 and 4 rows. *Sabotage*, each restored: D3D11's coverage — only the
+   off-centre texel row; the iris glint's `< er` turned — only the three-glint test; a quadratic-only light taken as
+   unattenuated — its flag row and its epsilon row; no FLT_EPSILON — the two epsilon rows; floor for round — the
+   one-glint texel rows; the LOD inverted — both LOD rows; up from column 2 — the view test; the state's forward before
+   the `zoffset` turn — the zoffset test; the damping held at 1 — the 0.005 row; the LOD skipped in the renderer — the
+   1e5 row; the glint not added — the 195 and 4 rows; the sun's `a0` 0 — the light-list test. Not verified by looking (no
+   TF2 model has an `Eyes` material to compare).
 4. *`teeth_bump`* — **PORTED 2026-11-20** (`fix/b725-smaller`). A Teeth material with a `$bumpmap` (`teeth.cpp:88`,
    `params[BUMPMAP]->IsTexture()`) draws `teeth_bump_vs20`/`teeth_bump_ps20b`: the bump normal in the tangent frame
    (`teeth_bump_ps2x.fxc:65-67`; the frame made and normalised after the bones, `teeth_bump_vs20.fxc:75-147`), lit by

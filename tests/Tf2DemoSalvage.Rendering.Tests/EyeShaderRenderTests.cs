@@ -300,6 +300,67 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **Eyes adds its glint, rendered for this eye and this view, times the ambient damping** (B725 item 3,
+    /// `eyes_ps2x.fxc:56`, `eyes_dx8_dx9_helper.cpp:445-453`; the target from `studiorender.dll` `0x18001e020`,
+    /// `0x18001f510`, `0x18001d600`, as <see cref="EyeGlint"/> ports them). The eye on the view's axis 600 units of radius
+    /// (texels 4 pixels wide), forward at the camera, a lamp at the camera: the glint is at (0, 0), so texel (16, 16) is 139
+    /// (`EyeGlintConformanceTests`) and the rest of its 3×3 is 0. `$glintu`/`$glintv` put that texel's centre `r / 32` =
+    /// 18.75 units right of and above the eye's axis: pixel (34, 30). The iris's alpha is 0 over a black base, so the lit
+    /// colour is 0 and the pixel is the glint alone, linear (the glint is not read through sRGB, `:378-381` enable it only
+    /// on samplers 0 and 1).
+    /// - Cube 0.1: luminance 0.1 &gt; 0.01, damping 1: 139/255.
+    /// - Cube 0.005: damping `0.005 · SimpleSpline( 0.5 )` = 0.0025.
+    /// - No lamp: no glint, 0 — the control that the pixel is the glint.
+    /// - The eye 1e5 away: `ComputePixelWidthOfSphere` ≈ 1.5 pixels &lt; `r_eyeglintlodpixels` 20, so `vgui/black`: 0.
+    /// </remarks>
+    [TestCase(Cube, true, 1200f, 139f / 255f)]
+    [TestCase(0.005f, true, 1200f, 139f / 255f * 0.0025f)]
+    [TestCase(Cube, false, 1200f, 0f)]
+    [TestCase(Cube, true, Far, 0f)]
+    public void DrawModelPose_EyesFacingALampAtTheCamera_AddsTheGlintTimesTheDamping(float cube, bool lamp, float depth, float expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), Forward: (0f, -1f, 0f), Radius: 600f);
+        AmbientCube dim = new((cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube));
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: lamp ? [Lamp(0f, -300f, 0f)] : [], cube: dim);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes glint, cube {cube}, lamp {lamp}, depth {depth}: {texel}, predicted {Encode(expected)}");
+        Near(texel, Encode(expected), "the glint texel times the damping");
+    }
+
+    /// <remarks>
+    /// **The glint's lights are the face shaders' four, the sun first** (`EyeLightCount`), each as the engine builds its
+    /// `LightDesc_t` (`engine.dll` `0x1800f2010`): the sun `MATERIAL_LIGHT_DIRECTIONAL` with no terms of its own, which
+    /// the all-zero rule makes `a0 = 1` (`0x1800f2186`-`0x1800f2196`), and no range that cuts (0x1800f22cd, 1.8e19); a
+    /// lamp with its own terms, range and kind. A sun and five lamps keep the sun and three.
+    /// </remarks>
+    [Test]
+    public void GlintLights_ASunAndFiveLamps_AreTheSunThenThreeLamps()
+    {
+        Span<GlintLight> lights = stackalloc GlintLight[4];
+        LocalLight lamp = new(1f, 2f, 3f, 4f, 5f, 6f, 0f, 0.5f, 0.25f, 300f);
+        LocalLight panel = lamp with { Directional = true, Direction = (0f, 0f, -1f) };
+
+        int count = WorldRenderer.GlintLights(new SunLight(7f, 8f, 9f, 0f, 1f, 0f), [lamp, panel, lamp, lamp, lamp], lights);
+
+        count.ShouldBe(4);
+        lights[0].ShouldBe(new GlintLight(true, default, (0f, 1f, 0f), (7f, 8f, 9f), 0f, 1f, 0f, 0f));
+        lights[1].ShouldBe(new GlintLight(false, (1f, 2f, 3f), lamp.Direction, (4f, 5f, 6f), 300f, 0f, 0.5f, 0.25f));
+        lights[2].Directional.ShouldBeTrue();
+        lights[2].Direction.ShouldBe((0f, 0f, -1f));
+    }
+
+    /// <remarks>
     /// **A colour mesh never reaches a face shader** (B725 open 5a). All three vertex shaders hand `DoLighting` a static
     /// colour of literal zero and read no colour stream (`eye_refract_vs20.fxc:157`, `Eyes_vs20.fxc:128-130`,
     /// `teeth_vs20.fxc:109-111`), so its static half is `GammaToLinear( 0 · cOverbright )` = 0 whatever `STATIC_LIGHT`
@@ -518,8 +579,8 @@ public sealed class EyeShaderRenderTests
         }],
         ["Teeth"]);
 
-    private static MapAssets Eyes() => MapAssets.ForMaterials(
-        [Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: 255)) }],
+    private static MapAssets Eyes(byte irisAlpha = 255) => MapAssets.ForMaterials(
+        [Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: irisAlpha)) }],
         ["Eyes"]);
 
     private static void Draw(
@@ -529,7 +590,8 @@ public sealed class EyeShaderRenderTests
         IReadOnlyList<LocalLight>? locals = null,
         MouthShading? mouth = null,
         float[]? baked = null,
-        VolumeFog? heightFog = null)
+        VolumeFog? heightFog = null,
+        AmbientCube? cube = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -576,7 +638,7 @@ public sealed class EyeShaderRenderTests
             camera,
             identity,
             assets,
-            light: Uniform,
+            light: cube ?? Uniform,
             bothSides: true,
             locals: locals,
             eyes: eye is { } shading ? [shading] : null,

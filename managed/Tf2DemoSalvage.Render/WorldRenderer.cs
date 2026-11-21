@@ -8857,7 +8857,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 // **A face material draws with its own shaders** (B725), set over the material's ordinary binds, which they
                 // read (base, light warp, cube, fog), and taken off again before anything else draws.
-                bool face = material >= 0 && _eyes.Count > 0 && BindEye(context, material, batch.Eyeball, eyes, mouth, reflectionByte);
+                bool face = material >= 0 && _eyes.Count > 0 && BindEye(context, material, batch.Eyeball, eyes, mouth, reflectionByte, sun, locals);
 
                 // Closed at once rather than left open: a later batch's refract copy reads the bound target.
                 UseGammaTarget(context, material);
