@@ -692,7 +692,7 @@ public sealed class DecalEffects
         return new BulletLanding(
             impact.Tick,
             impact.End,
-            surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
+            surfaces.GetSurfaceData(decals.SoundSurfacePropOf(impact))?.BulletImpactSound,
             impact.DamageType == Bullet);
     }
 

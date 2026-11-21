@@ -176,6 +176,9 @@ public static class ServerImpacts
                 hit.Normal, dispatch.SurfaceProp, dispatch.DamageType)
             {
                 StaticProp = dispatch.HitBox - 1,
+
+                // The trace's own surface, which `PlayImpactSound` takes when the server named none (B797 review 1).
+                StudioSurfaceProp = hit.StudioSurfaceProp,
             });
         }
     }

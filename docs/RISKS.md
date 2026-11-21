@@ -42388,6 +42388,15 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B801 — a server impact on an entity the client does not have still sounds; `ImpactCallback` returns at a null entity (2026-11-21) — OPEN
+
+Found in B796's review (round 1, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:30-33`) returns at once when
+`ParseImpactData` finds no entity for the dispatch — nothing at all. Ours (`ServerImpacts.Impacts( dispatch, timeline )`)
+reads an entity with no player in the frame and no track alive at the tick as team 0, which passes the team gate, so
+`LandingsOver` sounds it. *Not checked:* whether every entity the client would have is a track here (a brush entity, a
+door), so a null answer may also mean "not tracked" rather than "not present"; the fix must tell the two apart. *Read
+from published source; not measured.*
+
 ## B799 — the client's own bullets carry damage type 0, where `FireBullet` dispatches the weapon's damage bits (2026-11-21) — OPEN
 
 Found implementing B796. `ShotImpact.DamageType` is 0 for a bullet the client fires itself: the weapon's `GetDamageType`
@@ -42412,6 +42421,16 @@ trace hit — the miss case, where `Impact` returns false but `PlayImpactSound` 
 `ServerImpactsConformanceTests.From_AnImpactOnAStaticProp_IsAServerImpactOnThatProp`,
 `From_AnImpactOnTheWorldWithNoHitbox_IsOnNoStaticProp`; `DecalEffectsTests.LandingsOver_AServerImpactOnAStaticProp_SoundsWithTheDispatchsSurfaceAtItsOrigin`,
 `StepOver_AServerImpactOnAStaticProp_HoldsThePropsDecal`. Not verified by looking or listening.
+
+**Review 1 (Fable, Sonnet, Gemini).** The stand-in trace is `MapLevel.Trace`, which takes "brushes, terrain, static props
+and brush entities", so it strikes the prop itself and gives the prop's surface and normal; the residual
+interpolation is something else standing on the ray in front of the prop (the engine's trace is against that prop
+alone). And the SOUND's surface now follows `PlayImpactSound` (`fx_impact.cpp:378-381`): a server impact whose
+surfaceprop is 0 sounds as the client's trace found it — a prop's `$surfaceprop`, carried from the trace as
+`StudioSurfaceProp` — while the decal and effects keep `ParseImpactData`'s, as the engine's do
+(`ImpactDecals.SoundSurfacePropOf`; `LandingsOver_AServerPropImpactNamingNoSurface_SoundsAsThePropsOwn`, red before:
+surface 0's sound; the row naming flesh is the control). Terrain's slot is not carried, so a server impact on terrain
+with surfaceprop 0 keeps it.
 
 **As filed:**
 
@@ -42439,7 +42458,7 @@ dispatches a real match carries is not measured.*
 - **The client's own bullets** (`StepModelDecals`), after `FireBullet`'s teammate rule: no sound and no decal. *Arithmetic
   from `g_aWeaponDamageTypes` (`tf_shareddefs.cpp:715-828`):* every hitscan weapon's bits carry more than `DMG_BULLET`
   (`DMG_USEDISTANCEMOD`, `DMG_BUCKSHOT`, `DMG_USE_HITLOCATIONS`), so for real bullets this half cannot fire; and ours carry
-  `ShotImpact.DamageType` 0 for a client bullet, the weapon's `GetDamageType` bits not being built (a separate gap: it
+  `ShotImpact.DamageType` 0 for a client bullet, the weapon's `GetDamageType` bits not being built (B799: it
   also keeps a client bullet's `Bounce.Shrapnel` from ever being offered). The gate is wired so it holds once they are.
 - **The player decal** (`ModelDecalFor`) now asks the same function instead of `DamageType == Team`, which adds the
   `< FIRST_GAME_TEAM` exemption; the disguise half was already covered by `AddDecal`'s return.
@@ -42447,8 +42466,11 @@ Tests: `ServerImpactsConformanceTests.Impacts_*` (eight cases, the gate and its 
 `DecalEffectsTests.LandingsOver_AServerImpactWhoseDamageBitsEqualTheStruckPlayersTeam_IsSilent` and its control,
 `LandingsOver_AServerImpactOnAnEntityOfTheDamageBitsTeam_IsSilent` with `…OfAnotherTeam_Sounds` and
 `…BelowTheFirstGameTeam_Sounds`, `StepOver_AClientBulletWhoseDamageBitsEqualTheVictimsTeam_IsSilentAndLeavesNothing`.
-*Not built:* MvM's robot and tank impact sounds, which this gate also silences; we play none of them. Not verified by
-looking or listening.
+*Not built:* MvM's robot and tank impact sounds, which this gate also silences; we play none of them. *Untested
+through the timeline:* the disguise half on a server impact (`Impacts( dispatch, timeline )` handing the frame
+player's conditions on) — the synthetic player schema the decal tests build on carries no `DT_TFPlayerShared`, and adding
+one collides with the fixtures that add their own (review 1); the half is held by the unit rows. An entity the client
+does not have is B801. Not verified by looking or listening.
 
 **As filed:**
 

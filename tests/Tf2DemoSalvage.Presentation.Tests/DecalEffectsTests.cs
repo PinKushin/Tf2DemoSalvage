@@ -951,6 +951,18 @@ public sealed class DecalEffectsTests
             });
     }
 
+    /// <remarks>
+    /// B797 review 1: `PlayImpactSound` (`fx_impact.cpp:378-381`) takes the client trace's surface when the server named
+    /// none (surfaceprop 0) — a static prop's `$surfaceprop`. The control names flesh itself, which the trace's does not
+    /// replace.
+    /// </remarks>
+    [TestCase(0, ExpectedResult = "flesh.bulletimpact")]
+    [TestCase(Flesh, ExpectedResult = "flesh.bulletimpact")]
+    public string? LandingsOver_AServerPropImpactNamingNoSurface_SoundsAsThePropsOwn(int serverSurface) =>
+        DecalEffects.LandingsOver(
+            [OnStaticPropZero(serverSurface) with { StudioSurfaceProp = serverSurface == 0 ? Flesh : 0 }], Decals(), Surfaces, Timeline)[0]
+            .ImpactSound;
+
     [Test]
     public void StepOver_AServerImpactOnAStaticProp_HoldsThePropsDecal()
     {

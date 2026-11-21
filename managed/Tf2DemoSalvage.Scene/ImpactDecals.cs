@@ -159,6 +159,29 @@ public sealed class ImpactDecals
             : SurfacePropOfTexinfo(impact.Texinfo);
     }
 
+    /// <summary>The surfaceprop a bullet's impact SOUND takes — <see cref="SurfacePropOf"/>, but for a server impact that named none.</summary>
+    /// <param name="impact">The bullet.</param>
+    /// <returns>The surface index, −1 for none.</returns>
+    /// <remarks>
+    /// `PlayImpactSound` (`fx_impact.cpp:378-381`): `if ( tr.DidHit() &amp;&amp; ( pEntity != tr.m_pEnt || nServerSurfaceProp == 0 ) )
+    /// nServerSurfaceProp = tr.surface.surfaceProps` — a server impact whose surfaceprop is 0 sounds as the client's trace
+    /// found it, a static prop by its `$surfaceprop`. Only the sound: `Impact` and `PerformCustomEffects` take
+    /// `ParseImpactData`'s material, the server's, with no such fallback. A server world impact is kept only where its trace
+    /// hit, and the world trace's entity is the world's, so only the 0 half applies. *Not carried:* terrain's slot, so a
+    /// server impact on terrain with surfaceprop 0 keeps it.
+    /// </remarks>
+    public int SoundSurfacePropOf(ShotImpact impact)
+    {
+        if (!impact.FromServer || impact.SurfaceProp != 0)
+        {
+            return SurfacePropOf(impact);
+        }
+
+        int traced = impact.StaticProp >= 0 ? impact.StudioSurfaceProp : SurfacePropOfTexinfo(impact.Texinfo);
+
+        return traced >= 0 ? traced : impact.SurfaceProp;
+    }
+
     /// <summary>`trace.surface.surfaceProps` for a world trace that hit a texinfo.</summary>
     /// <param name="texinfo">The texinfo the trace reported.</param>
     /// <returns>The surface index, −1 when the texture declares none or the texinfo is out of range.</returns>
