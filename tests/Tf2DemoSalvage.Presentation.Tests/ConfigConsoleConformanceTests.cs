@@ -672,9 +672,10 @@ public sealed class ConfigConsoleConformanceTests
         List<ViewerAction> triggered = [];
         console.Triggered += (_, e) => triggered.Add(e.Action);
 
-        console.Load("bind \"x\" \"mat_wireframe 1\"\nbind \"y\" \"mat_wireframe\"");
+        console.Load("bind \"x\" \"mat_wireframe 1\"\nbind \"y\" \"mat_wireframe\"\nalias \"wire\" \"mat_wireframe\"\nbind \"z\" \"wire\"");
         console.KeyDown("x");
         console.KeyDown("y");
+        console.KeyDown("z");
 
         triggered.ShouldBeEmpty("neither toggles");
         console.RefusedCheats.ShouldBe(["mat_wireframe"], "the set is refused; the bare name is no set, TF2 prints the value");

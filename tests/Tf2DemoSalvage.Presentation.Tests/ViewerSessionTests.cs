@@ -625,6 +625,23 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **`mat_wireframe` is read as `WireFrameMode()` reads it, its integer** (`view.h:68`; B788 review 6, Fable): 2 and
+    /// `incrementvar`'s `1.000000` draw wireframe, `0.5` does not.
+    /// </remarks>
+    [TestCase("2", true)]
+    [TestCase("1.000000", true)]
+    [TestCase("0.5", false)]
+    public void OpenDevice_WithAMatWireframeValue_DrawsWireframeByItsInteger(string value, bool wireframe)
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_wireframe", value));
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBe(wireframe);
+    }
+
+    /// <remarks>
     /// **A device opened again with the menu already ticked draws wireframe too** (B788 review 3, Sonnet): the real menu
     /// reports on `CheckedChanged`, so a second tick of an item already ticked reaches nothing, and the new device must be
     /// told by the session itself.

@@ -454,6 +454,9 @@ public sealed class EyeShaderRenderTests
             wireframe: new ModelWireframe(1, IgnoresZ: true),
             overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
 
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+        target.PixelAt(20, 20).ShouldBe((0, 0, 89), "the control: the forced draw on its own is blue");
+
         Draw(target, assets, null);
         Draw(target, assets, null, clear: false, overrideMaterial: "forced.vmt");
 

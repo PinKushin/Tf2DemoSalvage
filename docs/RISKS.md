@@ -42598,6 +42598,9 @@ colour, paint only the drawn material's proxies (the wireframe material has none
 drawn material; after a wireframe batch the depth state left bound is `_depthIgnored`, so a later draw that sets none of
 its own would draw through everything (none found; every pass sets its own, the rule a pass must establish its own
 state); the real-install test asserts the material is appended last, which `OcclusionQueriesRenderTests` relies on.
+Review 6: the pass filter keys on the drawn material, so under the swap a mesh whose own material is translucent draws in
+the opaque pass with the (opaque) wireframe material; what studiorender does with that split under wireframe is not read
+(*interpolated* from the swap happening before the material is asked anything).
 *Not verified by looking*: no viewer was launched. Out of this entry: the
 world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
@@ -42645,7 +42648,7 @@ hand-over read `mat_wireframe` — so `ViewerSession.OpenDevice` ticks the menu 
 (`ViewerSessionTests.OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice`).
 **The bare name** (review 2): the no-op of a config's bare name without cheats (`ConfigConsole.Run`; silent, not a
 refused set, since review 3) covers any cheat ConVar that is also a viewer one-shot name; today that is `mat_wireframe`
-alone — a bare `mat_fullbright` bind triggers nothing and is refused nothing (*measured* 2026-11-21 with a test, then removed as asserting nothing). With `sv_cheats 1` a config's bare
+alone — a bare `mat_fullbright` bind triggers nothing and is refused nothing (*measured* 2026-11-21 with a test, then removed as asserting nothing), and of the one-shot names (`ViewerAction`'s command table) only `mat_wireframe` is a declared cheat: `cl_drawhud` is a cheat but no one-shot, and `mat_drawflat`, `mat_luxels` and the other debug views are not declared at all (B806; review 6). With `sv_cheats 1` a config's bare
 `mat_wireframe` toggles the view, where TF2 prints the value and sets nothing (*read*, the code's own comment): that is
 the viewer's bare-name one-shot convention, the same for every one-shot name and not this entry's — it goes with B792's
 owner question about the viewer's own keys and names.

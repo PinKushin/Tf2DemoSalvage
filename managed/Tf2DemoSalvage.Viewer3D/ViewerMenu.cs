@@ -469,8 +469,9 @@ internal sealed class ViewerMenu : IDisposable
         // question a wireframe is for, because it drew edges from the map file rather than the
         // triangles actually submitted: no props, no models, nothing about what reached the GPU.
         //
-        // This one is a rasteriser fill mode over every pass, so an edge on screen means that
-        // triangle was drawn. That is the difference between "not submitted" and "submitted and
+        // This one is TF2's: studio models draw the studio render's own wireframe material, through
+        // everything (`$ignorez`, B788), and the world's brushes a rasteriser fill mode (B803), so an
+        // edge on screen means that triangle was drawn — "not submitted" against "submitted and
         // invisible", which nothing else in this viewer can distinguish.
         Wireframe = new ToolStripMenuItem("&Wireframe")
         {
