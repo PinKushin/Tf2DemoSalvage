@@ -42388,7 +42388,20 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — OPEN
+## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — FIXED
+
+**Fixed (2026-11-21).** `ServerImpacts.From` now takes the world with a hitbox too, and gives the impact
+`StaticProp = HitBox − 1`, so it joins the client's bullets on static props: `DecalReplay` sends it to `ShootProp`
+(`AddDecalToStaticProp`), and `DecalEffects.LandingsOver` sounds it through `WorldLanding`. `ImpactDecals.Surface`
+answers a server static-prop impact from the dispatch's own surfaceprop (`ParseImpactData`'s `m_nSurfaceProp`), as
+`SurfacePropOf` already did, with the studio surface's flags (none). *Interpolated:* the world trace's first hit stands in
+for `AddDecalToStaticProp`'s trace against that one prop, and, like a world impact, the impact is kept only where that
+trace hit — the miss case, where `Impact` returns false but `PlayImpactSound` still plays, is B795's open half. Tests:
+`ServerImpactsConformanceTests.From_AnImpactOnAStaticProp_IsAServerImpactOnThatProp`,
+`From_AnImpactOnTheWorldWithNoHitbox_IsOnNoStaticProp`; `DecalEffectsTests.LandingsOver_AServerImpactOnAStaticProp_SoundsWithTheDispatchsSurfaceAtItsOrigin`,
+`StepOver_AServerImpactOnAStaticProp_HoldsThePropsDecal`. Not verified by looking or listening.
+
+**As filed:**
 
 Found in B785/B786's review (round 3, Fable). A server impact on a static prop arrives as `"Impact"` on entity 0 with a
 non-zero hitbox — the prop's index plus one: `ImpactTrace` sends the trace's `hitbox` (`baseentity_shared.cpp:684-685`), and
@@ -42402,7 +42415,30 @@ no decal (`OnEntities` also feeds the entity decals, `DecalEffects.cs:978`); the
 handled (`ShotImpact.StaticProp`, `DecalReplay.cs:158`). *Read from published source and our code; how many such
 dispatches a real match carries is not measured.*
 
-## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — OPEN
+## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — FIXED
+
+**Fixed (2026-11-21).** The gate is one function, `ServerImpacts.Impacts( damageType, team, disguiseTeam )` —
+`damageType == team ? team < FIRST_GAME_TEAM : disguiseTeam != damageType`, the disguise asked only while
+`TF_COND_DISGUISED` (the `ScenePlayer` overload, over `GetDisguiseTeam`) — and every road into `ImpactCallback` takes it:
+- **Server impacts on entities** (`DecalEffects.LandingsOver`) through `Impacts( dispatch, timeline )`, built at load: a
+  player is read from the frame at the impact's tick (`PlayersAt`), team and conditions and disguise team; any other
+  entity from its track alive then (`TrackFor( entity, tick ).TeamNumber`). *Interpolated:* that team is the last the
+  track stated, a non-player entity taken never to change team mid-life.
+- **The client's own bullets** (`StepModelDecals`), after `FireBullet`'s teammate rule: no sound and no decal. *Arithmetic
+  from `g_aWeaponDamageTypes` (`tf_shareddefs.cpp:715-828`):* every hitscan weapon's bits carry more than `DMG_BULLET`
+  (`DMG_USEDISTANCEMOD`, `DMG_BUCKSHOT`, `DMG_USE_HITLOCATIONS`), so for real bullets this half cannot fire; and ours carry
+  `ShotImpact.DamageType` 0 for a client bullet, the weapon's `GetDamageType` bits not being built (a separate gap: it
+  also keeps a client bullet's `Bounce.Shrapnel` from ever being offered). The gate is wired so it holds once they are.
+- **The player decal** (`ModelDecalFor`) now asks the same function instead of `DamageType == Team`, which adds the
+  `< FIRST_GAME_TEAM` exemption; the disguise half was already covered by `AddDecal`'s return.
+Tests: `ServerImpactsConformanceTests.Impacts_*` (eight cases, the gate and its disguise half);
+`DecalEffectsTests.LandingsOver_AServerImpactWhoseDamageBitsEqualTheStruckPlayersTeam_IsSilent` and its control,
+`LandingsOver_AServerImpactOnAnEntityOfTheDamageBitsTeam_IsSilent` with `…OfAnotherTeam_Sounds` and
+`…BelowTheFirstGameTeam_Sounds`, `StepOver_AClientBulletWhoseDamageBitsEqualTheVictimsTeam_IsSilentAndLeavesNothing`.
+*Not built:* MvM's robot and tank impact sounds, which this gate also silences; we play none of them. Not verified by
+looking or listening.
+
+**As filed:**
 
 Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:35-49`):
 `bImpact = ( data.m_nDamageType != pEntity->GetTeamNumber() || pEntity->GetTeamNumber() < FIRST_GAME_TEAM )`, and false

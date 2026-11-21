@@ -254,10 +254,10 @@ public sealed class ImpactDecals
     public (char GameMaterial, SurfaceProperties Flags)? Surface(ShotImpact impact)
     {
         // A static prop's `**studio**` surface: no flags, and the model's `$surfaceprop` — −1 for none, which reads as
-        // surface zero (B421).
-        if (!impact.FromServer && impact.StaticProp >= 0)
+        // surface zero (B421). The server's impact on one names its surfaceprop itself (B797).
+        if (impact.StaticProp >= 0)
         {
-            return (_surfacePropMaterial(impact.StudioSurfaceProp), SurfaceProperties.None);
+            return (_surfacePropMaterial(impact.FromServer ? impact.SurfaceProp : impact.StudioSurfaceProp), SurfaceProperties.None);
         }
 
         // Terrain's `**displacement**` surface: flags zero (`FUN_18016f290`), and its material's surfaceprop slot.
