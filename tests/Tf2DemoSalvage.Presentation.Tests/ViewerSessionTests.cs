@@ -300,11 +300,12 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
         GlintSwitches afterAlways = rig.Device.EyeGlint;
+        int afterFirst = rig.Window.Count("Redraw") - redraws;
         rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
 
         (before, afterAlways, rig.Device.EyeGlint).ShouldBe(
             (default(GlintSwitches), new GlintSwitches(true, false), new GlintSwitches(true, true)));
-        (rig.Window.Count("Redraw") - redraws).ShouldBe(2, "a paused viewer repaints only when asked");
+        (afterFirst, rig.Window.Count("Redraw") - redraws).ShouldBe((1, 2), "a paused viewer repaints once per set");
         rig.Log.Lines.Where(static line => line.StartsWith("[render] r_glint_", StringComparison.Ordinal))
             .ShouldBe(["[render] r_glint_alwaysdraw 1", "[render] r_glint_procedural 1"]);
     }
