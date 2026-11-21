@@ -80,7 +80,8 @@ public sealed class UniformRandomStream
     public void SetSeed(int seed)
     {
         _last = 0;
-        _seed = -Math.Abs(seed);
+        // `-|seed|` as machine code computes it: int.MinValue stays itself, where Math.Abs would throw.
+        _seed = seed < 0 ? seed : -seed;
         _seedGiven = seed;
         _drawn = 0;
     }
