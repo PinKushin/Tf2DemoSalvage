@@ -311,6 +311,47 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// B790: each of these the engine reads where it uses it — `r_lightmap_bicubic` in the shader's dynamic combo
+    /// (`lightmappedgeneric_dx9_helper.cpp:24`), `mat_disable_bloom` and `mat_force_tonemap_scale` in the post-process
+    /// pass (`viewpostprocess.cpp:57`, `:1128`), `cl_drawmonitors`, `r_3dsky` and `cl_drawhud` in the frame's view and HUD
+    /// draw, `cl_detaildist` and `cl_detailfade` in the detail props' frame — so a set from a key, the console or an exec'd
+    /// cfg mid-demo is the switch. Before, only the hand-over at device creation gave them to the device. The control is
+    /// the hand-over itself: it set the property, and not to the key's value.
+    /// </remarks>
+    [TestCase("mat_disable_bloom 1", "DisableBloom True")]
+    [TestCase("r_lightmap_bicubic 1", "BicubicLightmap True")]
+    [TestCase("r_shader_srgb 1", "ShaderSrgb 1")]
+    [TestCase("mat_force_tonemap_scale 2", "ForceToneMapScale 2")]
+    [TestCase("cl_drawhud 0", "DrawHud False")]
+    [TestCase("r_3dsky 0", "Draw3dSky 0")]
+    [TestCase("cl_detaildist 500", "DetailDistance 500")]
+    [TestCase("cl_detailfade 100", "DetailFadeWidth 100")]
+    [TestCase("cl_drawmonitors 0", "DrawMonitors False")]
+    public void KeyPressed_AKeyBoundToADeviceConVar_ReachesTheDevice(string set, string handed)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        ArgumentNullException.ThrowIfNull(handed);
+
+        // `sv_cheats 1` because `cl_drawhud` and `mat_force_tonemap_scale` are cheats, which a bind cannot set without it
+        // (D253); the route is the question here, not that gate.
+        using Rig rig = BuildWithAutoexec($"sv_cheats 1\nbind \"F7\" \"{set}\"\n");
+        FakeViewerDevice device = new();
+        rig.Session.OpenDevice(() => rig.Device, (_, specularOff, setFullbright) => rig.Settings.ApplyOver(device, specularOff, setFullbright), 1280, 720)
+            .ShouldBeTrue();
+        string property = handed.Split(' ')[0] + " ";
+        (device.Set.Count(entry => entry.StartsWith(property, StringComparison.Ordinal)), device.Set.Contains(handed))
+            .ShouldBe((1, false), "the control: the hand-over set it once, to the config's value");
+        int sets = device.Set.Count;
+        int redraws = rig.Window.Count("Redraw");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        device.Set.Skip(sets).ShouldBe([handed]);
+        (rig.Window.Count("Redraw") - redraws).ShouldBe(1, "a paused viewer repaints once per set");
+        rig.Log.Lines.ShouldContain($"[render] {set}");
+    }
+
+    /// <remarks>
     /// **The menu writes the ConVar too** (B671 review, D215), as `SetPhong` does: unticked from the menu, `mat_specular`
     /// must read 0 to a later `toggle`, which then turns reflections back on; and a menu fullbright must be in the settings
     /// for `sv_cheats 0` to put it back to 0, as TF2 reverts every cheat ConVar it holds. Before, the toggle read 1 and set

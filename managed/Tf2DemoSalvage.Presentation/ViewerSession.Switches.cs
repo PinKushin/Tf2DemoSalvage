@@ -282,6 +282,14 @@ public sealed partial class ViewerSession
 
             _window.Redraw();
         }
+
+        // **Every other ConVar the engine reads where it uses it** (B790): `r_lightmap_bicubic`, `mat_disable_bloom`,
+        // `r_3dsky` and the rest, handed to the device by the settings' own table, as at the hand-over.
+        else if (_settingsOwner.ApplyLive(set.Name))
+        {
+            _renderLog.LogInformation("{Message}", $"{set.Name} {set.Value}");
+            _window.Redraw();
+        }
     }
 
     // The one route `mat_phong` and `mat_bumpmap` take from the menu, a key, the console or an exec'd cfg: logged, handed

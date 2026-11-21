@@ -42540,7 +42540,18 @@ viewer's default binding stay ungated; a config, a user's bind and a launch opti
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
 
-## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
+## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — FIXED 2026-11-21
+
+**Fixed, and six more of the same kind:** `SettingsPresenter.LiveDeviceConVars` is one table of the ConVars the engine
+reads where it uses them — the three here and `cl_drawmonitors`, `mat_force_tonemap_scale`, `cl_drawhud`, `r_3dsky`,
+`cl_detaildist`, `cl_detailfade`, which had the same gap — each with how it reaches the device. The hand-over
+(`ApplyOver`, its order unchanged) and a set from a key, the console or an exec'd cfg (`ViewerSession.OnConVarSet` →
+`ApplyLive`) both take it; the device the hand-over configured is held until `DetachDevice` lets it go. Tests:
+`KeyPressed_AKeyBoundToADeviceConVar_ReachesTheDevice`, nine rows (red before: no set reached the device; the hand-over's
+one set is the control) and `ApplyLive_ToTheHandedDeviceAndAfterItIsForgotten_SetsItOnlyWhileHeld` (a no-op forget
+reddens it). `r_shader_srgb`'s read point stays unread, taken as read at use (interpolated). Not verified by looking.
+
+**As filed:**
 
 Found in B725's glint review (round 2, item 1, where the same gap was fixed for the two glint ConVars). The three are
 handed to the device once, at its creation (`SettingsPresenter.ApplyOver`, `device.DisableBloom`,
