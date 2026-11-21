@@ -951,7 +951,10 @@ public sealed class ConfigConsole
             {
                 _conVars[cheat.Name] = cheat.Default;
             }
-            else if (_settingValue(cheat.Name) is { } now && MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
+            // The value as `CurrentValue` reads it — the settings, then a config's line the console keeps — so a cheat a
+            // watcher config set is reverted too (B791 review 15).
+            else if ((_settingValue(cheat.Name) ?? _conVars.GetValueOrDefault(cheat.Name)) is { } now &&
+                MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
             {
                 // Only what differs from its default is announced, so the host logs and applies a real change.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));

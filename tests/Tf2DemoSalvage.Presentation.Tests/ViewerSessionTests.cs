@@ -349,6 +349,24 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **`sv_cheats 0` reverts a wireframe a watcher config turned on** (B791 review 15, Fable): the config's line lives in
+    /// the console, not the settings, and the revert reads both, as the console's own value does; TF2 reverts every cheat
+    /// ConVar wherever it was set.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_SvCheatsZeroAfterAConfigsWireframe_ClearsTheDevice()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nmat_wireframe 2\nbind \"F8\" \"sv_cheats 0\"\n");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+        rig.WithDevice();
+        rig.Device.Wireframe.ShouldBeTrue("the control: the config's line reached the device");
+
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **`sv_cheats 0` reverts a wireframe the menu turned on, too** (B791 review 11, Sonnet): the menu records its value for
     /// the run, so the revert finds `mat_wireframe 1` and announces `0`, which unticks the item and clears the device.
     /// </remarks>

@@ -42673,7 +42673,14 @@ the launch line logs an accepted set under the ConVar's own name (the stored val
 the launch line's log text (the tests read it through a null logger; only the stored values are asserted);
 `ViewerSettings.ConVarText`'s typed-setting lookup stays ordinal, as every caller passes the engine's own name;
 the no-install branch of `LoadWireframeMaterial` (a test cannot reach the loader without an install), and the opaque
-pass taking a translucent mesh under the swap (the engine's split unread, as above). That reverses, for `sv_cheats` alone, the rule that a
+pass taking a translucent mesh under the swap (the engine's split unread, as above). Reviews 13-15: `SetWireframe` records
+the menu's value only when the client value differs (`KeyPressed_ABindOfMatWireframeTwoWithCheats_KeepsTheValueTwo`) and
+reads that value where it lives, the settings or a watcher config's line the console keeps, so a config's `mat_wireframe 2`
+survives the device opening and `toggle mat_wireframe 2 0` goes 2 to 0
+(`KeyPressed_ATwoZeroToggleAfterAConfigsWireframeTwo_TurnsItOff`, red before); and `sv_cheats 0` reverts every cheat
+ConVar wherever it was set, a config's line included — `RevertCheats` reads as `CurrentValue` does
+(`KeyPressed_SvCheatsZeroAfterAConfigsWireframe_ClearsTheDevice`, red before; the hole was on main for any untyped cheat a
+config set, B718, hidden for wireframe until review 14). That reverses, for `sv_cheats` alone, the rule that a
 replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
 default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
