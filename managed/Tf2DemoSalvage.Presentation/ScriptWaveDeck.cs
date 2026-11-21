@@ -139,7 +139,7 @@ public sealed class ScriptWaveDeck
 
         if (draw.Kept)
         {
-            _patches[draw] = new Dealt(wave, drawn.Volume);
+            _patches[draw] = new Dealt(wave, drawn.Volume, sound.EntityIndex, sound.Channel);
         }
 
         SceneSound dealt = sound with { Name = wave, SoundLevel = drawn.SoundLevel };
@@ -186,8 +186,17 @@ public sealed class ScriptWaveDeck
     /// (`soundenvelope.cpp:862-878`, "level change, etc.": every patch `Shutdown`) ends: every patch, which nothing can
     /// name after it, and any chain, which cannot span it. The flags stay (B504).
     /// </summary>
-    public void ForgetPlaying()
+    /// <param name="ended">Where to add each forgotten patch's entity and channel, for a caller that must stop them; or null.</param>
+    public void ForgetPlaying(ICollection<(int Entity, int Channel)>? ended = null)
     {
+        if (ended is not null)
+        {
+            foreach (Dealt patch in _patches.Values)
+            {
+                ended.Add((patch.Entity, patch.Channel));
+            }
+        }
+
         _patches.Clear();
         _heads.Clear();
     }
@@ -252,6 +261,6 @@ public sealed class ScriptWaveDeck
     /// <summary>One `CSoundParameters`, and how many waves its pick chose among.</summary>
     private readonly record struct Parameters(float Volume, int Pitch, int Wave, int SoundLevel, int Available);
 
-    /// <summary>A dealt patch: its wave and the script volume it drew.</summary>
-    private readonly record struct Dealt(string Wave, float Volume);
+    /// <summary>A dealt patch: its wave, the script volume it drew, and the entity and channel it plays on.</summary>
+    private readonly record struct Dealt(string Wave, float Volume, int Entity, int Channel);
 }

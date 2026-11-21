@@ -273,6 +273,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        StopLevelPatches(output);
         DispatchSkipReads(output, listener, right);
         FollowListener(output, listener, right);
     }
@@ -346,10 +347,29 @@ public sealed partial class SoundPresenter(
     /// names one again, and the scrape slots go with their patches, so no change names a patch nothing holds. The wave
     /// flags stay (B504).
     /// </summary>
-    private void ForgetPatches()
+    /// <param name="ended">Where to add each forgotten patch's entity and channel when the caller has not already
+    /// silenced everything; null after `SilenceAll`.</param>
+    private void ForgetPatches(List<(int Entity, int Channel)>? ended = null)
     {
-        _deck.ForgetPlaying();
+        _deck.ForgetPlaying(ended);
         _frictionSounds.Clear();
+    }
+
+    /// <summary>The channels of the patches a level change ended, stopped at the next pass — the first that reaches the sink.</summary>
+    private readonly List<(int Entity, int Channel)> _levelStops = [];
+
+    /// <summary>
+    /// Stops what a level change ended: `ShutdownFriction` → `SoundDestroy` (`physics.cpp:711-717`) and `SystemReset` →
+    /// `Shutdown` (`soundenvelope.cpp:862-878`) STOP each patch, they do not only forget it.
+    /// </summary>
+    private void StopLevelPatches(IAudioSink output)
+    {
+        foreach ((int entity, int channel) in _levelStops)
+        {
+            output.Silence(entity, channel);
+        }
+
+        _levelStops.Clear();
     }
 
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
@@ -371,7 +391,11 @@ public sealed partial class SoundPresenter(
     /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
     ///
     /// **Set when an install opens (`LevelSystems.Publish`) and again for each map (`LevelSystems.Load`)** — twice for the
-    /// first level — and a level change ends every patch and scrape loop (<see cref="ForgetPatches"/>). Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
+    /// first level — and a level change ends every patch and scrape loop (<see cref="ForgetPatches"/>) and STOPS them at
+    /// the next pass, which is the first to reach the sink. In this viewer both setters run while a demo opens
+    /// (`ViewerPresenter`'s map read and demo load), and that demo's new <see cref="Schedule"/> makes its first pass a
+    /// reload that silences everything; the stops here do not rely on it, as the engine stops the patches at the level
+    /// change itself. Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
     /// change — `CSoundEmitterSystem::LevelShutdownPostEntity` calls `ClearSoundOverrides`, which ships closed in
     /// soundemittersystem.dll and was not disassembled; keeping them is this port's reading, not an observation.
     /// </remarks>
@@ -381,7 +405,7 @@ public sealed partial class SoundPresenter(
         set
         {
             field = value;
-            ForgetPatches();
+            ForgetPatches(_levelStops);
         }
     }
 
@@ -411,6 +435,7 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        StopLevelPatches(output);
         output.Reclaim();
         Attenuate(output, listener, right);
     }
@@ -484,6 +509,7 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         long began = Stopwatch.GetTimestamp();
+        StopLevelPatches(output);
         _originTick = tick;
         loops.Headphones = Headphones();
 

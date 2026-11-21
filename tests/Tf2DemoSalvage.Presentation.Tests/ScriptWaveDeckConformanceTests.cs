@@ -257,8 +257,33 @@ public sealed class ScriptWaveDeckConformanceTests
         presenter.FrictionSounds.Playing.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// A level change STOPS the scrape, it does not only forget it: `ShutdownFriction` → `SoundDestroy`
+    /// (`physics.cpp:711-717`) and `SystemReset` → `Shutdown` (`soundenvelope.cpp:862-878`) end the patch's channel. The
+    /// sink is only reached in a pass, so the stop lands at the next one, before anything else.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_StopsAPlayingScrapeAtTheNextPass()
+    {
+        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape);
+        Silent sink = new();
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        sink.Started.ShouldContain((40, "a.wav"), "the condition: the scrape plays");
+        sink.SilencedChannels.ShouldBeEmpty("the condition: nothing stopped it yet");
+
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.SilencedChannels.ShouldBe([(40, scrape.Channel)]);
+    }
+
     /// <summary>A presenter played to tick 25 with one corpse scrape loop playing.</summary>
-    private static SoundPresenter PresenterWithAScrape()
+    private static SoundPresenter PresenterWithAScrape() => PresenterWithAScrape(out _);
+
+    /// <summary>A presenter played to tick 25 with one corpse scrape loop playing, and that loop's start.</summary>
+    private static SoundPresenter PresenterWithAScrape(out SceneSound scrape)
     {
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"));
@@ -266,16 +291,18 @@ public sealed class ScriptWaveDeckConformanceTests
 
         VphysicsSurfaceProps surfaces = new([]);
         surfaces.ParseSurfaceData(System.Text.Encoding.Latin1.GetBytes(
-            "\"default\" { \"scraperough\" \"Test.Scrape\" } \"flesh\" { \"scraperough\" \"Test.Scrape\" }"));
+            $"\"default\" {{ \"scraperough\" \"{Script}\" }} \"flesh\" {{ \"scraperough\" \"{Script}\" }}"));
+
+        // The presenter's catalog's one script, so the scrape's start is dealt — and kept — when it plays.
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["Test.Scrape"] = new("Test.Scrape", 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["scrape.wav"]),
+            [Script] = new(Script, 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["a.wav"]),
         };
         CorpseFriction friction = new(40, 7750f, surfaces.GetSurfaceIndex("flesh"), surfaces.GetSurfaceIndex("default"));
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
         presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
-        presenter.FrictionSounds.Step(25, 0.4, [friction], static (entity, tick) => (entity, tick, 0f), surfaces, scripts).ShouldHaveSingleItem();
+        scrape = presenter.FrictionSounds.Step(25, 0.4, [friction], static (entity, tick) => (entity, tick, 0f), surfaces, scripts).ShouldHaveSingleItem();
         presenter.FrictionSounds.Playing.ShouldBe(1, "the condition: a scrape loop plays");
 
         return presenter;
@@ -784,10 +811,9 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public int Reclaim() => 0;
 
-        public void Silence(int entity, int channel)
-        {
-            // Only the named stop is asked about.
-        }
+        public List<(int Entity, int Channel)> SilencedChannels { get; } = [];
+
+        public void Silence(int entity, int channel) => SilencedChannels.Add((entity, channel));
 
         public int Silence(int entity, int channel, SoundSample sample)
         {
