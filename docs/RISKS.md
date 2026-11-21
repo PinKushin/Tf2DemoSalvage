@@ -42388,6 +42388,99 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
+
+Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
+(`game/shared/SoundEmitterSystem.cpp:465-468`): `if ( !soundemitterbase->GetParametersForSoundEx( ep.m_pSoundName,
+handle, params, gender, true ) ) return;` — a name no loaded script declares draws nothing and plays nothing. *Read
+from published source.* Ours: a producer resolves the script against the catalog it was handed when it built the
+sound, and `ScriptWaveDeck.Deal` returns the sound UNCHANGED when the catalog at play time (`SoundPresenter.Scripts`,
+set per level) lacks that script — so it plays with the wave, volume, pitch and soundlevel its producer drew against a
+full deck. That happens when a sound built against one catalog (the install's, or another level's) is played after the
+catalog changed: a level's map script overriding or removing an entry, or a sound scheduled before the level's scripts
+arrived. How often the corpus hits it is not measured. The fix is to drop the sound at that early return (as a start;
+a stop or change of a patch never dealt already names nothing).
+
+## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
+seeds `ImpactSounds.SeedFor( tick * 64 + entity )`, so entity 64 at tick t and entity 0 at tick t + 1 — and any
+`( t, e )`, `( t + k, e - 64k )` — share a stream, and draw the same volume, pitch, wave number and soundlevel. Edict
+indices run to 2047 (`MAX_EDICTS`, `const.h`), and players alone reach 33, so props, weapons and corpses are over 64 as
+a rule. *Arithmetic.* The engine has no such seed: it draws from the client's one global stream, which no demo records
+(finding 57), so ours is interpolated either way — the defect is only that two sounds the interpolation means to keep
+apart are not. Everything through `EntitySounds.Emit`, `Stream` and `SeedFor` shares it: footsteps, animation-event and
+decapitation sounds, physics impacts, medigun patches, corpse scrapes.
+
+**It also merges two patches' records** (B782 review round 2). `ScriptWaveDeck` keeps a patch by its `ScriptWaveDraw`,
+whose equality is the record's: script, emit flag, stream position and flags. Two patches of one script whose seeds
+collide — a scrape loop on entity 64 at tick t and one on entity 0 at t + 1 — have EQUAL draws, so they share one
+record, and the first stop removes it for both: the other's later change or stop then names nothing (its change keeps
+the carried volume without the script volume, B782's `Named`).
+
+## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
+`if ( Impact( … ) ) { … if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET ) ) … }` —
+the `&&` evaluates left to right, so every in-range impact that `Impact` accepts takes the number, and only then is the
+damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs:85`) asks
+`landing.Ricochets && random.RandomInt( 1, 10 ) <= 3`, where `Ricochets` is already "`Impact` returned true for a
+`DMG_BULLET`" — so a non-bullet hit skips the draw and its impact sound starts one number early (volume, pitch, wave,
+soundlevel all shift). *Read from published source.* Related: B783 (the camera test comes first of all).
+
+## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
+resolves the script with `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` — a plain
+`GetParametersForSound`, `isbeingemitted` false, so FUN_180003370 clears no wave — and plays the resolved WAVE with
+`enginesound->EmitSound( filter, SOUND_FROM_WORLD, CHAN_STATIC, params.soundname, … )`, which never passes through
+`EmitSoundByHandle`. Ours (`TracerWhiz.SoundAt`, `managed/Tf2DemoSalvage.Presentation/TracerWhiz.cs:55`) passes
+`emitted: true`, so every whiz clears a wave of `Bullets.DefaultNearmiss` and the next whiz is dealt from a smaller
+deck; the engine's never changes. `ScriptWaveDeckConformanceTests.Producers_EverySoundEmittedByName_Deals` lists the
+whiz among the emitters, which this contradicts. *Read from published source.* (The same function's 0.1 s
+`flNextWhizTime` gate, 200-unit minimum and 64-unit whiz distance were not compared here.)
+
+## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — OPEN
+
+Found by B782's review round 1. **Not fixed here.** `HudSounds.Emit` (`managed/Tf2DemoSalvage.Presentation/HudSounds.cs:49`)
+seeds `ImpactSounds.SeedFor( tick * 131 + scriptName.GetHashCode( StringComparison.Ordinal ) )`. .NET's string hash is
+randomized per process (on by default since .NET Core), so the same demo draws a different HUD volume, pitch, wave
+number and soundlevel on every run — and, through the shared deck (B503), deals a different wave to every later sound
+of that script. The draws are interpolated in any case (the engine's global stream is unrecorded, finding 57); the
+defect is that the interpolation is not repeatable, which `ExplosionSounds`' remark names as its point ("so a seek
+replays the same draws"). A stable hash (FNV over the name, or the script's index) would fix it.
+
+## B783 — a bullet impact beyond 1024 units deals its wave; the engine's never emits it (2026-11-20) — OPEN
+
+Found while fixing B782. **Not fixed here.**
+
+**The engine** (read from published source). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:51-136`) decides
+`bPlaySound = ( MainViewOrigin() - vecOrigin ).LengthSqr() < ( 1024 * 1024 )` (`:75`, outside Mann vs. Machine's robot
+branch, `:68-72`) BEFORE anything sound-related. The shrapnel is `if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3
+&& iDamageType == DMG_BULLET )` (`:85`), so the `&&` short-circuits: an impact out of range draws no `RandomInt( 1, 10 )`
+and emits no `Bounce.Shrapnel`. The impact sound is `if ( bPlaySound ) … PlayImpactSound( … )` (`:92-133`), so it is
+never emitted either. No `EmitSound`, so no `EmitSoundByHandle`, so no `GetParametersForSound` (FUN_180003370): no
+draws and no deal — the script's `available` flags are untouched.
+
+**Ours.** `ImpactSounds.For` (`managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs`) draws `RandomInt( 1, 10 )` and
+builds the shrapnel and the impact for EVERY landing, carrying the camera gate as `SceneSound.AudibleWithin` (1024).
+`SoundPresenter.Update` deals every sound (`ScriptWaveDeck.Deal`, B782) BEFORE `InRange` checks that gate — its comment
+says the deal precedes audibility, which is right for `EmitSoundByHandle` but not for `ImpactCallback`, whose gate comes
+first. A skip's `DealSkip`/`DealFrame` deal reliable landings with no gate at all.
+
+**What it shifts.** The DECKS, not the streams: an out-of-range impact clears a wave of its surface's `BulletImpact`
+script (and, when its ricochet draw passes, of `Bounce.Shrapnel`), so the next in-range emission of that script — from
+any producer, server landings scheduled at load or client bullets emitted live, since the flags are per entry —
+is dealt a different wave, and every deal after it in that script's deck moves with it. The streams do not move in
+ours: each landing is its own seeded stream (`ImpactSounds.SeedFor`), so a landing's skipped draws affect only itself.
+In the engine the skipped `RandomInt( 1, 10 )` and draws would also leave the client's global stream alone; ours does
+not model that stream (interpolated, finding 57), so there is nothing to shift there.
+
+**Fix shape, not done:** the camera test belongs before the landing's draws, where `ImpactCallback` makes it — which
+needs the camera when the landing fires, so it cannot be decided at load for scheduled landings; the presenter would
+have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
+deal would need the camera of each skipped frame.
+
 ## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
 
 Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
@@ -42517,7 +42610,7 @@ setup, `0x1800045be-0x1800045d8`), or with the mouth skipped (`r_teeth` off), dr
 the VMT's. Ours hands the mouth per draw (`BindEye`) and falls back to the VMT's own values. *Interpolated*: that nothing
 else resets the vars between draws (the material system is closed). Only HL2's Teeth materials are flagged.
 
-## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — OPEN
+## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — FIXED 2026-11-20: the draws are made when the sound plays
 
 Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
 Filed on the coordinator's ruling: *"a divergence, however small"*.
@@ -42551,10 +42644,159 @@ waves are available depends on what has already played, which a seek or a skippe
 known when the parameters are drawn — and that includes whether one wave is left, so even the no-draw case depends on
 the play-time deck. Valve's order — `count`, then the draw, then the soundlevel — puts the deal before
 the soundlevel draw, so a port has to either deal at draw time (moving B503's decision) or redraw the soundlevel at play
-time. Neither is done here.
+time.
 
-**Open.** No test yet. The one-wave case is testable synthetically (a one-wave entry: the engine's soundlevel takes
-the third number, ours the fourth); the refusal case is not measurable in the corpus.
+**Where the engine deals, read again for the fix** (Ghidra project `tf2soundemitter`, 2026-11-20). FUN_180003370 in
+order: `RandomFloat` (volume, `param_4[1]`), `RandomFloat` (pitch, truncated to `param_4[2]`), FUN_180005680 (the wave),
+the `available` byte of the pick cleared when the last argument (`isbeingemitted`) is set, `RandomFloat` (soundlevel,
+`param_4[5]`). FUN_180005680 lists the available waves of the matching gender, resets them when none is set, lists
+again, and calls slot `+0x10` of the stream adaptor at `PTR_PTR_18003b010` with `( 0, count - 1 )`; that slot,
+`0x180003c90`, is `mov ecx, edx; mov edx, r8d; jmp [0x18002a2c0]`, vstdlib's `RandomInt`. **So the deal and the draws
+are one call** — the engine has no "draw now, deal later": it deals at draw time, and it draws when the client emits,
+which in a viewer is when the sound plays. There is no third order to choose. A seek is B504's: the engine has no
+rewind of the flags, and a skip deals (and so draws) only what `CL_FireEvents` fires; the deal now carries its draws
+with it, so a skip's deal draws them too, against the flags at that moment.
+
+**Fix: the draws move to the deal.** `ScriptWaveDraw` carries the stream's POSITION instead of a number — the seed it
+was given and how many numbers it had made (`UniformRandomStream.Position`, `MoveTo`, `RandomStreamPosition`) — at the
+start of the sound's `GetParametersForSound`. `ScriptWaveDeck.Deal`, which the presenter calls where it called `Pick`,
+moves its own stream there and draws FUN_180003370's four in order: volume, pitch, `RandomInt( 0, count - 1 )` over the
+waves available now (no number for one; a redraw for a refusal — `UniformRandomStream.RandomInt` already does both),
+the soundlevel. The deck took over the presenter's dealt-wave table, since a later draw needs what an earlier one was
+dealt. The producer's own values (`FromWorldAt`) are what a full deck would deal — its wave draw is now
+`RandomInt( 0, waves - 1 )`, so a one-wave entry is right before any deal.
+
+- **What the deal writes.** Always the wave and the soundlevel. For the FIRST draw on a stream it leaves the volume
+  and pitch alone: they precede the wave, so the producer already has the engine's values, and a producer may have
+  replaced them (a footstep's volume, a medigun patch's pitch).
+- **A shared stream** (`ScriptWaveDraw.After`): a draw made after another on the same stream starts where that one
+  ended, which the deal finds by drawing that one again — with the count it was dealt against, when it was dealt (the
+  shrapnel before its impact), or against the flags now when it never was a sound of its own (`PhysFrictionSound`'s
+  draw before its patch, a read, which changes no flag). Such a draw's volume and pitch follow the wave, so the deal
+  writes them too. `ImpactSounds` chains the impact to its shrapnel; `PhysicsFrictionSounds` chains the patch's `Init`
+  draw to the scrape's own.
+- **A patch** (`ScriptWaveDraw.Scaled`): `Play( patch, params.volume · v, params.pitch )` keeps `Init`'s script
+  volume and multiplies by it, so the friction start carries `params.volume · v` and the deal multiplies by the
+  script volume it draws; a later `SoundChangeVolume` names the start and `ScriptWaveDeck.Named` multiplies by the
+  script volume that start was dealt. The friction slot's `ScriptVolume` is gone: it was a draw made before the deal.
+
+**Tests** (`ScriptWaveDrawConformanceTests`, the disassembly quoted; each red on the old one-number draw, assertion
+failures with every control green): a one-wave entry's soundlevel is its stream's third number; the third emitted deal
+of a three-wave entry (the last card) takes none, so its soundlevel is the third; a refused number (seed 2107827854
+after one lead number, whose fourth number the control reads as `0x7ffffffe`) is drawn again, the wave from the next
+number and the soundlevel from the one after; an impact after a two-wave shrapnel with one wave left starts on the fifth
+number (its volume, pitch, wave and soundlevel); a scrape's patch after a read of a two-wave script with one left draws
+its script volume from the fourth number, with the scrape's pitch and the patch's soundlevel; dealing one sound twice
+draws the same numbers. `UniformRandomStreamConformanceTests.MoveTo_APositionPartWay_GoesOnToTheSameNumbers` and
+`Position_ADrawlessRandomIntAndAStreamNeverSeeded_CountNothingAndSeedZero` hold the position. The friction tests'
+volumes now pass through a deal, as the engine's do.
+
+**Sabotage, each a precise inverse edit, restored:** the old draw (`RandomInt( 0, 0x7ffffffe ) % count`) reddened all
+five draw tests; the old draw behind a span-one guard reddened only the refusal; a replay ignoring the count it was
+dealt reddened only the impact; no replay at all reddened the impact and the scrape; an unscaled deal reddened the
+scrape and both friction volume tests; an unscaled `Named` reddened only the friction change; a deal that does not move
+to the sound's position reddened 23 (every presenter deal test with them); a stream that does not count reddened the
+`MoveTo` test, and a drawless `RandomInt` that counts reddened the `Position` test.
+
+**At the output, measured, not asserted:** f12's 2,629 blasts all play `BaseExplosionEffect.Sound`, three waves, with
+volume 1, pitch 100 and soundlevel 95 fixed — so on that demo every value the fix moves is the same either way, and no
+real-demo assertion can tell the two draws apart there. `CorpusScriptWaveDeckTests` still holds the deal's wiring
+(the waves played, through the presenter) and passes. The refusal is about 4.7e-10 per three-wave sound and is not
+measurable in the corpus.
+
+**Cost.** `ScriptWaveDraw` is now a class (it names the draw before it), one small allocation per script sound a
+producer makes — producers already allocate a stream per sound. A deal re-primes its stream (40 steps) and replays at
+most a few numbers; it allocates nothing.
+
+**Review round 1 (Sonnet, Fable, Gemini; no blocker), each fixed with its test seen red and a sabotage:**
+
+1. *A scrape's change built a draw it threw away.* The change path now reseeds a stream `PhysicsFrictionSounds` keeps
+   and draws only the volume (the first number); only the start builds draws. A steady scrape's change allocates only
+   the list `Step` returns (`Step_ASteadyScrapesChange_AllocatesOnlyTheListItReturns`: 848 bytes before, 440 = the
+   control after).
+2. *The dealt table grew for the whole playback.* Only the LAST deal is held for a chain (a chain's draws are dealt
+   one after another), and only patches (`Scaled`) are held for the change or stop that names them, until that stop.
+   `Clear` forgets both; a reload's `S_StopAllSounds` ends every patch, so `StopForReload` calls `ForgetPlaying`. No
+   level-change reset of the FLAGS — *interpolated, not read:* `CSoundEmitterSystem::LevelShutdownPostEntity` calls
+   `ClearSoundOverrides`, which ships closed in soundemittersystem.dll and was not disassembled, so whether the engine's
+   flags survive a level change is this port's reading (corrected by review round 2, which also found the patches DO
+   reset there: see round 2, item 3).
+3. *A scaled first draw was not scaled at its start.* `Deal` now scales a patch whatever its place in a chain. The
+   medigun's heal and detach are patches (`controller.Play( patch, 1.f, 100.f )`, `tf_weapon_medigun.cpp:2061`,
+   `:2327`), so they are now `Scaled` at volume 1, which makes the case live.
+4. *A replayed earlier draw that was never dealt lost its emit.* It now replays with its own `isbeingemitted`, clearing
+   its pick as `EmitSoundByHandle` would (`tf_fx_impacts.cpp:88`).
+5. Tests for a re-deal over changed flags and for a change whose patch was never dealt.
+6. Pre-existing divergences the reviewers found, filed OPEN, not fixed here: B784 (HUD seeds by a per-process string
+   hash), B785 (the whiz deals a script the engine only reads), B786 (the ricochet draw skipped for non-bullet hits),
+   B787 (`EntitySounds` seed collisions above entity 63).
+
+**Review round 2 (Sonnet, Fable, Gemini; no blocker; the friction change, the medigun's `Play( patch, 1, 100 )` and the
+emit replay confirmed against the engine), each fixed with its test seen red and a sabotage:**
+
+1. *One "last deal" slot lost a chain head when any deal came between.* The producer now names the draws a follower
+   chains after (`ScriptWaveDraw.Leads`, the shrapnel when an impact follows); the deck keeps each dealt head by
+   reference until its follower consumes it. A chain is at most two draws: `After` refuses a third.
+2. *Every scaled deal was kept, the medigun's never-stopped detach included.* Only patches a later change or stop names
+   are kept (`ScriptWaveDraw.Kept`: the scrape and the heal loop, not the detach).
+3. *A level change kept the patches.* `CSoundControllerImp::SystemReset` ("level change, etc.",
+   `soundenvelope.cpp:862-878`) shuts every patch down, so setting a level's scripts forgets them. The flags' survival
+   across a level change is marked interpolated (round 1, item 2).
+4. *A reload landing ahead kept the scrape slots.* `StopForReload` clears them.
+5. A friction change test with a ranged script volume, which a wrong reseed fails.
+6. A control marked as one; a soundlevel assertion given a control proving it can fail.
+7. B787 now records that colliding seeds merge two patches' records.
+
+**Review round 3 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A level change forgot the patches but not the scrape slots.* One `SoundPresenter.ForgetPatches` (deck and friction
+   slots) now serves the reload and the level change. *Read from published source:* `CHLClient::LevelShutdown`
+   releases the client entity list (`cl_entitylist->Release()`, `cdll_client_int.cpp:1734-1735`), which calls
+   `Release` on every entity in it and removes it (`CClientEntityList::Release`, `cliententitylist.cpp:63-93`); and
+   `C_TFRagdoll::~C_TFRagdoll` (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds` (`physics.cpp:1024-1031`)
+   → `ShutdownFriction` (`:711-717`), which destroys the patch and empties the slot. *Inferred, not read:* that a TF
+   ragdoll is in that list and that its `Release` runs the destructor — `C_BaseEntity::Release` was not followed.
+   (Corrected by review round 4, which found the first sentence filed as read with no citation.)
+2. The reload test landed behind; a reload landing ahead (`PlaySkipFrames` after a reloading batch) is tested too.
+3. *A head whose follower's script is missing at deal time stayed held.* The follower releases it on that early return.
+4. The hundred-detaches test asserts the hundred first.
+5. `PhysicsFrictionSounds.Playing` (tests only) counts in a loop instead of allocating.
+6. `Scripts` is set when an install opens and again per map — twice for the first level; the remark says so.
+
+**Review round 4 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A level change forgot the patches but stopped none.* The engine stops them (`ShutdownFriction` → `SoundDestroy`,
+   `SystemReset` → `Shutdown`). The deck now records each kept patch's entity and channel; the `Scripts` setter queues
+   them and the next pass — the first to reach the sink — silences each. Checked: both setters run while a demo opens,
+   whose new schedule makes the first pass a reload that silences everything anyway; the stops do not rely on it.
+2. Round 3 item 1's entity teardown is cited and its unread step marked inferred.
+3. The missing-script comment no longer says "nothing plays" of ours; filed as B789.
+
+**Review round 5 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A patch still loading at the level change started when its wave arrived.* The level stops now go through the
+   presenter's one named-stop path (`Start` with `IsStop`), which drops the matching late start as every stop does
+   (finding 90).
+2. *The level stop freed the whole entity/channel key.* The same path stops by the dealt wave (`S_AlterChannel`, B416),
+   tells the loop tracking, and has no `CHAN_AUTO` guard — the by-name `IAudioSink.Silence` in `AudioOutput` matches
+   any channel (`AudioOutput.cs`, the explicit interface implementation), unlike the by-key `Stop`, which returns on
+   `CHAN_AUTO`. Nothing else on the key — a voice line the voice presenter started there — is cut.
+3. Tests that `PlaySkipFrames` and `FollowListener` drain the queue, and that the stop comes first in a pass (a start on
+   the patch's channel after the level change survives).
+
+**Review round 6 (Sonnet, Fable, Gemini; no blocker; CHAN_AUTO by name confirmed as the engine's,
+`soundenvelope.cpp:477-491`):** round 5's queue clear in `StopForReload` was dead — both callers run after the pass has
+drained it — and is removed with its test-only count and test (ruling over adding a direct test). The still-loading
+test gained a control (without the level change the waiting scrape does start); an `AudioOutput` test pins a by-name
+stop on `CHAN_AUTO`; the test sink can hand out handles, so the hit path (`ForgetVoice`) is tested — first measured
+green under its own sabotage, because the pass's re-gain drops a freed voice's loop anyway, so the test now watches
+the re-gain of the freed voice instead; the level stop carries the pass's tick; `AudioOutput.Stop`'s remark says
+CHAN_AUTO cannot be stopped by KEY.
+
+**Review round 7 (Sonnet, Fable; no blocker):** round 6's "the level stop carries the pass's tick" is reverted.
+`PlaySkipFrames` and `FollowListener` stop the patches before any new tick is set, so only `Update` carried the new
+one, and no test pinned it. Every path now labels the stop with the last pass's tick — the level change came before
+the pass — and only the "stopped while loading" log line reads it.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
@@ -43878,7 +44120,7 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on the restored rule.
 5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
    with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
-6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782**, OPEN; finding 57 points at it.
+6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782** (fixed 2026-11-20); finding 57 points at it.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

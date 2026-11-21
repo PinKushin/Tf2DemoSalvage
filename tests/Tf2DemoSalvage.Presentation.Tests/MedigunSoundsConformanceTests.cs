@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
@@ -42,6 +43,25 @@ public sealed class MedigunSoundsConformanceTests
     }
 
     /// <remarks>
+    /// `controller.Play( patch, 1.f, 100.f )` (`tf_weapon_medigun.cpp:2061`, `:2327`): the patch's volume is 1, which
+    /// `GetVolumeForEngine` multiplies by the script volume `CSoundPatch::Init` drew — so each is a SCALED draw, and its
+    /// volume when dealt is the script's, 0.75 here.
+    /// </remarks>
+    [Test]
+    public void For_EachPatch_PlaysVolumeOneTimesTheScriptVolumeItDraws()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, scripts);
+
+        sounds.ShouldAllBe(sound => sound.WaveDraw != null && sound.WaveDraw.Scaled);
+        sounds.Select(static sound => sound.Volume).ShouldBe([1f, 1f, 1f]);
+
+        // A control, not the test: before the patches were scaled they carried the script volume itself, which a deal left
+        // alone, so this read 0.75 then too. The two lines above are what fail without the scaling.
+        new ScriptWaveDeck().Deal(sounds[0], scripts).Volume.ShouldBe(0.75f);
+    }
+
+    /// <remarks>
     /// **A patch reads the deck and never deals from it** (B503): `CSoundPatch::Init` resolves the script through a plain
     /// `GetParametersForSound` (`soundenvelope.cpp:353-381`), whose `isbeingemitted` is false, so FUN_180003370 never
     /// clears the wave it picked.
@@ -52,7 +72,7 @@ public sealed class MedigunSoundsConformanceTests
         IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, Scripts());
 
         sounds.Count.ShouldBe(3);
-        sounds.ShouldAllBe(sound => sound.WaveDraw != null && !sound.WaveDraw.Value.Emitted);
+        sounds.ShouldAllBe(sound => sound.WaveDraw != null && !sound.WaveDraw.Emitted);
     }
 
     /// <remarks>A new target on the same tick keeps `m_bHealing` true: the loop runs on and nothing detaches.</remarks>

@@ -108,9 +108,10 @@ public readonly record struct SceneSound(
     public bool ThroughSpeaker { get; init; }
 
     /// <summary>
-    /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
-    /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,
-    /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.
+    /// For a sound the client resolved from a soundscript: which script, and the stream its `GetParametersForSound` draws
+    /// from — so the wave is chosen when it plays, from the script's availability flags at that moment (B503), and the draws
+    /// after it with it (B782). Null for the demo's own sounds, which name a wave already. <see cref="Name"/> and the drawn
+    /// values are then what a full deck would give.
     /// </summary>
     public ScriptWaveDraw? WaveDraw { get; init; }
 

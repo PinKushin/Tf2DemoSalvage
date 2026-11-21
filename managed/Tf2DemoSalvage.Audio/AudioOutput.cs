@@ -1128,9 +1128,10 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <c>metal_box_scrape_rough_loop</c> four, <c>)ambient/machine_hum</c> six. Those loops are
     /// meant to end when the door stops moving; unstopped they run the length of their file.
     ///
-    /// **CHAN_AUTO cannot be stopped this way and that is Valve's design, not a gap here.** The
-    /// engine picked the channel, so nothing names it afterwards; sounds sent on it are the
-    /// fire-and-forget ones that end on their own.
+    /// **CHAN_AUTO cannot be stopped BY KEY, and that is Valve's design, not a gap here.** The
+    /// engine picked the channel, so no entity/channel key names it afterwards. A stop by NAME
+    /// still reaches it (the <see cref="IAudioSink"/> `Silence` overload taking a sample, which has
+    /// no such guard), as the engine's patch shutdown stops by name (`soundenvelope.cpp:477-491`).
     /// </remarks>
     public void Stop(int entity, int channel)
     {

@@ -89,7 +89,13 @@ public static class EntitySounds
     public static UniformRandomStream Stream(int tick, int entity)
     {
         UniformRandomStream random = new();
-        random.SetSeed(ImpactSounds.SeedFor((tick * 64) + entity));
+        random.SetSeed(SeedFor(tick, entity));
         return random;
     }
+
+    /// <summary>The seed <see cref="Stream"/> gives an entity's sounds at a tick, for a caller that reuses its own stream.</summary>
+    /// <param name="tick">When.</param>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The seed.</returns>
+    public static int SeedFor(int tick, int entity) => ImpactSounds.SeedFor((tick * 64) + entity);
 }

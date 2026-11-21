@@ -3,9 +3,11 @@ using System.Collections.Generic;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
@@ -43,8 +45,9 @@ public sealed class ScriptWaveDeckConformanceTests
 
         deck.Pick(Script, 3, 0, emitted: true).ShouldBe(0);
 
-        // Available: waves 1 and 2. RandomInt( 0, 1 ) is the draw mod 2, so a draw of 3 picks the list's second, wave 2.
-        deck.Pick(Script, 3, 3, emitted: true).ShouldBe(2);
+        // Available: waves 1 and 2, so RandomInt( 0, 1 ) answering 1 picks the list's second, wave 2.
+        deck.Available(Script, 3).ShouldBe(2);
+        deck.Pick(Script, 3, 1, emitted: true).ShouldBe(2);
     }
 
     [Test]
@@ -76,7 +79,7 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     [Test]
-    public void FromWorldAt_AnyEntry_CarriesItsScriptAndTheWaveDrawsRawNumber()
+    public void FromWorldAt_AnyEntry_CarriesItsScriptAndItsStreamFromWhereItsDrawsBegin()
     {
         SoundScriptEntry entry = Entry(channel:1, "a.wav", "b.wav", "c.wav");
 
@@ -84,17 +87,17 @@ public sealed class ScriptWaveDeckConformanceTests
         expected.SetSeed(11);
         expected.RandomFloat(1f, 1f);
         expected.RandomFloat(100f, 100f);
-
-        // `RandomInt( 0, int.MaxValue - 1 )` is the generator's own number: it is below 2^31 - 1, so the modulo keeps it.
-        int raw = expected.RandomInt(0, int.MaxValue - 1);
+        int wave = expected.RandomInt(0, 2);
 
         UniformRandomStream random = new();
         random.SetSeed(11);
 
         SceneSound sound = ExplosionSounds.FromWorldAt(entry, random, 1, (0f, 0f, 0f), emitted: true);
 
-        sound.WaveDraw.ShouldBe(new ScriptWaveDraw(Script, raw, Emitted: true));
-        sound.Name.ShouldBe(entry.Waves[raw % 3], "before any deal, the wave is the one a full deck gives");
+        (sound.WaveDraw!.Script, sound.WaveDraw.Emitted, sound.WaveDraw.After).ShouldBe((Script, true, null));
+        sound.Name.ShouldBe(entry.Waves[wave], "before any deal, the wave is the one a full deck gives");
+
+        sound.WaveDraw.Stream.ShouldBe(new RandomStreamPosition(11, 0), "the stream is carried from before the volume's draw");
     }
 
     /// <remarks>
@@ -120,7 +123,7 @@ public sealed class ScriptWaveDeckConformanceTests
         SceneSound? whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts, default);
         SceneSound? hud = HudSounds.Emit(5, Script, scripts);
 
-        new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Value.Emitted);
+        new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Emitted);
     }
 
     [Test]
@@ -128,8 +131,8 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = Entry(channel: 0, "a.wav", "b.wav") };
 
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeTrue();
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeFalse();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Emitted.ShouldBeTrue();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Emitted.ShouldBeFalse();
     }
 
     [Test]
@@ -171,7 +174,9 @@ public sealed class ScriptWaveDeckConformanceTests
         SoundPresenter presenter = Presenter(played, Entry(channel:6, "a.wav", "b.wav"));
         Silent sink = new();
 
+        // A patch (`CSoundPatch`), the only kind a stop names.
         SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
 
         presenter.Schedule = new SoundSchedule([Dealt(10, 0), loop, Dealt(25, 0), loop with { Tick = 30, IsStop = true }]);
 
@@ -183,6 +188,265 @@ public sealed class ScriptWaveDeckConformanceTests
         // held rather than opening, so it adds nothing here (finding 90).
         played.ShouldBe(["a.wav", "b.wav", "b.wav"]);
         sink.Silenced.ShouldBe(["b.wav"]);
+    }
+
+    /// <remarks>
+    /// A seek back reloads, and the reload's `S_StopAllSounds` (B550) ends every patch playing, so the deck stops holding
+    /// it for a stop that can no longer name anything.
+    /// </remarks>
+    [Test]
+    public void Update_ASeekBackPastAPlayingPatch_ForgetsIt()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 6, "a.wav", "b.wav"));
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } }]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        presenter.PatchesHeld.ShouldBe(1, "the condition: the patch was dealt");
+
+        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
+        presenter.PatchesHeld.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A reload's `S_StopAllSounds` (B550) silences the corpse scrapes with everything else, and the deck forgets their
+    /// patches; the friction slots must go too, whichever way the reload lands. A slot left behind would send its next
+    /// change against a patch nothing holds.
+    /// </remarks>
+    [Test]
+    public void Update_AReloadLandingBehind_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// The case the review found: a walk that reloads and lands AHEAD of where playback was. Its frame's batch, read after
+    /// the reload, dispatches with the reload's stop of everything (`PlaySkipFrames`), and the scrape slots must go then too —
+    /// the step-back clear in the corpse pass never sees a step back here.
+    /// </remarks>
+    [Test]
+    public void PlaySkipFrames_AReloadLandingAhead_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        presenter.SkipFrameRead(40, reload: true);
+        presenter.PlaySkipFrames(new Silent(), Listener, Right);
+
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A level change frees every friction slot: `CHLClient::LevelShutdown` releases the client entity list
+    /// (`cdll_client_int.cpp:1734-1735`; that a ragdoll's `Release` reaches its destructor is inferred), and `C_TFRagdoll::~C_TFRagdoll`
+    /// (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds` (`physics.cpp:1024-1031`) → `ShutdownFriction`
+    /// (`:711-717`), which destroys the patch and empties the slot; `CSoundControllerImp::SystemReset`
+    /// (`soundenvelope.cpp:862-878`) shuts down whatever patch is left.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A level change STOPS the scrape, it does not only forget it: `ShutdownFriction` → `SoundDestroy`
+    /// (`physics.cpp:711-717`) and `SystemReset` → `Shutdown` (`soundenvelope.cpp:862-878`) end the patch's channel. The
+    /// stop names its wave, as every stop does (`S_AlterChannel`, B416): the patch's own channel and nothing else on the
+    /// key. The sink is only reached in a pass, so the stop lands at the next one, before anything else.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_StopsAPlayingScrapeByNameAtTheNextPass()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+        sink.SilencedChannels.ShouldBeEmpty("the stop names its wave; it does not free the whole key");
+    }
+
+    [Test]
+    public void PlaySkipFrames_AfterALevelChange_StopsThePatch()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.PlaySkipFrames(sink, Listener, Right);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+    }
+
+    [Test]
+    public void FollowListener_AfterALevelChange_StopsThePatch()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+
+        LevelChange(presenter);
+        presenter.FollowListener(sink, Listener, Right);
+
+        sink.Silenced.ShouldBe(["a.wav"]);
+    }
+
+    /// <remarks>
+    /// The stop belongs to the level change, which came before anything the next pass starts: a start on the same entity
+    /// and channel after it is the new level's, and survives — the stop is issued first.
+    /// </remarks>
+    [Test]
+    public void Update_AStartOnThePatchsChannelAfterALevelChange_IsNotStopped()
+    {
+        (SoundPresenter presenter, Silent sink) = PlayingScrape(out SceneSound scrape);
+        sink.Events.Clear();
+
+        LevelChange(presenter);
+        presenter.Emit(scrape with { Tick = 27 });
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        sink.Events.ShouldBe([$"stop 40/{scrape.Channel} a.wav", $"start 40/{scrape.Channel} a.wav"]);
+    }
+
+    /// <remarks>
+    /// A patch still waiting for its wave at the level change is a channel too — the engine keeps a loading channel in its
+    /// active set (finding 90) — so the stop frees it, and it never starts when its data arrives.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_DropsAPatchStillLoading()
+    {
+        ScrapeWhileLoading(levelChange: false).ShouldContain(
+            (40, "a.wav"), "the control: without the level change, the waiting scrape starts when its wave arrives");
+
+        ScrapeWhileLoading(levelChange: true).ShouldNotContain((40, "a.wav"));
+    }
+
+    /// <summary>
+    /// A scrape emitted while its wave is loading — waiting, not started — then, optionally, a level change, then the wave
+    /// arriving and a pass; what the sink started.
+    /// </summary>
+    private static List<(int Entity, string Wave)> ScrapeWhileLoading(bool levelChange)
+    {
+        bool[] arrived = [false];
+        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape, arrived);
+        Silent sink = new();
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        sink.Started.ShouldBeEmpty("the condition: the scrape waits for its wave");
+
+        if (levelChange)
+        {
+            LevelChange(presenter);
+        }
+
+        arrived[0] = true;
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        return sink.Started;
+    }
+
+    /// <remarks>
+    /// A stop that finds the voice — a sink that hands out handles — tells the loop tracking which voice ended
+    /// (`ForgetVoice`), so a scrape on <c>CHAN_STATIC</c>, which is tracked by its handle, stops being followed: the
+    /// pass's re-gain never asks the freed voice again. (Without the stop telling it, the re-gain finds the voice gone and
+    /// drops the loop itself — so the loop's absence alone cannot show the hit path; the re-gain of a freed voice can.)
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_StopsATrackedScrapesVoiceAndForgetsItsLoop()
+    {
+        ActiveLoops loops = new();
+        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape, arrived: null, channel: SoundScript.StaticChannel, loops);
+        Silent sink = new() { HandsOutVoices = true };
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        loops.GainAt(40, SoundScript.StaticChannel, Listener, 1f).ShouldNotBeNull("the condition: the scrape's loop is tracked");
+
+        LevelChange(presenter);
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
+
+        (sink.Hits, sink.GainsOfStoppedVoices, loops.GainAt(40, SoundScript.StaticChannel, Listener, 1f)).ShouldBe((1, 0, (float?)null));
+    }
+
+    /// <summary>A level change: the level's scripts set again.</summary>
+    private static void LevelChange(SoundPresenter presenter)
+    {
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+    }
+
+    /// <summary>A presenter whose corpse scrape plays at tick 26, and the sink it plays on.</summary>
+    private static (SoundPresenter Presenter, Silent Sink) PlayingScrape() => PlayingScrape(out _);
+
+    /// <summary>A presenter whose corpse scrape plays at tick 26, the sink it plays on, and the scrape's start.</summary>
+    private static (SoundPresenter Presenter, Silent Sink) PlayingScrape(out SceneSound scrape)
+    {
+        SoundPresenter presenter = PresenterWithAScrape(out scrape);
+        Silent sink = new();
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        sink.Started.ShouldContain((40, "a.wav"), "the condition: the scrape plays");
+        sink.Silenced.ShouldBeEmpty("the condition: nothing stopped it yet");
+
+        return (presenter, sink);
+    }
+
+    /// <summary>A presenter played to tick 25 with one corpse scrape loop playing.</summary>
+    private static SoundPresenter PresenterWithAScrape() => PresenterWithAScrape(out _);
+
+    /// <summary>A presenter played to tick 25 with one corpse scrape loop playing, and that loop's start.</summary>
+    private static SoundPresenter PresenterWithAScrape(
+        out SceneSound scrape, bool[]? arrived = null, int channel = 1, ActiveLoops? loops = null)
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"), arrived, loops);
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0)]);
+
+        VphysicsSurfaceProps surfaces = new([]);
+        surfaces.ParseSurfaceData(System.Text.Encoding.Latin1.GetBytes(
+            $"\"default\" {{ \"scraperough\" \"{Script}\" }} \"flesh\" {{ \"scraperough\" \"{Script}\" }}"));
+
+        // The presenter's catalog's one script, so the scrape's start is dealt — and kept — when it plays.
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [Script] = new(Script, channel, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["a.wav"]),
+        };
+        CorpseFriction friction = new(40, 7750f, surfaces.GetSurfaceIndex("flesh"), surfaces.GetSurfaceIndex("default"));
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        scrape = presenter.FrictionSounds.Step(25, 0.4, [friction], static (entity, tick) => (entity, tick, 0f), surfaces, scripts).ShouldHaveSingleItem();
+        presenter.FrictionSounds.Playing.ShouldBe(1, "the condition: a scrape loop plays");
+
+        return presenter;
+    }
+
+    /// <remarks>
+    /// A level change resets the sound controller — `CSoundControllerImp::SystemReset`, "level change, etc."
+    /// (`soundenvelope.cpp:862-878`), shuts down every patch — so the deck stops holding them when the level's scripts
+    /// arrive (`LevelSystems` sets them for each map).
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_ForgetsEveryPatch()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 6, "a.wav", "b.wav"));
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } }]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        presenter.PatchesHeld.ShouldBe(1, "the condition: the patch was dealt");
+
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+        presenter.PatchesHeld.ShouldBe(0);
     }
 
     /// <remarks>
@@ -551,11 +815,31 @@ public sealed class ScriptWaveDeckConformanceTests
 
     private static readonly (float X, float Y, float Z) Right = (0f, -1f, 0f);
 
+    /// <summary>A sound whose wave's number is <paramref name="draw"/> modulo 6 — so modulo 1, 2 and 3 alike.</summary>
     private static SceneSound Dealt(int tick, int draw, bool emitted = true) =>
         new SceneSound(tick, "a.wav", ExplosionSounds.NotPrecached, ExplosionSounds.FromWorld, 0, 1f, 75, 100, 0f, 0f, 0f, 0f)
         {
-            WaveDraw = new ScriptWaveDraw(Script, draw, emitted),
+            WaveDraw = new ScriptWaveDraw(Script, emitted, StreamWhoseWaveNumberIs(draw)),
         };
+
+    /// <summary>The first seeded stream whose third number — the wave's, after the volume and the pitch — is <paramref name="residue"/> mod 6.</summary>
+    private static RandomStreamPosition StreamWhoseWaveNumberIs(int residue)
+    {
+        for (int seed = 1; seed < 1000; seed++)
+        {
+            UniformRandomStream probe = new();
+            probe.SetSeed(seed);
+            probe.RandomFloat(1f, 1f);
+            probe.RandomFloat(100f, 100f);
+
+            if (probe.RandomInt(0, int.MaxValue - 1) % 6 == residue)
+            {
+                return new RandomStreamPosition(seed, 0);
+            }
+        }
+
+        throw new InvalidOperationException($"no seed under 1000 draws {residue} mod 6");
+    }
 
     /// <summary>A sound from a reliable temp entity, which a skip still fires.</summary>
     private static SceneSound Reliable(int tick, int draw, bool emitted = true) => Dealt(tick, draw, emitted) with { DealtBySkip = true };
@@ -584,20 +868,27 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     /// <summary>A presenter whose samples record the name each start asked for, resolving through a catalog of one entry.</summary>
-    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry)
+    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry) => Presenter(played, entry, arrived: null);
+
+    /// <param name="played">Every name the presenter asked to open.</param>
+    /// <param name="entry">The catalog's one entry.</param>
+    /// <param name="arrived">While its one value is false, every wave is still loading: opening answers null.</param>
+    /// <param name="loops">The loop tracking the presenter is given, for a test to read; a new one when null.</param>
+    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry, bool[]? arrived, ActiveLoops? loops = null)
     {
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
-            new ActiveLoops(),
+            loops ?? new ActiveLoops(),
             name =>
             {
                 played.Add(name);
-                return Sample(name);
+                return arrived is null || arrived[0] ? Sample(name) : null;
             },
             NullLogger.Instance)
         {
             // A stop asks what is held, which records no play: every wave here is held once dealt.
-            Held = static name => Sample(name),
+            Held = name => arrived is null || arrived[0] ? Sample(name) : null,
+            Loading = _ => arrived is not null && !arrived[0],
         };
 
         string waves = string.Concat(Array.ConvertAll([.. entry.Waves], wave => $"\t\t\"wave\" \"{wave}\"\n"));
@@ -625,15 +916,48 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public List<(int Entity, string Wave)> Started { get; } = [];
 
+        /// <summary>Every start and stop, in the order the sink was asked.</summary>
+        public List<string> Events { get; } = [];
+
+        /// <summary>Whether starts are given handles, and a named stop that finds one reports it — off by default.</summary>
+        public bool HandsOutVoices { get; init; }
+
+        /// <summary>How many named stops found a voice.</summary>
+        public int Hits { get; private set; }
+
+        /// <summary>The voices playing, with their handles, when handles are handed out.</summary>
+        private readonly List<(int Voice, int Entity, int Channel, string Wave)> _voices = [];
+
+        /// <summary>How often a voice was re-gained after a stop had freed it — the loop tracking still following it.</summary>
+        public int GainsOfStoppedVoices { get; private set; }
+
+        /// <summary>The voices a named stop freed.</summary>
+        private readonly HashSet<int> _stopped = [];
+
         public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Started.Add((entity, NameOf[sample]));
-            return 0;
+            Events.Add($"start {entity}/{channel} {NameOf[sample]}");
+
+            if (!HandsOutVoices)
+            {
+                return 0;
+            }
+
+            int voice = Started.Count;
+            _voices.Add((voice, entity, channel, NameOf[sample]));
+            return voice;
         }
 
-        public bool SetVoiceGain(int voice, float gain) => false;
+        // A voice handed out and not stopped is still there, so the per-pass re-gain keeps following it. One the loop
+        // tracking still follows after its stop is asked here too, which is what shows a stop did not tell it.
+        public bool SetVoiceGain(int voice, float gain)
+        {
+            GainsOfStoppedVoices += _stopped.Contains(voice) ? 1 : 0;
+            return _voices.Exists(playing => playing.Voice == voice);
+        }
 
-        public bool SetVoicePitch(int voice, float pitch) => false;
+        public bool SetVoicePitch(int voice, float pitch) => _voices.Exists(playing => playing.Voice == voice);
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
@@ -646,15 +970,33 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public int Reclaim() => 0;
 
+        public List<(int Entity, int Channel)> SilencedChannels { get; } = [];
+
         public void Silence(int entity, int channel)
         {
-            // Only the named stop is asked about.
+            SilencedChannels.Add((entity, channel));
+            Events.Add($"stop-all {entity}/{channel}");
         }
 
         public int Silence(int entity, int channel, SoundSample sample)
         {
-            Silenced.Add(NameOf[sample]);
-            return 0;
+            // A wave not yet held is named by a key-only sample, which no recorded sample is.
+            string name = NameOf.TryGetValue(sample, out string? known) ? known : $"key:{sample.Key}";
+            Silenced.Add(name);
+            Events.Add($"stop {entity}/{channel} {name}");
+
+            int found = _voices.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Wave == name);
+
+            if (found < 0)
+            {
+                return 0;
+            }
+
+            int stopped = _voices[found].Voice;
+            _voices.RemoveAt(found);
+            _stopped.Add(stopped);
+            Hits++;
+            return stopped;
         }
     }
 }

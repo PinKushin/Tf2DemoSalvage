@@ -79,7 +79,7 @@ public sealed class CorpusScriptWaveDeckTests
 
         int checkedBlocks = 0;
 
-        foreach (IGrouping<string, int> script in Enumerable.Range(0, sounds.Count).GroupBy(index => sounds[index].WaveDraw!.Value.Script))
+        foreach (IGrouping<string, int> script in Enumerable.Range(0, sounds.Count).GroupBy(index => sounds[index].WaveDraw!.Script))
         {
             int waves = catalog.Entries[script.Key].Waves.Count;
             int[] order = [.. script];
