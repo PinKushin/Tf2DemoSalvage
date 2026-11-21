@@ -370,8 +370,9 @@ public sealed partial class SoundPresenter(
     /// <c>CHAN_AUTO</c> too (the by-name stop has no auto-channel guard); the loop tracking is told; and a patch still
     /// waiting for its wave is dropped from the late starts (finding 90), so it never starts when its data arrives. First
     /// in the pass, before anything it starts: the stop belongs to the level change, which came before them. So its tick, which
-    /// only a "stopped while loading" log line reads, is the last pass's on every path (<see cref="Update"/>,
-    /// <see cref="PlaySkipFrames"/>, <see cref="FollowListener"/>): none of them has set the new one yet.
+    /// only a "stopped while loading" log line reads, is whatever tick the last pass left set — after a skip, its last batch's — on
+    /// every path: <see cref="Update"/> and <see cref="PlaySkipFrames"/> set theirs only after the stops, and
+    /// <see cref="FollowListener"/> sets none.
     /// </remarks>
     private void StopLevelPatches(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
