@@ -1036,7 +1036,7 @@ public sealed class ConfigConsole
     /// they were attached; then the declared default.
     /// </remarks>
     private string? CurrentValue(string name) =>
-        !EngineConVars.TryByName(name, out EngineConVar? declared) ? null
+        !EngineConVars.TryByConsoleName(name, out EngineConVar? declared) ? null
             : _settingValue?.Invoke(declared.Name) ?? _conVars.GetValueOrDefault(declared.Name) ?? declared.Default;
 
     /// <summary>Reads ConVar values from the viewer's settings, which then hold every ConVar they implement (D215).</summary>
@@ -1137,7 +1137,9 @@ public sealed class ConfigConsole
             {
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
                 // after startup is announced for the host to apply (D215). A config line at load is not.
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+                // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
+                string name = EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? set) ? set.Name : tokens[0];
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(name, tokens[1]));
                 acted = true;
                 continue;
             }

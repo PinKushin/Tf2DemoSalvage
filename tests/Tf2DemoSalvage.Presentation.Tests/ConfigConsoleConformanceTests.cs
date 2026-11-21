@@ -732,6 +732,8 @@ public sealed class ConfigConsoleConformanceTests
     /// </remarks>
     [TestCase("toggle mat_wireframe")]
     [TestCase("incrementvar mat_wireframe 0 1 1")]
+    [TestCase("toggle MAT_WIREFRAME")]
+    [TestCase("incrementvar Mat_Wireframe 0 1 1")]
     public void KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused(string command)
     {
         ConfigConsole console = new();
@@ -746,6 +748,24 @@ public sealed class ConfigConsoleConformanceTests
         set.ShouldBeEmpty();
         triggered.ShouldBeEmpty();
         console.RefusedCheats.ShouldBe(["mat_wireframe"]);
+    }
+
+    /// <remarks>
+    /// **With cheats on, a mixed-case `toggle` toggles** (B791 review 9): the current value is found case-insensitively, so
+    /// `toggle MAT_WIREFRAME` announces `mat_wireframe 1` as the lower-case one does.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AMixedCaseToggleOfMatWireframeWithCheatsOn_AnnouncesTheSet()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Load("sv_cheats 1\nbind \"x\" \"toggle MAT_WIREFRAME\"\nbind \"y\" \"MAT_WIREFRAME 2\"");
+        console.KeyDown("x");
+        console.KeyDown("y");
+
+        set.ShouldBe(["mat_wireframe 1", "mat_wireframe 2"], "announced under the ConVar's own name, so the settings find it");
     }
 
     /// <remarks>`sv_cheats` is read as the engine reads it, `(int)atof`: 0.5 is off, so a cheat ConVar is still refused.</remarks>

@@ -625,6 +625,21 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A watcher config's own `mat_wireframe 1`, under `sv_cheats 1`, reaches the device it opens** (B791 review 9, Fable):
+    /// the console keeps a config's line, not the settings, so the hand-over reads the client value the console holds too.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_AfterAConfigSetMatWireframeWithCheats_DrawsWireframe()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nmat_wireframe 1\n");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.WithDevice();
+
+        rig.Device.Wireframe.ShouldBeTrue();
+    }
+
+    /// <remarks>
     /// **`mat_wireframe` is read as `WireFrameMode()` reads it, its integer** (`view.h:68`; B788 review 6, Fable): 2 and
     /// `incrementvar`'s `1.000000` draw wireframe, `0.5` does not.
     /// </remarks>

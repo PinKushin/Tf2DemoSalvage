@@ -349,6 +349,22 @@ public sealed class LaunchOptionsTests
         Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
     }
 
+    /// <remarks>
+    /// **The launch line finds a ConVar in any case, as the console does** (B791 review 9, Sonnet; the console's lookup is the
+    /// closed `vstdlib`'s, *interpolated*): `+MAT_FULLBRIGHT 1` is refused with cheats off, and with them `+MAT_WIREFRAME 1`
+    /// is stored under its own name.
+    /// </remarks>
+    [Test]
+    public void Read_ACheatConVarInUpperCase_IsGatedAndStoredLikeLowerCase()
+    {
+        string? unset = Read("a.dem").Settings.ConVarText("mat_fullbright");
+
+        unset.ShouldNotBe("1", "the control: no launch option, no fullbright");
+        Read("+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe(unset, "refused with cheats off");
+        Read("+sv_cheats", "1", "+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe("1");
+        Read("+sv_cheats", "1", "+MAT_WIREFRAME", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+    }
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }

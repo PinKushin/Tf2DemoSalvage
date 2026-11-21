@@ -42651,7 +42651,16 @@ is replicated and `ConfigConsole.SetsState` did not count it. Review 8 (Fable): 
 `MAT_WIREFRAME 1` or bare `Mat_Wireframe` toggled wireframe with cheats off; a typed name now goes through
 `EngineConVars.TryByConsoleName`, case-insensitive as the console's lookup is (*interpolated*: `CCvar::FindCommandBase` is
 in the closed `vstdlib`), while a name off the wire stays ordinal (`…TriggerNothingAndTheDefaultKeyStillDoes`, red with both
-spellings toggling before). That reverses, for `sv_cheats` alone, the rule that a
+spellings toggling before). Review 9 (all three): round 8 had reached the console's set only. Now every typed path finds
+the name in any case — `ConfigConsole.CurrentValue` (`toggle`, `incrementvar`), `ViewerSettings.IsCheat` (the launch
+line's gate) and `ViewerSettings.Parse` (stored under the ConVar's own name) — a set is announced under the ConVar's own
+name so the settings keep it, and this applies to every client ConVar, not only cheats (`CL_SHOWFPS 1` now sets
+`cl_showfps`, where it was ignored); and `OpenDevice` reads a watcher config's own `mat_wireframe` line, which the console
+keeps rather than the settings. Tests: `LaunchOptionsTests.Read_ACheatConVarInUpperCase_IsGatedAndStoredLikeLowerCase`,
+`ConfigConsoleConformanceTests.KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused` (mixed-case rows),
+`…KeyDown_AMixedCaseToggleOfMatWireframeWithCheatsOn_AnnouncesTheSet`,
+`ViewerSessionTests.OpenDevice_AfterAConfigSetMatWireframeWithCheats_DrawsWireframe`, `EngineConVarsLookupTests`
+(Core.Tests); each reddened red-first or under its sabotage. That reverses, for `sv_cheats` alone, the rule that a
 replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
 default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
