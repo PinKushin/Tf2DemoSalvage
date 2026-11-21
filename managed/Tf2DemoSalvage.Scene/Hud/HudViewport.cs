@@ -86,6 +86,12 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// What the freeze panel's callouts point at (B752): the local player's spawned gibs and his ragdoll, gathered when the
 /// panel asks — once, a second after the freeze cam starts — or null where nothing can be gathered.
 /// </param>
+/// <param name="DesiredPlayerClass">
+/// The local player's `m_Shared.GetDesiredPlayerClassIndex()`, `TF_CLASS_UNDEFINED` (0) where unsent or with no local
+/// player — the class whose tips the spectator bar shows (B733).
+/// </param>
+/// <param name="Coaching">The local player's `m_bIsCoaching`: the spectator GUI's `m_bCoaching` follows it (B733).</param>
+/// <param name="Student">The local player's `m_hStudent` as an entity index, 0 for none.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -138,7 +144,10 @@ public readonly record struct HudState(
     Core.Scene.SceneRobotDestruction? RobotDestruction = null,
     string? LevelBaseName = null,
     IReadOnlySet<int>? Speaking = null,
-    Func<FreezeCalloutSources?>? FreezeCallouts = null)
+    Func<FreezeCalloutSources?>? FreezeCallouts = null,
+    int DesiredPlayerClass = 0,
+    bool Coaching = false,
+    int Student = 0)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
@@ -256,11 +265,14 @@ public readonly record struct HudState(
     /// <returns>The player.</returns>
     public Core.Scene.ScenePlayer? Player(int index)
     {
-        foreach (Core.Scene.ScenePlayer player in Players ?? [])
+        // By index, not `foreach`: an interface's enumerator is a heap object on every call, and the HUD asks per frame.
+        IReadOnlyList<Core.Scene.ScenePlayer> players = Players ?? [];
+
+        for (int at = 0; at < players.Count; at++)
         {
-            if (player.EntityIndex == index)
+            if (players[at].EntityIndex == index)
             {
-                return player;
+                return players[at];
             }
         }
 

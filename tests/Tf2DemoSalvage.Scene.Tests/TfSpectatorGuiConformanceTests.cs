@@ -272,6 +272,89 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_APovRecorderWithADesiredClass_ShowsHisClassTipsUnderTipFmtEveryTenSeconds()
+    {
+        // Not SourceTV (:481): `g_TFTips.GetNextClassTip( m_Shared.GetDesiredPlayerClassIndex() )` (:466, :484) under
+        // `#Tip_Fmt` (:486), refreshed every ten seconds (:490). Before B733's POV half the label kept `%tip%`.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        VguiLabel tip = (VguiLabel)gui.FindChildByName("TipLabel")!;
+        HudState pov = Pov(state, strings, Soldier);
+
+        gui.Update(pov);
+        tip.Text.ShouldBe("Tip: soldier one");
+
+        gui.Update(pov with { CurTime = 22.4f });
+        tip.Text.ShouldBe("Tip: soldier one", "within ten seconds the tip stands");
+
+        gui.Update(pov with { CurTime = 22.5f });
+        tip.Text.ShouldBe("Tip: soldier two");
+    }
+
+    [Test]
+    public void Update_APovRecorderWhoChangesDesiredClass_ShowsTheNewClassesTipAtOnce()
+    {
+        // "or the player has changed desired class" (:470): no wait for the clock. `m_iCurrentClassTip` is one index for
+        // every class (tf_tips.h), so after the soldier's first tip the scout's SECOND is next.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        VguiLabel tip = (VguiLabel)gui.FindChildByName("TipLabel")!;
+        HudState pov = Pov(state, strings, Soldier);
+
+        gui.Update(pov);
+        gui.Update(pov with { CurTime = 13f, DesiredPlayerClass = Scout });
+
+        tip.Text.ShouldBe("Tip: scout two");
+    }
+
+    [Test]
+    public void Update_APovRecorderInArena_ShowsTheArenaTip()
+    {
+        // `TFGameRules()->IsInArenaMode()` (tf_tips.cpp:150), `m_nGameType == TF_GAMETYPE_ARENA`: a chosen class reads the
+        // arena tips instead of his own.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudState pov = Pov(state, strings, Soldier);
+
+        strings["Tip_arena_Count"] = "1";
+        strings["Tip_arena_1"] = "watch the player count";
+        gui.Update(pov with { Rules = new SceneGameRules(false, 0, false) { GameType = SceneGameRules.GameTypeArena } });
+
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("Tip: watch the player count");
+    }
+
+    [Test]
+    public void Update_APovRecorderWithNoTipFmt_ShowsAnEmptyTip()
+    {
+        // `ConstructString_safe( wzTipLabel, Find( "#Tip_Fmt" ), 1, wzTip )` (:486) with no format writes an empty string.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudState pov = Pov(state, strings, Soldier);
+
+        strings.Remove("Tip_Fmt");
+        gui.Update(pov);
+
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBeEmpty();
+    }
+
+    /// <summary>A POV recorder on RED with the panel opened, his desired class given, and two tips each for scout and soldier.</summary>
+    private static HudState Pov(HudState state, Dictionary<string, string> strings, int desiredClass)
+    {
+        strings["Tip_Fmt"] = "Tip: %s1";
+        strings["Tip_1_Count"] = "2";
+        strings["Tip_1_1"] = "scout one";
+        strings["Tip_1_2"] = "scout two";
+        strings["Tip_3_Count"] = "2";
+        strings["Tip_3_1"] = "soldier one";
+        strings["Tip_3_2"] = "soldier two";
+
+        return state with
+        {
+            IsHltv = false,
+            SpectatorGuiShown = true,
+            HasLocalPlayer = true,
+            Team = SceneTeams.Red,
+            DesiredPlayerClass = desiredClass,
+        };
+    }
+
+    [Test]
     public void Update_OnAnStvDemo_BindsTheCameraKeyLabels()
     {
         // `#TF_Spectator_SwitchCamModeKey` "[%jump%]" and the two cycle keys (:589, :626, :670), bound through
@@ -295,6 +378,277 @@ public sealed class TfSpectatorGuiConformanceTests
         gui.Update(state with { IsHltv = false, SpectatorGuiShown = true, HasLocalPlayer = true, Team = 1 });
 
         gui.ClassOrTeamLabel.Text.ShouldBe("Press [ COMMA ] to Change Team");
+    }
+
+    [Test]
+    public void Update_ARecorderWhoStartsCoaching_ReloadsIntoSpectatorCoachRes()
+    {
+        // `m_bCoaching != pLocalPlayer->m_bIsCoaching` takes the flag and reloads the scheme (:314-318); `GetResFile` then
+        // answers `SpectatorCoach.res` before every other layout (:1038-1041).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach with { Coaching = false });
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes, "the control: not coaching");
+
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.CoachRes);
+    }
+
+    [Test]
+    public void Update_ASteadyCoachFrame_AllocatesNothing()
+    {
+        // The engine rebuilds the coach's strings each frame; this port keeps each until its input changes (student, name,
+        // bindings, format, metres, health), as the class-or-team hint does — so a frame that changes nothing allocates
+        // nothing. Measured on the frame AFTER two warm-ups and a layout, on this thread.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        // A heavy at 350 of 450: numbers above the runtime's cached small-integer strings, so `SetHealth`'s text is
+        // measured, and called every frame as the engine calls it (:771).
+        coach = coach with { Players = [coach.Players![0], coach.Players[1] with { EntityHealth = 350, MaxHealth = 450, MaxHealthForBuffing = 450 }] };
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        strings["TF_Coach_Slot1Label"] = "[%slot1%]";
+        strings["TF_Coach_Slot2Label"] = "[%slot2%]";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+        gui.Update(coach);
+
+        // The MINIMUM over five frames: the thread counter also counts the runtime's own work (tiering, a resize), which
+        // can land on any one call (docs/memory/a-thread-allocation-counter-counts-the-runtime.md). That is a retry in
+        // effect; it hides only an allocation some frames make, and a steady coach frame has no such branch — every cache
+        // here rebuilds only on a changed input, and none changes.
+        long[] readings = new long[5];
+
+        for (int sample = 0; sample < readings.Length; sample++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            gui.Update(coach);
+            readings[sample] = System.GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        long allocated = System.Linq.Enumerable.Min(readings);
+
+        gui.DialogVariable("student_name").ShouldBe("Student: pupil", "the control: the coach path ran");
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("350", "and the health panel was set");
+        allocated.ShouldBe(0L, "readings: " + string.Join(", ", readings));
+    }
+
+    [Test]
+    public void Update_ACoachWhoseStudentMovesRenamesAndIsHurt_RebuildsEachCachedText()
+    {
+        // The caches above must still follow their inputs: 1000 units is 25.4 m, a new name, 80 health.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+
+        ScenePlayer moved = coach.Players![1] with { X = 1000f, EntityHealth = 80 };
+
+        gui.Update(coach with { Players = [coach.Players[0], moved], Names = new Dictionary<int, string> { [6] = "learner" } });
+
+        gui.DialogVariable("student_distance").ShouldBe("Distance: 25 (must stay within 30)");
+        gui.DialogVariable("student_name").ShouldBe("Student: learner");
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("80");
+    }
+
+    [Test]
+    public void Update_ASteadyStudentHealthAcrossASchemeReload_ShowsTheHealthBackgroundAgain()
+    {
+        // The engine calls `m_pStudentHealth->SetHealth` every frame (:771). A scheme reload re-reads the panel's `.res`,
+        // which hides `PlayerStatusHealthImageBG`; the next frame's `SetHealth` shows it again for a living student even
+        // though his health has not changed (tf_hud_playerstatus.cpp `SetHealth`).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeTrue("the control: a living student's background shows");
+
+        gui.StudentHealth.InvalidateLayout(reloadScheme: true);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeFalse("the reload re-read the .res");
+
+        gui.Update(coach);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Update_OnSourceTvWithNoRecordedSlot_NeverCoaches()
+    {
+        // On SourceTV `GetLocalTFPlayer()` is the SourceTV client's own player, which never coaches: its local-exclusive
+        // `m_bIsCoaching` is not sent to it, so :314 takes false. A state claiming coaching without a local player must
+        // not reach the coach's layout.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(state with { IsHltv = true, HasLocalPlayer = false, Coaching = true });
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes);
+    }
+
+    [Test]
+    public void Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas()
+    {
+        // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): no local player, no change — so a
+        // reload keeps the coach's layout.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach);
+        gui.Update(coach with { HasLocalPlayer = false, Coaching = false });
+        gui.InvalidateLayout(reloadScheme: true);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.CoachRes);
+    }
+
+    [Test]
+    public void ApplySchemeSettings_WhileCoaching_ClearsTheTopBarAndHidesTheBottomBarAndHint()
+    {
+        // The coach's scheme pass (:231-254), after the base's black bars: the top bar's colour (255, 255, 255, 0), the
+        // bottom bar hidden, the class-or-team label hidden.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(Coach(state));
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.TopBar.BgColor.ShouldBe(((byte)255, (byte)255, (byte)255, (byte)0));
+        gui.BottomBarBlank.Visible.ShouldBeFalse();
+        gui.ClassOrTeamLabel.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Update_ACoachWithAStudent_FillsTheStudentNameCommandsAndHealth()
+    {
+        // "coaching stuff" (:714-778): `#TF_Coach_Student_Prefix` over the student's name, `#TF_Coach_Slot%uLabel` bound,
+        // the crosshair hidden only in eye, and the student's health panel shown with his health.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        strings["TF_Coach_Slot1Label"] = "[%slot1%]";
+        strings["TF_Coach_Slot2Label"] = "[%slot2%]";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach with { ObserverMode = ObserverModes.InEye });
+
+        gui.DialogVariable("student_name").ShouldBe("Student: pupil");
+        gui.DialogVariable("coach_command_1").ShouldBe("[1]");
+        gui.DialogVariable("coach_command_2").ShouldBe("[< NOT BOUND >]");
+        gui.FindChildByName("Crosshair")!.Visible.ShouldBeFalse("in eye on the student");
+        gui.StudentHealth.Visible.ShouldBeTrue();
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("125");
+
+        gui.Update(coach with { ObserverMode = ObserverModes.Chase });
+        gui.FindChildByName("Crosshair")!.Visible.ShouldBeTrue("the control: out of eye it shows");
+
+        gui.Update(coach with { Student = 0 });
+        gui.StudentHealth.Visible.ShouldBeFalse("no student, no health (:779-784)");
+    }
+
+    [Test]
+    public void Update_ACoachWithAStudent_SetsTheDistanceInRoundedMetres()
+    {
+        // `RoundFloatToInt( flDistance * 0.0254f )` under `#TR_DistanceToStudent` into `student_distance` (:319-331):
+        // 2000 units is 50.8 m, which rounds to 51 where a truncation would say 50.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.Update(Coach(state));
+
+        gui.DialogVariable("student_distance").ShouldBe("Distance: 51 (must stay within 30)");
+    }
+
+    [Test]
+    public void Update_ACoachUnderHudMinmode_StillSetsTheMap()
+    {
+        // `m_bCoaching == true || !cl_hud_minmode` (:558): a coach keeps the key labels and map that minmode skips.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        Dictionary<string, string> client = new() { ["cl_hud_minmode"] = "1" };
+        HudState coach = Coach(state) with { ConVars = state.ConVars with { Client = client.GetValueOrDefault } };
+
+        gui.Update(coach with { Coaching = false });
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge", "the control: minmode without coaching skips it");
+
+        // `UpdateKeyLabels` (:301) runs before the flag is taken (:314), so the frame that starts coaching still skips it.
+        gui.Update(coach);
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge", "the frame the coaching starts reads the old flag");
+
+        gui.Update(coach);
+        gui.MapLabel.Text.ShouldBe("Map: PROCESS F12");
+    }
+
+    /// <summary>A POV recorder coaching player 6, 2000 units away along X.</summary>
+    private static HudState Coach(HudState state) => state with
+    {
+        IsHltv = false,
+        SpectatorGuiShown = true,
+        HasLocalPlayer = true,
+        Team = 1,
+        LocalIndex = 1,
+        Coaching = true,
+        Student = 6,
+        Players =
+        [
+            new ScenePlayer(EntityIndex: 1, X: 0f, Y: 0f, Z: 0f, Team: 1, Health: null, PlayerClass: null),
+            new ScenePlayer(EntityIndex: 6, X: 2000f, Y: 0f, Z: 0f, Team: SceneTeams.Red, Health: 125, PlayerClass: 3)
+            {
+                EntityHealth = 125,
+                MaxHealth = 200,
+                MaxHealthForBuffing = 200,
+            },
+        ],
+    };
+
+    [Test]
+    public void PerformLayout_ACoachLayout_PlacesTheStudentHealthOnHealthPositioning()
+    {
+        // `PerformLayout` (:191-201): the student's health panel takes `HealthPositioning`'s bounds.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(Coach(state));
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        (gui.StudentHealth.X, gui.StudentHealth.Y, gui.StudentHealth.Wide, gui.StudentHealth.Tall).ShouldBe((20, 30, 40, 50));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Update_InTraining_LeavesTheClassOrTeamHintEmpty(bool hltv)
+    {
+        // `TFGameRules()->IsInTraining()` (:502), `m_bIsInTraining` (tf_gamerules.h:678), is tested BEFORE SourceTV and the
+        // team: `wzTemp = L""`, which `UTIL_ReplaceKeyBindings` turns into an empty `wzFinal` (cdll_util.cpp:872-875).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudState training = state with
+        {
+            IsHltv = hltv,
+            SpectatorGuiShown = true,
+            HasLocalPlayer = !hltv,
+            Team = 1,
+            Rules = new SceneGameRules(false, 0, false) { InTraining = true },
+        };
+
+        gui.Update(training with { Rules = new SceneGameRules(false, 0, false) });
+        gui.ClassOrTeamLabel.Text.ShouldNotBeEmpty("the control: outside training the hint is set");
+
+        gui.Update(training);
+        gui.ClassOrTeamLabel.Text.ShouldBeEmpty();
     }
 
     [Test]
@@ -430,10 +784,30 @@ public sealed class TfSpectatorGuiConformanceTests
                     "TipLabel" { "ControlName" "CExLabel" "fieldName" "TipLabel" "labelText" "%tip%" }
                 }
                 """),
+            // The student's health panel's own layout: the background hidden until `SetHealth` shows it, as a reload of
+            // the shipped file leaves it.
+            ["resource/UI/SpectatorGUIHealth.res"] = Encoding.UTF8.GetBytes("""
+                "resource/UI/SpectatorGUIHealth.res"
+                {
+                    "PlayerStatusHealthImageBG" { "ControlName" "ImagePanel" "fieldName" "PlayerStatusHealthImageBG" "visible" "0" }
+                }
+                """),
+            ["Resource/UI/SpectatorCoach.res"] = Encoding.UTF8.GetBytes("""
+                "Resource/UI/SpectatorCoach.res"
+                {
+                    "specgui" { }
+                    "topbar" { "tall" "84" }
+                    "MapLabel" { "ControlName" "CExLabel" "fieldName" "MapLabel" "labelText" "map: cp_bridge" }
+                    "StudentDistanceLabel" { "ControlName" "CExLabel" "fieldName" "StudentDistanceLabel" "labelText" "%student_distance%" }
+                    "Crosshair" { "ControlName" "ImagePanel" "fieldName" "Crosshair" "visible" "1" }
+                    "HealthPositioning" { "ControlName" "EditablePanel" "fieldName" "HealthPositioning" "xpos" "20" "ypos" "30" "wide" "40" "tall" "50" }
+                }
+                """),
         };
         Dictionary<string, string> strings = new()
         {
             ["Spec_Map"] = "Map: %s1",
+            ["TR_DistanceToStudent"] = "Distance: %s1 (must stay within 30)",
             ["Tip_HLTV"] = "You are watching SourceTV.",
             ["TF_Spectator_ChangeTeam"] = "Press [ %changeteam% ] to Change Team",
             ["TF_Spectator_ChangeClass"] = "Press [ %changeclass% ] to Change Class",
@@ -448,7 +822,7 @@ public sealed class TfSpectatorGuiConformanceTests
         Dictionary<string, string> keys = new()
         {
             ["jump"] = "space", ["attack"] = "mouse1", ["attack2"] = "mouse2", ["changeteam"] = "comma", ["changeclass"] = "period",
-            ["strafe"] = "alt",
+            ["strafe"] = "alt", ["slot1"] = "1",
         };
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);

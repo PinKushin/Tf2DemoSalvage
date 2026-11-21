@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **When it shows.** A viewport panel, not a `CHudElement`: `CBaseViewport::FireGameEvent( "game_newmap" )` shows it when
 /// `engine->IsHLTV()` (baseviewport.cpp:700-707), and `CSpectatorGUI::OnThink` hides it under the match summary
 /// (spectatorgui.cpp, `TF_CLIENT_DLL`). On a point-of-view demo the server shows it with a `VGUIMenu` user message when the
-/// recorder starts observing; that path is not modelled, so only a SourceTV recording draws it here.
+/// recorder starts observing, carried as <see cref="HudState.SpectatorGuiShown"/>.
 /// </para>
 /// <para>
 /// **Which layout.** `GetResFile` (tf_spectatorgui.cpp:1037): `SpectatorTournament.res` when <see cref="InTournamentGui"/>,
@@ -25,8 +25,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// bars over every STV demo; the tournament panels are what a watcher who set the ConVar sees.
 /// </para>
 /// <para>
-/// **Not modelled:** coaching (`SpectatorCoach.res`, the student's health), the Steam Controller layout and hint icons, the
-/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), a POV recorder's class tip (B733), MvM's centred row and
+/// **Not modelled:** the coached student's Steam avatar (a demo cannot fetch it), the Steam Controller layout and hint
+/// icons (the watcher's input device; no controller drives this viewer, so the engine's keyboard branch is taken), the
+/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), MvM's centred row and
 /// bot hiding, the lobby (GC) team and connect timer of `CTFPlayerPanel::Update`, the ready-up images, and the overview map's
 /// trimming of the top bar.
 /// </para>
@@ -38,6 +39,18 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`Resource/UI/SpectatorTournament.res`.</summary>
     public const string TournamentRes = "Resource/UI/SpectatorTournament.res";
+
+    /// <summary>`Resource/UI/SpectatorCoach.res`, a coach's layout (:1040).</summary>
+    public const string CoachRes = "Resource/UI/SpectatorCoach.res";
+
+    /// <summary>`kInchesToMeters` (:324).</summary>
+    private const float InchesToMeters = 0.0254f;
+
+    /// <summary>`wzText[256]` (:328).</summary>
+    private const int StudentDistanceChars = 256;
+
+    /// <summary>`m_bCoaching`: the local player's `m_bIsCoaching` as last taken by <see cref="Update"/> (:314).</summary>
+    private bool _coaching;
 
     /// <summary>`CTFSpectatorGUI::GetBlackBarColor` (tf_spectatorgui.h:68).</summary>
     public static readonly (byte, byte, byte, byte) BlackBarColor = (52, 48, 45, 255);
@@ -64,6 +77,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>The tip's step: `curtime + 10.0f` (:490).</summary>
     private const float TipInterval = 10f;
+
+    /// <summary>`wzTipLabel[512]` (:483).</summary>
+    private const int TipLabelChars = 512;
+
+    /// <summary>`g_TFTips` (tf_tips.cpp), which a POV recorder's tip is drawn from (:484).</summary>
+    private readonly TfTips _tips;
 
     /// <summary>`szMapName[32]` (:689), which `Q_strncpy` fills to one short of.</summary>
     private const int MapNameChars = 32;
@@ -122,6 +141,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     {
         _objectiveStatus = objectiveStatus;
 
+        // A fresh `RandomInt` stream and no hours played: see `TfTips` for why both are interpolated.
+        _tips = new TfTips(new Core.Primitives.UniformRandomStream());
+
         // `CSpectatorGUI` (spectatorgui.cpp:408): hidden, proportional, the bars and the hidden player label.
         Visible = false;
         Proportional = true;
@@ -139,6 +161,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         CycleTargetRevKeyLabel = new VguiLabel(this, "CycleTargetRevKeyLabel");
         MapLabel = new VguiLabel(this, "MapLabel");
         ItemPanel = new TfItemModelPanel(this, "itempanel");
+        StudentHealth = new TfSpectatorGuiHealth(this, "StudentGUIHealth");
 
         // `CPanelAnimationVarAliasType( int, ..., "proportional_int" )` (tf_spectatorgui.h:132-141).
         foreach (string variable in LayoutVariables)
@@ -183,6 +206,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`m_pItemPanel` (:102): the spectated player's items, one at a time (B756).</summary>
     public TfItemModelPanel ItemPanel { get; }
+
+    /// <summary>`m_pStudentHealth` (:106): a coach's student's health, placed on the layout's `HealthPositioning`.</summary>
+    public TfSpectatorGuiHealth StudentHealth { get; }
 
     /// <summary>
     /// `m_pSwitchCamModeKeyLabel`: null from the constructor (:97) and found by name from the loaded `.res` in
@@ -255,7 +281,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         bool visible = Visible;
         HudState state = HudViewport.Of(this)?.State ?? default;
 
-        _loadedRes = ResFile(state);
+        // `GetResFile` (:1036): the coach's layout before every other.
+        _loadedRes = _coaching ? CoachRes : ResFile(state);
         LoadControlSettings(_loadedRes, context, state.Rules.MannVsMachine ? ["if_mvm"] : null);
         BottomBarBlank.Visible = true;
         TopBar.Visible = true;
@@ -273,6 +300,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
         // `m_pSwitchCamModeKeyLabel = dynamic_cast< Label* >( FindChildByName( "SwitchCamModeKeyLabel" ) )` (:217).
         _switchCamModeKeyLabel = FindChildByName("SwitchCamModeKeyLabel") as VguiLabel;
+
+        // A coach's bars and hint (:231-254): the top bar see-through, the bottom bar and the class-or-team label hidden.
+        // `m_pClassOrTeamKeyLabel` is null from the constructor (:98) and never found, so its half does nothing.
+        if (_coaching)
+        {
+            TopBar.BgColor = (255, 255, 255, 0);
+            BottomBarBlank.Visible = false;
+            ClassOrTeamLabel.Visible = false;
+        }
 
         // "Stay the same visibility as before the scheme reload."
         Visible = visible;
@@ -302,6 +338,14 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                     panel.InvalidateLayout(reloadScheme: true);
                 }
             }
+        }
+
+        // The student's health on `HealthPositioning`, which only the coach's layout has (:191-201).
+        if (FindChildByName("HealthPositioning") is { } positioning)
+        {
+            (StudentHealth.X, StudentHealth.Y, StudentHealth.Wide, StudentHealth.Tall) =
+                (positioning.X, positioning.Y, positioning.Wide, positioning.Tall);
+            StudentHealth.ZPos = positioning.ZPos;
         }
 
         UpdatePlayerPanels(HudViewport.Of(this)?.State ?? default);
@@ -339,6 +383,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // `UpdateReinforcements` (:347): hidden for `IsHLTV()` and for any non-player.
         ReinforcementsLabel.Visible = false;
         UpdateKeyLabels(state);
+        UpdateStudent(state);
 
         if (_nextItemPanelUpdate < state.CurTime)
         {
@@ -354,6 +399,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             _prevTournamentMode = tournamentGui;
         }
 
+        UpdateCoaching(state);
+
         if (_nextPlayerPanelUpdate < state.CurTime || _nextPlayerPanelUpdate - state.CurTime > PlayerPanelInterval)
         {
             RecalculatePlayerPanels(state);
@@ -362,15 +409,131 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     }
 
     /// <summary>
-    /// `UpdateKeyLabels` (:452) outside the tournament layout (B733): the tip, the class-or-team hint, the camera keys and the
-    /// map name, each set from the game in place of the `.res`'s placeholders (`map: cp_bridge`, `%tip%`). A POV demo's
-    /// `%tip%` still shows: see the remarks.
+    /// `Update`'s coaching half (:313-331): the local player's `m_bIsCoaching` taken, with a scheme reload into
+    /// <see cref="CoachRes"/> when it changes; then, while coaching a student, `student_distance` in whole metres.
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <remarks>
-    /// **Not modelled:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) — it needs
-    /// `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is `RandomInt`; the training
-    /// branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam Controller hint icons.
+    /// *Interpolated:* the student's `GetAbsOrigin()` is read off the players the frame carries, so a student out of the
+    /// PVS — a dormant entity the client still holds — leaves the last distance standing.
+    /// </remarks>
+    private void UpdateCoaching(HudState state)
+    {
+        // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): with no local player the flag is left
+        // as it was. On SourceTV with no recorded slot the local player is the SourceTV client's own, which never coaches —
+        // its local-exclusive `m_bIsCoaching` is not sent to it — so false, whatever the state says.
+        if (!state.HasLocalPlayer && !state.IsHltv)
+        {
+            return;
+        }
+
+        bool coaching = state.HasLocalPlayer && state.Coaching;
+
+        if (_coaching != coaching)
+        {
+            _coaching = coaching;
+            InvalidateLayout(reloadScheme: true);
+        }
+
+        if (_coaching && state.Student > 0 && state.Player(state.Student) is { } student && state.Player(state.LocalIndex) is { } local)
+        {
+            float dx = local.X - student.X;
+            float dy = local.Y - student.Y;
+            float dz = local.Z - student.Z;
+
+            // `RoundFloatToInt`: to nearest, as the FPU and `cvtss2si` round.
+            int metres = (int)MathF.Round(MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)) * InchesToMeters);
+            string? format = Localize("TR_DistanceToStudent");
+
+            // Rebuilt only when the metres or the format change; the engine rebuilds it every frame.
+            if (metres != _distanceMetres || !ReferenceEquals(format, _distanceFormat))
+            {
+                (_distanceMetres, _distanceFormat) = (metres, format);
+                SetDialogVariable(
+                    "student_distance",
+                    VguiLocalize.ConstructString(format, StudentDistanceChars, metres.ToString(CultureInfo.InvariantCulture)));
+            }
+        }
+    }
+
+    // The coach path's caches (review round 1): each string is kept until what it is built from changes.
+    private static readonly string[] CoachCommandTokens = ["TF_Coach_Slot1Label", "TF_Coach_Slot2Label"];
+    private static readonly string[] CoachCommandVariables = ["coach_command_1", "coach_command_2"];
+    private readonly BoundText[] _coachCommandBound = [new(), new()];
+    private readonly string?[] _coachCommandText = [null, null];
+    private int _distanceMetres = -1;
+    private string? _distanceFormat;
+    private string? _studentNameSource;
+    private string? _studentNameFormat;
+    private bool _studentNameSet;
+
+    /// <summary>
+    /// The "coaching stuff" closing `UpdateKeyLabels` (:714-785), for any layout: with a student, his name under
+    /// `#TF_Coach_Student_Prefix`, the two coach commands bound, the crosshair hidden in eye, and his health shown;
+    /// without one, the health hidden.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>
+    /// Gated on `m_hStudent` alone, not on coaching, as the engine gates it. *Not ported:* the student's Steam avatar,
+    /// which a demo cannot fetch (`VguiAvatarImagePanel` never draws). *Interpolated:* a student out of the PVS is not in
+    /// the frame's players, so he reads as no student.
+    /// </remarks>
+    private void UpdateStudent(HudState state)
+    {
+        if (!state.HasLocalPlayer || state.Student <= 0 || state.Player(state.Student) is not { } student)
+        {
+            StudentHealth.Visible = false;
+            return;
+        }
+
+        Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
+        string? nameFormat = localize?.Invoke("TF_Coach_Student_Prefix");
+        string name = state.Names?.GetValueOrDefault(student.EntityIndex) ?? string.Empty;
+
+        // Each rebuilt only when its inputs change; the engine rebuilds them every frame.
+        if (!_studentNameSet || !ReferenceEquals(name, _studentNameSource) || !ReferenceEquals(nameFormat, _studentNameFormat))
+        {
+            (_studentNameSet, _studentNameSource, _studentNameFormat) = (true, name, nameFormat);
+            SetDialogVariable("student_name", VguiLocalize.ConstructString(nameFormat, LabelChars, name));
+        }
+
+        for (int slot = 0; slot < CoachCommandTokens.Length; slot++)
+        {
+            // `wLabel[256] = L""`: an unfound token binds nothing.
+            string? format = localize?.Invoke(CoachCommandTokens[slot]);
+            string text = string.IsNullOrEmpty(format) ? string.Empty : _coachCommandBound[slot].For(format, state, localize);
+
+            if (!ReferenceEquals(text, _coachCommandText[slot]))
+            {
+                _coachCommandText[slot] = text;
+                SetDialogVariable(CoachCommandVariables[slot], text);
+            }
+        }
+
+        // "don't show crosshair when viewing the world from the student's POV".
+        if (FindChildByName("Crosshair") is { } crosshair)
+        {
+            crosshair.Visible = state.ObserverMode != Core.Scene.ObserverModes.InEye;
+        }
+
+        int health = student.EntityHealth ?? 0;
+        int maxHealth = student.MaxHealth ?? 1;
+
+        // Every frame, as the engine calls it (:771): `SetHealth` also restores the panel's tint, backgrounds and bonus
+        // image, which a scheme reload resets while the health holds steady.
+        StudentHealth.SetHealth(health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
+        StudentHealth.Visible = true;
+    }
+
+    /// <summary>
+    /// `UpdateKeyLabels` (:452) outside the tournament layout (B733): the tip, the class-or-team hint, the camera keys and the
+    /// map name, each set from the game in place of the `.res`'s placeholders (`map: cp_bridge`, `%tip%`). SourceTV shows
+    /// `#Tip_HLTV`; a point-of-view recorder his desired class's tips through <see cref="TfTips"/>.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>
+    /// **Not modelled:** the Steam Controller hint icons — `IsSteamControllerActive()` is the watcher's input device, and
+    /// no controller drives this viewer, so the engine's own keyboard branch is the one taken.
     /// **Cheaper than the engine on purpose:** the engine rebuilds every string each frame; here each is rebuilt only when
     /// its format, the bindings or the level change, and a label is set only when its text differs.
     /// </remarks>
@@ -387,16 +550,28 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         bool hasPlayer = state.HasLocalPlayer || state.IsHltv;
         int localTeam = LocalTeam(state);
 
-        // `m_Shared.GetDesiredPlayerClassIndex()` — not carried; `TF_CLASS_UNDEFINED`, as SourceTV's own client always is.
-        const int tipClass = 0;
+        // `m_Shared.GetDesiredPlayerClassIndex()` (:466): the recorder's networked desired class; `TF_CLASS_UNDEFINED` for
+        // SourceTV's own client, which never asks for one.
+        int tipClass = state.DesiredPlayerClass;
 
         // "if it's time to change the tip, or the player has changed desired class, update the tip" (:470) — and, as the
         // player panels' timer does, when a seek back left the next change further off than one step.
         if (state.CurTime >= _nextTipChangeTime || _nextTipChangeTime - state.CurTime > TipInterval || tipClass != _tipClass)
         {
-            if (state.IsHltv && localize?.Invoke("Tip_HLTV") is { } tip)
+            if (state.IsHltv)
             {
-                SetDialogVariable("tip", tip);
+                if (localize?.Invoke("Tip_HLTV") is { } tip)
+                {
+                    SetDialogVariable("tip", tip);
+                }
+            }
+            else
+            {
+                // `GetNextClassTip( iClass )` under `#Tip_Fmt` into `wzTipLabel[512]` (:483-487).
+                string tip = _tips.NextClassTip(
+                    tipClass, state.Rules.GameType == Core.Scene.SceneGameRules.GameTypeArena, localize, state.KeyLookupBinding);
+
+                SetDialogVariable("tip", VguiLocalize.ConstructString(localize?.Invoke("Tip_Fmt"), TipLabelChars, tip));
             }
 
             _nextTipChangeTime = state.CurTime + TipInterval;
@@ -416,8 +591,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                 hint = "TF_Spectator_ChangeTeam";
             }
 
+            // `IsInTraining()` first (:502): `wzTemp = L""`, which `UTIL_ReplaceKeyBindings` writes as an empty `wzFinal`
+            // (cdll_util.cpp:872-875) — found, so it replaces the last text rather than leaving it.
+            if (state.Rules.InTraining)
+            {
+                _classOrTeamText = string.Empty;
+            }
+
             // `wzFinal` is a function static (:498): a token not found leaves the last text.
-            if (localize?.Invoke(hint) is { } format)
+            else if (localize?.Invoke(hint) is { } format)
             {
                 _classOrTeamText = _classOrTeamBound.For(format, state, localize);
             }
@@ -425,8 +607,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             SetIfChanged(ClassOrTeamLabel, _classOrTeamText);
         }
 
-        // `cl_hud_minmode` hides the rest (:558); `m_bCoaching` is not modelled.
-        if (state.ConVars.GetBool("cl_hud_minmode"))
+        // `m_bCoaching || !cl_hud_minmode` (:558): minmode hides the rest, except for a coach.
+        if (!_coaching && state.ConVars.GetBool("cl_hud_minmode"))
         {
             return;
         }
@@ -586,9 +768,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private bool ObserverTargetsChanged(HudState state)
     {
         bool changed = false;
+        IReadOnlyList<ScenePlayer> players = state.Players ?? [];
 
-        foreach (ScenePlayer player in state.Players ?? [])
+        // By index: an interface's `foreach` enumerator is a heap object every frame.
+        for (int at = 0; at < players.Count; at++)
         {
+            ScenePlayer player = players[at];
             int target = player.ObserverTarget ?? 0;
 
             changed |= _observerTargets.TryGetValue(player.EntityIndex, out int before) ? before != target : target != 0;

@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**366 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**367 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -90,12 +90,12 @@ m_AttributeManager, m_PlayerClass, m_Shared, m_bArenaSpectator, m_bGlowEnabled, 
 
 ### DT_TFPlayerShared
 
-**32 of 66** mentioned.
+**33 of 66** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_ConditionList, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iCritMult, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
+m_ConditionList, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iCritMult, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
 ```
 
 ### DT_TFLocalPlayerExclusive

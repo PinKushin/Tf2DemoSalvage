@@ -11,6 +11,13 @@ public sealed class SceneGameRulesTests
             .RulesAt(100)
             .ShouldBe(new SceneGameRules(MannVsMachine: true, HalloweenScenario: 4, PlayerDestruction: false) { Present = true });
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void RulesAt_ATrainingFlagSent_IsInTrainingAsSent(bool inTraining) =>
+        // `IsInTraining()` is `m_bIsInTraining` (tf_gamerules.h:678), which the spectator bar's hint asks first (B733).
+        DemoTimeline.Build(SyntheticPlayer.DemoWithGameRules(mannVsMachine: false, halloweenScenario: 0, playerDestruction: false, inTraining))
+            .RulesAt(100).InTraining.ShouldBe(inTraining);
+
     [Test]
     public void ServerTickAt_AfterANetTick_IsTheServersTickNotTheDemos() =>
         DemoTimeline.Build(SyntheticPlayer.DemoAtServerTick(tick: 66, serverTick: 13_557)).ServerTickAt(66).ShouldBe(13_557);

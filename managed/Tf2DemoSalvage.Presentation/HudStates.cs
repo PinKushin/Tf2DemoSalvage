@@ -191,6 +191,9 @@ public static class HudStates
             ObserverTarget: local.ObserverMode == ObsModeRoaming ? 0 : local.ObserverTarget ?? 0,
             WeaponClass: local.WeaponClass,
             PlayerClass: local.PlayerClass ?? 0,
+            DesiredPlayerClass: local.DesiredPlayerClass ?? 0,
+            Coaching: local.IsCoaching,
+            Student: local.Student ?? 0,
             Conditions: local.Conditions,
             Flags: local.Flags ?? 0);
     }

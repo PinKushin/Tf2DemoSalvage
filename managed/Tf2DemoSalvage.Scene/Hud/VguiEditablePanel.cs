@@ -185,9 +185,12 @@ public class VguiEditablePanel : VguiPanel
 
         OnDialogVariablesChanged(_dialogVariables);
 
-        foreach (VguiPanel child in Children)
+        // By index: `Children` is an interface, whose `foreach` enumerator is a heap object on every set.
+        IReadOnlyList<VguiPanel> children = Children;
+
+        for (int index = 0; index < children.Count; index++)
         {
-            child.OnDialogVariablesChanged(_dialogVariables);
+            children[index].OnDialogVariablesChanged(_dialogVariables);
         }
     }
 

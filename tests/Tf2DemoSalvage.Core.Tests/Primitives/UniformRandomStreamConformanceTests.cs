@@ -138,4 +138,73 @@ public sealed class UniformRandomStreamConformanceTests
                 BitConverter.SingleToInt32Bits(expected),
                 $"draw {draw} on seed 1 must be vstdlib's own bits");
     }
+
+    /// <remarks>
+    /// **The shipped DLL's own answers, printed by `vstdlib-random int`** for seed 0, in this order, which reports 2,100
+    /// calls over seven seeds agreeing with the exported `RandomInt` (B733). The last three were added in review: a
+    /// difference of 2^31 answers its low end without a draw, so the `(1, 100)` after them is the next draw, 92. `RandomInt` (`0x18000fb70`) works in unsigned
+    /// 32 bits: a span of one or less answers its low end without a draw — `(5, 5)`, the reversed `(0, -1)`, and the whole
+    /// `int` range, whose span wraps to 0 — and `0..2^30` refuses every draw above `0x7fffffff - 2^31 % span = 2^30`, about
+    /// half of them, and draws again.
+    /// </remarks>
+    [Test]
+    public void RandomInt_SeededAtZero_IsTheShippedLibrarysOwnSequence()
+    {
+        (int Low, int High, int Expected)[] calls =
+        [
+            (5, 5, 5), (1, 100, 17), (0, -1, 0), (0, 0x40000000, 197493099), (1, 9, 2), (0, 3, 3), (0, 0x40000000, 823564440),
+            (0, int.MaxValue - 1, 1404280278), (-7, 7, 0), (int.MinValue, int.MaxValue, int.MinValue), (0, 0x40000000, 823378840),
+            (1, 100, 29), (-1, int.MaxValue, -1), (int.MinValue, 0, int.MinValue), (1, 100, 92),
+        ];
+        UniformRandomStream stream = new();
+
+        stream.SetSeed(0);
+
+        foreach ((int low, int high, int expected) in calls)
+        {
+            stream.RandomInt(low, high).ShouldBe(expected, $"RandomInt({low}, {high})");
+        }
+    }
+
+    [Test]
+    public void RandomInt_AFirstDrawAboveTheThreshold_IsRefusedAndTheSecondAnswers()
+    {
+        // `0..2^29`: span 2^29 + 1, and 2^31 % span = 2^29 - 3, so `maxAcceptable = 0x7fffffff - (2^29 - 3) = 0x60000002`.
+        // Seed 3's generator numbers are 1928259290 then 1198830848 (the control stream reads them: `RandomInt( 0,
+        // 0x7ffffffe )` refuses none, its threshold being the generator's ceiling). The first is above 0x60000002 and is
+        // refused — `ja` back to the call — so the answer is the second mod the span: 1198830848 - 2 * 536870913 =
+        // 125089022. Taking the first would answer 1928259290 - 3 * 536870913 = 317646551.
+        const int Seed = 3;
+        UniformRandomStream control = new();
+        UniformRandomStream asked = new();
+
+        control.SetSeed(Seed);
+        asked.SetSeed(Seed);
+
+        control.RandomInt(0, int.MaxValue - 1).ShouldBe(1928259290, "the condition: the first number is above the threshold");
+        control.RandomInt(0, int.MaxValue - 1).ShouldBe(1198830848, "and the second below it");
+        asked.RandomInt(0, 0x20000000).ShouldBe(125089022);
+    }
+
+    [TestCase(5, 5)]
+    [TestCase(0, -1)]
+    [TestCase(int.MinValue, int.MaxValue)]
+    public void RandomInt_ASpanOfOneOrLess_IsItsLowAndDrawsNothing(int low, int high) => LowWithoutADraw(low, high);
+
+    [TestCase(-1, int.MaxValue)]
+    [TestCase(int.MinValue, 0)]
+    public void RandomInt_ADifferenceAboveMaxRandomRange_IsItsLowAndDrawsNothing(int low, int high) =>
+        // `cmp r8d, 0x7fffffff; ja` (`0x18000fb9a`): a difference of 2^31, whose span 2^31 + 1 is above 1, still answers
+        // its low end without a draw.
+        LowWithoutADraw(low, high);
+
+    private static void LowWithoutADraw(int low, int high)
+    {
+        // `cmp ebp, 1; jbe` before any `call GenerateRandomNumber`: the stream is left where it was.
+        UniformRandomStream asked = new();
+        UniformRandomStream control = new();
+
+        asked.RandomInt(low, high).ShouldBe(low);
+        asked.RandomInt(0, int.MaxValue - 1).ShouldBe(control.RandomInt(0, int.MaxValue - 1), "no draw was taken");
+    }
 }

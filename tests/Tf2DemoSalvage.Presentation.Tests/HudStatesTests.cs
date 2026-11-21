@@ -79,6 +79,21 @@ public sealed class HudStatesTests
         HudStates.From(Player() with { LifeState = 2 }, 0).Alive.ShouldBeFalse();
 
     [Test]
+    public void From_TheDesiredClass_IsThePlayersSharedDesiredClass() =>
+        HudStates.From(Player() with { DesiredPlayerClass = 7 }, 0).DesiredPlayerClass.ShouldBe(
+            7, "`m_Shared.GetDesiredPlayerClassIndex()`, which the spectator bar's tip asks (tf_spectatorgui.cpp:466)");
+
+    [Test]
+    public void From_ACoachingPlayer_CarriesTheFlagAndTheStudent()
+    {
+        // `pLocalPlayer->m_bIsCoaching` and `m_hStudent`, which the spectator GUI reads (tf_spectatorgui.cpp:314-319).
+        HudState state = HudStates.From(Player() with { IsCoaching = true, Student = 6 }, 0);
+
+        state.Coaching.ShouldBeTrue();
+        state.Student.ShouldBe(6);
+    }
+
+    [Test]
     public void From_TheFlags_AreThePlayersMFFlags() =>
         HudStates.From(Player() with { Flags = (1 << 6) | 1 }, 0).Flags.ShouldBe(65, "FL_FROZEN | FL_ONGROUND (const.h:148, :158)");
 

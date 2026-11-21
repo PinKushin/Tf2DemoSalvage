@@ -42517,6 +42517,45 @@ setup, `0x1800045be-0x1800045d8`), or with the mouth skipped (`r_teeth` off), dr
 the VMT's. Ours hands the mouth per draw (`BindEye`) and falls back to the VMT's own values. *Interpolated*: that nothing
 else resets the vars between draws (the material system is closed). Only HL2's Teeth materials are flagged.
 
+## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — OPEN
+
+Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
+Filed on the coordinator's ruling: *"a divergence, however small"*.
+
+**The engine.** x64 `soundemittersystem.dll` `FUN_180005680` lists the entry's available waves and returns
+`list[ RandomInt( 0, count - 1 ) ]` (through an `IUniformRandomStream` whose slot is a thunk to vstdlib's export), called
+from `GetParametersForSound` (`FUN_180003370`) between the volume and pitch draws and the soundlevel draw. vstdlib's
+`RandomInt` (`0x18000fb70`) refuses every generator number above `maxAcceptable = 0x7fffffff - 2^31 % count` and draws
+again; then the answer is `number % count`. *Read from the shipped binaries' disassembly.*
+
+**Ours.** `ExplosionSounds.FromWorldAt` (and the other emitters through it) draws ONE number as `RandomInt( 0,
+0x7ffffffe )` — which refuses nothing, its threshold being the generator's own ceiling — stores it as
+`SceneSound.WaveDraw`, and `ScriptWaveDeck.Pick` takes it mod the number of waves available when the sound plays.
+
+**How often it differs — every sound with one wave AVAILABLE** (B733 reviews 3 and 4). **One wave available:**
+`RandomInt( 0, 0 )` is a span of 1, which answers its low end and takes NO number
+(`UniformRandomStreamConformanceTests.RandomInt_ASpanOfOneOrLess_IsItsLowAndDrawsNothing`); ours takes one anyway, so
+ours takes one MORE number than the engine. That is every sound of a one-wave entry, and also the last card of every
+deal of a multi-wave entry (`ScriptWaveDeck.Pick` clears a wave per emit, so an N-wave entry reaches one available
+wave once per N sounds) — the frequent case; how common in TF2's scripts is not counted. **More than one wave:** the
+generator's numbers run 1 to `0x7ffffffe`; for `count` waves the engine refuses the `2^31 % count - 1` numbers above
+`maxAcceptable` — none for a power of two, 1 for 3 waves, at most `count - 2` — a chance of about 4.7e-10 per sound for
+three waves (that count over the `2^31 - 2` numbers). *Arithmetic.* A refusal picks a different wave and the ENGINE
+takes one more number than ours. **What moves:** the soundlevel draw, which follows the wave draw — the engine's third
+number, ours the fourth in the one-wave case (`FromWorldAt` draws volume and pitch first). Later draws move too only
+where one stream serves several sounds (`ImpactSounds`, `PhysicsFrictionSounds`); `ExplosionSounds.For` reseeds per
+blast and `EntitySounds.Stream` is new per sound, so there only that sound's soundlevel moves.
+
+**Why it is structural, not a one-line fix.** The deck is dealt at PLAY time (B503-B505): which
+waves are available depends on what has already played, which a seek or a skipped sound changes, so `count` is not
+known when the parameters are drawn — and that includes whether one wave is left, so even the no-draw case depends on
+the play-time deck. Valve's order — `count`, then the draw, then the soundlevel — puts the deal before
+the soundlevel draw, so a port has to either deal at draw time (moving B503's decision) or redraw the soundlevel at play
+time. Neither is done here.
+
+**Open.** No test yet. The one-wave case is testable synthetically (a one-wave entry: the engine's soundlevel takes
+the third number, ours the fourth); the refusal case is not measurable in the corpus.
+
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
 TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
@@ -43705,7 +43744,7 @@ water, sky and monitor views draw their effects the same way and need the same c
 
 *Not verified by looking.*
 
-## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; a POV tip open
+## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; POV tip, training and coaching FIXED 2026-11-20
 
 Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
 UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, so every label it sets kept the shipped `Spectator.res`'s
@@ -43735,12 +43774,114 @@ key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock 
 - Cost: each string is rebuilt only when its format, binding table or level changes, and a label is set only when its
   text differs; the engine rebuilds them every frame.
 
-**Open:**
-- A POV recorder's tip: `GetNextClassTip` (tf_tips.cpp:143) needs `m_iDesiredPlayerClass`, not carried in `HudState`; with
-  none chosen it is `RandomInt` plus an hours-played-weighted abuse tip, not reproducible. A POV demo's tip still reads
-  `%tip%`.
-- `IsInTraining` (`m_bIsInTraining`) not carried: a training map's hint is the change-class text, where TF2 shows none.
-- Coaching and the Steam Controller hint icons, as before.
+**POV tip, FIXED 2026-11-20** (finding 64, "The POV recorder's tip"). `m_iDesiredPlayerClass` is in `DT_TFPlayerShared`,
+sent to everyone (tf_player_shared.cpp:367), declared in 4 bits in the 2007, 2013 and live gcor schemas (`schema` probe):
+now `ScenePlayer.DesiredPlayerClass` → `HudState.DesiredPlayerClass` (:466). `TfTips` ports `CTFTips`: `Init`'s
+`Tip_%d_Count`, `GetNextClassTip` with its ONE `m_iCurrentClassTip` shared by every class and arena (:143-171, wrap :161-164),
+`GetArenaTip` (:176), `GetRandomTip` (:99) with both draws (:112, the discarded :114, :119), `GetTip` (:206) and the abuse tip (:221) through `UTIL_ReplaceKeyBindings`;
+the label is `#Tip_Fmt` over it into 512 chars (:483-487), on the SourceTV tip's timing (10 s, a class change, a seek back).
+*Interpolated, both named in `TfTips`:* the random draws come from the spectator bar's own `UniformRandomStream` (the
+freeze panel's convention), where TF2 draws from vstdlib's global stream that every caller moves — so WHICH random tip is
+unknowable; `RandomInt`'s own mapping is READ, not interpolated (review round 1, below); the hours played are the watcher's Steam stats, which
+no viewer can read, so 0 (what `GetTotalHoursPlayed` sums with none loaded), the 33-in-100 abuse chance.
+Tests: `TfTipsConformanceTests` (walk and wrap, shared index across a class change, arena, keys bound, abuse tip under
+twenty hours, the tip over every class at twenty, the thrown-away class draw, the random path leaving the index);
+`TfSpectatorGuiConformanceTests.Update_APovRecorder*` (`#Tip_Fmt` every ten seconds, a class change at once, arena);
+`HudStatesTests.From_TheDesiredClass_*`; `SceneItemEffectMeterFieldsTests.PlayersAt_ADesiredClassSent_*` (synthetic);
+output level `SpectatorGuiCorpusTests.Frame_APovSpectatorRecorderOnTheStockLayout_ShowsAShippedTip` (gcor live POV,
+tick 17200, the shipped `Tip_3_1`). Sabotaged one at a time, each restored: no index advance (4 red), the 20-hour boundary
+`<=` (1), new-player chance 4 (2), the discarded draw removed (1), arena inverted in `TfTips` (7) and in the GUI (3), tip
+class from `m_iClass` (3 GUI; the corpus test stays green — the specimen's recorder is a soldier both ways, so the unit
+tests carry that contrast), `#Tip_Fmt` ignored (3), `HudStates` (1), the wire name (1, and the corpus test), the POV
+branch skipped (the corpus test).
+
+**Training, FIXED 2026-11-20.** The entry said `m_bIsInTraining` was not carried; it was — `SceneGameRules.InTraining`,
+read from `DT_TFGameRules` (tf_gamerules.h:678) — but nothing read it here and no test held its decode. The `schema` probe
+finds it in the 2009, 2011, 2013 and live gcor specimens and not in 2007's (absent reads false, the client's default).
+`UpdateKeyLabels` tests it FIRST (:502), before SourceTV and the team: `wzTemp = L""`, which `UTIL_ReplaceKeyBindings`
+writes as an empty label (cdll_util.cpp:872-875). Tests: `TfSpectatorGuiConformanceTests.Update_InTraining_*` (SourceTV
+and POV, each with the non-training control), `SceneGameRulesTests.RulesAt_ATrainingFlagSent_*` (synthetic decode).
+Sabotaged: training tested after SourceTV (the SourceTV case red), training only on SourceTV (the POV case red), the
+wire name (the decode test red).
+
+**Coaching, FIXED 2026-11-20** (the entry's "as before"). `m_bIsCoaching` and `m_hStudent` are `DT_TFLocalPlayerExclusive`
+(`schema` probe, live specimen), so a coach's POV demo carries them; now `ScenePlayer.IsCoaching`/`Student` (the handle
+through `Resolve`, B231) → `HudState.Coaching`/`Student`. Ported: `m_bCoaching` taken each `Update` with a scheme reload
+(:313-318), `GetResFile`'s `SpectatorCoach.res` first (:1038), the coach's bars and hidden hint (:231-254),
+`student_distance` in `RoundFloatToInt` metres under `#TR_DistanceToStudent` (:319-331), minmode not skipping a coach
+(:558, one frame behind as in the engine), the student's health panel placed on `HealthPositioning` (:191-201), and the
+"coaching stuff" (:714-785): `#TF_Coach_Student_Prefix`, `#TF_Coach_Slot%uLabel` bound, the crosshair hidden in eye, the
+student's health shown or hidden. *Not ported:* the student's Steam avatar, which a demo cannot fetch. *Interpolated:* a
+student out of the PVS is not in the frame's players, so reads as none. No corpus demo coaches (B313: 0 of 33 in z1800),
+so this is synthetic only. Tests: `TfSpectatorGuiConformanceTests` (reload into the coach layout, bars and hint, distance
+51 for 50.8 m, minmode, student name/commands/crosshair/health, `HealthPositioning`), `CoachingTeamConformanceTests.
+Student_*`, `HudStatesTests.From_ACoachingPlayer_*`, `SceneItemEffectMeterFieldsTests.PlayersAt_TheCoachingPairSent_*`.
+Sabotaged one test-target at a time: the bottom bar shown, `HealthPositioning` misnamed, the crosshair inverted, the
+distance floored, the coach layout not chosen, minmode ignoring coaching, the health never hidden, the student masked not
+resolved, `HudStates` dropping the flag, the decode not filling the pair — each reddened its test.
+
+**Review round 1 (2026-11-20, Sonnet, Fable, Gemini):**
+1. *`RandomInt` had a production caller and an unread mapping* (Sonnet, Fable). Read from `vstdlib.dll` at `0x18000fb70`
+   and ported exactly — unsigned span, a span of 1 or less answers its low end with NO draw, draws above
+   `0x7fffffff - 2^31 % span` refused and redrawn; finding 57, "`RandomInt`'s mapping, read and measured". The
+   `vstdlib-random int` probe: 1,680 calls over seven seeds equal to the shipped export (the old port disagreed on the
+   second call and divided by zero on `RandomInt( 0, -1 )`). `UniformRandomStreamConformanceTests.RandomInt_*` pin the
+   binary's own seed-0 sequence and the no-draw spans; sabotaged — the rejection removed (sequence red), a one-value span
+   drawing (both red). `TfTips` now calls `RandomInt( 0, -1 )` as the engine does instead of a guard
+   (`NextClassTip_ForAnUnchosenClassWithNoTipsAtAll_*`, red when a draw is taken). Core, Content, Presentation, Scene and
+   Animation re-run green: no existing caller's test depended on the old mapping.
+2. *A third interpolation, unmarked* (Fable). TF2's `m_iCurrentClassTip` lives for the client process (`g_TFTips`, a
+   `CAutoGameSystem`) and moves only while the bar is up; ours starts at 0 per HUD and also moves on the seek-back
+   refresh. Marked in `TfTips`, here and in finding 64; the corpus test now says its `Tip_3_1` is the first tip of a
+   fresh index, not what TF2 showed.
+3. *`Init` latched with no strings table* (Sonnet). It no longer latches when `localize` is null;
+   `NextClassTip_BeforeTheStringsAreLoaded_*` was red before the fix and green after.
+4. *`UpdateCoaching`'s early-out* (Sonnet). Read :314: `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )`
+   — no local player leaves the flag as it was, which the port already did; on SourceTV the local player is the SourceTV
+   client, whose `m_bIsCoaching` is never sent (false). Code reworded to read as the engine does and pinned by
+   `Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas` (red with the early-out removed).
+5. *The coach path allocated every frame* (Sonnet, Fable). The student name, the two coach commands (`BoundText`, as the
+   hint) and the distance (on metres and format) are now kept until an input changes (the student's `SetHealth` cache
+   added here was wrong and removed in round 2); `HudState.Player` and the observer-target walk index instead of `foreach` over an interface, whose
+   enumerator was a heap object per call. A steady coach frame measured 7,072 bytes, now 0
+   (`Update_ASteadyCoachFrame_AllocatesNothing`; 1,832 with the distance cache broken).
+   `Update_ACoachWhoseStudentMovesRenamesAndIsHurt_*` holds the invalidation — red with the name, and separately the
+   health, change ignored.
+6. *Coverage* (Fable). New `TfTipsConformanceTests`: a class with no tips (empty, index unmoved), no tips at all (empty,
+   no draw; item 1), the arena walk moving the shared index (count 2), a class above 9 (random), a tip token not found
+   (empty, index still moves); `TfSpectatorGuiConformanceTests.Update_APovRecorderWithNoTipFmt_ShowsAnEmptyTip`. Each
+   sabotaged on its own and red: the empty class advancing, the arena walk not advancing, class 10 taken as a class, an
+   unfound token answering "?", a missing `#Tip_Fmt` falling back to `%s1`.
+7. *Citations* (Fable). Every tf_tips.cpp line re-read and fixed in `TfTips`, its tests, here and in finding 64:
+   `GetRandomTip` :99 (draws :112, :114 discarded, :119), the chance :105-110, `GetNextClassTip` :143 (out-of-range
+   :148, arena :151, wrap :161-164), `GetArenaTip` :176 (its advance :197), `GetTip` :206. The garbled "same first draw,
+   21 … 17" comment now reads 17; `Bound`'s summary names `outbuf[0] = 0` (cdll_util.cpp:872).
+
+**Review round 2 (2026-11-20, Sonnet, Fable, Gemini):**
+1. *The student-health cache was not a no-op* (all three). `SetHealth` also restores the cross's tint, both backgrounds,
+   the bonus image and the pulse state, which a scheme reload resets while the health holds; the engine calls it every
+   frame (:771). The cache is gone. `Update_ASteadyStudentHealthAcrossASchemeReload_*` was red with it — on its control
+   already: the first `SetHealth` ran before the layout's first scheme pass, which re-hid the background, and the cache
+   skipped the frame that would have shown it. To keep the frame at 0 bytes, `SetHealth` keeps each number's text by value
+   and `ForceSubPanelsToUpdateWithNewDialogVariables` walks `Children` by index; the allocation test now uses a 350/450
+   student, above the runtime's cached small-integer strings, and was red (64 bytes) with the text rebuilt per call.
+2. *`Init` still latched on a table that finds nothing* (Sonnet): the viewer always passes a lookup. It now latches only
+   once a `Tip_%d_Count` resolves; `NextClassTip_BeforeTheTablesStringsResolve_*` was red on round 1's null test.
+3. *`RandomInt`'s `difference > 0x7fffffff` branch and its rejection were not pinned* (Fable, Sonnet). `(-1, int.MaxValue)`
+   and `(int.MinValue, 0)` added to the probe's ranges and the seed-0 sequence: the probe now reports 2,100 calls equal
+   to the shipped export. `RandomInt_ADifferenceAboveMaxRandomRange_*` and `RandomInt_AFirstDrawAboveTheThreshold_*`
+   (seed 3, `0..2^29`: the first number refused, the answer the second's) added. Sabotaged: the guard removed (three red),
+   the redraw removed (two red).
+4. *Round 1 changed the SourceTV case* (Sonnet, Fable): it took `state.Coaching` on SourceTV with no recorded slot,
+   where the engine's local player is the SourceTV client's own, which never coaches (its local-exclusive
+   `m_bIsCoaching` is not sent to it). The original `HasLocalPlayer && Coaching` is restored, and
+   `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on the restored rule.
+5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
+   with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
+6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782**, OPEN; finding 57 points at it.
+
+**Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
+drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
 
 **Review, 2026-11-14:** "the SwitchCamMode branch never runs" was checked and rejected (:217 above); "use
 `System.Text.Ascii.ToUpper`" was tried and rejected — it stops at the first non-ASCII char, where `Q_strupr` passes it on
@@ -44043,7 +44184,7 @@ Each fix's sabotage reddened only its own test.
 - Delayed-start channels and the loop keep: both FIXED as B732.
 - `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it (B732).
 
-## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
+## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame FIXED 2026-11-13 (`fix/b729-later-pass`)
 
 **Filed from B727's last open item.** `SimulateEach` sets an entity's state (sequence, frame, pending blend) and its
 placement (`posed.EntityTransform = PlacementOf(prop)`) in one step per entity, in list order. A move child hung on an
