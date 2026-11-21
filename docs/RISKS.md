@@ -42504,6 +42504,14 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
+## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — OPEN
+
+Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
+`mat_wireframe`; the world's brushes, displacements and the 3D skybox still draw with their own materials in wireframe
+fill (`WorldRenderer.Wireframe`). What the engine binds for a brush surface under `mat_wireframe` — a material of its
+own, the surface's, or a fill mode only — is in the closed `engine.dll` world renderer and not read. *Not read;
+filed so B788's scope stays the studio models it names.*
+
 ## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — FIXED (2026-11-21)
 
 Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
