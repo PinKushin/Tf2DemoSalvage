@@ -42399,9 +42399,10 @@ Found in B725's review (round 1, item 7, Sonnet). `CRendering3dView::SetupCurren
 no such argument and writes 1 (`eye_refract_ps2x.fxc:451`). **Ours writes no draw's depth there**: the generic shader writes
 the texel's alpha (or, in a refraction view, the water fog factor), the faces their base alpha or 1, and the screen
 overlays leave it (`WorldRenderer.ScreenOverlay.cs`, `PlainBlend`). The faces were left matching the generic path rather
-than ported alone, since the difference is renderer-wide. *Not read*: which of our passes reads the main target's alpha
-afterwards (the engine's consumers are the depth-feathered particles' `_rt_FullFrameDepth`), so whether any drawn value
-changes is open.
+than ported alone, since the difference is renderer-wide. **No drawn value changes until a reader exists** (review 2):
+nothing in `managed/` reads destination-alpha depth today — no `$depthblend` feathering, no `_rt_FullFrameDepth`, no
+`OO_DESTALPHA_DEPTH_RANGE` (*measured*, a search of `managed/` for each, 2026-11-20). The engine's consumers are the
+depth-feathered particles; porting one of them is what makes this entry matter.
 
 ## B780 — the face view target follows our pass order, once a frame, where the engine sets it at every draw of every view (2026-11-20) — OPEN
 
@@ -42434,7 +42435,10 @@ render's flex weights (`LockFlexWeights`, `0x180937173`), runs the model's rules
 controls for a `CMDLPanel` (`SetupFlexWeights` empty, `mdlpanel.h:101`), at the decayed controls for a
 `CTFPlayerModelPanel` (`tf_playermodelpanel.cpp:2275-2361`), and a `CModelPanelModel` as a C_BaseFlex at rest. Our panels
 (`VguiMdlPanel.Drawn`, `VguiModelPanel.PanelModel.Draw`) hand the frame no flex at all: the face is the mesh's rest
-pose. B725 now computes those weights for the mouth only. *May bear on B559* (the HUD class portrait 15-20 per channel off
+pose. B725 now computes those weights for the mouth only. **When mesh flex lands, the gate in
+`TfPlayerModelPanel.RootFlexWeights` must go** (review 2): it runs the rules only for a model with a mouthed Teeth
+material because nothing else reads them today; the engine runs them every paint for every model with flex descriptors
+(`CMDL::Draw`, `0x180937138-0x1809371a7`), and so must ours once the mesh is flexed by them. *May bear on B559* (the HUD class portrait 15-20 per channel off
 TF2's, cause unknown): a flexed face moves vertices and their normals, which changes shading on the face — *interpolated*,
 not measured; the portrait's deficit is reported as depending on which way the surface faces, which a normal change would.
 
@@ -44781,7 +44785,13 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:467`). *Tests*:
      `Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers` (2 rows),
      `Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget` (2 rows),
-     `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. *Tests*: `Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet` (2 rows:
+     `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. **Review 2**:
+     a corpse's player is found as `C_TFRagdoll::GetPlayer`'s EHANDLE finds him (`c_tf_player.h:1049`) — a DORMANT player
+     too, by his last life state and origin; dead and dormant, his look-at runs from his last origin (no dormant gate in
+     `client_thinklist.cpp:186-324` or `C_BaseEntity::SetDormant`); alive, or nobody, the corpse's own branch — and the
+     face's flex branch takes the same answer; a dead player placed nowhere sets no target (the pose fallback removed).
+     `Instances_ACorpseOfADormantPlayer_SetsHisTargetOnlyWhileHeIsDead` (3 rows),
+     `Instances_ACorpseOfADeadPlayerWithNoOrigin_SetsNoTarget`. *Tests*: `Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet` (2 rows:
      after the player it looks at the player's (512, 0, 0); before, at the start's (0, 0, 0), and in the next pass at the
      stale (512, 0, 0)), `Instances_APlayerWhoseModelHasNoControllers_SetsNoTargetAndReadsTheLast`,
      `Paint_EachCmdlDraw_SetsTheSharedViewTargetAndTheLastDrawnWins` (2 rows), and
