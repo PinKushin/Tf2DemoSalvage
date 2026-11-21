@@ -177,5 +177,7 @@ every later caller — and divided by zero on `RandomInt( 0, -1 )`.
 added in review to reach the `difference > 0x7fffffff` branch), twenty rounds, seven seeds — 2,100 calls, all equal; the old port disagreed on the second call of seed 0. *Read from the shipped binary's
 disassembly* for the rule. One approximation stays, in `ScriptWaveDeck`: it stores one draw of `RandomInt( 0,
 0x7ffffffe )` (which refuses nothing, since `maxAcceptable` there is `0x7ffffffe`, the generator's own ceiling) and takes
-it mod the wave count at play time, where the engine would refuse the draw with probability about `count / 2^31`.
+it mod the wave count at play time. The engine takes no number at all when one wave is available (a span of 1), so
+every one-wave sound shifts the stream by one; with more waves it refuses a draw with probability
+`(2^31 % count - 1) / 2^31`.
 Filed as its own divergence, **B782** (OPEN), with why it is structural: the deck is dealt at play time (B503-B505).

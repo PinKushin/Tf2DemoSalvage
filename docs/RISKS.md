@@ -42388,7 +42388,7 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B782 — a soundscript wave is one draw taken mod the waves available, where the engine's `RandomInt` would refuse and redraw (2026-11-20) — OPEN
+## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none for one wave and redraws a refusal (2026-11-20) — OPEN
 
 Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
 Filed on the coordinator's ruling: *"a divergence, however small"*.
@@ -42403,11 +42403,14 @@ again; then the answer is `number % count`. *Read from the shipped binaries' dis
 0x7ffffffe )` — which refuses nothing, its threshold being the generator's own ceiling — stores it as
 `SceneSound.WaveDraw`, and `ScriptWaveDeck.Pick` takes it mod the number of waves available when the sound plays.
 
-**How often it differs.** The generator's numbers run 1 to `0x7ffffffe`. For `count` waves the engine refuses the
-`2^31 % count - 1` numbers above `maxAcceptable`: none for a count that is a power of two, 1 for 3 waves, at most
-`count - 2` — a chance of about `count / 2^31` per sound, 4.7e-10 for three waves. *Arithmetic.* When it does happen
-the engine both picks a different wave AND takes one more number, so the soundlevel draw and every later draw on that
-stream shift by one.
+**How often it differs — mostly every one-wave sound** (B733 review 3). **One wave available:** `RandomInt( 0, 0 )` is a
+span of 1, which answers its low end and takes NO number (`UniformRandomStreamConformanceTests.RandomInt_ASpanOfOneOrLess_IsItsLowAndDrawsNothing`);
+ours takes one anyway, so for every such sound the soundlevel draw and every later draw on that stream are one number
+off the engine's. One-wave entries are common, so this is the frequent case; how common in TF2's scripts is not
+counted. **More than one wave:** the generator's numbers run 1 to `0x7ffffffe`; for `count` waves the engine refuses
+the `2^31 % count - 1` numbers above `maxAcceptable` — none for a power of two, 1 for 3 waves, at most `count - 2` — a
+chance of `(2^31 % count - 1) / 2^31` per sound, 4.7e-10 for three waves. *Arithmetic.* A refusal both picks a
+different wave AND takes one more number, shifting the stream the same way.
 
 **Why it is structural, not a one-line fix.** The deck is dealt at PLAY time (B503-B505): which
 waves are available depends on what has already played, which a seek or a skipped sound changes, so `count` is not
@@ -42415,7 +42418,8 @@ known when the parameters are drawn. Valve's order — `count`, then the draw, t
 the soundlevel draw, so a port has to either deal at draw time (moving B503's decision) or redraw the soundlevel at play
 time. Neither is done here.
 
-**Open.** No test; the corpus cannot show a refusal in any measurable number of sounds.
+**Open.** No test yet. The one-wave case is testable synthetically (a one-wave entry: the soundlevel takes the first
+number, not the second); the refusal case is not measurable in the corpus.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
@@ -43736,7 +43740,7 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
 4. *Round 1 changed the SourceTV case* (Sonnet, Fable): it took `state.Coaching` on SourceTV with no recorded slot,
    where the engine's local player is the SourceTV client's own, which never coaches (its local-exclusive
    `m_bIsCoaching` is not sent to it). The original `HasLocalPlayer && Coaching` is restored, and
-   `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on it.
+   `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on the restored rule.
 5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
    with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
 6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782**, OPEN; finding 57 points at it.
