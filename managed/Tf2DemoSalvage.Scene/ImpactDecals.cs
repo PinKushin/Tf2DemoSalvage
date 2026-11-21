@@ -168,7 +168,9 @@ public sealed class ImpactDecals
     /// found it, a static prop by its `$surfaceprop`. Only the sound: `Impact` and `PerformCustomEffects` take
     /// `ParseImpactData`'s material, the server's, with no such fallback. A server world impact is kept only where its trace
     /// hit, and the world trace's entity is the world's, so only the 0 half applies. *Not carried:* terrain's slot, so a
-    /// server impact on terrain with surfaceprop 0 keeps it.
+    /// server impact on terrain with surfaceprop 0 keeps it. *Interpolated (B797):* the prop is the server's hitbox, the
+    /// surface whatever our world trace struck first — a brush in front leaves none (surface 0), another prop in front gives
+    /// its own — where the engine's trace is against the named prop alone.
     /// </remarks>
     public int SoundSurfacePropOf(ShotImpact impact)
     {

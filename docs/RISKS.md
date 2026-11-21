@@ -42388,6 +42388,14 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B802 — a server world impact's stand-in trace stops at grates, where `Impact`'s clip uses `MASK_SHOT` (2026-11-21) — OPEN
+
+Found in B797's review (round 2, Fable). `ServerImpacts.From` traces each server world impact with `MapLevel.Trace`'s
+`MaskSolid` (`MapLevel.cs:227`), which holds `CONTENTS_GRATE`; the engine's `Impact` clips with `MASK_SHOT`
+(`fx_impact.cpp:176`), which does not. A bullet the server stopped on a wall or a prop behind a grate brush is traced
+by ours to the grate: the impact takes the grate's normal and surface, and a prop behind it is not struck. Predates
+B797 for world impacts. *Read from published source; not measured.*
+
 ## B801 — a server impact on an entity the client does not have still sounds; `ImpactCallback` returns at a null entity (2026-11-21) — OPEN
 
 Found in B796's review (round 1, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:30-33`) returns at once when

@@ -87,6 +87,27 @@ public sealed class ServerImpactsConformanceTests
         impact.SurfaceProp.ShouldBe(12, "the dispatch's own surfaceprop");
     }
 
+    /// <remarks>
+    /// B797 review 2: the trace's own surface rides with the impact — `PlayImpactSound` takes it when the server names
+    /// surfaceprop 0 (`fx_impact.cpp:378-381`). The trace here strikes a prop whose `$surfaceprop` is 9; the wall's
+    /// trace, which carries none, is the control.
+    /// </remarks>
+    [Test]
+    public void From_AnImpactWhoseTraceStrikesAProp_CarriesThePropsSurface()
+    {
+        List<ShotImpact> onProp = [];
+        List<ShotImpact> onWall = [];
+
+        ServerImpacts.From(
+            [Impact(entity: 0) with { HitBox = 5 }],
+            Names,
+            (from, to) => Wall(from, to) with { StaticProp = 4, StudioSurfaceProp = 9 },
+            onProp);
+        ServerImpacts.From([Impact(entity: 0) with { HitBox = 5 }], Names, Wall, onWall);
+
+        (onProp.ShouldHaveSingleItem().StudioSurfaceProp, onWall.ShouldHaveSingleItem().StudioSurfaceProp).ShouldBe((9, -1));
+    }
+
     [Test]
     public void From_AnImpactOnTheWorldWithNoHitbox_IsOnNoStaticProp()
     {
