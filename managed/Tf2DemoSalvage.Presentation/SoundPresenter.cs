@@ -336,8 +336,18 @@ public sealed partial class SoundPresenter(
         soundscape.Clear();
         _late.Clear();
 
-        // Every patch ended with its channel, so nothing names one again; the wave flags stay (B504). The scrape loops
-        // ended with them, whichever way the reload lands — a slot kept would change a patch nothing holds.
+        ForgetPatches();
+    }
+
+    /// <summary>
+    /// Every patch ended — by a reload's `S_StopAllSounds` (B550), or a level change's `CSoundControllerImp::SystemReset`
+    /// (`soundenvelope.cpp:862-878`) and ragdoll deletion (`C_TFRagdoll::~C_TFRagdoll` → `PhysCleanupFrictionSounds` →
+    /// `ShutdownFriction`, `c_tf_player.cpp:590-593`, `physics.cpp:711-717, 1024-1031`): the deck forgets them, so nothing
+    /// names one again, and the scrape slots go with their patches, so no change names a patch nothing holds. The wave
+    /// flags stay (B504).
+    /// </summary>
+    private void ForgetPatches()
+    {
         _deck.ForgetPlaying();
         _frictionSounds.Clear();
     }
@@ -360,9 +370,8 @@ public sealed partial class SoundPresenter(
     /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
     /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
     ///
-    /// **Set once per level** (`LevelSystems`), and a level change resets the sound controller:
-    /// `CSoundControllerImp::SystemReset` ("level change, etc.", `soundenvelope.cpp:862-878`) shuts down every patch, so
-    /// the deck forgets them. Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
+    /// **Set when an install opens (`LevelSystems.Publish`) and again for each map (`LevelSystems.Load`)** — twice for the
+    /// first level — and a level change ends every patch and scrape loop (<see cref="ForgetPatches"/>). Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
     /// change — `CSoundEmitterSystem::LevelShutdownPostEntity` calls `ClearSoundOverrides`, which ships closed in
     /// soundemittersystem.dll and was not disassembled; keeping them is this port's reading, not an observation.
     /// </remarks>
@@ -372,7 +381,7 @@ public sealed partial class SoundPresenter(
         set
         {
             field = value;
-            _deck.ForgetPlaying();
+            ForgetPatches();
         }
     }
 

@@ -216,7 +216,49 @@ public sealed class ScriptWaveDeckConformanceTests
     /// change against a patch nothing holds.
     /// </remarks>
     [Test]
-    public void Update_AReload_ForgetsTheScrapeLoops()
+    public void Update_AReloadLandingBehind_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// The case the review found: a walk that reloads and lands AHEAD of where playback was. Its frame's batch, read after
+    /// the reload, dispatches with the reload's stop of everything (`PlaySkipFrames`), and the scrape slots must go then too —
+    /// the step-back clear in the corpse pass never sees a step back here.
+    /// </remarks>
+    [Test]
+    public void PlaySkipFrames_AReloadLandingAhead_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        presenter.SkipFrameRead(40, reload: true);
+        presenter.PlaySkipFrames(new Silent(), Listener, Right);
+
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A level change frees every friction slot: the level's ragdolls are deleted, and `C_TFRagdoll::~C_TFRagdoll`
+    /// (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds` (`physics.cpp:1024-1031`) → `ShutdownFriction`
+    /// (`:711-717`), which destroys the patch and empties the slot; `CSoundControllerImp::SystemReset`
+    /// (`soundenvelope.cpp:862-878`) shuts down whatever patch is left.
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_ForgetsTheScrapeLoops()
+    {
+        SoundPresenter presenter = PresenterWithAScrape();
+
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+
+        presenter.FrictionSounds.Playing.ShouldBe(0);
+    }
+
+    /// <summary>A presenter played to tick 25 with one corpse scrape loop playing.</summary>
+    private static SoundPresenter PresenterWithAScrape()
     {
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"));
@@ -236,8 +278,7 @@ public sealed class ScriptWaveDeckConformanceTests
         presenter.FrictionSounds.Step(25, 0.4, [friction], static (entity, tick) => (entity, tick, 0f), surfaces, scripts).ShouldHaveSingleItem();
         presenter.FrictionSounds.Playing.ShouldBe(1, "the condition: a scrape loop plays");
 
-        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
-        presenter.FrictionSounds.Playing.ShouldBe(0);
+        return presenter;
     }
 
     /// <remarks>
