@@ -42411,7 +42411,11 @@ bound to a cheat ConVar is refused like any other bind (D253, B718). **The quest
 parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
 `ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split. The same question covers a
 config's bare one-shot name (`mat_wireframe` alone in a bind) with `sv_cheats 1`: ours toggles the view, TF2 prints the
-value and sets nothing (B791 review 2).
+value and sets nothing (B791 review 2). And a config that opens with `unbindall` and binds its own key to
+`mat_wireframe` leaves, with cheats off, no key that toggles wireframe: `unbindall` drops `CTRL+w` to the defaults'
+fallback, the config's bind claims the action so the fallback is not offered, and the config's key is refused (B791) —
+TF2's own outcome, but the menu still shows that key as the item's shortcut (B791 review 5, Fable). Only the menu click
+works then.
 
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
@@ -42587,7 +42591,14 @@ it on the `PLATFORM` search path (`//platform/…`; the path reading *interpolat
 loads a map whose pakfile ships its own copy, review 4); a device opened again with the
 menu already ticked is told directly (`ViewerSessionTests.OpenDevice_AgainWithTheWireframeMenuAlreadyTicked_TellsTheNewDevice`;
 Sonnet); a config's bare `mat_wireframe` without cheats is no longer reported as a refused set (TF2 prints the value;
-Sonnet); `…_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn`. *Not verified by looking*: no viewer was launched. Out of this entry: the
+Sonnet); `…_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn`. Review 4: `…_WithTheWireframeMaterialLoaded_OtherMaterialsStillTestDepth`
+(reddened with `wire.Material == materialIndex` widened to every material). Review 5: the batch's category, tint and
+paint still reach `SetMaterial` under the swap, which is no defect — category and tint only feed the category view's
+colour, paint only the drawn material's proxies (the wireframe material has none), and the chequer test reads the
+drawn material; after a wireframe batch the depth state left bound is `_depthIgnored`, so a later draw that sets none of
+its own would draw through everything (none found; every pass sets its own, the rule a pass must establish its own
+state); the real-install test asserts the material is appended last, which `OcclusionQueriesRenderTests` relies on.
+*Not verified by looking*: no viewer was launched. Out of this entry: the
 world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
 ## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
@@ -42624,7 +42635,9 @@ the game's own declaration of neither is in the SDK — `matsys_controls/mdlpane
 the SDK" does not describe the engine's), and their flags in `engine.dll` are not
 read. Tests (`Tf2DemoSalvage.Presentation.Tests`): `ConfigConsoleConformanceTests.Load_MatWireframeWithCheatsOff_IsRefused`,
 `…KeyDown_AConfigsBindsToMatWireframeWithCheatsOff_TriggerNothingAndTheDefaultKeyStillDoes`,
-`…KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet`, `LaunchOptionsTests.Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats`,
+`…KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet`,
+`…KeyDown_AConfigsBareMatWireframeBindWithCheatsOn_TriggersTheWireframeOneShot` (review 4),
+`…KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused` (`toggle` and `incrementvar`, review 5), `LaunchOptionsTests.Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats`,
 `ViewerSessionTests.KeyPressed_AConfigsBindToMatWireframe_IsRefusedWithoutCheatsAndIsTheSwitchWithThem`,
 `…KeyPressed_AToggleAfterTheMenuSetWireframe_ActsOnTheMenusValue`; and `DebugDrawConformanceTests.Wireframe_ValvesDeclaration_IsACheatAndSoIsOurs`
 (Rendering.Tests). And `+sv_cheats 1 +mat_wireframe 1` on the launch line, once stored, reached nothing at startup — no

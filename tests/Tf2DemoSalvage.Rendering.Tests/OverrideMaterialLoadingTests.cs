@@ -112,6 +112,7 @@ public sealed class OverrideMaterialLoadingTests
         int index = wireframe.Material;
 
         index.ShouldBeGreaterThanOrEqualTo(assets.BrushMaterialCount);
+        index.ShouldBe(assets.Textures.Count - 1, "appended last, which OcclusionQueriesRenderTests' grid relies on (B788 review 5)");
         assets.Materials[index].Name.ShouldBe(MapAssets.WireframeMaterialPath);
         assets.Shaders[index].ShouldBe("Wireframe");
         wireframe.IgnoresZ.ShouldBeTrue();

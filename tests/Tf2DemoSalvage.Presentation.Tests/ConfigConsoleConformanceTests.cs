@@ -720,6 +720,28 @@ public sealed class ConfigConsoleConformanceTests
         console.RefusedCheats.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **`toggle` and `incrementvar` on `mat_wireframe` are sets too, refused with cheats off** (B791 review 5, Sonnet): both
+    /// reach `SetConVar`, so neither announces a set nor triggers the one-shot.
+    /// </remarks>
+    [TestCase("toggle mat_wireframe")]
+    [TestCase("incrementvar mat_wireframe 0 1 1")]
+    public void KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused(string command)
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        List<ViewerAction> triggered = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load($"bind \"x\" \"{command}\"");
+        console.KeyDown("x");
+
+        set.ShouldBeEmpty();
+        triggered.ShouldBeEmpty();
+        console.RefusedCheats.ShouldBe(["mat_wireframe"]);
+    }
+
     /// <remarks>`sv_cheats` is read as the engine reads it, `(int)atof`: 0.5 is off, so a cheat ConVar is still refused.</remarks>
     [TestCase("0.5", false)]
     [TestCase("1abc", true)]
