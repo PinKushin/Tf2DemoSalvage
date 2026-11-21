@@ -42390,11 +42390,15 @@ disguise's pieces.
 
 ## B802 — a server world impact's stand-in trace stops at grates, where `Impact`'s clip uses `MASK_SHOT` (2026-11-21) — OPEN
 
-Found in B797's review (round 2, Fable). `ServerImpacts.From` traces each server world impact with `MapLevel.Trace`'s
-`MaskSolid` (`MapLevel.cs:227`), which holds `CONTENTS_GRATE`; the engine's `Impact` clips with `MASK_SHOT`
-(`fx_impact.cpp:176`), which does not. A bullet the server stopped on a wall or a prop behind a grate brush is traced
-by ours to the grate: the impact takes the grate's normal and surface, and a prop behind it is not struck. Predates
-B797 for world impacts. *Read from published source; not measured.*
+Found in B797's review (rounds 2 and 3, Fable and Sonnet). `ServerImpacts.From` traces each server world impact with
+`MapLevel.Trace`'s `MaskSolid` (`MapLevel.cs:227`; `BspLeafTree.cs:107-108`), which holds `CONTENTS_GRATE` and lacks
+`CONTENTS_DEBRIS` and `CONTENTS_HITBOX`. The engine's decal path clips with `MASK_SHOT` (`AddBrushModelDecal`,
+`c_baseentity.cpp:3707`; the no-decal branch `fx_impact.cpp:170`, `:177`), which is the other way round
+(`bspflags.h:106`, `:126`). So a grate brush stops ours and not the engine's — the impact takes the grate's normal and
+surface, and a prop behind it is not struck — and a debris-content brush stops the engine's and not ours, so the impact
+lands on the surface behind or is dropped. The mask is fixed inside the `MapLevel.Trace` overloads, so the fix needs a
+trace that takes one. Predates B797 for world impacts; the mask `AddDecalToStaticProp` uses is closed engine and not
+read. *Read from published source; not measured.*
 
 ## B801 — a server impact on an entity the client does not have still sounds; `ImpactCallback` returns at a null entity (2026-11-21) — OPEN
 
