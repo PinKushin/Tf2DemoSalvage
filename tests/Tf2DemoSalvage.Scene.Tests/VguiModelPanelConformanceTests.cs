@@ -468,6 +468,53 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A model only a panel draws is flexed through the production cache** (B779): no world prop wears it, so the set
+    /// packs it only because the HUD precaches what its panels draw (`VguiHud.ModelsToPrecache` into
+    /// `EntityModelSet.Precache`, `FramePresenter.Hud.cs`), and the panel's face is spread over that packing. The set packs
+    /// the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts it in slot 0:
+    /// the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0). The control: the set packed it.
+    /// </remarks>
+    [Test]
+    public void Paint_APanelOnlyModelPrecachedIntoTheSet_DrawsItsMeshFlexed()
+    {
+        const string path = "models/vgui/panel_only.mdl";
+        PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [
+                new PropVertex[]
+                {
+                    new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 7) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 5) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+
+        EntityModelSet models = new() { Geometry = requested => requested == path ? frames : null };
+        models.Precache([path]);
+        models.PackedOrder(path).ShouldBe([0, 1], "the control: the set packed it");
+
+        VguiMdlPanel panel = new(null, "model", models) { Wide = 100, Tall = 100 };
+        panel.SetMDL(path);
+
+        RecordingModelSurface surface = new();
+        panel.Paint(surface, Context());
+
+        ModelInstance drawn = surface.Draws[0].Models[0];
+        float[] face = drawn.Flex.ShouldNotBeNull("CMDL::Draw flexes a model with flex descriptors");
+        face.ShouldBe([0f, 0f, 0f, 0f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0f, 0.25f], 1e-5f);
+        drawn.FlexRange.ShouldBe(new FlexSlots(1, 1));
+    }
+
+    /// <remarks>
     /// **A merge model's eyes look at the world origin** (B725 5g). A merge CMDL keeps its constructor's
     /// `m_vecViewTarget` (0, 0, 0) and `m_bWorldSpaceViewTarget` false (`CMDL::CMDL`, TF2 `client.dll` `0x180936e20`), so
     /// `CMDL::Draw` transforms the target by the `rootToWorld` it is handed (`0x1809370e3`), the merge's identity

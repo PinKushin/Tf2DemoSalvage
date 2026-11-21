@@ -180,6 +180,29 @@ What the eye and teeth shaders are handed at the draw, read after the shaders th
   is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
   (*arithmetic*).
 
+## A panel's face is flexed by its draw, teeth or none (B779)
+
+What the B725 reading left: the panels computed the descriptor weights only for a mouth, and drew the mesh at rest.
+
+- **The rules run for every model with flex descriptors, and nothing else gates them.** In `CMDL::Draw` (TF2's x64
+  `client.dll`, *read* in the disassembly) the only test before the rules is `cmp [rdx+0x104], r15d` (`0x180937138`) —
+  the studio header's `numflexdesc` against zero. A wrong turn, kept: our port ran the TF panel's rules only for a model
+  with a mouthed Teeth material, reasoned as "nothing else reads them"; that held only because our panels flexed no mesh,
+  and the engine flexes it with the same weights.
+- **A CMDL's draw has no delayed weights.** `LockFlexWeights` is called with its third argument zeroed (`xor r9d, r9d`,
+  `0x180937167`; the call `0x180937173`), and `DrawModel` is handed a null delayed pointer (`[rsp+0x28] = r15 = 0`,
+  `0x1809371e8`; the call `0x1809371f2`). Taken to mean the delay is the weights themselves — *interpolated*: the null is
+  read, studiorender's handling of it is not.
+- **Which weights.** A CMDLPanel's (and its merges', and the StatTrak second-level merge's) are the rules at
+  `CMDL::CMDL`'s zero controls; a CTFPlayerModelPanel's root's, the rules at its per-paint decay
+  (`tf_playermodelpanel.cpp:2275-2361`); a `CModelPanelModel`'s, a C_BaseFlex's at rest (`c_baseflex.cpp:1220-1222`);
+  an attached C_BaseAnimating's (`basemodelpanel.cpp:467`), `LockFlexWeights`' zeros (*source*, the last as B513 read it).
+- **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
+  it; the HUD precaches every panel's models into the world's model set each frame the list changes
+  (`VguiHud.ModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer
+  order it needs (*measured* on a synthetic model through the production set). The filing was a deduction never checked.
+- *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
+
 ## The Eyes glint (B725, item 3)
 
 The `Eyes` shader adds a 32×32 render target the studio render draws for every eye draw (`studiorender.dll`

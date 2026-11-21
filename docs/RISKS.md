@@ -42388,6 +42388,21 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B804 — the embedded item panel's draws set a view target of their own, not the render context's one (2026-11-21) — OPEN
+
+Found during B779. Every `CMDL::Draw` sets the studio render context's one view target before it draws, eyes or none
+(TF2 `client.dll` `0x1809370f4-0x180937108`, B725 5d), and that target is shared with every model drawn after it until
+the next writer — a world model, another panel's. Ours models it as one `StudioViewTarget` the panels reach through
+their `IMdlCache.ViewTarget` (`EntityModelSet.ViewTarget`), falling back to a panel's own where the cache has none
+(`VguiMdlPanel.SharedViewTarget`). `TfEmbeddedItemModelPanel.DeferredMdlCache` — the cache of the item panels a `.res`
+file makes (the freeze panel's and the spectator GUI's item) — forwards `FindMdl`, `PackedOrder` and the bodygroups to
+the viewport's cache but not `ViewTarget`, so it answers the interface's null and those panels write a target of their
+own. What follows them reads a target the engine would have overwritten: a model whose eyes take the last target set (a
+`prop_dynamic`'s, a `CModelPanelModel` without controllers, B725 5d) drawn after an item panel sees the target from
+before it. *Read* for the engine; ours *read* from the code, not measured. The fix is the one-line forward with a test
+that an item panel's draw moves the viewport cache's target. Whether any shipped item model has eyes, which decides
+whether the panel's own draw could look different, is not counted.
+
 ## B794 — four sound producers seed from one `FirstSeed + x` range, so two of them can draw the same stream (2026-11-21) — OPEN
 
 Found in B784/B787's review (round 1, Sonnet and Fable). `ImpactSounds.SeedFor( x )` is `2^20 + x`, and four producers
@@ -42657,9 +42672,16 @@ rest and an attached model at zero weights. *Tests*: `VguiModelPanelConformanceT
 red first (`Flex` null). *Sabotage*: the Teeth gate restored reddened only the TF row; the attached model as a C_BaseFlex
 its row and B725's `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; merges drawn with no weights only the
 merge row; the face cache ignoring a weight change only the TF row's second paint; the set answering no order only its
-row. *Not measured*: the delay-equals-weights reading rests on the null pointer, not on studiorender's handling of it;
-whether a HUD-only model the world never packs is packed (a panel then draws it unflexed, as before); and the fixture's
-speed byte 255 cannot tell delayed from current weights. **B559 is unchanged in evidence**: whether the flexed face
+row. **A model only a panel draws** (round 2, the lead's ruling under D261: first filed here as left unflexed for want of
+a packing, a deduction never checked): the HUD precaches every panel's models into the world's set
+(`VguiHud.ModelsToPrecache` into `EntityModelSet.Precache`, `FramePresenter.Hud.cs`), which packs them, so the order is
+there. *Test*: `VguiModelPanelConformanceTests.Paint_APanelOnlyModelPrecachedIntoTheSet_DrawsItsMeshFlexed` (through the
+production set; the moved vertex lands in the slot the set packed it at, 1, where the fixture's own order would put it at
+0). It passed on its first run, the code it reads being already on the branch; *sabotage*: the set answering no order
+reddened it at its control, and the face spread over the reversed order reddened its face assertion. Recorded in
+`docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`. *Not measured*: the delay-equals-weights reading rests on the
+null pointer, not on studiorender's handling of it; and the fixture's speed byte 255 cannot tell delayed from current
+weights. **B559 is unchanged in evidence**: whether the flexed face
 closes any of the portrait's deficit is still *interpolated*, not measured. *Not verified by looking*.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
