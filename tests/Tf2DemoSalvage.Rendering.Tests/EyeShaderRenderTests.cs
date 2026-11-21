@@ -514,14 +514,123 @@ public sealed class EyeShaderRenderTests
         Near(centre, expected, "specular · base.a + base · diffuse");
     }
 
-    /// <summary>A Teeth material with a `$bumpmap`, flagged for the mouth, `$forward` (0, −1, 0), `$illumfactor` 1.</summary>
-    private static MapAssets TeethBump(MapTexture bump, byte baseAlpha) => MapAssets.ForMaterials(
-        [Uniform4(128, 128, 128, baseAlpha) with
+    /// <remarks>
+    /// **`$phongexponent` is the specular's, or the bump's alpha's where it is 0** (`teeth_bump_ps2x.fxc:69-71`,
+    /// `teeth.cpp:247`). A lamp of 0.5 off the view, at (0, −1e5, 20306) — 11.5° up, N · L = 0.9808 on the flat bump
+    /// (whose texel 128 tilts the normal 0.0039 along the tangent and the binormal), R · L = 0.9815 — with base alpha 255:
+    /// `0.9815^k · 0.9808 · 0.5 + 0.2158 · (0.1 + 0.5 · (0.9808 · 0.5 + 0.5)²)`: 124 at k = 100, 171 at k = 30; at
+    /// `$phongexponent` 0 with a bump alpha of 128, `k = lerp( 1, 150, 0.502 )` = 75.8, 136. Read from `$glossiness`'s slot
+    /// as it was before teeth_bump took it, k would be 1: 205.
+    /// </remarks>
+    [TestCase(100f, 255, 124)]
+    [TestCase(30f, 255, 171)]
+    [TestCase(0f, 128, 136)]
+    public void DrawModelPose_TeethWithABumpMapAndALampOffTheView_TakesTheSpecularExponent(float exponent, int bumpAlpha, int expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
         {
-            Eye = new EyeMaterial(
-                EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 1f, MouthShader: true, BumpMap: bump),
-        }],
-        ["Teeth"]);
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, (byte)bumpAlpha), 255, exponent), null,
+            locals: [new LocalLight(0f, -Far, 20306f, 0.5f, 0.5f, 0.5f, 1f, 0f, 0f, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, $phongexponent {exponent}, bump alpha {bumpAlpha}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "pow( R · L, k ) · N · L · colour · base.a + base · diffuse");
+    }
+
+    /// <remarks>
+    /// **The darkening on the bump path** (`teeth_bump_vs20.fxc:117`): `$illumfactor · saturate( N · $forward )` on the vertex
+    /// normal, here the draw's mouth: forward (0, −0.6, 0.8) against N (0, −1, 0) at illum 0.5 is 0.3. The flat bump, base
+    /// alpha 0, a lamp along the tangent: `(0.1 + 0.502²) · 0.2158 · 0.3` = 42; undarkened 78.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TeethWithABumpMapAndADarkeningMouth_IsDarkenedByItsForwardAndIllum()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), baseAlpha: 0), null, locals: [Lamp(Far, 0f, 0f)],
+            mouth: new MouthShading((0f, -0.6f, 0.8f), 0.5f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump darkened 0.3: centre {centre}, predicted 42, undarkened 78");
+        Near(centre, 42, "the lit bump times illumfactor · saturate( N · forward )");
+    }
+
+    /// <remarks>
+    /// **The binormal is `(N × T) · w`** (`teeth_bump_vs20.fxc`, the skinning's `:740`): N (0, −1, 0) and T (1, 0, 0) make
+    /// it +z, or −z where the tangent's w is −1. A bump tilted along it (128, 255, 128) and a lamp above (+z): with w +1 the
+    /// bumped normal faces the lamp, `0.1 + 1²` = 134; with w −1 it faces away, `0.1 + 0²` = 40.
+    /// </remarks>
+    [TestCase(1f, 134)]
+    [TestCase(-1f, 40)]
+    public void DrawModelPose_TeethWithABumpAlongTheBinormal_TakesTheTangentsSign(float tangentW, int expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 255, 128, 255), baseAlpha: 0), null, locals: [Lamp(0f, 0f, Far)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f), tangentW: tangentW);
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump along the binormal, w {tangentW}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "the bump's green along (N × T) · w");
+    }
+
+    /// <remarks>
+    /// **Every light slot reaches the bump path**: four lamps along ±x and ±z on the flat bump, each `(±0.0039 · 0.5 +
+    /// 0.5)²`, sum to 1: `0.2158 · 1.1` = 134. Without the fourth slot, 119.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TeethWithABumpMapUnderFourLamps_AddsEachSlot()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), baseAlpha: 0), null,
+            locals: [Lamp(Far, 0f, 0f), Lamp(0f, 0f, Far), Lamp(-Far, 0f, 0f), Lamp(0f, 0f, -Far)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump under four lamps: centre {centre}, predicted 134, three 119");
+        Near(centre, 134, "the four slots' half-Lambert terms");
+    }
+
+    /// <summary>A Teeth material with a `$bumpmap`, flagged for the mouth, `$forward` (0, −1, 0), `$illumfactor` 1.</summary>
+    private static MapAssets TeethBump(MapTexture bump, byte baseAlpha, float phongExponent = EyeMaterial.DefaultPhongExponent) =>
+        MapAssets.ForMaterials(
+            [Uniform4(128, 128, 128, baseAlpha) with
+            {
+                Eye = new EyeMaterial(
+                    EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 1f, MouthShader: true, BumpMap: bump,
+                    PhongExponent: phongExponent),
+            }],
+            ["Teeth"]);
 
     private static OffscreenTarget? Target()
     {
@@ -591,7 +700,8 @@ public sealed class EyeShaderRenderTests
         MouthShading? mouth = null,
         float[]? baked = null,
         VolumeFog? heightFog = null,
-        AmbientCube? cube = null)
+        AmbientCube? cube = null,
+        float tangentW = 1f)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -602,7 +712,7 @@ public sealed class EyeShaderRenderTests
                 TangentX = 1f,
                 TangentY = 0f,
                 TangentZ = 0f,
-                TangentW = 1f,
+                TangentW = tangentW,
             };
 
         List<WorldVertex> vertices =

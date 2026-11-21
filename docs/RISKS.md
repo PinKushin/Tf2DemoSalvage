@@ -44808,11 +44808,26 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    · darkening`, alpha 1 (:93, :100). *Tests*: `DrawModelPose_TeethWithABumpMap_LightsTheBumpedNormalHalfLambert` (flat
    bump, lamp level: 0.35; tilted bump, lamp along the tangent: 1.1), `DrawModelPose_TeethWithABumpMap_AddTheSpecularByTheBaseAlpha`
    (lamp 0.5 at the camera: `0.5 + 0.2158 · 0.6` at base alpha 255), `Read_ABumpMapAndPhongExponent_AreTeethsAlone`. Red
-   first: the generic draw gave 40 and 40 for the two diffuse rows (78 and 134 predicted) and 134 for the specular row.
+   first: the generic draw gave 40 and 40 for the two diffuse rows (78 and 134 predicted), and 101 for both specular rows
+   (re-measured 2026-11-20 by sending the bump material down the generic draw again): base alpha 255 predicted 208
+   (207.4 counting the flat texel's 0.0039 tilt; drawn 207), base alpha 0 predicted 101 — which the generic draw also
+   gives, so that row tells the mask apart (its sabotage) and not the port.
    *Sabotage*, each restored: no half-Lambert wrap — only the flat row; specular unmasked by base alpha — only the alpha-0
    row; the bump's tangent component dropped — only the tilted row; the bump kept for every shader — only the Eyes read
    row. *Interpolated*: that an undefined `$phongexponent` reads its declared 100. The one shipped `teeth_bump` material,
    `models/alyx/fmouth`, is HL2's.
+   *Review (Sonnet, Fable, Gemini), test gaps closed*: the lamp at the camera makes R · L = 1, so no row observed the
+   exponent — `DrawModelPose_TeethWithABumpMapAndALampOffTheView_TakesTheSpecularExponent` puts a 0.5 lamp 11.5° up
+   (N · L 0.9808, R · L 0.9815 on the flat bump): k = 100 predicted 124 (drawn 125), k = 30 171, and `$phongexponent` 0
+   with a bump alpha of 128, k = 75.8, 136; `DrawModelPose_TeethWithABumpMapAndADarkeningMouth_IsDarkenedByItsForwardAndIllum`
+   (forward (0, −0.6, 0.8), illum 0.5: darkening 0.3, 42 where undarkened 78);
+   `DrawModelPose_TeethWithABumpAlongTheBinormal_TakesTheTangentsSign` (a bump along `(N × T) · w`, lamp above: w +1 134,
+   w −1 40); `DrawModelPose_TeethWithABumpMapUnderFourLamps_AddsEachSlot` (±x, ±z: 134, three slots 119). Red first, the
+   generic draw: 100, 100, 100; 40; 40 for w +1; 40. *Sabotage*, each restored, each reddening only its rows: the
+   exponent read from `$glossiness`'s value — the three exponent rows, all 205 (k = 1); the darkening held at 1 — the
+   darkening row (78); `|w|` for `w` — the w −1 row (134); the fourth slot's attenuation 0 — the four-lamp row (119).
+   *Engine behaviour, not guarded*: a mesh with no tangents makes `tangentS` zero and the normalised frame NaN; the
+   engine's shader has no guard either (`teeth_bump_vs20.fxc:97-101` normalises as it is), so neither has ours.
 5. *Smaller* — **all seven parts worked 2026-11-20** (`fix/b725-smaller`); what they found is filed as B777-B781. Review round 1
    (Sonnet, Fable, Gemini) fixed on the branch: a bone-merged cosmetic's and a dead player's corpse's view target, a
    CModelPanel's attached models, the TF panel's per-paint allocation, the merges' kept faces on `ClearMergeMDLs`; recorded
