@@ -998,7 +998,8 @@ public sealed class MapAssets
 
     /// <summary>Appends the studio render's wireframe material to the table (B788), or null when the install lacks it.</summary>
     /// <remarks>
-    /// The VMT names no <c>$basetexture</c>, so it resolves to the standard white a VertexLitGeneric binds without one. **Not
+    /// It resolves to the standard white: the <c>Wireframe</c> shader reads no <c>$basetexture</c> at all (its vars are all
+    /// -1, <c>wireframe_dx9.cpp:32</c>), and this VMT names none either (B807 is a map's <c>Wireframe</c> VMT that does). **Not
     /// from the map's pakfile**: the studio render names it <c>//platform/materials/debug/debugmrmwireframe</c>, the
     /// <c>PLATFORM</c> search path, which a map's pakfile (mounted on <c>GAME</c>) is not on (B788 review 3, Fable; the string
     /// is the closed binary's, the search-path reading is the filesystem's convention, *interpolated*).
@@ -4151,7 +4152,9 @@ public sealed class MapAssets
             string shader = material.Shader;
             bool lightmapped = shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
                 shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
-            // `Wireframe` is VertexLitGeneric's init and draw under another name (`wireframe_dx9.cpp:30-50`, B788).
+            // `Wireframe` is VertexLitGeneric's init and draw under another name (`wireframe_dx9.cpp:30-50`, B788), with a
+            // default `VertexLitGeneric_DX9_Vars_t` (`:32`, `:42`, `:48`), every index -1 (`vertexlitgeneric_dx9_helper.h:28`):
+            // it reads no `$basetexture` and no `$envmap`, so its base is white whatever the VMT says (ours still reads them, B807).
             bool vertexLit = shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
                 shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) ||
                 shader.StartsWith("Wireframe", StringComparison.OrdinalIgnoreCase);

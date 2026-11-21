@@ -227,7 +227,10 @@ shading", which is what ours drew. Three reads settled it.
   VPKs). `Wireframe_DX9` is VertexLitGeneric's init and draw plus three flags — `NO_DEBUG_OVERRIDE`, `NOFOG`, `WIREFRAME`
   (`wireframe_dx9.cpp:30-50`, *read*) — and it passes `bVertexLitGeneric` false at init, setup and draw (`:33`, `:43`,
   `:49`), UnlitGeneric's path. The first port read "VertexLitGeneric's init and draw" as lit and drew (0, 89, 89) on a
-  test edge; review 1 (Fable) caught it. So TF2's wireframe model is white, UNLIT, times cyan — (0, 255, 255) — unfogged (`NOFOG` is *read*; that it means no fog at draw is the closed shaderlib's, *interpolated*),
+  test edge; review 1 (Fable) caught it. It also passes a default-constructed `VertexLitGeneric_DX9_Vars_t` (`:32`, `:42`, `:48`), every index -1
+  (`vertexlitgeneric_dx9_helper.h:28`; review 4, Fable), so white is unconditional: the shader reads no `$basetexture`,
+  `$envmap`, `$bumpmap` or `$phong` whatever its VMT says (ours still reads them, B807; no difference for the shipped one,
+  which names none). So TF2's wireframe model is white, UNLIT, times cyan — (0, 255, 255) at tone-map scale 1 — unfogged (`NOFOG` is *read*; that it means no fog at draw is the closed shaderlib's, *interpolated*),
   and drawn through everything in front of it. Ours drew the model's textures, fogged and depth-tested — a wireframe that
   looked plausible and answered a different question (what is in front) from the engine's (where are all the edges).
 - **A forced material beats it.** The swap's first test is `+0x250`, `m_pForcedMaterial`, null (`0x1800041f2`): a gold

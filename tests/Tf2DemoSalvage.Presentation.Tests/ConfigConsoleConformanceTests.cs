@@ -684,6 +684,24 @@ public sealed class ConfigConsoleConformanceTests
         triggered.ShouldBe([ViewerAction.Wireframe], "the viewer's own default key");
     }
 
+    /// <remarks>
+    /// **With `sv_cheats 1` a config's bare `mat_wireframe` is the viewer's one-shot and toggles** (B788 review 4): TF2
+    /// prints the value instead, which is B792's owner question; this pins what ours does until it is answered.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AConfigsBareMatWireframeBindWithCheatsOn_TriggersTheWireframeOneShot()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        List<ViewerAction> triggered = [];
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load("sv_cheats 1\nbind \"y\" \"mat_wireframe\"");
+        console.KeyDown("y");
+
+        triggered.ShouldBe([ViewerAction.Wireframe]);
+        console.RefusedCheats.ShouldBeEmpty();
+    }
+
     /// <remarks>With `sv_cheats 1` a bind's `mat_wireframe 1` is a ConVar set like any other, announced for the host (D215).</remarks>
     [Test]
     public void KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet()

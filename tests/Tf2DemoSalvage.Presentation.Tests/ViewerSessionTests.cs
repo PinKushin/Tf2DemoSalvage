@@ -621,6 +621,7 @@ public sealed class ViewerSessionTests
         rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
 
         rig.Device.Wireframe.ShouldBeTrue();
+        rig.Window.Told.ShouldContain("ShowWireframe True", "the menu is ticked, so its first click turns wireframe off");
     }
 
     /// <remarks>

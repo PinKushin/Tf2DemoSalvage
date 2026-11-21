@@ -434,6 +434,33 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **Only the wireframe material skips the depth test** (B788 review 4, Fable): with it loaded and `mat_wireframe` off,
+    /// a second, different material drawn over the first at the same depth is refused by the strict test, so the first's
+    /// red stays, (89, 0, 0), inside the quad. Every material taking `$ignorez` would let the blue through.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_WithTheWireframeMaterialLoaded_OtherMaterialsStillTestDepth()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
+
+        Draw(target, assets, null);
+        Draw(target, assets, null, clear: false, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(20, 20).ShouldBe((89, 0, 0));
+    }
+
+    /// <remarks>
     /// **Without the wireframe material (no TF2 install), a model keeps its own under `mat_wireframe`** (B788 review 3,
     /// Sonnet): its red, lit, on the edge, (89, 0, 0).
     /// </remarks>

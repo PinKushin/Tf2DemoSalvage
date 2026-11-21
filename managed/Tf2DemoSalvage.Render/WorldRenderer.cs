@@ -2640,6 +2640,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private readonly HashSet<string> _reportedBatchMaterials =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The same, drawn under <c>mat_wireframe</c>, whose bound material differs (B788).</summary>
+    private readonly HashSet<string> _reportedWireframeBatchMaterials =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// The materials that reflect the map's own cubemap rather than one of their own.
     /// </summary>
@@ -8772,7 +8776,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // `c_shotgun` carries a tint of 0.05 — and the screenshots show the weapon changing by
             // far more than that tint can produce. The gap between those two facts is which
             // material index the draw resolves to, after the skin swap, which nothing has reported.
-            if (_reportedBatchMaterials.Add(modelPath))
+            // Once per model AND wireframe state, so the line names what is bound after `mat_wireframe` toggles (B788 review 4).
+            if ((Wireframe ? _reportedWireframeBatchMaterials : _reportedBatchMaterials).Add(modelPath))
             {
                 // **The matrix this draw actually uses, said once per model** (B241). The line
                 // above it — `<model> at (x, y, z) reflects cubemap N` — is the ILLUMINATION point,
