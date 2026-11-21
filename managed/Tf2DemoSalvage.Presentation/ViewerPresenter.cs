@@ -1182,10 +1182,6 @@ public sealed partial class ViewerPresenter : IDisposable
         // site was changed to carry it structurally instead.
         DemoModels.Precache(_models, _timeline, _game, _renderLog);
 
-        // The model set's level has started, map or not: the HUD's panels forget it at the next load as the set does (B779
-        // review 10 item 2; `g_bLevelInitialized`, cdll_client_int.cpp:1612).
-        _effects.LevelStarted();
-
         // **Every explosion's sound, which the client emits and no demo carries** (B415). After the map read,
         // because that is what opens the install whose scripts name them.
         IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, _timeline));

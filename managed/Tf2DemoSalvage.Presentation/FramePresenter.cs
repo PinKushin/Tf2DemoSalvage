@@ -270,16 +270,16 @@ public sealed partial class FramePresenter
         _impacts.ClearMap();
         _shadows.ClearMap();
 
-        // A map load as the HUD's model panels see it. **The shutdown half only after a level started** (B779 reviews 9, 10):
+        // A map load as the HUD's model panels see it. **The shutdown half only after a frame of a level** (B779 reviews 9-11):
         // `CHLClient::LevelShutdown` returns at once while no level was initialised (cdll_client_int.cpp:1714-1715), and
         // otherwise releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`, :1735;
-        // review 8), clearing the flag (:1717). "Started" is `LevelStarted`, armed where every demo's models are precached,
-        // map or not, so the panels forget a level whenever the model set does. **The event half at every load**: the next
-        // map's `game_newmap` marks the panel dirty, so it sets its models up again from the next level's frames
-        // (basemodelpanel.cpp:196-205, review 2). Here rather than at
-        // `LevelInit`, which only a load that succeeds reaches while the model set forgets every model either way (review 4
-        // item 5); a panel that finds a model missing then keeps it and sets itself up again once the precache brings it
-        // (review 5). The HUD outlives the level; a HUD not built yet has nothing to set up.
+        // review 8), clearing the flag (:1717). The flag is armed where the HUD precaches its panels' models in a frame after
+        // a load (`BuildOverlay`), so whatever the load came to — a map, none, superseded, failed — the level the panels hold
+        // is shut down, as the model set's is at every load. **The event half at every load**: the next map's
+        // `game_newmap` marks the panel dirty, so it sets its models up again from the next level's frames
+        // (basemodelpanel.cpp:196-205, review 2). Here rather than at `LevelInit`, which only a load that succeeds reaches
+        // (review 4 item 5); a panel that finds a model missing then keeps it and sets itself up again once the precache
+        // brings it (review 5). The HUD outlives the level; a HUD not built yet has nothing to set up.
         if (_levelInitialized)
         {
             _vguiHud?.Viewport.LevelShutdown();
@@ -287,28 +287,22 @@ public sealed partial class FramePresenter
         }
 
         _vguiHud?.Viewport.NewMap();
+        _aLoadHappened = true;
     }
 
     /// <summary>`g_bLevelInitialized` (`cdll_client_int.cpp:345`): set at a level's init (:1612), cleared at its shutdown (:1717).</summary>
     /// <remarks>
-    /// **Written and read on the UI thread only** (B779 review 10 item 6): <see cref="LevelStarted"/> runs in
-    /// `ViewerPresenter.Apply`, which both load routes call on the UI thread (the async one inside `_view.OnUi`, after the map
-    /// read's worker has returned), and <see cref="ClearMap"/> runs from `ViewerPresenter.ClearMap`, also on the UI thread (the
-    /// async load's inside `_view.OnUi`, before the worker starts). Nothing else touches it, so it needs no barrier.
+    /// **Armed by a frame of a level** (B779 review 11): `BuildOverlay` sets it after the HUD precaches its panels' models,
+    /// once any load has happened (<see cref="_aLoadHappened"/>) — so the panels forget whatever level their frames used, map or
+    /// not, superseded or failed, as the model set forgets at every load; and the frames before the first load arm nothing,
+    /// as the engine's first load releases nothing (:1714-1715). **Written and read on the UI thread only**: `BuildOverlay`
+    /// runs in the frame on the UI thread, and <see cref="ClearMap"/> from `ViewerPresenter.ClearMap`, also on the UI thread
+    /// (the async load's inside `_view.OnUi`, `ViewerPresenter.cs:919-927`). Nothing else touches it.
     /// </remarks>
     private bool _levelInitialized;
 
-    /// <summary>
-    /// A level has started for the model set — the HUD's shutdown half armed for the next load (B779 review 10 item 2).
-    /// </summary>
-    /// <remarks>
-    /// The engine arms `g_bLevelInitialized` at `LevelInitPreEntity` (`cdll_client_int.cpp:1612`), and every level it plays has
-    /// a map. Ours plays a demo with no map too, and its model set forgets at every load either way
-    /// (`LevelSystems.Shutdown` → `EntityModelSet.LevelShutdown`), so the flag is armed where every demo's models are
-    /// precached, map or not — `ViewerPresenter.Apply` — not at `LevelInit`, which a missing map never reaches; otherwise the
-    /// HUD's panels would keep a level the model set had let go.
-    /// </remarks>
-    public void LevelStarted() => _levelInitialized = true;
+    /// <summary>Whether any load has happened: a level's frames can arm the HUD's shutdown only after one.</summary>
+    private bool _aLoadHappened;
 
     /// <summary>A new level: its glows start from nothing, and its particle materials' sheets are the ones a system reads.</summary>
     /// <param name="map">The map that was read.</param>

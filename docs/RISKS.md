@@ -42992,7 +42992,9 @@ flag inverted (both presenter rows; a never-shutdown break was refused by the an
    follows the model set: `FramePresenter.LevelStarted` arms the flag, called in `ViewerPresenter.Apply` right after
    `DemoModels.Precache` — where every demo's models are packed, map or not, on both load routes — and `LevelInit` no longer
    arms it. *Test*: the presenter's row is now `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`
-   (no `LevelInit`; red first: kept). The `Apply` call itself is read, not run by a test.
+   (no `LevelInit`; red first: kept). The `Apply` call itself is read, not run by a test. *Superseded by review 11*: a
+   superseded or failed load never reached `Apply` either, and the arming moved to the HUD's own frame; `LevelStarted`
+   and its `Apply` call are gone, and the row is `ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`.
 3. *Names and remarks*: the three Scene rows whose release is `LevelShutdown`'s are `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`,
    `LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt` and `LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity`,
    with remarks naming the two walks.
@@ -43005,6 +43007,26 @@ flag inverted (both presenter rows; a never-shutdown break was refused by the an
 
 *Sabotage*, run apart: the flag's clearing deleted (the twice row alone), `LevelStarted` not arming (the mapless row, and
 the twice row at its control, the first release).
+
+**Review round 11** (one medium, fixed by moving what it named):
+1. *`Apply`'s arming call was untested* (medium): the presenter rows armed the flag themselves, so deleting the production
+   call reddened nothing. The call is gone (item 2): the arming is now in `FramePresenter.BuildOverlay`, the production
+   path the presenter rows drive, so deleting it reddens them (below).
+2. *A superseded or failed load left the flag disarmed* while its frames rendered and the panels set up from that level's
+   models; the next load then skipped the HUD's shutdown while the model set forgot (reviews 8-9's retention, back). The
+   flag tracked the wrong thing. It now follows what the panels hold: `BuildOverlay` arms it after the HUD precaches its
+   panels' models, once any load has happened (`_aLoadHappened`, set by `ClearMap`) — whatever that load came to — and
+   the frames before the first load arm nothing (`cdll_client_int.cpp:1714-1715`). Written and read on the UI thread (the
+   frame, and `ViewerPresenter.ClearMap`'s `_view.OnUi` at :919-927). *Tests*:
+   `FramePresenterHudTests.ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` (a load, a frame, a
+   load: released — red first: kept) and `ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst` (rewritten to arm by a
+   frame; red first at its control), with `ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty` unchanged
+   (its sign is set up by a frame before any load). The superseded and failed routes themselves are not driven: they reach
+   the arming through the same frame, which is what the rows run.
+
+*Sabotage*, run apart: the arming deleted (the after-a-frame row and the twice row), armed without the after-a-load guard
+(the before-any-level row alone), the flag's clearing deleted (the twice row alone). The analyzer refused two wordings of
+the second break (a null test the flow analysis then distrusted); the one run arms on any frame.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
