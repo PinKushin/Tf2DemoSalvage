@@ -382,7 +382,7 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private bool SetsViewTarget(SceneProp prop, PropModels.ModelFrames model)
     {
-        if (model.Flex.Controllers.Count == 0 || !(IsScenePlayer(prop) || IsCBaseFlex(prop)))
+        if (model.Flex.Controllers.Count == 0 || !(IsScenePlayer(prop) || IsCBaseFlex(prop)) || IsUnplacedDeadPlayersCorpse(prop))
         {
             return false;
         }
@@ -398,11 +398,54 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>
-    /// A corpse whose player is dead: <c>C_TFRagdoll::SetupWeights</c> runs <c>pPlayer->SetupWeights</c>
-    /// (<c>c_tf_player.cpp:634-637</c>), so the target is the player's. Null for anything else.
+    /// The player behind a corpse as <c>C_TFRagdoll::SetupWeights</c> finds him (<c>c_tf_player.cpp:626-637</c>): his index,
+    /// <c>IsAlive()</c>, and where he stands; null where <c>GetPlayer()</c> has no one (<c>!pPlayer</c>) or the prop is no
+    /// corpse. <c>GetPlayer</c> is <c>return m_hPlayer;</c> (<c>c_tf_player.h:1049</c>), so a DORMANT player is found, by
+    /// his last life state and origin (<see cref="DormantPlayers"/>). With <see cref="PlayerAlive"/> unset every corpse's
+    /// player is taken for dead, placed nowhere.
     /// </summary>
-    private int? DeadPlayerOf(SceneProp prop) =>
-        prop.FaceOf is { } player && PlayerAlive?.Invoke(player) == false ? player : null;
+    private (int Index, bool Alive, (float X, float Y, float Z)? Origin)? CorpsePlayer(SceneProp prop)
+    {
+        if (prop.FaceOf is not { } player)
+        {
+            return null;
+        }
+
+        if (PlayerAlive is null)
+        {
+            return (player, false, PlayerOrigin?.Invoke(player));
+        }
+
+        if (PlayerAlive(player) is { } alive)
+        {
+            return (player, alive, PlayerOrigin?.Invoke(player));
+        }
+
+        for (int at = 0; at < (DormantPlayers?.Count ?? 0); at++)
+        {
+            SceneDormantPlayer dormant = DormantPlayers![at];
+
+            if (dormant.EntityIndex == player)
+            {
+                return (player, dormant.IsAlive, (dormant.X, dormant.Y, dormant.Z));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A corpse whose player is dead and placed: <c>pPlayer->SetupWeights</c> (<c>c_tf_player.cpp:634-637</c>) sets the
+    /// player's target, his <c>UpdateLookAt</c> from his origin — which <c>ClientThink</c> keeps running while he is dead or
+    /// dormant (<c>c_tf_player.cpp:5948-5955</c>; no dormant gate in <c>client_thinklist.cpp:186-324</c>). Null for anything
+    /// else, and for a dead player with no origin, whom no look-at can run from (not reachable from <c>MomentScene</c>,
+    /// which fills <see cref="PlayerAlive"/> and <see cref="PlayerOrigin"/> from one <c>ScenePlayer</c>).
+    /// </summary>
+    private (int Index, (float X, float Y, float Z) Origin)? DeadPlayerOf(SceneProp prop) =>
+        CorpsePlayer(prop) is { Alive: false, Origin: { } origin } dead ? (dead.Index, origin) : null;
+
+    /// <summary>A corpse whose player is dead but placed nowhere: it sets no target (see <see cref="DeadPlayerOf"/>).</summary>
+    private bool IsUnplacedDeadPlayersCorpse(SceneProp prop) => CorpsePlayer(prop) is { Alive: false, Origin: null };
 
     /// <summary>The view target a C_BaseFlex's <c>SetViewTarget</c> hands the render (see <see cref="FaceShading"/>).</summary>
     /// <remarks>
@@ -421,7 +464,7 @@ public sealed partial class EntityModelSet
         }
         else if (DeadPlayerOf(prop) is { } player)
         {
-            target = LookTargetFrom(PlayerOrigin?.Invoke(player) ?? (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), player);
+            target = LookTargetFrom(player.Origin, player.Index);
         }
 
         // `eyeAng.x/y = g_flexweight[ pflex->localToGlobal ]` only where the model has the controller (`c_baseflex.cpp:596-606`).
@@ -515,8 +558,9 @@ public sealed partial class EntityModelSet
 
         if (prop.FaceOf is { } dead)
         {
-            // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630).
-            if (PlayerAlive?.Invoke(dead) == true)
+            // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630): the same
+            // branch the view target takes (CorpsePlayer), a dormant player found by his handle (B725 review 2).
+            if (CorpsePlayer(prop) is not { Alive: false })
             {
                 return null;
             }

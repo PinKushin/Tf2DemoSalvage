@@ -292,6 +292,76 @@ public sealed class StudioFaceWiringTests
     }
 
     /// <remarks>
+    /// **A corpse whose player is DORMANT** (review 2 item 1): `C_TFRagdoll::GetPlayer` is `return m_hPlayer;`
+    /// (`c_tf_player.h:1049`), an EHANDLE, and a dormant player is still in the client entity list, so it resolves; the
+    /// branch is chosen by his `IsAlive()` on the life state last received (`c_tf_player.cpp:630-637`). Dead, the corpse
+    /// runs his `SetupWeights`, his `m_viewtarget` from `UpdateLookAt`, which his `ClientThink` keeps running dormant — no
+    /// dormant gate in the think list (`client_thinklist.cpp:186-220`, :266-324) nor in `C_BaseEntity::SetDormant`
+    /// (`c_baseentity.cpp:4015-4024`) — from his last origin: player 2 dormant at (0, 0, 0), 512 along +x. Alive (a corpse
+    /// of an earlier life), the corpse's own branch: (0, 0, 0). Neither in the frame nor dormant: `!pPlayer`, its own too.
+    /// </remarks>
+    [TestCase(false, true, 512f)]
+    [TestCase(true, true, 0f)]
+    [TestCase(false, false, 0f)]
+    public void Instances_ACorpseOfADormantPlayer_SetsHisTargetOnlyWhileHeIsDead(bool alive, bool known, float expectedX)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => null,
+            PlayerOrigin = _ => null,
+            DormantPlayers = known ? [new SceneDormantPlayer(2, 0f, 0f, 0f, alive)] : [],
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe((expectedX, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **A dead player the scene places nowhere sets no target from the corpse** (review 2 item 2): reachable only off
+    /// `MomentScene`, which fills `PlayerAlive` and `PlayerOrigin` from the same `ScenePlayer`. With no origin there is no
+    /// look-at to run, so the corpse leaves the context's (7, 7, 7) as it found it, where the old fallback ran the look-at
+    /// from the corpse's own position.
+    /// </remarks>
+    [Test]
+    public void Instances_ACorpseOfADeadPlayerWithNoOrigin_SetsNoTarget()
+    {
+        EntityModelSet models = new() { PlayerAlive = index => index == 2 ? false : null };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe((7f, 7f, 7f));
+    }
+
+    /// <remarks>
     /// **By index, not by distance or by the order the scene lists them** (`for( int iClient = 1; …` with `break` at the
     /// first, `c_tf_player.cpp:6223-6248`): player 9 at (100, 0, 0), nearer and listed first, and player 5 at (200, 50, 0),
     /// both alive and ahead. Player 2 looks at 5.
