@@ -342,8 +342,10 @@ public sealed partial class SoundPresenter(
 
     /// <summary>
     /// Every patch ended — by a reload's `S_StopAllSounds` (B550), or a level change's `CSoundControllerImp::SystemReset`
-    /// (`soundenvelope.cpp:862-878`) and ragdoll deletion (`C_TFRagdoll::~C_TFRagdoll` → `PhysCleanupFrictionSounds` →
-    /// `ShutdownFriction`, `c_tf_player.cpp:590-593`, `physics.cpp:711-717, 1024-1031`): the deck forgets them, so nothing
+    /// (`soundenvelope.cpp:862-878`) and its release of the client entity list (`cdll_client_int.cpp:1734-1735`), whose
+    /// ragdolls' destructors free their slots (`C_TFRagdoll::~C_TFRagdoll` → `PhysCleanupFrictionSounds` →
+    /// `ShutdownFriction`, `c_tf_player.cpp:590-593`, `physics.cpp:711-717, 1024-1031`; that `Release` reaches the
+    /// destructor is inferred, B782 review round 3): the deck forgets them, so nothing
     /// names one again, and the scrape slots go with their patches, so no change names a patch nothing holds. The wave
     /// flags stay (B504).
     /// </summary>

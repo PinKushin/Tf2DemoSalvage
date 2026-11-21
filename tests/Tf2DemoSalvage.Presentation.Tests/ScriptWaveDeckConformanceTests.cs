@@ -241,7 +241,8 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     /// <remarks>
-    /// A level change frees every friction slot: the level's ragdolls are deleted, and `C_TFRagdoll::~C_TFRagdoll`
+    /// A level change frees every friction slot: `CHLClient::LevelShutdown` releases the client entity list
+    /// (`cdll_client_int.cpp:1734-1735`; that a ragdoll's `Release` reaches its destructor is inferred), and `C_TFRagdoll::~C_TFRagdoll`
     /// (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds` (`physics.cpp:1024-1031`) → `ShutdownFriction`
     /// (`:711-717`), which destroys the patch and empties the slot; `CSoundControllerImp::SystemReset`
     /// (`soundenvelope.cpp:862-878`) shuts down whatever patch is left.

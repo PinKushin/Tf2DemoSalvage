@@ -42608,9 +42608,13 @@ emit replay confirmed against the engine), each fixed with its test seen red and
 **Review round 3 (Sonnet, Fable, Gemini; no blocker):**
 
 1. *A level change forgot the patches but not the scrape slots.* One `SoundPresenter.ForgetPatches` (deck and friction
-   slots) now serves the reload and the level change. *Read from published source:* a level change deletes the
-   ragdolls, and `C_TFRagdoll::~C_TFRagdoll` (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds`
-   (`physics.cpp:1024-1031`) → `ShutdownFriction` (`:711-717`), which destroys the patch and empties the slot.
+   slots) now serves the reload and the level change. *Read from published source:* `CHLClient::LevelShutdown`
+   releases the client entity list (`cl_entitylist->Release()`, `cdll_client_int.cpp:1734-1735`), which calls
+   `Release` on every entity in it and removes it (`CClientEntityList::Release`, `cliententitylist.cpp:63-93`); and
+   `C_TFRagdoll::~C_TFRagdoll` (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds` (`physics.cpp:1024-1031`)
+   → `ShutdownFriction` (`:711-717`), which destroys the patch and empties the slot. *Inferred, not read:* that a TF
+   ragdoll is in that list and that its `Release` runs the destructor — `C_BaseEntity::Release` was not followed.
+   (Corrected by review round 4, which found the first sentence filed as read with no citation.)
 2. The reload test landed behind; a reload landing ahead (`PlaySkipFrames` after a reloading batch) is tested too.
 3. *A head whose follower's script is missing at deal time stayed held.* The follower releases it on that early return.
 4. The hundred-detaches test asserts the hundred first.
