@@ -42388,7 +42388,7 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — OPEN
+## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — FIXED 2026-11-20: the draws are made when the sound plays
 
 Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
 Filed on the coordinator's ruling: *"a divergence, however small"*.
@@ -42422,10 +42422,69 @@ waves are available depends on what has already played, which a seek or a skippe
 known when the parameters are drawn — and that includes whether one wave is left, so even the no-draw case depends on
 the play-time deck. Valve's order — `count`, then the draw, then the soundlevel — puts the deal before
 the soundlevel draw, so a port has to either deal at draw time (moving B503's decision) or redraw the soundlevel at play
-time. Neither is done here.
+time.
 
-**Open.** No test yet. The one-wave case is testable synthetically (a one-wave entry: the engine's soundlevel takes
-the third number, ours the fourth); the refusal case is not measurable in the corpus.
+**Where the engine deals, read again for the fix** (Ghidra project `tf2soundemitter`, 2026-11-20). FUN_180003370 in
+order: `RandomFloat` (volume, `param_4[1]`), `RandomFloat` (pitch, truncated to `param_4[2]`), FUN_180005680 (the wave),
+the `available` byte of the pick cleared when the last argument (`isbeingemitted`) is set, `RandomFloat` (soundlevel,
+`param_4[5]`). FUN_180005680 lists the available waves of the matching gender, resets them when none is set, lists
+again, and calls slot `+0x10` of the stream adaptor at `PTR_PTR_18003b010` with `( 0, count - 1 )`; that slot,
+`0x180003c90`, is `mov ecx, edx; mov edx, r8d; jmp [0x18002a2c0]`, vstdlib's `RandomInt`. **So the deal and the draws
+are one call** — the engine has no "draw now, deal later": it deals at draw time, and it draws when the client emits,
+which in a viewer is when the sound plays. There is no third order to choose. A seek is B504's: the engine has no
+rewind of the flags, and a skip deals (and so draws) only what `CL_FireEvents` fires; the deal now carries its draws
+with it, so a skip's deal draws them too, against the flags at that moment.
+
+**Fix: the draws move to the deal.** `ScriptWaveDraw` carries the stream's POSITION instead of a number — the seed it
+was given and how many numbers it had made (`UniformRandomStream.Position`, `MoveTo`, `RandomStreamPosition`) — at the
+start of the sound's `GetParametersForSound`. `ScriptWaveDeck.Deal`, which the presenter calls where it called `Pick`,
+moves its own stream there and draws FUN_180003370's four in order: volume, pitch, `RandomInt( 0, count - 1 )` over the
+waves available now (no number for one; a redraw for a refusal — `UniformRandomStream.RandomInt` already does both),
+the soundlevel. The deck took over the presenter's dealt-wave table, since a later draw needs what an earlier one was
+dealt. The producer's own values (`FromWorldAt`) are what a full deck would deal — its wave draw is now
+`RandomInt( 0, waves - 1 )`, so a one-wave entry is right before any deal.
+
+- **What the deal writes.** Always the wave and the soundlevel. For the FIRST draw on a stream it leaves the volume
+  and pitch alone: they precede the wave, so the producer already has the engine's values, and a producer may have
+  replaced them (a footstep's volume, a medigun patch's pitch).
+- **A shared stream** (`ScriptWaveDraw.After`): a draw made after another on the same stream starts where that one
+  ended, which the deal finds by drawing that one again — with the count it was dealt against, when it was dealt (the
+  shrapnel before its impact), or against the flags now when it never was a sound of its own (`PhysFrictionSound`'s
+  draw before its patch, a read, which changes no flag). Such a draw's volume and pitch follow the wave, so the deal
+  writes them too. `ImpactSounds` chains the impact to its shrapnel; `PhysicsFrictionSounds` chains the patch's `Init`
+  draw to the scrape's own.
+- **A patch** (`ScriptWaveDraw.Scaled`): `Play( patch, params.volume · v, params.pitch )` keeps `Init`'s script
+  volume and multiplies by it, so the friction start carries `params.volume · v` and the deal multiplies by the
+  script volume it draws; a later `SoundChangeVolume` names the start and `ScriptWaveDeck.Named` multiplies by the
+  script volume that start was dealt. The friction slot's `ScriptVolume` is gone: it was a draw made before the deal.
+
+**Tests** (`ScriptWaveDrawConformanceTests`, the disassembly quoted; each red on the old one-number draw, assertion
+failures with every control green): a one-wave entry's soundlevel is its stream's third number; the third emitted deal
+of a three-wave entry (the last card) takes none, so its soundlevel is the third; a refused number (seed 2107827854
+after one lead number, whose fourth number the control reads as `0x7ffffffe`) is drawn again, the wave from the next
+number and the soundlevel from the one after; an impact after a two-wave shrapnel with one wave left starts on the fifth
+number (its volume, pitch, wave and soundlevel); a scrape's patch after a read of a two-wave script with one left draws
+its script volume from the fourth number, with the scrape's pitch and the patch's soundlevel; dealing one sound twice
+draws the same numbers. `UniformRandomStreamConformanceTests.MoveTo_APositionPartWay_GoesOnToTheSameNumbers` and
+`Position_ADrawlessRandomIntAndAStreamNeverSeeded_CountNothingAndSeedZero` hold the position. The friction tests'
+volumes now pass through a deal, as the engine's do.
+
+**Sabotage, each a precise inverse edit, restored:** the old draw (`RandomInt( 0, 0x7ffffffe ) % count`) reddened all
+five draw tests; the old draw behind a span-one guard reddened only the refusal; a replay ignoring the count it was
+dealt reddened only the impact; no replay at all reddened the impact and the scrape; an unscaled deal reddened the
+scrape and both friction volume tests; an unscaled `Named` reddened only the friction change; a deal that does not move
+to the sound's position reddened 23 (every presenter deal test with them); a stream that does not count reddened the
+`MoveTo` test, and a drawless `RandomInt` that counts reddened the `Position` test.
+
+**At the output, measured, not asserted:** f12's 2,629 blasts all play `BaseExplosionEffect.Sound`, three waves, with
+volume 1, pitch 100 and soundlevel 95 fixed — so on that demo every value the fix moves is the same either way, and no
+real-demo assertion can tell the two draws apart there. `CorpusScriptWaveDeckTests` still holds the deal's wiring
+(the waves played, through the presenter) and passes. The refusal is about 4.7e-10 per three-wave sound and is not
+measurable in the corpus.
+
+**Cost.** `ScriptWaveDraw` is now a class (it names the draw before it), one small allocation per script sound a
+producer makes — producers already allocate a stream per sound. A deal re-primes its stream (40 steps) and replays at
+most a few numbers; it allocates nothing.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
@@ -43749,7 +43808,7 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on the restored rule.
 5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
    with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
-6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782**, OPEN; finding 57 points at it.
+6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782** (fixed 2026-11-20); finding 57 points at it.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
