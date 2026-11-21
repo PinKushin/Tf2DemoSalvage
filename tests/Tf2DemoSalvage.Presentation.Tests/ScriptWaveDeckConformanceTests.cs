@@ -129,6 +129,35 @@ public sealed class ScriptWaveDeckConformanceTests
         whiz!.Value.WaveDraw!.Emitted.ShouldBeFalse();
     }
 
+    /// <summary>A HUD sound's draws start where <see cref="HudSounds.SeedFor"/> puts them, the seed that is the same every run (B784).</summary>
+    [Test]
+    public void Emit_AHudSound_DrawsFromItsStableSeed()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = Entry(channel: 0, "a.wav", "b.wav") };
+
+        HudSounds.Emit(5, Script, scripts)!.Value.WaveDraw!.Stream.ShouldBe(new RandomStreamPosition(HudSounds.SeedFor(5, Script), 0));
+    }
+
+    /// <remarks>
+    /// B787's second half: two patches of one script whose streams were one (`tick · 64 + entity`: entity 64 at tick 10,
+    /// entity 0 at tick 11) had equal draws, so the deck held them as ONE patch and the first stop forgot both. The
+    /// control is the same pair's dealing, which must hold two.
+    /// </remarks>
+    [Test]
+    public void Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches()
+    {
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav", "b.wav", "c.wav");
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = entry };
+        ScriptWaveDeck deck = new();
+
+        SceneSound first = ExplosionSounds.FromWorldAt(entry, EntitySounds.Stream(10, 64), 10, (0f, 0f, 0f), emitted: true, kept: true);
+        SceneSound second = ExplosionSounds.FromWorldAt(entry, EntitySounds.Stream(11, 0), 11, (0f, 0f, 0f), emitted: true, kept: true);
+        deck.Deal(first with { EntityIndex = 64 }, scripts);
+        deck.Deal(second with { EntityIndex = 0 }, scripts);
+
+        deck.PatchesHeld.ShouldBe(2);
+    }
+
     [Test]
     public void Emit_AnEntitysSoundAsked_DealsOnlyWhenEmitted()
     {

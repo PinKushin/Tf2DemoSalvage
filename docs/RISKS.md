@@ -42441,6 +42441,41 @@ where the decal trace hit (`ServerImpacts.cs:110-113`), so its `decalNumber == -
 checked: the invulnerable return's `g_pEffects->Ricochet` (`c_tf_player.cpp:7900-7906`), which may be an effect we
 lack. *Read from published source.*
 
+## B794 — four sound producers seed from one `FirstSeed + x` range, so two of them can draw the same stream (2026-11-21) — OPEN
+
+Found in B784/B787's review (round 1, Sonnet and Fable). `ImpactSounds.SeedFor( x )` is `2^20 + x`, and four producers
+pass it numbers from unrelated spaces: a server landing's list index (`ImpactSounds.cs:63`), a client bullet's
+`shot · 32 + bullet` (`DecalEffects.cs:707`), the tracer whiz's tick (`TracerWhiz.cs:54`) and a HUD sound's
+`tick · 131 + FNV( name )` (`HudSounds.SeedFor`). The whiz's key is the tick alone, so two whizzes in one tick collide
+within that one producer too. Whenever two seeds coincide the two sounds share one stream of raw draws — the same
+volume, pitch, wave number and soundlevel when they play one script; shifted when one spends a draw first (a landing's
+ricochet `RandomInt( 1, 10 )`) — which the interpolation (finding 57) means to keep apart: the class B787 fixed for
+entity sounds.
+*Arithmetic.* The fix shape is B787's: each producer's key whole, with the producer named in it, through one hash.
+
+## B793 — a landing after a batch read in its frame starts and follows its own sounds at the batch's tick (2026-11-21) — FIXED 2026-11-21
+
+Found in B782's review (round 9, Fable, outside that diff). `SoundPresenter.Update` set `_originTick` to the pass's tick,
+then a landing with batches still unread ran `DispatchSkipReads`, which sets `_originTick` to each batch's own tick (B724)
+and left the last one set. Nothing set it back, so the landing's own starts were placed, and the pass's follow moved the
+playing channels, where their entities were at that batch's tick rather than the landing's. **Fixed:** the landing sets
+`_originTick` back to its own tick after the batches. Test:
+`Update_ALandingAfterABatchReadEarlier_PlacesItsOwnStartAtTheLandingsTick`, a static start at the landing placed at 1000
+with a batch read at 990 (red before the fix: 990), and the control with no batch read; and
+`Update_ALandingAfterABatchReadEarlier_FollowsAPlayingChannelAtTheLandingsTick`, the follow half (review 1, Fable),
+which the reset moved below the landing's `Attenuate` reddens (990). Not verified by listening.
+
+## B792 — the viewer's default keys set cheat ConVars under `sv_cheats 0`; the exemption is not in `ABOVE-VALVE.md` and has no owner decision (2026-11-21) — OPEN, needs the owner
+
+Found in B725's glint review (round 4, Sonnet and Fable). D253 (the owner's pick, "Copy TF2") refuses a cheat ConVar
+while `sv_cheats` is 0 on TF2's command paths — a config, a bound key, a launch option — and exempts only the viewer's
+**settings file**, which keeps its menus' cheat ConVars between runs; `docs/ABOVE-VALVE.md` lists that with a test. `ConfigConsole.KeyDown` (`ConfigConsole.cs:426-429`, commit
+`740fe450c`) also exempts the viewer's **default key bindings** (its built-in `mat_fullbright` key), citing D253 and D246.
+D253's text does not say that, the exemption is not in `ABOVE-VALVE.md`, and no owner decision records it. In TF2 a key
+bound to a cheat ConVar is refused like any other bind (D253, B718). **The question for the owner** (D246, CLAUDE.md:
+parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
+`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
+
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
@@ -42454,7 +42489,17 @@ catalog changed: a level's map script overriding or removing an entry, or a soun
 arrived. How often the corpus hits it is not measured. The fix is to drop the sound at that early return (as a start;
 a stop or change of a patch never dealt already names nothing).
 
-## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — OPEN
+## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `EntitySounds.SeedFor` keys the tick and the entity whole in one 64-bit value, `( tick << 32 ) | entity`, and
+hashes it with the Fibonacci hash particle collections already use (`ParticleEffects.SeedFor`), so no two
+`( tick, entity )` pairs share a key; the patch records split with the streams. Test:
+`SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal), and
+`Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches`, the record half (review 1, Fable; the old seed reddens it). The hash can give `int.MinValue`, on which
+`UniformRandomStream.SetSeed`'s `-Math.Abs( seed )` threw where the engine's `-|seed|` keeps it (review 1, Gemini): now
+`seed < 0 ? seed : -seed`, test `SetSeed_TheMostNegativeSeed_DrawsAsSeedOne` (red before: `OverflowException`; the
+shipped `vstdlib.dll` measured to draw `int.MinValue` as seed 1, review 2, Fable). Every
+entity sound's draws move with the new seed, interpolated either way (finding 57). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
 seeds `ImpactSounds.SeedFor( tick * 64 + entity )`, so entity 64 at tick t and entity 0 at tick t + 1 — and any
@@ -42506,7 +42551,12 @@ deck; the engine's never changes. `ScriptWaveDeckConformanceTests.Producers_Ever
 whiz among the emitters, which this contradicts. *Read from published source.* (The same function's 0.1 s
 `flNextWhizTime` gate, 200-unit minimum and 64-unit whiz distance were not compared here.)
 
-## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — OPEN
+## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `HudSounds.SeedFor` takes the name's FNV-1a (`SequenceHash`, already the project's stable string hash) in
+place of `string.GetHashCode`. Test: `SeedFor_AScriptAtATick_IsTheFnvOfItsName`, the seed for `Hud.Hint` at tick 100
+computed outside the code (red against the old formula), and `Emit_AHudSound_DrawsFromItsStableSeed`, that `Emit` draws
+from it (review 1, Fable; an inline `GetHashCode` seed reddens it). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `HudSounds.Emit` (`managed/Tf2DemoSalvage.Presentation/HudSounds.cs:49`)
 seeds `ImpactSounds.SeedFor( tick * 131 + scriptName.GetHashCode( StringComparison.Ordinal ) )`. .NET's string hash is
@@ -42576,8 +42626,9 @@ when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigCo
 `mat_wireframe 1` with `sv_cheats 0` goes through. In TF2 it is `FCVAR_CHEAT` (`engine.dll` `0x180007b94`, flags
 `0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **The split is D253's**, not
 D75's: D75 says the gate is not implemented and that a pasted config setting these works; D253 supersedes that for a
-config, a user's bind and a launch option and exempts the viewer's menus; the default keys' exemption is D253 as
-`ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key. **Which applies where**: the menu item and the
+config, a user's bind and a launch option and exempts the viewer's settings file, which keeps its menus' choices; the default keys' exemption is D253 as
+`ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key — an exemption no owner decision records,
+which is B792. **Which applies where**: the menu item and the
 viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
