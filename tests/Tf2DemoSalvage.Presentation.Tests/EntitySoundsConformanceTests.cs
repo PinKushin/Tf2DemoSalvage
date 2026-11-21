@@ -89,4 +89,14 @@ public sealed class EntitySoundsConformanceTests
         EntitySounds.Emit(1, 2, "Weapon_Test.Single", (0f, 0f, 0f), NoScripts, emitted: true, ClientSoundPhase.Simulate)
             .ShouldBeNull();
     }
+
+    /// <remarks>
+    /// B787: a seed of `tick · 64 + entity` gave `( t, e )` and `( t + k, e − 64k )` one stream, and edicts run to 2047
+    /// (`MAX_EDICTS`, `const.h`). Each pair here collided under it; the last pair is two edicts at the top of the range.
+    /// </remarks>
+    [TestCase(10, 64, 11, 0)]
+    [TestCase(10, 200, 13, 8)]
+    [TestCase(500, 2047, 531, 63)]
+    public void SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds(int tick, int entity, int otherTick, int other) =>
+        EntitySounds.SeedFor(tick, entity).ShouldNotBe(EntitySounds.SeedFor(otherTick, other));
 }

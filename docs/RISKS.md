@@ -42401,7 +42401,13 @@ catalog changed: a level's map script overriding or removing an entry, or a soun
 arrived. How often the corpus hits it is not measured. The fix is to drop the sound at that early return (as a start;
 a stop or change of a patch never dealt already names nothing).
 
-## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — OPEN
+## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `EntitySounds.SeedFor` keys the tick and the entity whole in one 64-bit value, `( tick << 32 ) | entity`, and
+hashes it with the Fibonacci hash particle collections already use (`ParticleEffects.SeedFor`), so no two
+`( tick, entity )` pairs share a key; the patch records split with the streams. Test:
+`SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal). Every
+entity sound's draws move with the new seed, interpolated either way (finding 57). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
 seeds `ImpactSounds.SeedFor( tick * 64 + entity )`, so entity 64 at tick t and entity 0 at tick t + 1 — and any
@@ -42440,7 +42446,11 @@ deck; the engine's never changes. `ScriptWaveDeckConformanceTests.Producers_Ever
 whiz among the emitters, which this contradicts. *Read from published source.* (The same function's 0.1 s
 `flNextWhizTime` gate, 200-unit minimum and 64-unit whiz distance were not compared here.)
 
-## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — OPEN
+## B784 — HUD sound streams are seeded with `string.GetHashCode`, which .NET randomizes per process (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `HudSounds.SeedFor` takes the name's FNV-1a (`SequenceHash`, already the project's stable string hash) in
+place of `string.GetHashCode`. Test: `SeedFor_AScriptAtATick_IsTheFnvOfItsName`, the seed for `Hud.Hint` at tick 100
+computed outside the code (red before: a per-process value). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `HudSounds.Emit` (`managed/Tf2DemoSalvage.Presentation/HudSounds.cs:49`)
 seeds `ImpactSounds.SeedFor( tick * 131 + scriptName.GetHashCode( StringComparison.Ordinal ) )`. .NET's string hash is
