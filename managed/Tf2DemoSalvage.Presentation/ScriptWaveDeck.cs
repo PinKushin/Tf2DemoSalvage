@@ -119,10 +119,11 @@ public sealed class ScriptWaveDeck
             return sound;
         }
 
-        if (!scripts.TryGetValue(draw.Script, out SoundScriptEntry entry) || entry.Waves.Count == 0)
+        if (!Declares(draw, scripts, out SoundScriptEntry entry))
         {
             // The engine's `GetParametersForSoundEx` fails here and `EmitSoundByHandle` returns, so nothing plays
-            // (`SoundEmitterSystem.cpp:465-468`, B789). It is still the follower its head was held for, so it releases it.
+            // (`SoundEmitterSystem.cpp:465-468`, B789; a script with no wave is its `!params.soundname[0]` return, `:470`).
+            // It is still the follower its head was held for, so it releases it.
             if (draw.After is { } before)
             {
                 _heads.Remove(before);
@@ -155,6 +156,19 @@ public sealed class ScriptWaveDeck
         }
 
         return draw.After is null ? dealt : dealt with { Volume = drawn.Volume, Pitch = drawn.Pitch };
+    }
+
+    /// <summary>Whether the catalog declares a draw's script with a wave to play — what `EmitSoundByHandle` needs to emit it.</summary>
+    /// <param name="draw">The draw.</param>
+    /// <param name="scripts">Every soundscript entry the game loaded, by name.</param>
+    /// <param name="entry">The entry, when declared.</param>
+    /// <returns>True when it can play (B789).</returns>
+    public static bool Declares(ScriptWaveDraw draw, IReadOnlyDictionary<string, SoundScriptEntry> scripts, out SoundScriptEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        return scripts.TryGetValue(draw.Script, out entry) && entry.Waves.Count > 0;
     }
 
     /// <summary>

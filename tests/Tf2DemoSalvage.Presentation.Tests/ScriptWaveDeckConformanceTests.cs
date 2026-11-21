@@ -170,6 +170,49 @@ public sealed class ScriptWaveDeckConformanceTests
         return sink.Started.Count;
     }
 
+    /// <remarks>
+    /// B789, a patch: its start played nothing, so its later change names nothing playing. The change must not fall
+    /// through to a start of its own — `S_AlterChannel`'s fall-through is `svc_Sounds`', not a client patch's. The
+    /// declared row is the control: its start plays, and — this sink holding no voice — its change finds nothing playing
+    /// and falls through to a second start, as `S_AlterChannel` returning 0 does.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 2)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_APatchTheCatalogDeclaresOrNotThenAChange_PlaysNothingWhenUndeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 6, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
+
+        presenter.Schedule = new SoundSchedule([loop, loop with { Tick = 30, ChangesVolume = true, Volume = 0.5f }]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        return sink.Started.Count;
+    }
+
+    /// <remarks>The same for a sound the client emits during play, the pass's other road to the deck (B789).</remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_AnEmittedScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(10, 0) with { EntityIndex = 9 });
+        presenter.Update(sink, 20, Listener, Right, now: 0.3d);
+
+        return sink.Started.Count;
+    }
+
     [Test]
     public void Update_AnEmittedSoundBetweenTwoScheduledOnes_IsDealtInTickOrder()
     {

@@ -680,6 +680,12 @@ public sealed partial class SoundPresenter(
 
             if (Dealt(next) is not { } live)
             {
+                // Its script is not in the level's catalog, so `EmitSoundByHandle` emits nothing (B789).
+                if (audio.IsEnabled(LogLevel.Debug))
+                {
+                    audio.LogDebug("{Message}", $"'{next.WaveDraw?.Script}' is not in the catalog: nothing plays (tick {next.Tick.ToString(CultureInfo.InvariantCulture)})");
+                }
+
                 continue;
             }
 
@@ -888,6 +894,13 @@ public sealed partial class SoundPresenter(
     {
         if (!Deals(sound))
         {
+            // A change of a patch whose script the catalog lacks: its start played nothing, and a change must not fall
+            // through to a start of its own (B789). A stop of it stops nothing either way.
+            if (!sound.IsStop && Scripts is { } catalog && sound.WaveDraw is { } draw && !ScriptWaveDeck.Declares(draw, catalog.Entries, out _))
+            {
+                return null;
+            }
+
             return _deck.Named(sound);
         }
 
