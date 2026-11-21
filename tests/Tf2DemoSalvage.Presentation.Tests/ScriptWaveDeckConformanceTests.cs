@@ -928,6 +928,12 @@ public sealed class ScriptWaveDeckConformanceTests
         /// <summary>The voices playing, with their handles, when handles are handed out.</summary>
         private readonly List<(int Voice, int Entity, int Channel, string Wave)> _voices = [];
 
+        /// <summary>How often a voice was re-gained after a stop had freed it — the loop tracking still following it.</summary>
+        public int GainsOfStoppedVoices { get; private set; }
+
+        /// <summary>The voices a named stop freed.</summary>
+        private readonly HashSet<int> _stopped = [];
+
         public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Started.Add((entity, NameOf[sample]));
@@ -942,11 +948,6 @@ public sealed class ScriptWaveDeckConformanceTests
             _voices.Add((voice, entity, channel, NameOf[sample]));
             return voice;
         }
-
-        /// <summary>How often a voice was re-gained after a stop had freed it — the loop tracking still following it.</summary>
-        public int GainsOfStoppedVoices { get; private set; }
-
-        private readonly HashSet<int> _stopped = [];
 
         // A voice handed out and not stopped is still there, so the per-pass re-gain keeps following it. One the loop
         // tracking still follows after its stop is asked here too, which is what shows a stop did not tell it.

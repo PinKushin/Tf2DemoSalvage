@@ -42664,6 +42664,11 @@ green under its own sabotage, because the pass's re-gain drops a freed voice's l
 the re-gain of the freed voice instead; the level stop carries the pass's tick; `AudioOutput.Stop`'s remark says
 CHAN_AUTO cannot be stopped by KEY.
 
+**Review round 7 (Sonnet, Fable; no blocker):** round 6's "the level stop carries the pass's tick" is reverted.
+`PlaySkipFrames` and `FollowListener` stop the patches before any new tick is set, so only `Update` carried the new
+one, and no test pinned it. Every path now labels the stop with the last pass's tick — the level change came before
+the pass — and only the "stopped while loading" log line reads it.
+
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
 TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
