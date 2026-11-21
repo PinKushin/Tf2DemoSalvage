@@ -178,3 +178,4 @@ added in review to reach the `difference > 0x7fffffff` branch), twenty rounds, s
 disassembly* for the rule. One approximation stays, in `ScriptWaveDeck`: it stores one draw of `RandomInt( 0,
 0x7ffffffe )` (which refuses nothing, since `maxAcceptable` there is `0x7ffffffe`, the generator's own ceiling) and takes
 it mod the wave count at play time, where the engine would refuse the draw with probability about `count / 2^31`.
+Filed as its own divergence, **B782** (OPEN), with why it is structural: the deck is dealt at play time (B503-B505).

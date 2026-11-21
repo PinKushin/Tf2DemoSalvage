@@ -42388,6 +42388,35 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B782 — a soundscript wave is one draw taken mod the waves available, where the engine's `RandomInt` would refuse and redraw (2026-11-20) — OPEN
+
+Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
+Filed on the coordinator's ruling: *"a divergence, however small"*.
+
+**The engine.** x64 `soundemittersystem.dll` `FUN_180005680` lists the entry's available waves and returns
+`list[ RandomInt( 0, count - 1 ) ]` (through an `IUniformRandomStream` whose slot is a thunk to vstdlib's export), called
+from `GetParametersForSound` (`FUN_180003370`) between the volume and pitch draws and the soundlevel draw. vstdlib's
+`RandomInt` (`0x18000fb70`) refuses every generator number above `maxAcceptable = 0x7fffffff - 2^31 % count` and draws
+again; then the answer is `number % count`. *Read from the shipped binaries' disassembly.*
+
+**Ours.** `ExplosionSounds.FromWorldAt` (and the other emitters through it) draws ONE number as `RandomInt( 0,
+0x7ffffffe )` — which refuses nothing, its threshold being the generator's own ceiling — stores it as
+`SceneSound.WaveDraw`, and `ScriptWaveDeck.Pick` takes it mod the number of waves available when the sound plays.
+
+**How often it differs.** The generator's numbers run 1 to `0x7ffffffe`. For `count` waves the engine refuses the
+`2^31 % count - 1` numbers above `maxAcceptable`: none for a count that is a power of two, 1 for 3 waves, at most
+`count - 2` — a chance of about `count / 2^31` per sound, 4.7e-10 for three waves. *Arithmetic.* When it does happen
+the engine both picks a different wave AND takes one more number, so the soundlevel draw and every later draw on that
+stream shift by one.
+
+**Why it is structural, not a one-line fix.** The deck is dealt at PLAY time (B503-B505): which
+waves are available depends on what has already played, which a seek or a skipped sound changes, so `count` is not
+known when the parameters are drawn. Valve's order — `count`, then the draw, then the soundlevel — puts the deal before
+the soundlevel draw, so a port has to either deal at draw time (moving B503's decision) or redraw the soundlevel at play
+time. Neither is done here.
+
+**Open.** No test; the corpus cannot show a refusal in any measurable number of sounds.
+
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
 TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
@@ -43710,6 +43739,7 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on it.
 5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
    with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
+6. *The sound-wave picker's draw-once-then-modulo* (ruling): filed as **B782**, OPEN; finding 57 points at it.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
