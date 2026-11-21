@@ -179,3 +179,21 @@ What the eye and teeth shaders are handed at the draw, read after the shaders th
   reaches a face (*source*); and EyeRefract's binormal packed into `COLOR0` as `B · 0.5 + 0.5` and unpacked `· 2 − 1`
   is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
   (*arithmetic*).
+
+## The Eyes glint (B725, item 3)
+
+The `Eyes` shader adds a 32×32 render target the studio render draws for every eye draw (`studiorender.dll`
+`0x18001e020`, `0x18001f510`, *read*). Three things in it are not what the published shaders suggest.
+
+- **The glints are placed in world units on a target one unit across.** `0x18001d600` writes each glint as
+  `right · refl · cornearadius + dx` — world units on the eye — and the pass centres it at `(x + 0.5) · 32` texels, so the
+  target spans ±0.5 units; `$glintu`, though, is `0.5 / radius` along the view's right, so the target is stretched over
+  the eye's diameter. The two agree only for an eye of radius 0.5 (*read*, *arithmetic*). Ported as the engine does it.
+- **The second glint is where the light is OUTSIDE the cornea's cap.** It reads like a back-of-the-iris highlight for a
+  light "behind" the cornea; the branch (`comiss`, `jae` skips) draws it where `N · L` from the eye's centre is *below*
+  `√(1 − ¼)`. Believed the other way round at first, from a summary written before the instruction was re-read.
+- **The pass's quads sit a quarter texel inside the grid.** NDC `2X/32 − 0.984375` is a quarter texel, not the half
+  that would align D3D9's pixel centres; under D3D9 it covers `floor − 1 … floor + 1` sampled at `i − ¼`, under D3D11's
+  centres it would cover `floor − 2 … floor` (*arithmetic*). An earlier note said the two agree; they do not. The
+  sun's light, read in `engine.dll`, has no attenuation terms and so gets `a0 = 1` from the same all-zero rule as a lamp
+  (`0x1800f2186`), and a range of 1.8e19 whose square overflows to infinity and cuts nothing.
