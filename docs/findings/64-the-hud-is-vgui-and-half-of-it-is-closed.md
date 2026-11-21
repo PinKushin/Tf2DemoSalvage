@@ -224,12 +224,14 @@ bar now reads `#Tip_3_1` under `#Tip_Fmt`. *Measured on the corpus; read from pu
 What `CTFTips` does, read end to end, and the parts that are not obvious:
 
 - **One index for every class.** `m_iCurrentClassTip` is a single member, wrapped (`%=`) to whichever class is asked
-  (:157-161). So a recorder who switches from soldier to scout after one tip sees the scout's SECOND tip, not his first,
-  and the arena walk (:173) moves the same index. *Read from published source.*
+  (:161-164). So a recorder who switches from soldier to scout after one tip sees the scout's SECOND tip, not his first,
+  and the arena walk (`GetArenaTip`, :176, taken at :151) moves the same index (:197). *Read from published source.*
 - **A change of desired class refreshes the tip at once** (tf_spectatorgui.cpp:470), not on the ten-second clock.
-- **No class is `GetRandomTip`** (:97): `RandomInt( 1, 100 )` against an abuse-report chance of 33 under twenty hours
-  played and 3 from twenty on (:102-108), then a SECOND draw either way — a class for the abuse tip that this caller throws
-  away (:116), or the tip over every class's (:120). The thrown-away draw still moves the stream.
+- **No class is `GetRandomTip`** (:99): `RandomInt( 1, 100 )` (:112) against an abuse-report chance of 33 under twenty
+  hours played and 3 from twenty on (:105-110), then a SECOND draw either way — a class for the abuse tip that this caller
+  throws away (:114), or the tip over every class's (:119). The thrown-away draw still moves the stream. Each tip is
+  `GetTip` (:206), whose unfound token is an empty string: `UTIL_ReplaceKeyBindings` writes `outbuf[0] = 0` first
+  (cdll_util.cpp:872).
 - **What cannot be reproduced, and what was ported in its place.** The draws come from vstdlib's one global stream,
   which every client caller moves, so which random tip TF2 showed is unknowable: the port draws from its own
   `UniformRandomStream`, the same convention the freeze panel's callouts use. The hours are the WATCHER's Steam stats

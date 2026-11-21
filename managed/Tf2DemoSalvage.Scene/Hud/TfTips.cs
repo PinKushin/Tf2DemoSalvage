@@ -32,7 +32,7 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
     private const int FirstClass = 1;
     private const int LastClass = 9;
 
-    /// <summary>"The chance is very high for the first 20 hours of play since newbies get picked on a lot." (:102-108)</summary>
+    /// <summary>"The chance is very high for the first 20 hours of play since newbies get picked on a lot." (:103-110)</summary>
     private const float NewPlayerHours = 20f;
 
     private readonly int[] _tipCount = new int[LastClass + 1];
@@ -107,7 +107,7 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
     private static int Count(Func<string, string?>? localize, string token) =>
         localize?.Invoke(token) is { } count ? CStdlib.Atoi(count) : 0;
 
-    /// <summary>`GetRandomTip` (:97): the abuse tip by chance, else one tip drawn over every class's.</summary>
+    /// <summary>`GetRandomTip` (:99): the abuse tip by chance (:112), else one tip drawn over every class's (:119).</summary>
     private string RandomTip(Func<string, string?>? localize, Func<string, string?>? lookupBinding)
     {
         Init(localize);
@@ -116,7 +116,7 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
 
         if (random.RandomInt(1, 100) <= abuseHintChance)
         {
-            // `iClassUsed = RandomInt( ... )`: drawn and thrown away by this caller, but it moves the stream.
+            // `iClassUsed = RandomInt( ... )` (:114): drawn and thrown away by this caller, but it moves the stream.
             _ = random.RandomInt(FirstClass, LastClass);
             return Bound(localize?.Invoke("Tip_Abuse_Report"), localize, lookupBinding);
         }
@@ -139,7 +139,7 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
         return string.Empty;
     }
 
-    /// <summary>`GetArenaTip` (:173): the arena walk, on the same index.</summary>
+    /// <summary>`GetArenaTip` (:176): the arena walk, on the same index (:185-197).</summary>
     private string ArenaTip(Func<string, string?>? localize, Func<string, string?>? lookupBinding)
     {
         if (_arenaTipCount == 0)
@@ -159,11 +159,14 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
         return tip;
     }
 
-    /// <summary>`GetTip( iClass, iTip )` (:196).</summary>
+    /// <summary>`GetTip( iClass, iTip )` (:206).</summary>
     private static string Tip(int playerClass, int tip, Func<string, string?>? localize, Func<string, string?>? lookupBinding) =>
         Bound(localize?.Invoke(string.Create(CultureInfo.InvariantCulture, $"Tip_{playerClass}_{tip}")), localize, lookupBinding);
 
-    /// <summary>`UTIL_ReplaceKeyBindings` (cdll_util.cpp:868), which writes nothing for a null or empty string (:874).</summary>
+    /// <summary>
+    /// `UTIL_ReplaceKeyBindings` (cdll_util.cpp:868), which writes `outbuf[0] = 0` first (:872) and returns there for a null
+    /// or empty input (:874-875) — so an unfound token is an empty string.
+    /// </summary>
     private static string Bound(string? format, Func<string, string?>? localize, Func<string, string?>? lookupBinding) =>
         string.IsNullOrEmpty(format) ? string.Empty : TfKeyBindings.Replace(format, lookupBinding, localize);
 }

@@ -43609,8 +43609,8 @@ key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock 
 **POV tip, FIXED 2026-11-20** (finding 64, "The POV recorder's tip"). `m_iDesiredPlayerClass` is in `DT_TFPlayerShared`,
 sent to everyone (tf_player_shared.cpp:367), declared in 4 bits in the 2007, 2013 and live gcor schemas (`schema` probe):
 now `ScenePlayer.DesiredPlayerClass` → `HudState.DesiredPlayerClass` (:466). `TfTips` ports `CTFTips`: `Init`'s
-`Tip_%d_Count`, `GetNextClassTip` with its ONE `m_iCurrentClassTip` shared by every class and arena (:143-170),
-`GetArenaTip` (:173), `GetRandomTip` (:97) with both draws, `GetTip` and the abuse tip through `UTIL_ReplaceKeyBindings`;
+`Tip_%d_Count`, `GetNextClassTip` with its ONE `m_iCurrentClassTip` shared by every class and arena (:143-171, wrap :161-164),
+`GetArenaTip` (:176), `GetRandomTip` (:99) with both draws (:112, the discarded :114, :119), `GetTip` (:206) and the abuse tip (:221) through `UTIL_ReplaceKeyBindings`;
 the label is `#Tip_Fmt` over it into 512 chars (:483-487), on the SourceTV tip's timing (10 s, a class change, a seek back).
 *Interpolated, both named in `TfTips`:* the random draws come from the spectator bar's own `UniformRandomStream` (the
 freeze panel's convention), where TF2 draws from vstdlib's global stream that every caller moves — so WHICH random tip is
@@ -43684,6 +43684,10 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    (empty, index still moves); `TfSpectatorGuiConformanceTests.Update_APovRecorderWithNoTipFmt_ShowsAnEmptyTip`. Each
    sabotaged on its own and red: the empty class advancing, the arena walk not advancing, class 10 taken as a class, an
    unfound token answering "?", a missing `#Tip_Fmt` falling back to `%s1`.
+7. *Citations* (Fable). Every tf_tips.cpp line re-read and fixed in `TfTips`, its tests, here and in finding 64:
+   `GetRandomTip` :99 (draws :112, :114 discarded, :119), the chance :105-110, `GetNextClassTip` :143 (out-of-range
+   :148, arena :151, wrap :161-164), `GetArenaTip` :176 (its advance :197), `GetTip` :206. The garbled "same first draw,
+   21 … 17" comment now reads 17; `Bound`'s summary names `outbuf[0] = 0` (cdll_util.cpp:872).
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
