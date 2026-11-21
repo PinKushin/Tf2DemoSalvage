@@ -42390,13 +42390,17 @@ disguise's pieces.
 
 ## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — OPEN
 
-Found in B785/B786's review (round 3, Fable). `UTIL_ImpactTrace` on a static prop dispatches `"Impact"` on entity 0 with
-the prop's index plus one as its hitbox, and `Impact` takes that branch to `AddDecalToStaticProp`
-(`fx_impact.cpp:149-152`); `ImpactCallback` plays `PlayImpactSound` for it as for any hit. Ours drops the dispatch on both
-roads: `ServerImpacts.OnEntities` keeps only `Entity > 0` (`ServerImpacts.cs:45`), and `ServerImpacts.From` (the world
-walk) skips any `HitBox != 0` (`:90`). So a server bullet on a static prop has no landing (`DecalEffects.LandingsOver`)
-and no decal; the client's own bullets on static props are handled (`ShotImpact.StaticProp`, `DecalReplay.cs:157`). *Read
-from published source and our code; how many such dispatches a real match carries is not measured.*
+Found in B785/B786's review (round 3, Fable). A server impact on a static prop arrives as `"Impact"` on entity 0 with a
+non-zero hitbox — the prop's index plus one: `ImpactTrace` sends the trace's `hitbox` (`baseentity_shared.cpp:684-685`), and
+a world trace's `hitbox` is the static prop's index plus one (read where the server uses it, `physics.cpp:1314-1316`,
+review 4, Gemini) — and `Impact` takes that branch to `AddDecalToStaticProp` (`fx_impact.cpp:149-152`). Entity 0 is team 0, so
+`ImpactCallback`'s gate passes, and it plays `PlayImpactSound` within its 1024-unit cull (`tf_fx_impacts.cpp:75`), with
+`PerformCustomEffects` and the `Bounce.Shrapnel` ricochet when the prop decal hits (`:79-89`). Ours drops the dispatch on
+both roads: `ServerImpacts.OnEntities` keeps only `Entity > 0` (`ServerImpacts.cs:45`), and `ServerImpacts.From` (the world
+walk) skips any `HitBox != 0` (`:90`). So a server bullet on a static prop has no landing (`DecalEffects.LandingsOver`) and
+no decal (`OnEntities` also feeds the entity decals, `DecalEffects.cs:978`); the client's own bullets on static props are
+handled (`ShotImpact.StaticProp`, `DecalReplay.cs:158`). *Read from published source and our code; how many such
+dispatches a real match carries is not measured.*
 
 ## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — OPEN
 
@@ -42408,11 +42412,11 @@ no `Impact`, no ricochet draw, no impact sound, MvM's robot and tank sounds incl
 not a team: the gate fires when the bits numerically equal the struck entity's team number, and `DMG_BULLET` is 2,
 `TF_TEAM_RED` — so every exactly-`DMG_BULLET` impact on a RED entity makes no sound and no decal. *Arithmetic from the
 source: `CBaseEntity::ImpactTrace` sets `data.m_nDamageType = iDamageType` (`baseentity_shared.cpp:684`, review 3,
-Gemini); which weapons send
-exactly 2 is not checked.* A non-player entity on team 0 or 1 always impacts (a player there could still be cleared by
-the disguise half). The DECAL already matches: `ModelDecalFor` refuses the equal-number decal (`DecalEffects.cs:556-558`)
-and every disguised player (`:562`, `AddDecal`'s return at `c_tf_player.cpp:7891-7894`), so the gap is the SOUND alone,
-where there is no gate: server impacts on
+Gemini); which weapons send exactly 2 is not checked.* A non-player entity on team 0 or 1 always impacts (a player there
+could still be cleared by the disguise half). For a PLAYER the decal already matches: `ModelDecalFor`, which takes only a
+`ScenePlayer`, refuses the equal-number decal (`DecalEffects.cs:557`) and every disguised player (`:562`, `AddDecal`'s
+return at `c_tf_player.cpp:7891-7894`), so there the gap is the SOUND alone; a non-player entity's decal is not checked
+here. The sound has no gate: server impacts on
 entities (`DecalEffects.LandingsOver`, `:658-666`) are ungated, and the client's own bullets (`:464-471`) test only
 `victim.Team == bullet.Team`, which is `FireBullet`'s teammate rule (`tf_player_shared.cpp:10524`), not this gate.
 *Read from published source; not measured on the corpus.*
