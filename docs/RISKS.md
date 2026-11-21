@@ -43704,6 +43704,10 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    to the shipped export. `RandomInt_ADifferenceAboveMaxRandomRange_*` and `RandomInt_AFirstDrawAboveTheThreshold_*`
    (seed 3, `0..2^29`: the first number refused, the answer the second's) added. Sabotaged: the guard removed (three red),
    the redraw removed (two red).
+4. *Round 1 changed the SourceTV case* (Sonnet, Fable): it took `state.Coaching` on SourceTV with no recorded slot,
+   where the engine's local player is the SourceTV client's own, which never coaches (its local-exclusive
+   `m_bIsCoaching` is not sent to it). The original `HasLocalPlayer && Coaching` is restored, and
+   `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on it.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

@@ -474,6 +474,21 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_OnSourceTvWithNoRecordedSlot_NeverCoaches()
+    {
+        // On SourceTV `GetLocalTFPlayer()` is the SourceTV client's own player, which never coaches: its local-exclusive
+        // `m_bIsCoaching` is not sent to it, so :314 takes false. A state claiming coaching without a local player must
+        // not reach the coach's layout.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(state with { IsHltv = true, HasLocalPlayer = false, Coaching = true });
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes);
+    }
+
+    [Test]
     public void Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas()
     {
         // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): no local player, no change — so a
