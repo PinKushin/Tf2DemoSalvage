@@ -42394,16 +42394,44 @@ Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 b
 `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
 `istudiorender.h:62-69`, the bitfields from bit 0) to `sv_cheats && mat_wireframe` (`0x1800f5855`-`0x1800f5873`; the
 ConVars at `0x180731d30` and `0x1806a0640`), and `bSoftwareSkin` (bit 1) with it. `studiorender.dll`
-`R_StudioSetupSkinAndLighting` (`0x1800041ec`), with `bWireframe` set and no forced material, draws every mesh with the
+`R_StudioSetupSkinAndLighting` (`0x1800041c0`; the test at `0x1800041ec`), with `bWireframe` set and no forced material, draws every mesh with the
 studio render's own wireframe material (`+0x8a8`, or `+0x8b0` under `bDrawZBufferedWireframe`) in place of the model's;
 the eyeball mesh setup also skips the glint (`0x18000f7d1`). The tool panel builds the same config from its own
 `m_bWireFrame` (`mdlpanel.cpp:293-307`, *source*).
 
-Ours draws every model with its own shaders in wireframe fill (`WorldRenderer.Wireframe`, ungated by `sv_cheats` on
-purpose — that gate stays a deliberate divergence). So under `mat_wireframe` a model's edges are lit and textured as
+Ours draws every model with its own shaders in wireframe fill (`WorldRenderer.Wireframe`). The menu's and the default
+key's wireframe is not gated by `sv_cheats`: D75 states that divergence for the debug draws. A config's or a bound key's
+`mat_wireframe` is TF2's command path, which D253 refuses without `sv_cheats` — and ours does not, B791. So under `mat_wireframe` a model's edges are lit and textured as
 its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
 draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
 wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
+
+## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — OPEN
+
+Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
+while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `+name value` launch option — and reverted
+when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigConsole.cs:877`, `:927`;
+`LaunchOptions.cs:227`), and `mat_wireframe` is not in `EngineConVars`, so nothing marks it a cheat: a config's
+`mat_wireframe 1` with `sv_cheats 0` goes through. In TF2 it is `FCVAR_CHEAT` (`engine.dll` `0x180007b94`, flags
+`0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **D75** is the other half and
+is not changed by this: the viewer's menu item and its default key are debug draws, which D75 leaves ungated on
+purpose. **Which applies where**: D75 to the menu and the viewer's own default binding; D253 to a config, a user's
+bind and a launch option. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
+its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
+here.
+
+## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
+
+Found in B725's glint review (round 2, item 1, where the same gap was fixed for the two glint ConVars). The three are
+handed to the device once, at its creation (`SettingsPresenter.ApplyOver`, `device.DisableBloom`,
+`device.BicubicLightmap`, `device.ShaderSrgb`), and `ViewerSession.OnConVarSet` routes only `mat_phong`,
+`mat_bumpmap`, `mat_specular`, `mat_fullbright` and, now, `r_glint_alwaysdraw` and `r_glint_procedural`. So a key, the
+console or an exec'd cfg that sets any of the three mid-demo writes the settings and the picture does not change until
+the device is rebuilt. In TF2 each is read where it is used — `r_lightmap_bicubic` in the shader's dynamic combo
+(`lightmappedgeneric_dx9_helper.cpp:24`), `mat_disable_bloom` each frame (`viewpostprocess.cpp:57`) — so a set from
+anywhere is the switch (the B671 and B720 shape). `r_shader_srgb`'s read point (`shaderapidx9.dll` `0x180001120` is its
+declaration) is not read. **The fix**: three more `OnConVarSet` routes, each with a test that a bound key reaches the
+device.
 
 ## B781 — no draw writes its depth into destination alpha, where TF2's main view and 3D sky do for every opaque model (2026-11-20) — OPEN
 
@@ -44819,7 +44847,8 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      nearest — and uploads it per Eyes draw, where the engine renders it on the GPU per eye draw. Its bytes are the
      engine's to within ±1 on a rare rounding tie (the normalises above). Where the engine binds `vgui/black` ours binds
      one shared black texel and maps nothing.
-   *Tests*: `EyeGlintConformanceTests` (21 + 2 rows: projection; each attenuation flag and FLT_EPSILON near the light;
+   *Tests* (counts as of review round 2: `EyeGlintConformanceTests` 30 rows, `EyeShaderRenderTests` 43): at the port,
+   `EyeGlintConformanceTests` (21 + 2 rows: projection; each attenuation flag and FLT_EPSILON near the light;
    range; directional delta; a sun, a lamp beside and one behind make three glints at predicted places and colours; the
    cap; one glint's texels, 139 at (16, 16) and, off-centre, (20, 10) = 10 that only D3D9's coverage draws; two
    half-white glints 138 where one white is 139 — eight bits per quad; the LOD at 21.3 and 18.3 pixels; the view from a
@@ -44850,6 +44879,17 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    quarter shift in the regenerator and the gamma tables dropped (both: its 3 rows); the spline made linear with the
    threshold at 0.0102 (19 and 26); `r_glint_alwaysdraw` ignored (0), `r_glint_procedural` ignored (66), the wireframe
    skip dropped (195), the stale target bound for black (195 then 195). Item 5 is held by the compiler (CS7036, seen).
+   *Review round 2 (Sonnet, Fable, Gemini), fixed*: (1) both glint ConVars set mid-demo reach the device through
+   `ViewerSession.OnConVarSet` (`KeyPressed_AKeyBoundToEachGlintConVar_ReachesTheDevice`; red first, sabotage the
+   procedural name unmatched) — the same gap for three other ConVars is **B790**, and a config's unrefused
+   `mat_wireframe` is **B791**; (3) `LinearToTexture`'s index takes `cvttss2si`'s overflow (0x80000000, so index 0,
+   `0x18005ac1a`) where .NET's cast saturates; (4) the regenerator's truncation, its 1023 clamp and its border clip each
+   have a row (a centre at −0.2 under a colour of 1e9: texel (1, 16) 51 and (0, 16) overflowed to 0; a sum of 23, 255;
+   a centre at 31.9, nothing written onto (0, 17)); red first on the overflow row; sabotage floor, a 1022 clamp and a
+   loop to column 32 reddened one row each. (5) `r_glint_procedural`'s ConVar is `0x1800010a0`. **The dxlevel branch**
+   (`0x18001e0ba`-`0x18001e0cd`, the material system's support level against 0x5a: below 90 the regenerator, whatever the cvar): ours is pinned at 95, Direct3D 9
+   hardware's (`EntityBeams.HardwareDxLevel`, `VmtMaterial`'s 95), so it never takes that branch; TF2's comes from the
+   card and the `-dxlevel` launch option, not from a config ConVar.
 4. *`teeth_bump`* — **PORTED 2026-11-20** (`fix/b725-smaller`). A Teeth material with a `$bumpmap` (`teeth.cpp:88`,
    `params[BUMPMAP]->IsTexture()`) draws `teeth_bump_vs20`/`teeth_bump_ps20b`: the bump normal in the tangent frame
    (`teeth_bump_ps2x.fxc:65-67`; the frame made and normalised after the bones, `teeth_bump_vs20.fxc:75-147`), lit by
