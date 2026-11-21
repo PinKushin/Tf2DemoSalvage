@@ -47,12 +47,27 @@ public static class HudSounds
 
         // The engine draws from its global stream, which no demo records; seeded so a seek hears the same wave.
         UniformRandomStream random = new();
-        random.SetSeed(ImpactSounds.SeedFor((tick * 131) + scriptName.GetHashCode(StringComparison.Ordinal)));
+        random.SetSeed(SeedFor(tick, scriptName));
 
         return ExplosionSounds.FromWorldAt(entry, random, tick, (0f, 0f, 0f), emitted: true) with
         {
             EntityIndex = FromLocalPlayer,
             Order = order,
         };
+    }
+
+    /// <summary>The seed <see cref="Emit"/> gives a script's stream at a tick.</summary>
+    /// <param name="tick">When.</param>
+    /// <param name="scriptName">The script's name.</param>
+    /// <returns>The seed.</returns>
+    /// <remarks>
+    /// The name's FNV-1a (<see cref="SequenceHash"/>), not <c>string.GetHashCode</c>, which .NET randomizes per process, so a
+    /// run, and the next one, hear the same draws (B784).
+    /// </remarks>
+    public static int SeedFor(int tick, string scriptName)
+    {
+        ArgumentNullException.ThrowIfNull(scriptName);
+
+        return ImpactSounds.SeedFor(unchecked((tick * 131) + (int)SequenceHash.Add(SequenceHash.Empty, scriptName)));
     }
 }
