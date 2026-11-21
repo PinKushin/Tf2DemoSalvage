@@ -53,6 +53,9 @@ public sealed class PhysicsFrictionSounds
 
     private readonly Slot?[] _slots = new Slot?[SlotCount];
 
+    /// <summary>The stream a loop's change draws from, reseeded for each.</summary>
+    private readonly UniformRandomStream _random = new();
+
     /// <summary>Forgets every loop without stopping it — a seek, after which nothing the old frames started is playing.</summary>
     public void Clear() => Array.Clear(_slots);
 
@@ -80,9 +83,10 @@ public sealed class PhysicsFrictionSounds
 
         List<SceneSound> sounds = [];
 
-        foreach (CorpseFriction friction in frictions)
+        // By index: an array's enumerator through the interface is an allocation per frame.
+        for (int each = 0; each < frictions.Count; each++)
         {
-            if (Friction(tick, time, friction, at, surfaces, scripts) is { } started)
+            if (Friction(tick, time, frictions[each], at, surfaces, scripts) is { } started)
             {
                 sounds.Add(started);
             }
@@ -142,14 +146,15 @@ public sealed class PhysicsFrictionSounds
             return null;
         }
 
-        // `PhysFrictionSound`'s own `GetParametersForSound` (`physics.cpp:991`) draws first.
-        UniformRandomStream random = EntitySounds.Stream(tick, friction.Entity);
-        (float X, float Y, float Z) origin = at(friction.Entity, tick);
-        SceneSound parameters = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false);
         SceneSound? started = null;
 
         if (_slots[index] is not { } playing)
         {
+            // `PhysFrictionSound`'s own `GetParametersForSound` (`physics.cpp:991`) draws first.
+            UniformRandomStream random = EntitySounds.Stream(tick, friction.Entity);
+            (float X, float Y, float Z) origin = at(friction.Entity, tick);
+            SceneSound parameters = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false);
+
             if (parameters.Volume * volume <= QuietestStart)
             {
                 return null;
@@ -160,7 +165,7 @@ public sealed class PhysicsFrictionSounds
             // the script's channel replaces CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the
             // patch's pitch and its volume, which `GetVolumeForEngine` multiplies by the script volume it kept: a SCALED
             // draw, whose script volume the deal supplies when it plays (B782).
-            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false, parameters.WaveDraw);
+            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false, parameters.WaveDraw, scaled: true);
 
             started = patch with
             {
@@ -168,12 +173,16 @@ public sealed class PhysicsFrictionSounds
                 Order = new ClientSoundOrder(ClientSoundPhase.Physics, 0, 0),
                 Volume = parameters.Volume * volume,
                 Pitch = parameters.Pitch,
-                WaveDraw = patch.WaveDraw! with { Scaled = true },
             };
             playing = new Slot(friction.Entity, started.Value, time, time);
         }
         else
         {
+            // `PhysFrictionSound`'s `GetParametersForSound` again, of which the change uses only the volume — its first
+            // number — so only that is drawn, from a stream this reuses.
+            _random.SetSeed(EntitySounds.SeedFor(tick, friction.Entity));
+            float scriptVolume = _random.RandomFloat(entry.Volume.Low, entry.Volume.High);
+
             // `SoundChangeVolume( params.volume · v )` and `SoundChangePitch( v · (high − low) + low )` on the loop already
             // playing, sent as the engine's whole-percent pitch; the patch still multiplies by its kept script volume, which
             // the deck's `Named` supplies from its start's deal. *Not carried:* the 0.1 s ramp; the change is immediate.
@@ -182,7 +191,7 @@ public sealed class PhysicsFrictionSounds
             started = playing.Playing with
             {
                 Tick = tick,
-                Volume = parameters.Volume * volume,
+                Volume = scriptVolume * volume,
                 Pitch = (int)pitch,
                 ChangesVolume = true,
                 ChangesPitch = true,
@@ -215,5 +224,5 @@ public sealed class PhysicsFrictionSounds
     }
 
     /// <summary>A `friction_t` slot. The patch's `m_flScriptVolume` is its start's deal (`ScriptWaveDeck.Named`).</summary>
-    private sealed record Slot(int Entity, SceneSound Playing, double LastUpdate, double LastEffect);
+    private readonly record struct Slot(int Entity, SceneSound Playing, double LastUpdate, double LastEffect);
 }

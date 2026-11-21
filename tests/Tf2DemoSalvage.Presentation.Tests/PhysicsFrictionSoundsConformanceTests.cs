@@ -135,6 +135,40 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         deck.Named(changed).Volume.ShouldBe(0.04f, 1e-6f);
     }
 
+    /// <remarks>
+    /// A steady scrape changes its loop every half second, and that change needs only `PhysFrictionSound`'s script volume —
+    /// the first number of its draw. Nothing else is built for it: what the change allocates is the list `Step` returns,
+    /// predicted by a control list of one sound made the same way. The least of five changes, so a runtime allocation
+    /// on one call (a tiered JIT, a resize elsewhere) cannot decide it.
+    /// </remarks>
+    [Test]
+    public void Step_ASteadyScrapesChange_AllocatesOnlyTheListItReturns()
+    {
+        PhysicsFrictionSounds sounds = new();
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        Func<int, int, (float X, float Y, float Z)> at = At;
+        CorpseFriction[] scrape = [Scrape(7750f)];
+        sounds.Step(100, 1.0, scrape, at, Surfaces, scripts).ShouldHaveSingleItem();
+
+        long least = long.MaxValue;
+        long control = long.MaxValue;
+
+        for (int change = 1; change <= 5; change++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            IReadOnlyList<SceneSound> changed = sounds.Step(100 + (change * 35), 1.0 + (change * 0.51), scrape, at, Surfaces, scripts);
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+            changed.ShouldHaveSingleItem().ChangesVolume.ShouldBeTrue("the condition: each call is the change path");
+
+            before = GC.GetAllocatedBytesForCurrentThread();
+            List<SceneSound> one = [];
+            one.Add(changed[0]);
+            control = Math.Min(control, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        least.ShouldBe(control);
+    }
+
     [Test]
     public void Step_ANinthCorpse_FindsNoSlot()
     {

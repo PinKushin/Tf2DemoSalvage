@@ -83,6 +83,7 @@ public static class ExplosionSounds
     /// plain `GetParametersForSound`, which only reads the deck (B503).
     /// </param>
     /// <param name="after">The `GetParametersForSound` drawn on <paramref name="random"/> just before this one, or null.</param>
+    /// <param name="scaled">A `CSoundPatch`'s `Init` draw (<see cref="ScriptWaveDraw.Scaled"/>).</param>
     /// <returns>
     /// The sound as a full deck would deal it; its own draws are made again, against the flags, when it plays
     /// (<see cref="SceneSound.WaveDraw"/>, `ScriptWaveDeck.Deal`).
@@ -93,11 +94,10 @@ public static class ExplosionSounds
         int tick,
         (float X, float Y, float Z) at,
         bool emitted,
-        ScriptWaveDraw? after = null)
+        ScriptWaveDraw? after = null,
+        bool scaled = false)
     {
-        ScriptWaveDraw draw = after is null
-            ? new ScriptWaveDraw(entry.Name, emitted, random.Position)
-            : new ScriptWaveDraw(entry.Name, emitted, after.Stream) { After = after };
+        ScriptWaveDraw draw = new(entry.Name, emitted, after?.Stream ?? random.Position) { After = after, Scaled = scaled };
 
         // `GetParametersForSound` (soundemittersystem.dll FUN_180003370), in its order, from one stream: volume, pitch, the
         // wave (FUN_180005680's `RandomInt( 0, count - 1 )` over the AVAILABLE waves), then the soundlevel. Here every wave
