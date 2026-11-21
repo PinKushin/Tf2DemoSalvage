@@ -42399,6 +42399,12 @@ a rule. *Arithmetic.* The engine has no such seed: it draws from the client's on
 apart are not. Everything through `EntitySounds.Emit`, `Stream` and `SeedFor` shares it: footsteps, animation-event and
 decapitation sounds, physics impacts, medigun patches, corpse scrapes.
 
+**It also merges two patches' records** (B782 review round 2). `ScriptWaveDeck` keeps a patch by its `ScriptWaveDraw`,
+whose equality is the record's: script, emit flag, stream position and flags. Two patches of one script whose seeds
+collide — a scrape loop on entity 64 at tick t and one on entity 0 at t + 1 — have EQUAL draws, so they share one
+record, and the first stop removes it for both: the other's later change or stop then names nothing (its change keeps
+the carried volume without the script volume, B782's `Named`).
+
 ## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — OPEN
 
 Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
@@ -42582,6 +42588,22 @@ most a few numbers; it allocates nothing.
 6. Pre-existing divergences the reviewers found, filed OPEN, not fixed here: B784 (HUD seeds by a per-process string
    hash), B785 (the whiz deals a script the engine only reads), B786 (the ricochet draw skipped for non-bullet hits),
    B787 (`EntitySounds` seed collisions above entity 63).
+
+**Review round 2 (Sonnet, Fable, Gemini; no blocker; the friction change, the medigun's `Play( patch, 1, 100 )` and the
+emit replay confirmed against the engine), each fixed with its test seen red and a sabotage:**
+
+1. *One "last deal" slot lost a chain head when any deal came between.* The producer now names the draws a follower
+   chains after (`ScriptWaveDraw.Leads`, the shrapnel when an impact follows); the deck keeps each dealt head by
+   reference until its follower consumes it. A chain is at most two draws: `After` refuses a third.
+2. *Every scaled deal was kept, the medigun's never-stopped detach included.* Only patches a later change or stop names
+   are kept (`ScriptWaveDraw.Kept`: the scrape and the heal loop, not the detach).
+3. *A level change kept the patches.* `CSoundControllerImp::SystemReset` ("level change, etc.",
+   `soundenvelope.cpp:862-878`) shuts every patch down, so setting a level's scripts forgets them. The flags' survival
+   across a level change is marked interpolated (round 1, item 2).
+4. *A reload landing ahead kept the scrape slots.* `StopForReload` clears them.
+5. A friction change test with a ranged script volume, which a wrong reseed fails.
+6. A control marked as one; a soundlevel assertion given a control proving it can fail.
+7. B787 now records that colliding seeds merge two patches' records.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
