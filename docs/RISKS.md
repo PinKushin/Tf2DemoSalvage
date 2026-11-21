@@ -42388,6 +42388,15 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B794 — four sound producers seed from one `FirstSeed + x` range, so two of them can draw the same stream (2026-11-21) — OPEN
+
+Found in B784/B787's review (round 1, Sonnet and Fable). `ImpactSounds.SeedFor( x )` is `2^20 + x`, and four producers
+pass it numbers from unrelated spaces: a server landing's list index (`ImpactSounds.cs:63`), a client bullet's
+`shot · 32 + bullet` (`DecalEffects.cs:707`), the tracer whiz's tick (`TracerWhiz.cs:54`) and a HUD sound's
+`tick · 131 + FNV( name )` (`HudSounds.SeedFor`). Whenever two coincide, the two sounds draw the same volume, pitch, wave
+number and soundlevel, which the interpolation (finding 57) means to keep apart: the class B787 fixed for entity sounds.
+*Arithmetic.* The fix shape is B787's: each producer's key whole, with the producer named in it, through one hash.
+
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
@@ -42406,7 +42415,8 @@ a stop or change of a patch never dealt already names nothing).
 **Fixed:** `EntitySounds.SeedFor` keys the tick and the entity whole in one 64-bit value, `( tick << 32 ) | entity`, and
 hashes it with the Fibonacci hash particle collections already use (`ParticleEffects.SeedFor`), so no two
 `( tick, entity )` pairs share a key; the patch records split with the streams. Test:
-`SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal). Every
+`SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal), and
+`Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches`, the record half (review 1, Fable; the old seed reddens it). Every
 entity sound's draws move with the new seed, interpolated either way (finding 57). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
@@ -42450,7 +42460,8 @@ whiz among the emitters, which this contradicts. *Read from published source.* (
 
 **Fixed:** `HudSounds.SeedFor` takes the name's FNV-1a (`SequenceHash`, already the project's stable string hash) in
 place of `string.GetHashCode`. Test: `SeedFor_AScriptAtATick_IsTheFnvOfItsName`, the seed for `Hud.Hint` at tick 100
-computed outside the code (red before: a per-process value). Not verified by listening.
+computed outside the code (red against the old formula), and `Emit_AHudSound_DrawsFromItsStableSeed`, that `Emit` draws
+from it (review 1, Fable; an inline `GetHashCode` seed reddens it). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `HudSounds.Emit` (`managed/Tf2DemoSalvage.Presentation/HudSounds.cs:49`)
 seeds `ImpactSounds.SeedFor( tick * 131 + scriptName.GetHashCode( StringComparison.Ordinal ) )`. .NET's string hash is
