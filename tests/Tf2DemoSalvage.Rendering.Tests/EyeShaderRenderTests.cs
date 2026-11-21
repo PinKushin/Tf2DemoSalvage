@@ -416,9 +416,9 @@ public sealed class EyeShaderRenderTests
     /// render's (`R_StudioSetupSkinAndLighting`), which never draws a brush model — `R_DrawBrushModel` binds each batch's
     /// own material (B659). The studio model of the same mesh is the control, which swaps.
     /// </remarks>
-    [TestCase("offscreen/posed.mdl", 255)]
-    [TestCase("*1", 0)]
-    public void DrawModelPose_UnderWireframe_SwapsAStudioModelAndNotABrushEntity(string modelPath, int green)
+    [TestCase("offscreen/posed.mdl", 0, 255, 255)]
+    [TestCase("*1", 89, 0, 0)]
+    public void DrawModelPose_UnderWireframe_SwapsAStudioModelAndNotABrushEntity(string modelPath, int red, int green, int blue)
     {
         using OffscreenTarget? target = Target();
 
@@ -430,7 +430,64 @@ public sealed class EyeShaderRenderTests
         target.Wireframe = true;
         Draw(target, Wireframed("VertexLitGeneric", ignoresZ: true), null, modelPath: modelPath);
 
-        target.PixelAt(34, 30).Green.ShouldBe(green);
+        target.PixelAt(34, 30).ShouldBe((red, green, blue), "the brush entity's own red, lit, is drawn: not swapped, not absent");
+    }
+
+    /// <remarks>
+    /// **The wireframe material takes no fog** (B788 review 2): `Wireframe_DX9` sets `MATERIAL_VAR_NOFOG`
+    /// (`wireframe_dx9.cpp:36`; what the flag does at draw is the closed shaderlib's, *interpolated* as no fog). Fog ending
+    /// at 1 unit, blue, full density, with the quad 300 away: the model's own red is all fog, (0, 0, 255), the control; its
+    /// wireframe edge is still (0, 255, 255). Reads the frame, so it covers the constant's upload and the shader's mode 2,
+    /// not only `FogModeOf`.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeInFullFog_DrawsTheEdgeUnfogged()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ: true);
+        Tf2DemoSalvage.Core.Scene.SceneFog fog = new(0f, 1f, 0f, 0f, 1f, 1f);
+
+        Draw(target, assets, null, fog: fog);
+        (int R, int G, int B) own = target.PixelAt(34, 30);
+        target.Wireframe = true;
+        Draw(target, assets, null, fog: fog);
+        (int R, int G, int B) wire = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"full blue fog: own {own}, wireframe {wire}");
+        own.ShouldBe((0, 0, 255), "the control: the model's own material is all fog");
+        wire.ShouldBe((0, 255, 255));
+    }
+
+    /// <remarks>
+    /// **A forced material binds its OWN animation frame** (B788 review 2): the frame is the drawn material's, so a gold
+    /// corpse's animated override animates. Material 2, forced, animates green frames over a blue still; the batch's own
+    /// material 0 animates nothing. Lit green (0, 89, 0) on the quad; the batch's index would bind the blue still.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_WithAForcedAnimatedMaterial_BindsTheForcedMaterialsFrame()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "VertexLitGeneric"],
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 1 },
+            animationFrames: [null, [Uniform4(0, 255, 0, 255), Uniform4(0, 255, 0, 255)]]);
+
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(20, 20).ShouldBe((0, Encode(Cube), 0));
     }
 
     /// <remarks>
@@ -968,7 +1025,8 @@ public sealed class EyeShaderRenderTests
         float tangentW = 1f,
         bool clear = true,
         string? overrideMaterial = null,
-        string modelPath = "offscreen/posed.mdl")
+        string modelPath = "offscreen/posed.mdl",
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -1029,7 +1087,8 @@ public sealed class EyeShaderRenderTests
             heightFog: heightFog,
             clearDepth: clear,
             overrideMaterial: overrideMaterial,
-            modelPath: modelPath);
+            modelPath: modelPath,
+            fog: fog);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)

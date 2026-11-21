@@ -1241,8 +1241,8 @@ Each claim below is a measurement, not an expectation.
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
 - **Faces and wireframe (beta.69), open:**
-  under `mat_wireframe` a model keeps its own materials where TF2 draws its flat wireframe material (B788);
-  a config's, a bound key's or a launch option's `mat_wireframe 1` is not refused while `sv_cheats` is 0, which D253 says TF2's command paths do (B791);
+  under `mat_wireframe` the world's brushes and brush entities (doors, `func_brush`) keep their own materials in wireframe fill, where what TF2 draws for them is not yet read (B803);
+  the other debug views (`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`) are not yet checked against TF2's cheat gate or its drawing (B805);
   `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set while a demo plays do not reach the picture until the device is rebuilt (B790);
   no draw writes its depth into destination alpha as TF2's main view and 3D sky do, and nothing here reads it yet, so no drawn value changes (B781);
   the shared eye target is set once a frame in our draw order, where TF2 sets it at every draw of every view (B780);

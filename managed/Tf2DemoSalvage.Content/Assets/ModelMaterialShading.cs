@@ -120,7 +120,7 @@ public static class ModelMaterialShading
 
     /// <summary>Whether a shader sends its modulation colour through <see cref="ModulationToLinear"/>.</summary>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>True for <c>VertexLitGeneric</c>, <c>UnlitGeneric</c> and <c>UnlitTwoTexture</c>.</returns>
+    /// <returns>True for <c>VertexLitGeneric</c>, <c>UnlitGeneric</c>, <c>UnlitTwoTexture</c> and <c>Wireframe</c> (VertexLitGeneric's helper, unlit).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="shader"/> is null.</exception>
     public static bool ConvertsModulation(string shader)
     {

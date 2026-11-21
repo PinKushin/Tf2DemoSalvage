@@ -42409,7 +42409,9 @@ while `sv_cheats` is 0 on TF2's command paths — a config, a bound key, a launc
 D253's text does not say that, the exemption is not in `ABOVE-VALVE.md`, and no owner decision records it. In TF2 a key
 bound to a cheat ConVar is refused like any other bind (D253, B718). **The question for the owner** (D246, CLAUDE.md:
 parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
-`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
+`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split. The same question covers a
+config's bare one-shot name (`mat_wireframe` alone in a bind) with `sv_cheats 1`: ours toggles the view, TF2 prints the
+value and sets nothing (B791 review 2).
 
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
@@ -42542,24 +42544,28 @@ only the menus; the default-key exemption is that code's, for a built-in `mat_fu
 supersedes D75's sentence that a pasted config setting them works. So under `mat_wireframe` a model's edges are lit and textured as
 its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
 draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
-wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
+wireframe row). **Open when filed** (closed below): the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) was not read.
 
 **Fixed** (2026-11-21; how it was settled: `docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`, "The studio
 render's wireframe material"). The material is `debug/debugmrmwireframe` (the string at `studiorender.dll` `0x180080b18`;
-which of `+0x8a8`/`+0x8b0` holds it is *interpolated* from the names), and `UpdateStudioRenderConfig` never sets
+the load at `0x1800527eb` puts it in `+0x8a8`, review 1's read, not re-read by the lead), and `UpdateStudioRenderConfig` never sets
 `bDrawZBufferedWireframe`, so the `zbuffer` twin is never used (*read*). Its VMT (`platform_misc`, `hl2_misc`): `Wireframe`,
-`$color [0 1 1]`, `$ignorez 1`, no `$basetexture`; the shader is VertexLitGeneric with `NOFOG` (`wireframe_dx9.cpp`). Ported:
+`$color [0 1 1]`, `$ignorez 1`, no `$basetexture`; the shader is VertexLitGeneric's helper run unlit, with `NOFOG`
+(`wireframe_dx9.cpp`). Ported:
 `MapAssets.Wireframe` loads it at map load (white: no base); `ModelMaterialShading.TakesDiffuseLighting` takes the
 `Wireframe` shader as UNLIT, because `Wireframe_DX9` runs VertexLitGeneric's helper with `bVertexLitGeneric` false
 (`wireframe_dx9.cpp:33`, `:43`, `:49`; review 1, Fable — the first port lit it); `WorldRenderer.DrawModel` draws every
 STUDIO model mesh with it under `mat_wireframe` unless a forced material is set (`0x1800041f2`), a face's meshes included,
-and binds the drawn material's animation frame rather than the batch's own (review 1, Sonnet); a brush entity keeps its own (B803);
-`SetMaterial` gives it no depth test or write (`$ignorez`, *interpolated* render state); `FogModeOf` gives the `Wireframe`
-shader no fog. Without a TF2 install the material is absent and models keep their own, the glint row above still covering
+and binds the drawn material's animation frame rather than the batch's own (review 1, Sonnet; a forced material's too);
+a brush entity keeps its own (B803); static props are swapped as studio models (*interpolated*: the static-prop draw going
+through `R_StudioSetupSkinAndLighting` is not read); `SetMaterial` gives it no depth test or write (`$ignorez`,
+*interpolated* render state); `FogModeOf` gives the `Wireframe` shader no fog (`NOFOG` is read; what it does at draw is the
+closed shaderlib's, *interpolated* as no fog). Without a TF2 install the material is absent and models keep their own, the glint row above still covering
 the eye. Tests (`Tf2DemoSalvage.Rendering.Tests`): `EyeShaderRenderTests.DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial`
 (VertexLitGeneric and Eyes: (0, 255, 255) on the edge, black off it), `…_UnderWireframe_SwapsAStudioModelAndNotABrushEntity`,
 `…_UnderWireframeOnAnAnimatedMaterial_BindsTheWireframesTexture`, `…_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ`,
-`…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `FogModeOf_TheWireframeShader_IsNone`, and
+`…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `…_UnderWireframeInFullFog_DrawsTheEdgeUnfogged`,
+`…_WithAForcedAnimatedMaterial_BindsTheForcedMaterialsFrame`, `FogModeOf_TheWireframeShader_IsNone`, and
 `OverrideMaterialLoadingTests.Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays` (real
 install). Each reddened under its own sabotage. *Not verified by looking*: no viewer was launched. Out of this entry: the
 world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
@@ -42601,6 +42607,12 @@ read. Tests (`Tf2DemoSalvage.Presentation.Tests`): `ConfigConsoleConformanceTest
 (Rendering.Tests). And `+sv_cheats 1 +mat_wireframe 1` on the launch line, once stored, reached nothing at startup — no
 hand-over read `mat_wireframe` — so `ViewerSession.OpenDevice` ticks the menu from the settings
 (`ViewerSessionTests.OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice`).
+**The bare name** (review 2): the refusal of a config's bare name (`ConfigConsole.Run`) covers any cheat ConVar that is
+also a viewer one-shot name; today that is `mat_wireframe` alone — a bare `mat_fullbright` bind triggers nothing and is
+refused nothing (*measured* 2026-11-21 with a test, then removed as asserting nothing). With `sv_cheats 1` a config's bare
+`mat_wireframe` toggles the view, where TF2 prints the value and sets nothing (*read*, the code's own comment): that is
+the viewer's bare-name one-shot convention, the same for every one-shot name and not this entry's — it goes with B792's
+owner question about the viewer's own keys and names.
 
 ## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
 

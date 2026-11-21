@@ -79,6 +79,7 @@ public sealed class UnlitModelMaterialConformanceTests
     [TestCase("UnlitGeneric", true)]
     [TestCase("UnLitGeneric", true)]
     [TestCase("UnlitTwoTexture", true)]
+    [TestCase("Wireframe", true)]
     [TestCase("LightmappedGeneric", false)]
     [TestCase("WorldVertexTransition", false)]
     public void ConvertsModulation_EachShader_IsWhetherItSendsTheColourInLinearSpace(string shader, bool expected) =>
@@ -89,6 +90,7 @@ public sealed class UnlitModelMaterialConformanceTests
     [TestCase("UnlitGeneric", false)]
     [TestCase("UnLitGeneric", false)]
     [TestCase("UnlitTwoTexture", false)]
+    [TestCase("Wireframe", false)]
     public void TakesDiffuseLighting_EachShader_IsWhetherItsPixelShaderReadsAnyLight(string shader, bool expected) =>
         ModelMaterialShading.TakesDiffuseLighting(shader).ShouldBe(expected);
 

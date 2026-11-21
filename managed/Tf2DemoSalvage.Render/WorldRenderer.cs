@@ -7100,7 +7100,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The diffuse an unlit material is drawn with, the shader's <c>combine.w</c>; zero for a lit one.</summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>1 for Modulate, DecalModulate, UnlitGeneric and UnlitTwoTexture; 0 otherwise.</returns>
+    /// <returns>1 for Modulate, DecalModulate, UnlitGeneric, UnlitTwoTexture and Wireframe (B788); 0 otherwise.</returns>
     /// <remarks>
     /// Modulating shaders read no light (B639, B638): `Modulate` draws through `unlitgeneric_vs20` (modulate_dx9.cpp:186)
     /// and `DecalModulate` sets every light combo to zero (DecalModulate_dx9.cpp:184-191). **One, and no compensation**

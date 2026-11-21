@@ -754,7 +754,7 @@ public sealed class MapAssets
     /// `bDrawZBufferedWireframe` and `+0x8a8` otherwise, in place of the mesh's own. The two names sit together in the
     /// binary, `//platform/materials/debug/debugmrmwireframe` (`0x180080b18`) and `…zbuffer` (`0x180080b48`); the load at
     /// `0x1800527eb` puts the first in `+0x8a8` (B788 review 1). `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) zeroes the config
-    /// (`0x1800f5716`) and never sets `bDrawZBufferedWireframe`, so a demo's view takes `debugmrmwireframe`: shader
+    /// (`0x1800f5703`-`0x1800f571d`) and never sets `bDrawZBufferedWireframe`, so a demo's view takes `debugmrmwireframe`: shader
     /// <c>Wireframe</c>, <c>$color [0 1 1]</c>, <c>$ignorez 1</c> (the VMT `platform_misc` and `hl2_misc` both ship).
     /// </remarks>
     public ModelWireframe? Wireframe { get; init; }
