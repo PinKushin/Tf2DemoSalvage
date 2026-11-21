@@ -503,6 +503,13 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // logged as set and drew nothing, so a `--shot` with either was its control's picture.
             attach(_device, () => _window.ShowSpecular(false), mode => SetFullbright((Fullbright)mode));
 
+            // `mat_wireframe` from the launch line (with `+sv_cheats 1`) or the config, through the menu's tick as a set at
+            // run time goes (B791): nothing else at startup reads it.
+            if (Wireframes(_settingsOwner.Current.ConVarText(WireframeCommand) ?? "0"))
+            {
+                _window.ShowWireframe(true);
+            }
+
             _renderLog.LogInformation(
                 "{Message}",
                 _settingsOwner.FrameRateLine);

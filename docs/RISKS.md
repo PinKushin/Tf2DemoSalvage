@@ -42504,7 +42504,7 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
-## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
+## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — FIXED (2026-11-21)
 
 Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
 `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
@@ -42524,7 +42524,23 @@ its material, where TF2's are the wireframe material's flat colour. **Ported fro
 draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
 wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
 
-## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — OPEN
+**Fixed** (2026-11-21; how it was settled: `docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`, "The studio
+render's wireframe material"). The material is `debug/debugmrmwireframe` (the string at `studiorender.dll` `0x180080b18`;
+which of `+0x8a8`/`+0x8b0` holds it is *interpolated* from the names), and `UpdateStudioRenderConfig` never sets
+`bDrawZBufferedWireframe`, so the `zbuffer` twin is never used (*read*). Its VMT (`platform_misc`, `hl2_misc`): `Wireframe`,
+`$color [0 1 1]`, `$ignorez 1`, no `$basetexture`; the shader is VertexLitGeneric with `NOFOG` (`wireframe_dx9.cpp`). Ported:
+`MapAssets.Wireframe` loads it at map load (white, as a VertexLitGeneric with no base); `WorldRenderer.DrawModel` draws every
+model mesh with it under `mat_wireframe` unless a forced material is set (`0x1800041f2`), a face's meshes included;
+`SetMaterial` gives it no depth test or write (`$ignorez`, *interpolated* render state); `FogModeOf` gives the `Wireframe`
+shader no fog. Without a TF2 install the material is absent and models keep their own, the glint row above still covering
+the eye. Tests (`Tf2DemoSalvage.Rendering.Tests`): `EyeShaderRenderTests.DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial`
+(VertexLitGeneric and Eyes: (0, 89, 89) on the edge, black off it), `…_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ`,
+`…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `FogModeOf_TheWireframeShader_IsNone`, and
+`OverrideMaterialLoadingTests.Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays` (real
+install). Each reddened under its own sabotage. *Not verified by looking*: no viewer was launched. Out of this entry: the
+world's brushwork under `mat_wireframe` still draws its own shaders in wireframe fill; what the engine binds there is not read.
+
+## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
 
 Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
 while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `+name value` launch option — and reverted
@@ -42539,6 +42555,28 @@ which is B792. **Which applies where**: the menu item and the
 viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
+
+**Fixed** (2026-11-21). What the code did was worse than the entry said: undeclared, a config's `mat_wireframe 1` line set
+nothing, but a bind's `mat_wireframe 1` (or a bare `mat_wireframe`) fell through to the viewer's wireframe one-shot and
+TOGGLED it, cheats or not. Now: `EngineConVars` declares `mat_wireframe` "0", cheat (`viewdebug.cpp:46`; `engine.dll`
+`0x180007b94`), so a config's, a bind's and a launch option's set is refused under `sv_cheats 0`, and a bare
+`mat_wireframe` bound by a config is refused as its set would be (`ConfigConsole.Run`); with cheats on the set reaches the
+menu's tick (`ViewerSession.OnConVarSet`, `IViewerWindow.ShowWireframe`), which reaches the device by the menu's own route;
+the menu records its value for the run as fullbright's does, so `toggle mat_wireframe` reads it and `sv_cheats 0` reverts it.
+The menu and the default `CTRL+w` key stay ungated (D253; the key is B792's question, unchanged). Found on the way and fixed
+with it: a bind to `sv_cheats` on a key that has a viewer default (`F8`) lost the key to the default, because `sv_cheats`
+is replicated and `ConfigConsole.SetsState` did not count it. **`r_drawworld` and `r_drawentities`**: neither is declared
+nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
+set does nothing and there is nothing to refuse; they are engine ConVars (`view.cpp:296` finds `r_drawentities` by name;
+neither is declared in the SDK, so the entry's "`FCVAR_CHEAT` in the SDK" was wrong), and their flags in `engine.dll` are not
+read. Tests (`Tf2DemoSalvage.Presentation.Tests`): `ConfigConsoleConformanceTests.Load_MatWireframeWithCheatsOff_IsRefused`,
+`…KeyDown_AConfigsBindsToMatWireframeWithCheatsOff_TriggerNothingAndTheDefaultKeyStillDoes`,
+`…KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet`, `LaunchOptionsTests.Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats`,
+`ViewerSessionTests.KeyPressed_AConfigsBindToMatWireframe_IsRefusedWithoutCheatsAndIsTheSwitchWithThem`,
+`…KeyPressed_AToggleAfterTheMenuSetWireframe_ActsOnTheMenusValue`; and `DebugDrawConformanceTests.Wireframe_ValvesDeclaration_IsACheatAndSoIsOurs`
+(Rendering.Tests). And `+sv_cheats 1 +mat_wireframe 1` on the launch line, once stored, reached nothing at startup — no
+hand-over read `mat_wireframe` — so `ViewerSession.OpenDevice` ticks the menu from the settings
+(`ViewerSessionTests.OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice`).
 
 ## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
 

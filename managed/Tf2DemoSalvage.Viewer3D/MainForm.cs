@@ -1202,6 +1202,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     void IViewerWindow.ShowSpecular(bool ticked) => _menu.Specular.Checked = ticked;
 
     /// <inheritdoc/>
+    void IViewerWindow.ShowWireframe(bool ticked) => _menu.Wireframe.Checked = ticked;
+
+    /// <inheritdoc/>
     void IViewerWindow.ShowFullbright(int mode)
     {
         foreach (ToolStripItem entry in _menu.FullbrightMenu.DropDownItems)

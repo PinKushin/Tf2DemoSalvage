@@ -322,7 +322,7 @@ public sealed class ConfigConsole
             if (verb.Equals("alias", StringComparison.OrdinalIgnoreCase)
                 || _aliases.ContainsKey(verb)
                 || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
-                || (tokens.Count >= 2 && IsClientConVar(verb)))
+                || (tokens.Count >= 2 && (IsClientConVar(verb) || verb.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))))
             {
                 return true;
             }
@@ -872,13 +872,8 @@ public sealed class ConfigConsole
             return false;
         }
 
-        // **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer,
-        // unless the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print.
-        if (declared.Cheat && !CheatsOn && !_viewerIssued)
+        if (RefuseCheat(declared, tokens[1]))
         {
-            _refusedCheats.Add(declared.Name);
-            _refusedNow = true;
-            CheatRefused?.Invoke(this, new ConVarSetEventArgs(declared.Name, tokens[1]));
             return false;
         }
 
@@ -888,6 +883,25 @@ public sealed class ConfigConsole
             _conVars[declared.Name] = tokens[1];
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer, unless
+    /// the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print. The viewer's own
+    /// default keys are exempt (D253 as <see cref="KeyDown"/> applies it; B792).
+    /// </summary>
+    /// <returns>Whether it was refused.</returns>
+    private bool RefuseCheat(EngineConVar declared, string value)
+    {
+        if (!declared.Cheat || CheatsOn || _viewerIssued)
+        {
+            return false;
+        }
+
+        _refusedCheats.Add(declared.Name);
+        _refusedNow = true;
+        CheatRefused?.Invoke(this, new ConVarSetEventArgs(declared.Name, value));
         return true;
     }
 
@@ -1130,6 +1144,15 @@ public sealed class ConfigConsole
 
             // A refused cheat ConVar is the console's answer, as TF2's is: it ends the clause (B718).
             if (_refusedNow)
+            {
+                acted = true;
+                continue;
+            }
+
+            // **A bare cheat ConVar's name is the viewer's one-shot for it** (`mat_wireframe` toggles the view), and on TF2's
+            // command paths that is a cheat set like `mat_wireframe 1`, refused as it is (B791). TF2 would print the value.
+            if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
+                EngineConVars.TryByName(command, out EngineConVar? bare) && RefuseCheat(bare, string.Empty))
             {
                 acted = true;
                 continue;

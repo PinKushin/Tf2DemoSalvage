@@ -62,6 +62,10 @@ public interface IViewerWindow
     /// <param name="ticked">Whether it is ticked.</param>
     public void ShowSpecular(bool ticked);
 
+    /// <summary>Ticks or clears the wireframe item; the window reports the change back as any click does (B791).</summary>
+    /// <param name="ticked">Whether it is ticked.</param>
+    public void ShowWireframe(bool ticked);
+
     /// <summary>Ticks the lighting item for a <c>mat_fullbright</c> value and clears the others.</summary>
     /// <param name="mode">The value: 0, 1 or 2.</param>
     public void ShowFullbright(int mode);

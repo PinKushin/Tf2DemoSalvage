@@ -226,8 +226,10 @@ public sealed class ViewerSessionTests
         rig.Session.SetWireframe(false);
 
         rig.Device.Wireframe.ShouldBeFalse();
-        rig.Log.Lines.Where(static line => line.Contains("mat_wireframe", StringComparison.Ordinal))
+        // The settings record each for this run too (B791), on their own log line.
+        rig.Log.Lines.Where(static line => line.StartsWith("[render] mat_wireframe", StringComparison.Ordinal))
             .ShouldBe(["[render] mat_wireframe 1", "[render] mat_wireframe 0"]);
+        rig.Log.Count("mat_wireframe 0 (set at run time)").ShouldBe(1);
         (rig.Window.Count("Redraw") - redraws).ShouldBe(2);
     }
 
@@ -284,6 +286,50 @@ public sealed class ViewerSessionTests
         rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
 
         (before, (rig.Device.Specular, rig.Device.Fullbright)).ShouldBe(((true, Fullbright.Off), (false, Fullbright.NoLighting)));
+    }
+
+    /// <remarks>
+    /// B791: `mat_wireframe` is a cheat ConVar, so a config's bind to it is refused with `sv_cheats 0`, and with cheats on it
+    /// is the switch, ticking the menu's item, which then reaches the device by the menu's own route; `sv_cheats 0` reverts
+    /// it, as TF2 reverts every cheat ConVar it holds (B718). The menu itself stays ungated (D253). `sv_cheats 0` sits on
+    /// F8, which has a viewer default (`cl_showfps`): before, a bind to `sv_cheats` lost its key to the default, because
+    /// `sv_cheats` is replicated and so not counted as a set the bind makes.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AConfigsBindToMatWireframe_IsRefusedWithoutCheatsAndIsTheSwitchWithThem()
+    {
+        using Rig rig = BuildWithAutoexec(
+            "bind \"F6\" \"sv_cheats 1\"\nbind \"F7\" \"mat_wireframe 1\"\nbind \"F8\" \"sv_cheats 0\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue("a refused cheat is still the console's answer");
+        bool refused = rig.Device.Wireframe;
+        rig.Session.KeyPressed(Key("F6", static _ => false));
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        bool cheated = rig.Device.Wireframe;
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        (refused, cheated, rig.Device.Wireframe).ShouldBe((false, true, false));
+        rig.Window.Told.Where(static told => told.StartsWith("ShowWireframe", StringComparison.Ordinal))
+            .ShouldBe(["ShowWireframe True", "ShowWireframe False"]);
+    }
+
+    /// <remarks>
+    /// B791: the menu's wireframe is recorded for this run, as its fullbright is (B671 review, D215), so a `toggle
+    /// mat_wireframe` after it reads what the menu set and turns it off; without the record it read 0 and set 1.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AToggleAfterTheMenuSetWireframe_ActsOnTheMenusValue()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"toggle mat_wireframe\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.SetWireframe(true);
+        rig.Device.Wireframe.ShouldBeTrue("the control: the menu reached the device");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeFalse();
     }
 
     /// <remarks>
@@ -356,7 +402,7 @@ public sealed class ViewerSessionTests
 
         rig.Session.SetWireframe(true);
 
-        rig.Log.Count("mat_wireframe 1").ShouldBe(1);
+        rig.Log.Count("[render] mat_wireframe 1").ShouldBe(1);
         rig.Window.Count("Redraw").ShouldBe(1);
     }
 
@@ -557,6 +603,24 @@ public sealed class ViewerSessionTests
 
         rig.Device.Specular.ShouldBeFalse();
         rig.Device.Fullbright.ShouldBe(Fullbright.NoLighting);
+    }
+
+    /// <remarks>
+    /// B791: `+sv_cheats 1 +mat_wireframe 1` stores the ConVar (`LaunchOptionsTests`), and the hand-over ticks the menu's
+    /// item from it, as a set at run time does, so the device draws wireframe from its first frame. Before, nothing at
+    /// startup read `mat_wireframe` and the launch line's set reached nothing.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_wireframe", "1"));
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Device.Wireframe.ShouldBeFalse("the control: a new device starts solid");
+
+        rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeTrue();
     }
 
     /// <summary>An attach that hands nothing over, for the tests about the opening itself.</summary>

@@ -14,6 +14,14 @@ using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>The studio render's wireframe material in the material table (B788).</summary>
+/// <param name="Material">Its index in the table every model's materials share.</param>
+/// <param name="IgnoresZ">
+/// Its <c>$ignorez</c>, <c>MATERIAL_VAR_IGNOREZ</c>: drawn with no depth test and no depth write. *Interpolated*: the
+/// flag's render state is set in the closed shaderlib; the skybox's reading of it is the same (`SkyboxRenderer`).
+/// </param>
+public readonly record struct ModelWireframe(int Material, bool IgnoresZ);
+
 /// <summary>A decoded texture ready to upload.</summary>
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
@@ -643,6 +651,8 @@ public sealed class MapAssets
     /// <param name="placedCubemaps">The map's placed cubes, which an <c>env_cubemap</c> material reflects (B725).</param>
     /// <param name="proxies">Each material's proxies by the same index, or none (B754's <c>WeaponSkin</c>).</param>
     /// <param name="compositorTextures">What a war paint composite reads, by name (B754); none when null.</param>
+    /// <param name="wireframe">The studio render's wireframe material among these (B788), or null for none.</param>
+    /// <param name="overrideMaterials">Whole-model override materials among these, by VMT path (B325); none when null.</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -656,7 +666,9 @@ public sealed class MapAssets
         IReadOnlyList<MapEnvmapShading?>? localReflections = null,
         IReadOnlyList<MapPlacedCubemap>? placedCubemaps = null,
         IReadOnlyList<IReadOnlyList<MaterialProxy>>? proxies = null,
-        IReadOnlyDictionary<string, MapTexture>? compositorTextures = null)
+        IReadOnlyDictionary<string, MapTexture>? compositorTextures = null,
+        ModelWireframe? wireframe = null,
+        IReadOnlyDictionary<string, int>? overrideMaterials = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -683,6 +695,8 @@ public sealed class MapAssets
             LocalReflections = localReflections ?? [],
             PlacedCubemaps = placedCubemaps ?? [],
             CompositorTextures = compositorTextures ?? new Dictionary<string, MapTexture>(),
+            Wireframe = wireframe,
+            OverrideMaterials = overrideMaterials ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
         };
     }
 
@@ -729,6 +743,21 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyDictionary<string, int> OverrideMaterials { get; init; } =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The studio render's own wireframe material, which draws every model mesh under <c>mat_wireframe</c> (B788); null when it did not load.</summary>
+    /// <remarks>
+    /// **Read** (`studiorender.dll`, disassembled): `R_StudioSetupSkinAndLighting` (`0x1800041c0`) tests
+    /// `StudioRenderConfig_t::bWireframe` (`0x1800041ec`) and no forced material (`+0x250`), then binds `+0x8b0` under
+    /// `bDrawZBufferedWireframe` and `+0x8a8` otherwise, in place of the mesh's own. The two names sit together in the
+    /// binary, `//platform/materials/debug/debugmrmwireframe` (`0x180080b18`) and `…zbuffer` (`0x180080b48`); *interpolated*:
+    /// which field holds which, from their names. `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) zeroes the config
+    /// (`0x1800f5716`) and never sets `bDrawZBufferedWireframe`, so a demo's view takes `debugmrmwireframe`: shader
+    /// <c>Wireframe</c>, <c>$color [0 1 1]</c>, <c>$ignorez 1</c> (the VMT `platform_misc` and `hl2_misc` both ship).
+    /// </remarks>
+    public ModelWireframe? Wireframe { get; init; }
+
+    /// <summary>The material the studio render draws every model mesh with under <c>mat_wireframe</c> (B788).</summary>
+    public const string WireframeMaterialPath = "debug/debugmrmwireframe";
 
     /// <summary>
     /// The textures the demo's war paint composites read, by their name under `materials/` (B754); a name that did not
@@ -962,6 +991,26 @@ public sealed class MapAssets
             $"resolved{(loaded.Count == 0 ? string.Empty : $" at {string.Join(", ", loaded.Select(entry => $"{entry.Key}={entry.Value}"))}")}");
 
         return loaded;
+    }
+
+    /// <summary>Appends the studio render's wireframe material to the table (B788), or null when the install lacks it.</summary>
+    /// <remarks>The VMT names no <c>$basetexture</c>, so it resolves to the standard white a VertexLitGeneric binds without one.</remarks>
+    private static ModelWireframe? LoadWireframeMaterial(
+        ILogger assets, MaterialTable table, PakFile pak, GameArchives archives, int maximumTextureSize, TextureFiles? textures)
+    {
+        ResolvedMaterial material =
+            Resolve(assets, WireframeMaterialPath, pak, archives, maximumTextureSize, report: false, model: true, textures: textures);
+        string path = "materials/" + WireframeMaterialPath + ".vmt";
+
+        if (material.Texture is not { } texture || (pak.ReadFile(path) ?? archives.Read(path)) is not { } vmt)
+        {
+            assets.LogInformation("{Message}", $"{WireframeMaterialPath} not found: models keep their own materials under mat_wireframe");
+            return null;
+        }
+
+        int index = table.Add(new BspMaterial(WireframeMaterialPath, (0f, 0f, 0f), texture.Width, texture.Height), material);
+
+        return new ModelWireframe(index, VmtMaterial.Load(vmt, _ => null).IgnoresZ);
     }
 
     /// <summary>Entity models and the static props' models, in their own coordinates, keyed by path.</summary>
@@ -1895,6 +1944,9 @@ public sealed class MapAssets
         Dictionary<string, int> overrides =
             LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures, painted?.Materials ?? []);
 
+        // The studio render's wireframe material, loaded at its init whatever is drawn (B788).
+        ModelWireframe? wireframe = LoadWireframeMaterial(assets, table, pak, archives, maximumTextureSize, textures);
+
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
         // paths and a gap in one says nothing about the other, so a combined number would hide
@@ -2071,6 +2123,7 @@ public sealed class MapAssets
             missing)
         {
             OverrideMaterials = overrides,
+            Wireframe = wireframe,
             CompositorTextures = LoadCompositorTextures(assets, archives, pak, maximumTextureSize, painted?.Textures ?? []),
             DetailProps = detailProps,
             DetailSpriteRectangles = detailRectangles,
@@ -4089,8 +4142,10 @@ public sealed class MapAssets
             string shader = material.Shader;
             bool lightmapped = shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
                 shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+            // `Wireframe` is VertexLitGeneric's init and draw under another name (`wireframe_dx9.cpp:30-50`, B788).
             bool vertexLit = shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
-                shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase);
+                shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) ||
+                shader.Equals("Wireframe", StringComparison.OrdinalIgnoreCase);
 
             if (!lightmapped && !vertexLit)
             {

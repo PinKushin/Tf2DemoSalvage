@@ -247,6 +247,7 @@ public static class EngineConVars
         new("r_shader_srgb", "0", Replicated: false, Cheat: false),                          // shaderapidx9.dll 0x180001120
         new("mat_specular", "1", Replicated: false, Cheat: false),                           // engine; help
         new("mat_fullbright", "0", Replicated: false, Cheat: true),                          // c_rope.cpp:82
+        new("mat_wireframe", "0", Replicated: false, Cheat: true),                           // viewdebug.cpp:46; engine.dll 0x180007b94, B791
         new("r_dopixelvisibility", "1", Replicated: false, Cheat: false),                    // c_pixel_visibility.cpp:24
         new("cl_drawhud", "1", Replicated: false, Cheat: true),                              // clientmode_shared.cpp:81
         new("hud_medichealtargetmarker", "0", Replicated: false, Cheat: false),              // tf/tf_weapon_medigun.cpp:205

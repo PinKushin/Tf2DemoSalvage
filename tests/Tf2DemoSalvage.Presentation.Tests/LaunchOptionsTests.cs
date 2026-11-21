@@ -340,6 +340,15 @@ public sealed class LaunchOptionsTests
         Read("+sv_cheats", "1", "+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(12f);
     }
 
+    /// <remarks>`mat_wireframe` is a cheat ConVar in TF2 (`engine.dll` `0x180007b94`, flags `0x4000`), so the launch line's set
+    /// meets the same refusal (B791).</remarks>
+    [Test]
+    public void Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats()
+    {
+        Read("+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBeNull("refused with cheats off");
+        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+    }
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }

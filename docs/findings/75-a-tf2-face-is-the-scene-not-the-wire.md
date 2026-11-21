@@ -205,3 +205,29 @@ The `Eyes` shader adds a 32×32 render target the studio render draws for every 
 - **`mat_wireframe` reaches the glint through `sv_cheats`.** The engine's `bWireframe` is `sv_cheats && mat_wireframe`
   (`0x1800f5855`), and under it the studio render skips the glint and draws the model with its own wireframe material
   — the second half is B788 (*read*).
+
+## The studio render's wireframe material (B788)
+
+What was believed: B788 was filed knowing the swap's shape — `R_StudioSetupSkinAndLighting` binds `+0x8a8` or `+0x8b0` in
+place of the mesh's material — and not what those two fields hold, so the first guess was "edges in the material's own
+shading", which is what ours drew. Three reads settled it.
+
+- **The binary names both materials, side by side.** `studiorender.dll` carries
+  `//platform/materials/debug/debugmrmwireframe` at `0x180080b18` and `…debugmrmwireframezbuffer` at `0x180080b48`, and
+  nothing else with "wireframe" in it (*read*, a byte search; the reference that loads each was not followed, so which
+  field holds which is *interpolated* from `bDrawZBufferedWireframe` choosing `+0x8b0`).
+- **The engine never asks for the z-buffered one.** `UpdateStudioRenderConfig` (`engine.dll` `0x1800f56c0`) zeroes the
+  config (`0x1800f5703`-`0x1800f571d`) and then writes bits 0, 3, 4 and 5 of byte `+0x25`, never bit 2,
+  `bDrawZBufferedWireframe` (*read*, the whole function disassembled). So a demo's `mat_wireframe` with cheats on draws
+  every model with `debugmrmwireframe`; another writer of the config was not searched for.
+- **The material is the game's shipped data, the fifth source.** `debugmrmwireframe.vmt` is in both `platform_misc` and
+  `hl2_misc`: shader `Wireframe`, `$color [0 1 1]`, `$ignorez 1`, `$decal 1`, `$model 1`, no `$basetexture` (*read*, the
+  VPKs). `Wireframe_DX9` is VertexLitGeneric's init and draw plus three flags — `NO_DEBUG_OVERRIDE`, `NOFOG`, `WIREFRAME`
+  (`wireframe_dx9.cpp:30-50`, *read*). So TF2's wireframe model is white, LIT by the model's light, times cyan, unfogged,
+  and drawn through everything in front of it. Ours drew the model's textures, fogged and depth-tested — a wireframe that
+  looked plausible and answered a different question (what is in front) from the engine's (where are all the edges).
+- **A forced material beats it.** The swap's first test is `+0x250`, `m_pForcedMaterial`, null (`0x1800041f2`): a gold
+  corpse under `mat_wireframe` stays gold (*read*).
+
+Ported in `WorldRenderer.DrawModel` with the material loaded at map load (`MapAssets.Wireframe`); the `$ignorez` depth
+state is *interpolated* (the flag's render state is the closed shaderlib's), as the skybox already reads it.

@@ -97,4 +97,28 @@ public sealed class OverrideMaterialLoadingTests
         assets.LightWarps[gold].ShouldBeNull(
             "gold declares no light warp — the control on the line above");
     }
+
+    /// <remarks>
+    /// **The studio render's wireframe material, which no map or model names either** (B788): `studiorender.dll` finds
+    /// `//platform/materials/debug/debugmrmwireframe` at init (`0x180080b18`). The VMT as shipped: shader `Wireframe`,
+    /// `$color [0 1 1]`, `$ignorez 1`, no `$basetexture`, so white rather than the error texture.
+    /// </remarks>
+    [Test]
+    public void Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays()
+    {
+        MapAssets assets = MapCache.Load();
+
+        ModelWireframe wireframe = assets.Wireframe.ShouldNotBeNull();
+        int index = wireframe.Material;
+
+        index.ShouldBeGreaterThanOrEqualTo(assets.BrushMaterialCount);
+        assets.Materials[index].Name.ShouldBe(MapAssets.WireframeMaterialPath);
+        assets.Shaders[index].ShouldBe("Wireframe");
+        wireframe.IgnoresZ.ShouldBeTrue();
+
+        MapTexture texture = assets.Textures[index].ShouldNotBeNull();
+
+        texture.IsErrorTexture.ShouldBeFalse("no $basetexture is white, not missing");
+        texture.Modulation.ShouldBe((0f, 1f, 1f, 1f));
+    }
 }

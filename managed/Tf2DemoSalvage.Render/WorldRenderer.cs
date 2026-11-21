@@ -1053,7 +1053,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // tone-map scale under integer HDR UNLESS the shader disabled fog gamma correction, which only DecalModulate does.
         // Mode 3 is Modulate (scaled), mode 4 DecalModulate (unscaled, and its factor first takes
         // `pow( saturate( fogFactor ), 0.4f )`, decalmodulate_ps2x.fxc:42). The output is a gamma value (B641), so the lerp
-        // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
+        // is in gamma as Valve's is. Mode 2, none, is the `Wireframe` shader's `MATERIAL_VAR_NOFOG` (B788).
         static const float StoredGrey = 128.0f / 255.0f;
 
         // Under height fog the grey is 128/255 through the height-fog branch's conversion, which follows `r_shader_srgb`
@@ -2421,6 +2421,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private IReadOnlyDictionary<string, int> _overrideMaterials =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The studio render's wireframe material, which every model mesh draws with under <c>mat_wireframe</c>, or null (B788).</summary>
+    private ModelWireframe? _modelWireframe;
+
+    /// <summary>No depth test and no depth write: <c>MATERIAL_VAR_IGNOREZ</c>, for the wireframe material (B788).</summary>
+    private ComPtr<ID3D11DepthStencilState> _depthIgnored;
+
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
     /// <remarks>
     /// **Drawn in a second pass with additive blending, which is what the engine does.** Source
@@ -3717,6 +3723,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _decalDepth = overlayState;
         }
 
+        if (_depthIgnored.Handle is null)
+        {
+            DepthStencilDesc ignored = default;
+
+            ignored.DepthEnable = 0;
+            ignored.DepthWriteMask = DepthWriteMask.Zero;
+            ignored.DepthFunc = ComparisonFunc.Always;
+
+            ComPtr<ID3D11DepthStencilState> ignoredState = default;
+
+            SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in ignored, ref ignoredState));
+
+            _depthIgnored = ignoredState;
+        }
+
         // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
         // unresolved material as a magenta and black chequer, and it is the right call - a surface
         // that quietly falls back to white or to nothing is a surface nobody investigates. Several
@@ -3997,6 +4018,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // above and below have already uploaded them. This is only the path-to-index map a draw
         // needs, since a corpse asks for gold by name and knows no index.
         _overrideMaterials = assets.OverrideMaterials;
+        _modelWireframe = assets.Wireframe;
 
         // Which materials run `WeaponSkin`, at what size, and what their composites read (B754).
         UploadWeaponSkins(assets);
@@ -6642,7 +6664,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _additive.Contains(materialIndex),
             _modulate.ContainsKey(materialIndex));
 
+        // `$ignorez`, which the wireframe material declares (B788): no test, no write.
         ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
+
+        if (_modelWireframe is { IgnoresZ: true } wire && wire.Material == materialIndex)
+        {
+            depth = _depthIgnored;
+        }
 
         if (depth.Handle is not null)
         {
@@ -7263,6 +7291,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <returns>True for either modulating shader, whatever else the material declares (B635).</returns>
     private static bool Modulates(MapTexture? surface) => surface is { IsModulate: true } or { IsModulateTwice: true };
 
+    /// <summary>Fog mode 2: no fog, <c>MATERIAL_VAR_NOFOG</c> (the <c>Wireframe</c> shader, B788).</summary>
+    internal const float FogModeNone = 2f;
+
     /// <summary>Fog mode 3: toward the grey times the tone-map scale, the factor as it is (`Modulate`, B637).</summary>
     internal const float FogModeGrey = 3f;
 
@@ -7276,7 +7307,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="surface">The material's base texture and flags, or null.</param>
     /// <param name="shader">The material's shader name, which tells `DecalModulate` from `Modulate`.</param>
     /// <returns><see cref="FogModeDecalGrey"/> for DecalModulate, <see cref="FogModeGrey"/> for any other modulating
-    /// material whatever it declares, 1 for an additive one, else 0.</returns>
+    /// material whatever it declares, <see cref="FogModeNone"/> for the <c>Wireframe</c> shader, 1 for an additive one, else 0.</returns>
     /// <remarks>
     /// **Both fog branches take a modulating material now**, the water's height fog included, and each scales by
     /// <see cref="ToneMapScaleNoneOf"/>, not by the mode: <c>ModulateFogConformanceTests</c> holds the height branch unscaled.
@@ -7284,6 +7315,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     internal static float FogModeOf(MapTexture? surface, string? shader) => surface switch
     {
         _ when Modulates(surface) => VmtMaterial.IsDecalModulateShader(shader) ? FogModeDecalGrey : FogModeGrey,
+
+        // The `Wireframe` shader sets `MATERIAL_VAR_NOFOG` (`wireframe_dx9.cpp:36`, B788).
+        _ when string.Equals(shader, "Wireframe", StringComparison.OrdinalIgnoreCase) => FogModeNone,
         { IsAdditive: true } => 1f,
         _ => 0f,
     };
@@ -7851,6 +7885,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _alphaBlend.Dispose();
         _depthReadOnly.Dispose();
         _decalDepth.Dispose();
+        _depthIgnored.Dispose();
         _depthWrite.Dispose();
         ReleaseMap();
         _material.Dispose();
@@ -8511,6 +8546,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
             {
                 material = forced;
+            }
+
+            // **Under `mat_wireframe` the studio render draws every mesh with its own wireframe material** (B788):
+            // `R_StudioSetupSkinAndLighting` (`studiorender.dll` `0x1800041ec`) takes it when `bWireframe` is set and no
+            // material is forced (`+0x250`), so a forced one, tested first, wins. Every mesh, a face's too: the eye
+            // shaders below never see their material. Not loaded (no TF2 install), the model keeps its own, as above.
+            else if (Wireframe && _modelWireframe is { } wireframe)
+            {
+                material = wireframe.Material;
             }
 
             // **Culling per material, because that is where the engine keeps it.** $nocull sets

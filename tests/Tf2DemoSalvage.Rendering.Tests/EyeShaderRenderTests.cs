@@ -377,6 +377,120 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **Under `mat_wireframe` every mesh draws with the studio render's wireframe material** (B788; `studiorender.dll`
+    /// `R_StudioSetupSkinAndLighting` `0x1800041ec`-`0x18000420e`, `MapAssets.Wireframe`), an eye's and a plain
+    /// VertexLitGeneric's alike. `debugmrmwireframe` is the `Wireframe` shader, VertexLitGeneric with no `$basetexture`
+    /// (`wireframe_dx9.cpp:30-50`), so white, lit, times `$color [0 1 1]`: the uniform cube's 0.1 gives (0, 89, 89) on the
+    /// quad's diagonal edge (34, 30). Before, the model kept its own material: red 89 or the eye's black iris. The control
+    /// is the same draw without wireframe, which is the material's own.
+    /// </remarks>
+    [TestCase("VertexLitGeneric")]
+    [TestCase("Eyes")]
+    public void DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial(string shader)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading? eye = shader == "Eyes" ? Below : null;
+        MapAssets assets = Wireframed(shader, ignoresZ: true);
+        int lit = Encode(Cube);
+
+        Draw(target, assets, eye);
+        (int R, int G, int B) own = target.PixelAt(34, 30);
+        target.Wireframe = true;
+        Draw(target, assets, eye);
+        (int R, int G, int B) wire = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"{shader} under wireframe: own {own}, wireframe {wire}, predicted (0, {lit}, {lit})");
+        own.G.ShouldBe(0, "the control: the material's own, which has no green");
+        wire.ShouldBe((0, lit, lit), "white, lit by the cube, times [0 1 1]");
+        target.PixelAt(20, 20).ShouldBe((0, 0, 0), "edges only: the material's $decal offset keeps the wireframe fill");
+    }
+
+    /// <remarks>
+    /// **`debugmrmwireframe` is `$ignorez 1`**, so its edges draw over what is in front of them (B788). The quad drawn solid
+    /// first, then its wireframe at the same depth without clearing: with no depth test the edge is the wireframe's
+    /// (0, 89, 89); with one, the strict test (`ComparisonFunc.Less`) refuses the equal depth and the solid red stays. Not
+    /// `$decal` here, whose `LessEqual` test would pass the equal depth and hide the difference.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 89)]
+    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ(bool ignoresZ, int red)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ, decal: false);
+
+        Draw(target, assets, null);
+        target.Wireframe = true;
+        Draw(target, assets, null, clear: false);
+        (int R, int G, int B) edge = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"wireframe over the solid, ignorez {ignoresZ}: {edge}");
+        edge.R.ShouldBe(red);
+    }
+
+    /// <remarks>
+    /// **A forced material wins over the wireframe one**: the swap needs `m_pForcedMaterial` (`+0x250`) null
+    /// (`studiorender.dll` `0x1800041f2`), so a gold corpse's `ForcedMaterialOverride` draws gold, here a blue material 2:
+    /// (0, 0, 89) on the edge, not the wireframe's (0, 89, 89).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
+        int lit = Encode(Cube);
+
+        target.Wireframe = true;
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(34, 30).ShouldBe((0, 0, lit));
+    }
+
+    /// <remarks>The `Wireframe` shader sets `MATERIAL_VAR_NOFOG` (`wireframe_dx9.cpp:36`): fog mode 2, none (B788).</remarks>
+    [Test]
+    public void FogModeOf_TheWireframeShader_IsNone()
+    {
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "Wireframe").ShouldBe(2f);
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "VertexLitGeneric").ShouldBe(0f, "the control");
+    }
+
+    /// <summary>
+    /// Material 0 red (or an eye with a black iris), material 1 `debugmrmwireframe` as the VMT has it: white, `$color [0 1 1]`,
+    /// `$decal 1`.
+    /// </summary>
+    private static MapAssets Wireframed(string shader, bool ignoresZ, bool decal = true) =>
+        MapAssets.ForMaterials(
+            [
+                shader == "Eyes"
+                    ? Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: 0)) }
+                    : Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = decal },
+            ],
+            [shader, "Wireframe"],
+            wireframe: new ModelWireframe(1, ignoresZ));
+
+    /// <remarks>
     /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
     /// drawn with a lamp at the camera (195), then again without one, is 0 — the target, left as the first draw filled it,
     /// is not bound.
@@ -801,7 +915,9 @@ public sealed class EyeShaderRenderTests
         float[]? baked = null,
         VolumeFog? heightFog = null,
         AmbientCube? cube = null,
-        float tangentW = 1f)
+        float tangentW = 1f,
+        bool clear = true,
+        string? overrideMaterial = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -841,7 +957,11 @@ public sealed class EyeShaderRenderTests
             NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f),
         }.ToMatrix();
 
-        target.Clear(0f, 0f, 0f);
+        if (clear)
+        {
+            target.Clear(0f, 0f, 0f);
+        }
+
         target.DrawModelPose(
             vertices,
             [new WorldBatch(0, 0, vertices.Count, Eyeball: eye is null ? -1 : 0)],
@@ -855,7 +975,9 @@ public sealed class EyeShaderRenderTests
             mouth: mouth,
             bakedColours: baked,
             toneMapScale: 1f,
-            heightFog: heightFog);
+            heightFog: heightFog,
+            clearDepth: clear,
+            overrideMaterial: overrideMaterial);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)

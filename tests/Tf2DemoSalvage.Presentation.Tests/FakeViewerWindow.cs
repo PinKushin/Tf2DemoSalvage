@@ -88,6 +88,16 @@ internal sealed class FakeViewerWindow : IViewerWindow
     public Action<bool>? SpecularTicked { get; set; }
 
     /// <inheritdoc/>
+    public void ShowWireframe(bool ticked)
+    {
+        Told.Add($"ShowWireframe {ticked}");
+        WireframeTicked?.Invoke(ticked);
+    }
+
+    /// <summary>What ticking the Wireframe item does: a real menu reports the change back to the session.</summary>
+    public Action<bool>? WireframeTicked { get; set; }
+
+    /// <inheritdoc/>
     public void ShowFullbright(int mode) => Told.Add($"ShowFullbright {mode}");
 
     /// <inheritdoc/>
