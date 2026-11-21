@@ -42814,6 +42814,9 @@ the HUD through an install of nothing; the call is tested since review 3.
    `HudViewport.NewMap` tells each CMDL panel to drop the faces and zero-control weights it keeps by frames
    (`VguiMdlPanel.ForgetLevel`, the StatTrak CMDLs too) — memory, not behaviour.
    `CModelPanelConformanceTests.NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces` (red first: the model held).
+   *Corrected in review 7*: the engine only marks the panel dirty at `game_newmap` and deletes `m_hModel` in the next
+   `SetupModel` (`DeleteModelData`, :395), so ours keeps the model until then; the CMDL panels still drop theirs at the
+   event. The row is now `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
 5. *The world's same gaps*, filed: **B809** (a C_BaseFlex without controllers runs its rules) and **B810** (the per-path
    resting weights and flexed corners outlive the level). Not fixed here.
 
@@ -42904,6 +42907,30 @@ nothing, and was redone).
 
 *Sabotage*: `_missed.Clear()` removed (both late rows, at the third paint's instance), `_entities.Clear()` removed (the
 new-entity row).
+
+**Review round 7** (no high or medium; fixed here):
+1. *`game_newmap` dropped the model the engine keeps* (parity): `CModelPanel::FireGameEvent` only marks the panel dirty
+   (`basemodelpanel.cpp:196-205`); `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339).
+   Ours cleared it at the event, so `SetSequence` (:708) and `SetBodyGroup` (:367-382) between the event and the next
+   paint found no model. The event now only marks the panel dirty; `SetupModel` already cleared the model first.
+   *Tests*: `CModelPanelConformanceTests.SetSequence_AfterNewMapBeforeThePaint_ReachesTheModel` (red first: false) and
+   `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (the round-3 row, changed: the model held after the event
+   and replaced at the next paint; red first: null after the event). Round 3 item 4 is corrected above.
+2. *The posing entity was keyed on the path alone*: a path answered with new frames without a level change posed the new
+   model on the old skeleton (unreachable in production today). `EntityFor` keeps the skinned model with the entity and
+   makes a new one when it differs, as the weights and the face are keyed. `VguiModelPanelConformanceTests.Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights`
+   now asserts a new entity (red first: the same).
+3. *The stream's in-place rewrite*, read: `FrameSequence.Run` places the camera (`FrameSequence.cs:133`), whose pose ends
+   with the wait for the frame in flight (`ViewerPresenter.Device.cs:163`, into `FinishDrawBeforeEffects` at :272), before
+   it builds the overlay (`FrameSequence.cs:138`) and draws (:141). Cited in `PanelMeshFlex`'s remark; no change.
+4. *Finding 105* now names `VguiHud.AddModelsToPrecache`.
+5. *The embedded panel's StatTrak draw*: reachable with a synthetic schema after all.
+   `TfEmbeddedItemModelPanelConformanceTests.Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed` draws a
+   strange, paint-kitted weapon with no inventory image as a model, and its module flexed at zero controls (0.25). It passed
+   first, the path being there.
+
+*Sabotage*, one batch: the model cleared at the event again (the two item-1 rows), the entity keyed on the path alone (the
+new-frames row), the embedded panel not drawing its module (the embedded draw row).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

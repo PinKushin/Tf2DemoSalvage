@@ -90,7 +90,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     ];
 
     private readonly BoneFrameCounter _clock = new();
-    private readonly Dictionary<string, AnimatingEntity> _entities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (PropModels.SkinnedModel Model, AnimatingEntity Entity)> _entities =
+        new(StringComparer.Ordinal);
     private readonly VguiMdl _root = new();
     private readonly List<VguiMdl> _merges = [];
 
@@ -475,10 +476,12 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(mdl);
 
         if (mdl.Path is not { } path || MdlCache.FindMdl(path) is not { Skinned: { } model } frames
-            || !_entities.TryGetValue(parentPath, out AnimatingEntity? parent))
+            || !_entities.TryGetValue(parentPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) parentEntry))
         {
             return false;
         }
+
+        AnimatingEntity parent = parentEntry.Entity;
 
         AnimatingEntity merged = EntityFor(path, model);
 
@@ -603,7 +606,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary>The posing entity this panel keeps for a model path, or null.</summary>
     /// <param name="modelPath">The path.</param>
     /// <returns>The entity.</returns>
-    internal AnimatingEntity? KeptEntity(string modelPath) => _entities.GetValueOrDefault(modelPath);
+    internal AnimatingEntity? KeptEntity(string modelPath) =>
+        _entities.TryGetValue(modelPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) kept) ? kept.Entity : null;
 
     /// <summary>How many models' zero-control weights this panel keeps.</summary>
     internal int KeptZeroControlWeights => _zeroControlWeights.Count;
@@ -762,17 +766,19 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     }
 
     /// <summary>This panel's own posing entry for one model path — <see cref="EntityModelSet.EntityFor"/>'s shape, keyed
-    /// by path because a model panel has no entity index.</summary>
+    /// by path because a model panel has no entity index, and made again when the path answers another model: each is posed
+    /// on the skeleton its own model made, as the weights and the face are keyed on the frames (B779 review 7 item 2).</summary>
     private AnimatingEntity EntityFor(string modelPath, PropModels.SkinnedModel model)
     {
-        if (_entities.TryGetValue(modelPath, out AnimatingEntity? existing))
+        if (_entities.TryGetValue(modelPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) existing)
+            && ReferenceEquals(existing.Model, model))
         {
-            return existing;
+            return existing.Entity;
         }
 
         AnimatingEntity created = new(model.NewSkeleton(), _clock);
 
-        _entities[modelPath] = created;
+        _entities[modelPath] = (model, created);
 
         return created;
     }

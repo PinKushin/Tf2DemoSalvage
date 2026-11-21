@@ -300,7 +300,9 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>
     /// `CModelPanel::FireGameEvent` (:196-205): at `game_newmap`, "force the models to re-setup themselves" — the panel is
-    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2).
+    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2). The model itself
+    /// stays until that set-up deletes it (`DeleteModelData`, :395), as `m_hModel` does: `SetSequence` and `SetBodyGroup`
+    /// called in between act on it (review 7 item 1).
     /// </summary>
     /// <param name="name">The event's name.</param>
     public void OnGameEvent(string name)
@@ -308,11 +310,6 @@ public class VguiModelPanel : VguiEditablePanel
         if (string.Equals(name, GameNewMap, StringComparison.Ordinal))
         {
             _panelDirty = true;
-
-            // The old level's model goes now rather than at the next paint's set-up (review 3 item 4): a panel that does
-            // not paint again would otherwise keep a dead level's frames. Nothing draws it in between — `Paint` sets the
-            // model up before it draws.
-            _model = null;
         }
     }
 

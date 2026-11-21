@@ -26,7 +26,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// (<c>EntityModelSet.FlexFor</c>, findings 80 and 92) — the moved slots computed once per model and packing, the deltas
 /// accumulated into kept scratch cleared only where the slot write reads, and written into the kept stream. The stream is
 /// rewritten in place: the HUD paints, then the frame draws what it painted, before the next paint (as the panel's
-/// <see cref="StudioFace"/> is).
+/// <see cref="StudioFace"/> is). **Read** (B779 review 7 item 3): `FrameSequence.Run` places the camera
+/// (`FrameSequence.cs:133`), whose pose ends with the wait for the frame in flight (`ViewerPresenter.Device.cs:163`, into
+/// `device.FinishDrawBeforeEffects()` at :272), before it builds the overlay (`FrameSequence.cs:138`), and draws after
+/// (:141) — so no draw of the last frame is reading the stream when a paint rewrites it.
 /// </remarks>
 internal sealed class PanelMeshFlex
 {

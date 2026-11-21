@@ -510,10 +510,14 @@ public sealed class VguiModelPanelConformanceTests
         panel.SetMDL("models/player/demo.mdl");
         panel.Paint(surface, Context());
         PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.25f);
+        Animation.Animating.AnimatingEntity firstEntity = panel.KeptEntity("models/player/demo.mdl").ShouldNotBeNull();
 
         current = Constant(0.5f);
         panel.Paint(surface, Context());
         PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 0.5f);
+
+        // Posed on a skeleton the new frames made, as the weights and the face are keyed on them (review 7 item 2).
+        panel.KeptEntity("models/player/demo.mdl").ShouldNotBeSameAs(firstEntity);
 
         static PropModels.ModelFrames Constant(float constant) => PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
             [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))

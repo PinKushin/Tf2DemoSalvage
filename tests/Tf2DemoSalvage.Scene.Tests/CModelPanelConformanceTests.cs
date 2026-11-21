@@ -549,13 +549,14 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **`game_newmap` lets the old level's model go** (B779 review 3 item 4): the next paint sets the panel up from the new
-    /// level's frames anyway (`UpdateModel` before the draw), so holding the old `CModelPanelModel` — its frames and the
-    /// mesh face built from them — keeps a dead level's model alive for nothing. The CMDL panels, which hear no
-    /// `game_newmap`, drop the faces and weights they keep by frames at the same moment. The controls: both held them.
+    /// **The old level's model goes at the next set-up, as the engine's does; a CMDL panel's caches at the event** (B779
+    /// reviews 3 and 7). `CModelPanel` only marks itself dirty at `game_newmap` (`basemodelpanel.cpp:196-205`); its
+    /// `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339) and builds the new one. So the old
+    /// `CModelPanelModel` is held until the next paint's set-up, which replaces it. The CMDL panels, which hear no
+    /// `game_newmap`, drop the faces and weights they keep by frames at the event. The controls: both held them.
     /// </remarks>
     [Test]
-    public void NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces()
+    public void NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces()
     {
         VguiModelPanel panel = Framed(startFramed: false, flexed: true);
         HudViewport viewport = (HudViewport)panel.Parent!;
@@ -567,13 +568,37 @@ public sealed class CModelPanelConformanceTests
         viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
         panel.Paint(surface, viewport.Context!);
         mdl.Paint(surface, viewport.Context!);
-        panel.HoldsModel.ShouldBeTrue("the control");
+        object? old = panel.SetUpModel.ShouldNotBeNull("the control");
         (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((1, true), "the control");
 
         viewport.NewMap();
 
-        panel.HoldsModel.ShouldBeFalse();
+        panel.SetUpModel.ShouldBeSameAs(old, "held until the set-up replaces it, as `m_hModel` is");
         (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((0, false));
+
+        panel.Paint(surface, viewport.Context!);
+
+        panel.SetUpModel.ShouldNotBeNull().ShouldNotBeSameAs(old);
+    }
+
+    /// <remarks>
+    /// **Between `game_newmap` and the next paint, the panel's calls reach its model** (B779 review 7 item 1): the engine's
+    /// `SetSequence` (:708) and `SetBodyGroup` (:367-382) act on `m_hModel`, which `game_newmap` leaves in place (it only marks
+    /// the panel dirty, :196-205). So `SetSequence` after the event finds the model's `ref` sequence. The control: before.
+    /// </remarks>
+    [Test]
+    public void SetSequence_AfterNewMapBeforeThePaint_ReachesTheModel()
+    {
+        VguiModelPanel panel = Framed(startFramed: false);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context!);
+        panel.SetSequence("ref").ShouldBeTrue("the control");
+
+        viewport.NewMap();
+
+        panel.SetSequence("ref").ShouldBeTrue();
     }
 
     /// <remarks>

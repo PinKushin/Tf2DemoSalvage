@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -140,6 +141,72 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
         panel.ForgetLevel();
 
         panel.StatTrack.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The embedded panel's StatTrak module is drawn flexed at its CMDL's zero controls** (B779 review 7 item 5): the
+    /// strange, paint-kitted weapon with no inventory image is drawn as a model (`item_model_panel.cpp:938-1027`), and
+    /// `RenderingRootModel` draws its module bone-merged (`DrawBoneMergedOnto`), a `CMDL::Draw` whose rules run on zeros —
+    /// `jaw + 0.25` over 0.5..1 is 0.25. A synthetic schema names the module (`weapon_uses_stattrak_module`); no install.
+    /// </remarks>
+    [Test]
+    public void Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed()
+    {
+        const string weapon = "models/weapons/w_scattergun.mdl";
+        const string module = "models/weapons/c_models/stattrack.mdl";
+        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes("""
+            "items_game"
+            {
+                "items" { "13" { "item_slot" "primary" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_scattergun.mdl" "static_attrs" { "weapon_uses_stattrak_module" "models/weapons/c_models/stattrack.mdl" } } }
+                "attributes"
+                {
+                    "834" { "name" "paintkit_proto_def_index" "stored_as_integer" "1" }
+                    "214" { "name" "kill eater" "stored_as_integer" "1" }
+                    "2001" { "name" "weapon_uses_stattrak_module" }
+                }
+            }
+            """));
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames flexed = PanelMeshFlexFixture.Flexed(plain with
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+        Dictionary<string, PropModels.ModelFrames> models = new() { [module] = flexed, [weapon] = plain };
+        HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel", new FramesCache(models.GetValueOrDefault))
+        {
+            Wide = 140,
+            Tall = 100,
+        };
+        TfItemView item = new TfItemView(
+            13,
+            6,
+            new Dictionary<int, EconAttributeValue> { [834] = new(834, 350), [214] = new(214, 12) }) with { IteratesDefinition = true };
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        panel.SetItem(item);
+        panel.StatTrack.Disabled.ShouldBeFalse("the control: the module is loaded");
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(
+            System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == module), 0.25f);
+    }
+
+    /// <summary>A cache answering models by path, with the fixture's packed order.</summary>
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
     /// <summary>A cache answering one packed order for every path.</summary>
