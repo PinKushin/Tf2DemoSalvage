@@ -560,6 +560,9 @@ public sealed partial class SoundPresenter(
         if (schedule.Repositioned)
         {
             DispatchSkipReads(output, listener, right);
+
+            // Each batch started, and the frame followed, at its own tick; the landing goes on at its own (B793).
+            _originTick = tick;
         }
 
         _skipReads.Clear();

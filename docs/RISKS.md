@@ -42388,6 +42388,27 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B793 — a landing after a batch read in its frame starts and follows its own sounds at the batch's tick (2026-11-21) — FIXED 2026-11-21
+
+Found in B782's review (round 9, Fable, outside that diff). `SoundPresenter.Update` set `_originTick` to the pass's tick,
+then a landing with batches still unread ran `DispatchSkipReads`, which sets `_originTick` to each batch's own tick (B724)
+and left the last one set. Nothing set it back, so the landing's own starts were placed, and the pass's follow moved the
+playing channels, where their entities were at that batch's tick rather than the landing's. **Fixed:** the landing sets
+`_originTick` back to its own tick after the batches. Test:
+`Update_ALandingAfterABatchReadEarlier_PlacesItsOwnStartAtTheLandingsTick`, a static start at the landing placed at 1000
+with a batch read at 990 (red before the fix: 990), and the control with no batch read. Not verified by listening.
+
+## B792 — the viewer's default keys set cheat ConVars under `sv_cheats 0`; the exemption is not in `ABOVE-VALVE.md` and has no owner decision (2026-11-21) — OPEN, needs the owner
+
+Found in B725's glint review (round 4, Sonnet and Fable). D253 (the owner's pick, "Copy TF2") refuses a cheat ConVar
+while `sv_cheats` is 0 on TF2's command paths — a config, a bound key, a launch option — and exempts only the viewer's
+**menus**, which `docs/ABOVE-VALVE.md` lists with a test. `ConfigConsole.KeyDown` (`ConfigConsole.cs:426-429`, commit
+`740fe450c`) also exempts the viewer's **default key bindings** (its built-in `mat_fullbright` key), citing D253 and D246.
+D253's text does not say that, the exemption is not in `ABOVE-VALVE.md`, and no owner decision records it. In TF2 a key
+bound to a cheat ConVar is refused like any other bind (D253, B718). **The question for the owner** (D246, CLAUDE.md:
+parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
+`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
+
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
