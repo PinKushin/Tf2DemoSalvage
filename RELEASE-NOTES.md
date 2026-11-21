@@ -8,12 +8,12 @@ None of these changes was verified by looking against a TF2 frame. Each follows 
 - **Random integers match TF2's library (B733).** The viewer's `RandomInt` now follows TF2's own: no number is drawn for a range of one value, and a number too large to divide evenly is refused and drawn again. 2,100 calls were compared equal against TF2's shipped library.
 - **Soundscript waves are dealt and drawn when the sound plays, as TF2 does (B782).** A sound script with several waves picks one when the sound plays, from the waves still unused, and the volume, pitch, wave and sound level are drawn in TF2's order at that moment. When one wave is left, TF2 draws no number for the wave and neither does the viewer now, and a number it refuses is drawn again. Before, the viewer drew one number when it built the sound and took it modulo the waves left. A level change now stops the sound patches it forgets, such as a looping scrape or a medigun's heal loop, by name, as TF2 does when a level ends. On `cp_process_f12` all 2,629 explosions play one three-wave script with fixed volume, pitch and sound level, so every value this change moves is the same there either way. The random numbers are still the viewer's own, not TF2's (see *Known gaps*, B503).
 - **Faces follow TF2's eye and teeth shaders more closely (B725).** No TF2 model uses the Eyes shader, and only Half-Life 2's models use the Teeth materials that carry a mouth flag, so the Eyes and `teeth_bump` changes affect only models from other games.
-  - A face under water takes the water fog, as TF2's eye, teeth and Eyes shaders do.
+  - A face seen through water takes the water fog, as TF2's eye, teeth and Eyes shaders do.
   - Only a Teeth material that carries the mouth flag takes the mouth's opening, as in TF2.
-  - The eyes' look-at target is one value shared by every face, as in TF2: a worn item sets none, a model panel with no flex controls sets none, and a corpse uses the target of the player it was, a dormant player included.
+  - The eyes' look-at target is one value shared by every face, as in TF2: a worn item on a player with flex controls sets none, a model panel's model with no flex controls sets none, and a corpse uses its player's target while that player is dead, a dormant player included.
   - The HUD's three model panels draw their model's mouth.
   - `teeth_bump`, a Half-Life 2 material, is lit per pixel as TF2's shader does it.
-  - The Eyes shader's glint is drawn. `r_glint_procedural` (default 0, set in your config) draws it on the CPU, as the engine does, and `r_glint_alwaysdraw` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
+  - The Eyes shader's glint is drawn. It is drawn on the GPU by default, as in TF2; `r_glint_procedural 1` (default 0, set in your config) draws it on the CPU instead, as TF2 does with that setting, and `r_glint_alwaysdraw 1` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
   - Under `mat_wireframe`, the Eyes glint is skipped, as TF2 does; the rest of the wireframe is still not TF2's (see *Known gaps*).
 - **Other changes since beta.68:** two more face-shader behaviors were checked against TF2 and need no change: the shaders take no static light from a color mesh, and EyeRefract's packed binormal reads the same value as ours (B725).
 
@@ -1250,8 +1250,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   a Teeth material's mouth values are set per draw, where TF2 leaves them in the shared material (B777).
 - **Sound draws (beta.69), open:**
   a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);
-  the stream seed for an entity of 64 or higher collides with another tick's entity 0 (B787);
-  a bullet impact draws the ricochet number only for bullet damage (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
+  the stream seed for an entity of 64 or higher is the same as a lower-numbered entity's at a later tick, so the two draw the same values (B787);
+  an impact draws the ricochet number only for bullet damage, where TF2 draws it for any hit (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
