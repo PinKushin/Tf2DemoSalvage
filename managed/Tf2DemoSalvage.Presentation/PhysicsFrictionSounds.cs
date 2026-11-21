@@ -156,31 +156,33 @@ public sealed class PhysicsFrictionSounds
             }
 
             // `SoundCreate( …, CHAN_BODY, name, params.soundlevel )` → `CSoundPatch::Init` (`soundenvelope.cpp:353-381`)
-            // draws AGAIN and keeps that draw's wave, volume, soundlevel and channel — the script's channel replaces
-            // CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the patch's pitch and its volume, which
-            // `GetVolumeForEngine` multiplies by the script volume it kept.
-            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false);
+            // draws AGAIN, on the stream after the first draw, and keeps that draw's wave, volume, soundlevel and channel —
+            // the script's channel replaces CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the
+            // patch's pitch and its volume, which `GetVolumeForEngine` multiplies by the script volume it kept: a SCALED
+            // draw, whose script volume the deal supplies when it plays (B782).
+            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false, parameters.WaveDraw);
 
             started = patch with
             {
                 EntityIndex = friction.Entity,
                 Order = new ClientSoundOrder(ClientSoundPhase.Physics, 0, 0),
-                Volume = patch.Volume * (parameters.Volume * volume),
+                Volume = parameters.Volume * volume,
                 Pitch = parameters.Pitch,
+                WaveDraw = patch.WaveDraw! with { Scaled = true },
             };
-            playing = new Slot(friction.Entity, started.Value, patch.Volume, time, time);
+            playing = new Slot(friction.Entity, started.Value, time, time);
         }
         else
         {
             // `SoundChangeVolume( params.volume · v )` and `SoundChangePitch( v · (high − low) + low )` on the loop already
-            // playing, sent as the engine's whole-percent pitch; the patch still multiplies by its kept script volume.
-            // *Not carried:* the 0.1 s ramp; the change is immediate.
+            // playing, sent as the engine's whole-percent pitch; the patch still multiplies by its kept script volume, which
+            // the deck's `Named` supplies from its start's deal. *Not carried:* the 0.1 s ramp; the change is immediate.
             float pitch = (volume * (entry.Pitch.High - entry.Pitch.Low)) + entry.Pitch.Low;
 
             started = playing.Playing with
             {
                 Tick = tick,
-                Volume = playing.ScriptVolume * (parameters.Volume * volume),
+                Volume = parameters.Volume * volume,
                 Pitch = (int)pitch,
                 ChangesVolume = true,
                 ChangesPitch = true,
@@ -212,6 +214,6 @@ public sealed class PhysicsFrictionSounds
         return free;
     }
 
-    /// <summary>A `friction_t` slot; <paramref name="ScriptVolume"/> is the patch's `m_flScriptVolume`.</summary>
-    private sealed record Slot(int Entity, SceneSound Playing, float ScriptVolume, double LastUpdate, double LastEffect);
+    /// <summary>A `friction_t` slot. The patch's `m_flScriptVolume` is its start's deal (`ScriptWaveDeck.Named`).</summary>
+    private sealed record Slot(int Entity, SceneSound Playing, double LastUpdate, double LastEffect);
 }

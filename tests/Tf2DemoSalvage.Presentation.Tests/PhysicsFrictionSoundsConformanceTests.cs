@@ -38,7 +38,8 @@ public sealed class PhysicsFrictionSoundsConformanceTests
 
         IReadOnlyList<SceneSound> played = sounds.Step(100, 1.0, [Scrape(7750f)], At, Surfaces, Scripts());
 
-        SceneSound loop = played.ShouldHaveSingleItem();
+        // The patch's script volume is its own draw's, which is drawn when it plays (B782).
+        SceneSound loop = new ScriptWaveDeck().Deal(played.ShouldHaveSingleItem(), Scripts());
         loop.Name.ShouldBe("physics/flesh/rough.wav");
         loop.EntityIndex.ShouldBe(Corpse);
         loop.Channel.ShouldBe(1, "the script's channel, not the CHAN_BODY the caller asked for");
@@ -125,9 +126,13 @@ public sealed class PhysicsFrictionSoundsConformanceTests
 
         SceneSound changed = sounds.Step(135, 1.51, [Scrape(3875f)], At, Surfaces, Scripts(pitch: new SoundRange(90f, 110f))).Single();
 
-        // The patch keeps the script volume it was made with: `m_flScriptVolume · m_volume` = 0.8 · 0.8 · 0.0625.
+        // The patch keeps the script volume it was made with: `m_flScriptVolume · m_volume` = 0.8 · 0.8 · 0.0625 — the start's
+        // deal supplies the first, which the change names (B782).
         changed.ShouldBe(loop with { Tick = 135, Volume = changed.Volume, Pitch = 91, ChangesVolume = true, ChangesPitch = true });
-        changed.Volume.ShouldBe(0.04f, 1e-6f);
+
+        ScriptWaveDeck deck = new();
+        deck.Deal(loop, Scripts());
+        deck.Named(changed).Volume.ShouldBe(0.04f, 1e-6f);
     }
 
     [Test]

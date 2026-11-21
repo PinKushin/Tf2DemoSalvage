@@ -360,11 +360,8 @@ public sealed partial class SoundPresenter(
     /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
     private readonly List<SceneSound> _emitted = [];
 
-    /// <summary>Every script's wave flags, as the sounds played so far left them (B503).</summary>
+    /// <summary>Every script's wave flags, as the sounds played so far left them (B503), and what each draw was dealt (B782).</summary>
     private readonly ScriptWaveDeck _deck = new();
-
-    /// <summary>The wave each script draw was dealt, for the stop or change that names it.</summary>
-    private readonly Dictionary<ScriptWaveDraw, string> _dealtWaves = [];
 
     /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
     /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
@@ -806,37 +803,16 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
 
-    /// <summary>A script sound with the wave the deck gives it now; anything else as it is.</summary>
+    /// <summary>A script sound with what the deck deals it now; a stop or change named as its start was dealt; anything else as it is.</summary>
     private SceneSound Dealt(SceneSound sound)
     {
         if (!Deals(sound))
         {
-            return Named(sound);
+            return _deck.Named(sound);
         }
 
-        return sound.WaveDraw is { } draw && Deal(draw) is { } wave ? sound with { Name = wave } : sound;
+        return Scripts is { } scripts ? _deck.Deal(sound, scripts.Entries) : sound;
     }
-
-    /// <summary>Picks a script's wave against the deck, remembering it for the stop or change that names it later.</summary>
-    private string? Deal(ScriptWaveDraw draw)
-    {
-        if (Scripts?.Entries.TryGetValue(draw.Script, out SoundScriptEntry entry) != true || entry.Waves.Count == 0)
-        {
-            return null;
-        }
-
-        string wave = entry.Waves[_deck.Pick(draw.Script, entry.Waves.Count, draw.Draw, draw.Emitted)];
-        _dealtWaves[draw] = wave;
-
-        return wave;
-    }
-
-    /// <summary>
-    /// A stop, a change, or a re-established loop, named as the start it belongs to was dealt — `CSoundPatch` and
-    /// `S_AlterChannel` act on the wave already playing, and pick nothing.
-    /// </summary>
-    private SceneSound Named(SceneSound sound) =>
-        sound.WaveDraw is { } draw && _dealtWaves.TryGetValue(draw, out string? wave) ? sound with { Name = wave } : sound;
 
     /// <summary>
     /// `SND_Spatialize` over every followed channel (B724): each moved to where its entity now is, then re-gained and

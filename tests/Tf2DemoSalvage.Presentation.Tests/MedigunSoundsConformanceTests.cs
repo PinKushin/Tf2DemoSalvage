@@ -52,7 +52,7 @@ public sealed class MedigunSoundsConformanceTests
         IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, Scripts());
 
         sounds.Count.ShouldBe(3);
-        sounds.ShouldAllBe(sound => sound.WaveDraw != null && !sound.WaveDraw.Value.Emitted);
+        sounds.ShouldAllBe(sound => sound.WaveDraw != null && !sound.WaveDraw.Emitted);
     }
 
     /// <remarks>A new target on the same tick keeps `m_bHealing` true: the loop runs on and nothing detaches.</remarks>

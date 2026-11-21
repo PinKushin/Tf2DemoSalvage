@@ -198,6 +198,38 @@ public sealed class UniformRandomStreamConformanceTests
         // its low end without a draw.
         LowWithoutADraw(low, high);
 
+    /// <remarks>
+    /// A position is how a sound carries its stream to the moment the engine draws from it (B782): another stream moved
+    /// there goes on to the same numbers. A refused <c>RandomInt</c> counts both numbers it made.
+    /// </remarks>
+    [Test]
+    public void MoveTo_APositionPartWay_GoesOnToTheSameNumbers()
+    {
+        UniformRandomStream original = new();
+        original.SetSeed(-41);
+        original.RandomFloat(0f, 1f);
+        original.RandomInt(0, 2);
+
+        UniformRandomStream moved = new();
+        moved.SetSeed(9);
+        moved.RandomFloat(0f, 1f);
+        moved.MoveTo(original.Position);
+
+        original.Position.ShouldBe(new RandomStreamPosition(-41, 2));
+        int[] fromMoved = [moved.RandomInt(0, int.MaxValue - 1), moved.RandomInt(0, int.MaxValue - 1)];
+        int[] fromOriginal = [original.RandomInt(0, int.MaxValue - 1), original.RandomInt(0, int.MaxValue - 1)];
+        fromMoved.ShouldBe(fromOriginal);
+    }
+
+    [Test]
+    public void Position_ADrawlessRandomIntAndAStreamNeverSeeded_CountNothingAndSeedZero()
+    {
+        UniformRandomStream stream = new();
+        stream.RandomInt(5, 5);
+
+        stream.Position.ShouldBe(new RandomStreamPosition(0, 0));
+    }
+
     private static void LowWithoutADraw(int low, int high)
     {
         // `cmp ebp, 1; jbe` before any `call GenerateRandomNumber`: the stream is left where it was.

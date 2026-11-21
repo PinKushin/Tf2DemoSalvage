@@ -43,8 +43,9 @@ public sealed class ScriptWaveDeckConformanceTests
 
         deck.Pick(Script, 3, 0, emitted: true).ShouldBe(0);
 
-        // Available: waves 1 and 2. RandomInt( 0, 1 ) is the draw mod 2, so a draw of 3 picks the list's second, wave 2.
-        deck.Pick(Script, 3, 3, emitted: true).ShouldBe(2);
+        // Available: waves 1 and 2, so RandomInt( 0, 1 ) answering 1 picks the list's second, wave 2.
+        deck.Available(Script, 3).ShouldBe(2);
+        deck.Pick(Script, 3, 1, emitted: true).ShouldBe(2);
     }
 
     [Test]
@@ -76,7 +77,7 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     [Test]
-    public void FromWorldAt_AnyEntry_CarriesItsScriptAndTheWaveDrawsRawNumber()
+    public void FromWorldAt_AnyEntry_CarriesItsScriptAndItsStreamFromWhereItsDrawsBegin()
     {
         SoundScriptEntry entry = Entry(channel:1, "a.wav", "b.wav", "c.wav");
 
@@ -84,17 +85,17 @@ public sealed class ScriptWaveDeckConformanceTests
         expected.SetSeed(11);
         expected.RandomFloat(1f, 1f);
         expected.RandomFloat(100f, 100f);
-
-        // `RandomInt( 0, int.MaxValue - 1 )` is the generator's own number: it is below 2^31 - 1, so the modulo keeps it.
-        int raw = expected.RandomInt(0, int.MaxValue - 1);
+        int wave = expected.RandomInt(0, 2);
 
         UniformRandomStream random = new();
         random.SetSeed(11);
 
         SceneSound sound = ExplosionSounds.FromWorldAt(entry, random, 1, (0f, 0f, 0f), emitted: true);
 
-        sound.WaveDraw.ShouldBe(new ScriptWaveDraw(Script, raw, Emitted: true));
-        sound.Name.ShouldBe(entry.Waves[raw % 3], "before any deal, the wave is the one a full deck gives");
+        (sound.WaveDraw!.Script, sound.WaveDraw.Emitted, sound.WaveDraw.After).ShouldBe((Script, true, null));
+        sound.Name.ShouldBe(entry.Waves[wave], "before any deal, the wave is the one a full deck gives");
+
+        sound.WaveDraw.Stream.ShouldBe(new RandomStreamPosition(11, 0), "the stream is carried from before the volume's draw");
     }
 
     /// <remarks>
@@ -120,7 +121,7 @@ public sealed class ScriptWaveDeckConformanceTests
         SceneSound? whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts, default);
         SceneSound? hud = HudSounds.Emit(5, Script, scripts);
 
-        new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Value.Emitted);
+        new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Emitted);
     }
 
     [Test]
@@ -128,8 +129,8 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = Entry(channel: 0, "a.wav", "b.wav") };
 
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeTrue();
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeFalse();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Emitted.ShouldBeTrue();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Emitted.ShouldBeFalse();
     }
 
     [Test]
@@ -551,11 +552,31 @@ public sealed class ScriptWaveDeckConformanceTests
 
     private static readonly (float X, float Y, float Z) Right = (0f, -1f, 0f);
 
+    /// <summary>A sound whose wave's number is <paramref name="draw"/> modulo 6 — so modulo 1, 2 and 3 alike.</summary>
     private static SceneSound Dealt(int tick, int draw, bool emitted = true) =>
         new SceneSound(tick, "a.wav", ExplosionSounds.NotPrecached, ExplosionSounds.FromWorld, 0, 1f, 75, 100, 0f, 0f, 0f, 0f)
         {
-            WaveDraw = new ScriptWaveDraw(Script, draw, emitted),
+            WaveDraw = new ScriptWaveDraw(Script, emitted, StreamWhoseWaveNumberIs(draw)),
         };
+
+    /// <summary>The first seeded stream whose third number — the wave's, after the volume and the pitch — is <paramref name="residue"/> mod 6.</summary>
+    private static RandomStreamPosition StreamWhoseWaveNumberIs(int residue)
+    {
+        for (int seed = 1; seed < 1000; seed++)
+        {
+            UniformRandomStream probe = new();
+            probe.SetSeed(seed);
+            probe.RandomFloat(1f, 1f);
+            probe.RandomFloat(100f, 100f);
+
+            if (probe.RandomInt(0, int.MaxValue - 1) % 6 == residue)
+            {
+                return new RandomStreamPosition(seed, 0);
+            }
+        }
+
+        throw new InvalidOperationException($"no seed under 1000 draws {residue} mod 6");
+    }
 
     /// <summary>A sound from a reliable temp entity, which a skip still fires.</summary>
     private static SceneSound Reliable(int tick, int draw, bool emitted = true) => Dealt(tick, draw, emitted) with { DealtBySkip = true };

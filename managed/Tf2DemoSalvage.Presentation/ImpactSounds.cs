@@ -96,7 +96,10 @@ public static class ImpactSounds
         if (landing.ImpactSound is { } name &&
             scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true) with
+            // On the shrapnel's stream after it, so its draws start where the shrapnel's wave and soundlevel left it (B782).
+            ScriptWaveDraw? after = sounds.Count > 0 ? sounds[^1].WaveDraw : null;
+
+            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true, after) with
             {
                 AudibleWithin = AudibleWithin,
                 Order = landing.Order,
