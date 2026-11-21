@@ -42411,7 +42411,16 @@ bound to a cheat ConVar is refused like any other bind (D253, B718). **The quest
 parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
 `ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
 
-## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
+## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `ScriptWaveDeck.Deal` returns nothing for a script sound whose script the catalog does not declare (still
+releasing the head it followed), and every caller (`SoundPresenter.Dealt`: the pass's scheduled and emitted starts, a
+skip frame's deal count and hash) plays and counts nothing for it. A stop or change of a patch never dealt still names
+nothing (`Named`). Tests: `Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared` (red before: the
+undeclared one started; the declared row its control) and
+`Deal_AnImpactWhoseScriptIsMissingAtDealTime_PlaysNothingAndReleasesItsShrapnel`. Not verified by listening.
+
+**As filed:**
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
 (`game/shared/SoundEmitterSystem.cpp:465-468`): `if ( !soundemitterbase->GetParametersForSoundEx( ep.m_pSoundName,

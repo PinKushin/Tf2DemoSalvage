@@ -670,9 +670,7 @@ public sealed partial class SoundPresenter(
             if (scheduled)
             {
                 // A skip dispatches only `svc_Sounds`, which name their wave (`SkipDispatched`): nothing to deal.
-                SceneSound sound = skipping ? next : Dealt(next);
-
-                if (InRange(sound, listener))
+                if ((skipping ? next : Dealt(next)) is { } sound && InRange(sound, listener))
                 {
                     Start(output, sound, listener, right);
                 }
@@ -680,7 +678,10 @@ public sealed partial class SoundPresenter(
                 continue;
             }
 
-            SceneSound live = Dealt(next);
+            if (Dealt(next) is not { } live)
+            {
+                continue;
+            }
 
             if (InRange(live, listener))
             {
@@ -838,9 +839,9 @@ public sealed partial class SoundPresenter(
 
         foreach ((SceneSound sound, _) in InFrameOrder(fired, [.. frame.Live]))
         {
-            if (sound.WaveDraw is { Emitted: true } && Deals(sound))
+            if (sound.WaveDraw is { Emitted: true } && Deals(sound) && Dealt(sound) is { } played)
             {
-                _skipDealt = SequenceHash.Add(_skipDealt, Dealt(sound).Name);
+                _skipDealt = SequenceHash.Add(_skipDealt, played.Name);
                 dealt++;
             }
         }
@@ -879,8 +880,11 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
 
-    /// <summary>A script sound with what the deck deals it now; a stop or change named as its start was dealt; anything else as it is.</summary>
-    private SceneSound Dealt(SceneSound sound)
+    /// <summary>
+    /// A script sound with what the deck deals it now — or null, nothing to play, when the catalog lacks its script (B789);
+    /// a stop or change named as its start was dealt; anything else as it is.
+    /// </summary>
+    private SceneSound? Dealt(SceneSound sound)
     {
         if (!Deals(sound))
         {

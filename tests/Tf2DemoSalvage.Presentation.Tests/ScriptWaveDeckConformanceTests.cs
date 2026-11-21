@@ -149,6 +149,27 @@ public sealed class ScriptWaveDeckConformanceTests
         played.ShouldBe(["a.wav", "b.wav", "c.wav"]);
     }
 
+    /// <remarks>
+    /// B789. `EmitSoundByHandle` (`SoundEmitterSystem.cpp:465-468`): `if ( !GetParametersForSoundEx( … ) ) return;` — a
+    /// script the level's catalog does not declare plays nothing, whatever its producer drew against another catalog.
+    /// The control is the same sound with its script declared.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(10, 0)]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 20, Listener, Right, now: 0.3d);
+
+        return sink.Started.Count;
+    }
+
     [Test]
     public void Update_AnEmittedSoundBetweenTwoScheduledOnes_IsDealtInTickOrder()
     {
