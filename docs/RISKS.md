@@ -42652,8 +42652,17 @@ emit replay confirmed against the engine), each fixed with its test seen red and
    tells the loop tracking, and has no `CHAN_AUTO` guard — the by-name `IAudioSink.Silence` in `AudioOutput` matches
    any channel (`AudioOutput.cs`, the explicit interface implementation), unlike the by-key `Stop`, which returns on
    `CHAN_AUTO`. Nothing else on the key — a voice line the voice presenter started there — is cut.
-3. Tests that `PlaySkipFrames` and `FollowListener` drain the queue, that the stop comes first in a pass (a start on the
-   patch's channel after the level change survives), and that a reload leaves none queued (`StopForReload` clears them).
+3. Tests that `PlaySkipFrames` and `FollowListener` drain the queue, and that the stop comes first in a pass (a start on
+   the patch's channel after the level change survives).
+
+**Review round 6 (Sonnet, Fable, Gemini; no blocker; CHAN_AUTO by name confirmed as the engine's,
+`soundenvelope.cpp:477-491`):** round 5's queue clear in `StopForReload` was dead — both callers run after the pass has
+drained it — and is removed with its test-only count and test (ruling over adding a direct test). The still-loading
+test gained a control (without the level change the waiting scrape does start); an `AudioOutput` test pins a by-name
+stop on `CHAN_AUTO`; the test sink can hand out handles, so the hit path (`ForgetVoice`) is tested — first measured
+green under its own sabotage, because the pass's re-gain drops a freed voice's loop anyway, so the test now watches
+the re-gain of the freed voice instead; the level stop carries the pass's tick; `AudioOutput.Stop`'s remark says
+CHAN_AUTO cannot be stopped by KEY.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 

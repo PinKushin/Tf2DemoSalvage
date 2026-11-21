@@ -337,8 +337,6 @@ public sealed partial class SoundPresenter(
         soundscape.Clear();
         _late.Clear();
 
-        // Everything is silenced, so no level stop is left to make (a pass drains them before it reloads in any case).
-        _levelStops.Clear();
         ForgetPatches();
     }
 
@@ -361,9 +359,6 @@ public sealed partial class SoundPresenter(
 
     /// <summary>The patches a level change ended, stopped at the next pass — the first that reaches the sink.</summary>
     private readonly List<(int Entity, int Channel, string Wave)> _levelStops = [];
-
-    /// <summary>How many level-change stops wait for the next pass — read by tests only.</summary>
-    internal int LevelStopsQueued => _levelStops.Count;
 
     /// <summary>
     /// Stops what a level change ended: `ShutdownFriction` → `SoundDestroy` (`physics.cpp:711-717`) and `SystemReset` →
@@ -527,8 +522,8 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         long began = Stopwatch.GetTimestamp();
-        StopLevelPatches(output, listener, right);
         _originTick = tick;
+        StopLevelPatches(output, listener, right);
         loops.Headphones = Headphones();
 
         if (Schedule is not { } schedule)

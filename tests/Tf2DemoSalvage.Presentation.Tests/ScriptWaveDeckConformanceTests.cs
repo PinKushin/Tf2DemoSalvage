@@ -322,6 +322,18 @@ public sealed class ScriptWaveDeckConformanceTests
     [Test]
     public void Scripts_ALevelChange_DropsAPatchStillLoading()
     {
+        ScrapeWhileLoading(levelChange: false).ShouldContain(
+            (40, "a.wav"), "the control: without the level change, the waiting scrape starts when its wave arrives");
+
+        ScrapeWhileLoading(levelChange: true).ShouldNotContain((40, "a.wav"));
+    }
+
+    /// <summary>
+    /// A scrape emitted while its wave is loading — waiting, not started — then, optionally, a level change, then the wave
+    /// arriving and a pass; what the sink started.
+    /// </summary>
+    private static List<(int Entity, string Wave)> ScrapeWhileLoading(bool levelChange)
+    {
         bool[] arrived = [false];
         SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape, arrived);
         Silent sink = new();
@@ -329,27 +341,37 @@ public sealed class ScriptWaveDeckConformanceTests
         presenter.Update(sink, 26, Listener, Right, now: 0.42d);
         sink.Started.ShouldBeEmpty("the condition: the scrape waits for its wave");
 
-        LevelChange(presenter);
+        if (levelChange)
+        {
+            LevelChange(presenter);
+        }
+
         arrived[0] = true;
         presenter.Update(sink, 27, Listener, Right, now: 0.43d);
 
-        sink.Started.ShouldNotContain((40, "a.wav"));
+        return sink.Started;
     }
 
     /// <remarks>
-    /// A reload silences everything (`SilenceAll`), so no level stop may outlive it; and a pass drains the queue before it
-    /// reloads, so none can — pinned here.
+    /// A stop that finds the voice — a sink that hands out handles — tells the loop tracking which voice ended
+    /// (`ForgetVoice`), so a scrape on <c>CHAN_STATIC</c>, which is tracked by its handle, stops being followed: the
+    /// pass's re-gain never asks the freed voice again. (Without the stop telling it, the re-gain finds the voice gone and
+    /// drops the loop itself — so the loop's absence alone cannot show the hit path; the re-gain of a freed voice can.)
     /// </remarks>
     [Test]
-    public void Update_AReloadAfterALevelChange_LeavesNoLevelStopQueued()
+    public void Scripts_ALevelChange_StopsATrackedScrapesVoiceAndForgetsItsLoop()
     {
-        (SoundPresenter presenter, Silent sink) = PlayingScrape();
+        ActiveLoops loops = new();
+        SoundPresenter presenter = PresenterWithAScrape(out SceneSound scrape, arrived: null, channel: SoundScript.StaticChannel, loops);
+        Silent sink = new() { HandsOutVoices = true };
+        presenter.Emit(scrape with { Tick = 26 });
+        presenter.Update(sink, 26, Listener, Right, now: 0.42d);
+        loops.GainAt(40, SoundScript.StaticChannel, Listener, 1f).ShouldNotBeNull("the condition: the scrape's loop is tracked");
 
         LevelChange(presenter);
-        presenter.LevelStopsQueued.ShouldBe(1, "the condition: the level change queued its patch");
-        presenter.Update(sink, 10, Listener, Right, now: 1d);
+        presenter.Update(sink, 27, Listener, Right, now: 0.43d);
 
-        presenter.LevelStopsQueued.ShouldBe(0);
+        (sink.Hits, sink.GainsOfStoppedVoices, loops.GainAt(40, SoundScript.StaticChannel, Listener, 1f)).ShouldBe((1, 0, (float?)null));
     }
 
     /// <summary>A level change: the level's scripts set again.</summary>
@@ -379,10 +401,11 @@ public sealed class ScriptWaveDeckConformanceTests
     private static SoundPresenter PresenterWithAScrape() => PresenterWithAScrape(out _);
 
     /// <summary>A presenter played to tick 25 with one corpse scrape loop playing, and that loop's start.</summary>
-    private static SoundPresenter PresenterWithAScrape(out SceneSound scrape, bool[]? arrived = null)
+    private static SoundPresenter PresenterWithAScrape(
+        out SceneSound scrape, bool[]? arrived = null, int channel = 1, ActiveLoops? loops = null)
     {
         List<string> played = [];
-        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"), arrived);
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"), arrived, loops);
         presenter.Schedule = new SoundSchedule([Dealt(20, 0)]);
 
         VphysicsSurfaceProps surfaces = new([]);
@@ -392,7 +415,7 @@ public sealed class ScriptWaveDeckConformanceTests
         // The presenter's catalog's one script, so the scrape's start is dealt — and kept — when it plays.
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
         {
-            [Script] = new(Script, 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["a.wav"]),
+            [Script] = new(Script, channel, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["a.wav"]),
         };
         CorpseFriction friction = new(40, 7750f, surfaces.GetSurfaceIndex("flesh"), surfaces.GetSurfaceIndex("default"));
 
@@ -850,11 +873,12 @@ public sealed class ScriptWaveDeckConformanceTests
     /// <param name="played">Every name the presenter asked to open.</param>
     /// <param name="entry">The catalog's one entry.</param>
     /// <param name="arrived">While its one value is false, every wave is still loading: opening answers null.</param>
-    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry, bool[]? arrived)
+    /// <param name="loops">The loop tracking the presenter is given, for a test to read; a new one when null.</param>
+    private static SoundPresenter Presenter(List<string> played, SoundScriptEntry entry, bool[]? arrived, ActiveLoops? loops = null)
     {
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
-            new ActiveLoops(),
+            loops ?? new ActiveLoops(),
             name =>
             {
                 played.Add(name);
@@ -895,16 +919,44 @@ public sealed class ScriptWaveDeckConformanceTests
         /// <summary>Every start and stop, in the order the sink was asked.</summary>
         public List<string> Events { get; } = [];
 
+        /// <summary>Whether starts are given handles, and a named stop that finds one reports it — off by default.</summary>
+        public bool HandsOutVoices { get; init; }
+
+        /// <summary>How many named stops found a voice.</summary>
+        public int Hits { get; private set; }
+
+        /// <summary>The voices playing, with their handles, when handles are handed out.</summary>
+        private readonly List<(int Voice, int Entity, int Channel, string Wave)> _voices = [];
+
         public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Started.Add((entity, NameOf[sample]));
             Events.Add($"start {entity}/{channel} {NameOf[sample]}");
-            return 0;
+
+            if (!HandsOutVoices)
+            {
+                return 0;
+            }
+
+            int voice = Started.Count;
+            _voices.Add((voice, entity, channel, NameOf[sample]));
+            return voice;
         }
 
-        public bool SetVoiceGain(int voice, float gain) => false;
+        /// <summary>How often a voice was re-gained after a stop had freed it — the loop tracking still following it.</summary>
+        public int GainsOfStoppedVoices { get; private set; }
 
-        public bool SetVoicePitch(int voice, float pitch) => false;
+        private readonly HashSet<int> _stopped = [];
+
+        // A voice handed out and not stopped is still there, so the per-pass re-gain keeps following it. One the loop
+        // tracking still follows after its stop is asked here too, which is what shows a stop did not tell it.
+        public bool SetVoiceGain(int voice, float gain)
+        {
+            GainsOfStoppedVoices += _stopped.Contains(voice) ? 1 : 0;
+            return _voices.Exists(playing => playing.Voice == voice);
+        }
+
+        public bool SetVoicePitch(int voice, float pitch) => _voices.Exists(playing => playing.Voice == voice);
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
@@ -931,7 +983,19 @@ public sealed class ScriptWaveDeckConformanceTests
             string name = NameOf.TryGetValue(sample, out string? known) ? known : $"key:{sample.Key}";
             Silenced.Add(name);
             Events.Add($"stop {entity}/{channel} {name}");
-            return 0;
+
+            int found = _voices.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Wave == name);
+
+            if (found < 0)
+            {
+                return 0;
+            }
+
+            int stopped = _voices[found].Voice;
+            _voices.RemoveAt(found);
+            _stopped.Add(stopped);
+            Hits++;
+            return stopped;
         }
     }
 }
