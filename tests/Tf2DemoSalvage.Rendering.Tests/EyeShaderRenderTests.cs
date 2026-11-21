@@ -45,7 +45,7 @@ public sealed class EyeShaderRenderTests
 
     /// <summary>The eye 1e5 units below: its normal is +z.</summary>
     private static readonly EyeShading Below = new(
-        (0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f));
+        (0f, 0f, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, -1f, 0f, 0.5f), (0f, 0f, 1f), 0.5f);
 
     /// <remarks>
     /// **The normal is the eye's, not the mesh's.** A lamp straight in front lights the vertex normals fully, but the eye's
@@ -171,7 +171,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        EyeShading behind = new((0f, Far, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, 0f, -1f, 0.5f));
+        EyeShading behind = new((0f, Far, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 1.25f), (0f, 0f, -1f, 0.5f), (0f, -1f, 0f), 0.5f);
         LocalLight dim = new(0f, -Far, 0f, 0.1f, 0.1f, 0.1f, 1f, 0f, 0f, 0f);
 
         Draw(target, EyeRefract(corneaMask: masked), behind, locals: [dim]);
@@ -288,7 +288,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        EyeShading eye = new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f));
+        EyeShading eye = new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 0.5f);
 
         Draw(target, Eyes(), eye, locals: [Lamp(0f, -Far, 0f)]);
 
@@ -327,7 +327,7 @@ public sealed class EyeShaderRenderTests
         }
 
         EyeShading eye = new(
-            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), Forward: (0f, -1f, 0f), Radius: 600f);
+            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
         AmbientCube dim = new((cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube));
 
         Draw(target, Eyes(irisAlpha: 0), eye, locals: lamp ? [Lamp(0f, -300f, 0f)] : [], cube: dim);
@@ -432,7 +432,7 @@ public sealed class EyeShaderRenderTests
                 Draw(target, Teeth(halfLambert: false), null, locals: lamp, heightFog: fog);
                 break;
             case EyeShader.Eyes:
-                Draw(target, Eyes(), new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f)), locals: lamp, heightFog: fog);
+                Draw(target, Eyes(), new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 0.5f), locals: lamp, heightFog: fog);
                 break;
             default:
                 Draw(target, EyeRefract(), Below, locals: lamp, heightFog: fog);

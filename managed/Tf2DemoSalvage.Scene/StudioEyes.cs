@@ -18,8 +18,8 @@ public readonly record struct EyeShading(
     (float X, float Y, float Z) Up,
     (float X, float Y, float Z, float W) IrisU,
     (float X, float Y, float Z, float W) IrisV,
-    (float X, float Y, float Z) Forward = default,
-    float Radius = 0f);
+    (float X, float Y, float Z) Forward,
+    float Radius);
 
 /// <summary>What it writes into a teeth material: <c>$forward</c> and <c>$illumfactor</c> (B725).</summary>
 /// <param name="Forward">The mouth's forward, world space, negated as the engine sends it.</param>
