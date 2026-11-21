@@ -42416,7 +42416,9 @@ a stop or change of a patch never dealt already names nothing).
 hashes it with the Fibonacci hash particle collections already use (`ParticleEffects.SeedFor`), so no two
 `( tick, entity )` pairs share a key; the patch records split with the streams. Test:
 `SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal), and
-`Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches`, the record half (review 1, Fable; the old seed reddens it). Every
+`Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches`, the record half (review 1, Fable; the old seed reddens it). The hash can give `int.MinValue`, on which
+`UniformRandomStream.SetSeed`'s `-Math.Abs( seed )` threw where the engine's `-|seed|` keeps it (review 1, Gemini): now
+`seed < 0 ? seed : -seed`, test `SetSeed_TheMostNegativeSeed_SeedsAndDrawsLikeAnyOther` (red before: `OverflowException`). Every
 entity sound's draws move with the new seed, interpolated either way (finding 57). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)

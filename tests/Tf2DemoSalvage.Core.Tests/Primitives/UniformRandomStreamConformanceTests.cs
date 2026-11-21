@@ -40,6 +40,23 @@ public sealed class UniformRandomStreamConformanceTests
     }
 
     /// <remarks>
+    /// <c>-|seed|</c> in machine code — an absolute value and a negate, each two's complement and neither trapping — leaves
+    /// <c>int.MinValue</c> as itself, so the engine seeds it like any other. A hashed seed (`ParticleEffects.SeedFor`,
+    /// B787) can be it. *Arithmetic.* The control is a stream seeded alike, which must draw the same.
+    /// </remarks>
+    [Test]
+    public void SetSeed_TheMostNegativeSeed_SeedsAndDrawsLikeAnyOther()
+    {
+        UniformRandomStream stream = new();
+        UniformRandomStream control = new();
+
+        stream.SetSeed(int.MinValue);
+        control.SetSeed(int.MinValue);
+
+        (stream.Position.Seed, stream.RandomInt(0, 99)).ShouldBe((int.MinValue, control.RandomInt(0, 99)));
+    }
+
+    /// <remarks>
     /// **The determinism the whole feature rests on.** `FX_FireBullets` reseeds with `iSeed` at the top of every bullet
     /// and increments it afterwards, so a shotgun's pellets are a seed RUN — two streams seeded alike must agree for as
     /// long as they are asked.
