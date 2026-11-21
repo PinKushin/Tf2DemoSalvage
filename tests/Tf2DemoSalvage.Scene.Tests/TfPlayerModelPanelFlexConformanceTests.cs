@@ -74,12 +74,6 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
     }
 
     /// <remarks>
-    /// **A paint's flex step allocates nothing once its buffers exist** (review 1 item 4): the decay is in place, the shared
-    /// slots are computed once per model, and the controls are written into a kept buffer. The thread's allocation counter
-    /// also counts the runtime, so the least over several steps is taken (memory: a thread allocation counter counts the
-    /// runtime).
-    /// </remarks>
-    /// <remarks>
     /// **The root's whole flex step allocates nothing on a stable model** (review 2 item 3): the decay, the controls and the
     /// rule run, through the panel's own `RootFlexWeights`. The rules walk was a `foreach` over `IReadOnlyList`, a boxed
     /// enumerator per rule per paint. Least over eight steps, after a first that sizes the buffers.
@@ -148,6 +142,12 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
         public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
+    /// <remarks>
+    /// **A paint's flex step allocates nothing once its buffers exist** (review 1 item 4): the decay is in place, the shared
+    /// slots are computed once per model, and the controls are written into a kept buffer. The thread's allocation counter
+    /// also counts the runtime, so the least over several steps is taken (memory: a thread allocation counter counts the
+    /// runtime).
+    /// </remarks>
     [Test]
     public void DecayAndFlexControls_WithKeptSlotsAndBuffers_AllocateNothing()
     {
