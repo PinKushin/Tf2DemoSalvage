@@ -43708,6 +43708,8 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    where the engine's local player is the SourceTV client's own, which never coaches (its local-exclusive
    `m_bIsCoaching` is not sent to it). The original `HasLocalPlayer && Coaching` is restored, and
    `Update_OnSourceTvWithNoRecordedSlot_NeverCoaches` was red on round 1's code and is green on it.
+5. *One allocation sample* (Fable). `Update_ASteadyCoachFrame_AllocatesNothing` now asserts the minimum of five frames
+   with every reading in its message; with the distance rebuilt per frame it still reads 1,792 on all five.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
