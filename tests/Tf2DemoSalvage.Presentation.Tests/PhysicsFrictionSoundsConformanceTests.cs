@@ -136,6 +136,29 @@ public sealed class PhysicsFrictionSoundsConformanceTests
     }
 
     /// <remarks>
+    /// The change's `params.volume` is `PhysFrictionSound`'s own draw at the CHANGE's tick — the first number of that tick's
+    /// stream. A ranged script volume so that a stream seeded for any other tick or entity gives another value (the
+    /// control), unlike the fixed 0.8 above.
+    /// </remarks>
+    [Test]
+    public void Step_AScrapeAfterHalfASecondWithARangedVolume_ChangesByTheChangeTicksFirstNumber()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        scripts["Flesh.ScrapeRough"] = scripts["Flesh.ScrapeRough"] with { Volume = new SoundRange(0.5f, 1f) };
+        PhysicsFrictionSounds sounds = new();
+        sounds.Step(100, 1.0, [Scrape(7750f)], At, Surfaces, scripts).ShouldHaveSingleItem();
+
+        SceneSound changed = sounds.Step(135, 1.51, [Scrape(3875f)], At, Surfaces, scripts).Single();
+
+        float energy = 3875f * (1f / 15500f);
+        float scriptVolume = EntitySounds.Stream(135, Corpse).RandomFloat(0.5f, 1f);
+        EntitySounds.Stream(100, Corpse).RandomFloat(0.5f, 1f).ShouldNotBe(scriptVolume, "the control: the start tick's stream differs");
+        EntitySounds.Stream(135, Corpse + 1).RandomFloat(0.5f, 1f).ShouldNotBe(scriptVolume, "the control: another entity's stream differs");
+
+        changed.Volume.ShouldBe(scriptVolume * (energy * energy));
+    }
+
+    /// <remarks>
     /// A steady scrape changes its loop every half second, and that change needs only `PhysFrictionSound`'s script volume —
     /// the first number of its draw. Nothing else is built for it: what the change allocates is the list `Step` returns,
     /// predicted by a control list of one sound made the same way. The least of five changes, so a runtime allocation
