@@ -50,6 +50,9 @@ internal sealed class PanelMeshFlex
 
     private float[]? _face;
 
+    /// <summary>How many times the face was accumulated, counted where it is (B243): what a cache hit saves.</summary>
+    internal int Rebuilds { get; private set; }
+
     /// <summary>The face for these weights.</summary>
     /// <param name="cache">The cache that packed the model.</param>
     /// <param name="path">The model's path.</param>
@@ -93,6 +96,7 @@ internal sealed class PanelMeshFlex
 
         Kept(ref _weights, weights);
         Kept(ref _delayed, delayed);
+        Rebuilds++;
 
         FaceFlex.ClearMoved(_corners!, _positions, _normals);
         int applied = StudioFlexRules.Accumulate(frames.Flex, weights, delayed, _positions, _normals);

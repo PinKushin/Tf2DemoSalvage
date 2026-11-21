@@ -93,4 +93,42 @@ public sealed class PackedVerticesTests
         models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
         models.PackedOrder("models/never.mdl").ShouldBeNull();
     }
+
+    /// <remarks>
+    /// **The HUD's panel models are packed again on the next level, even when its list is the same** (B779 review 2 item 1).
+    /// The frame presenter outlives a level (`ViewerPresenter.ClearMap` calls its `ClearMap`, then `LevelSystems.Shutdown`
+    /// reaches <see cref="EntityModelSet.LevelShutdown"/>), and it precached only a CHANGED list, so the same class panel on
+    /// the next map was never packed: no frames, no order, a panel model drawn not at all. The guard lives with the set
+    /// that forgets. The controls: the first level packed it, and the shutdown forgot it.
+    /// </remarks>
+    [Test]
+    public void PrecacheChanged_TheSameListAfterALevelShutdown_PacksItAgain()
+    {
+        EntityModelSet models = new() { Geometry = Skinned };
+
+        models.PrecacheChanged([Path]);
+        models.PackedOrder(Path).ShouldNotBeNull("the control: the first level packed it");
+
+        models.LevelShutdown();
+        models.PackedOrder(Path).ShouldBeNull("the control: the shutdown forgot it");
+
+        models.PrecacheChanged([Path]);
+        models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
+    }
+
+    /// <remarks>**Within a level an unchanged list is not precached again** (`FramePresenter.Hud`'s reason: `Precache`
+    /// re-reads a model that failed to load, which must not happen sixty times a second). Counted by the loader's calls.</remarks>
+    [Test]
+    public void PrecacheChanged_TheSameListTwiceInALevel_ReadsOnce()
+    {
+        int reads = 0;
+        EntityModelSet models = new() { Geometry = path => { reads++; return null; } };
+
+        models.PrecacheChanged([Path]);
+        int first = reads;
+        models.PrecacheChanged([Path]);
+
+        first.ShouldBeGreaterThan(0, "the control: the first call read it");
+        reads.ShouldBe(first);
+    }
 }

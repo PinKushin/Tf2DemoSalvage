@@ -463,8 +463,6 @@ public sealed class VguiModelPanelConformanceTests
 
         PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[asMerge ? 1 : 0], 0.25f);
         surface.Draws[1].Models[asMerge ? 0 : 1].Flex.ShouldBeNull("the other has no flex");
-        surface.Draws[1].Models[asMerge ? 1 : 0].Flex.ShouldBeSameAs(
-            surface.Draws[0].Models[asMerge ? 1 : 0].Flex, "unchanged weights keep the face built for them");
     }
 
     /// <remarks>
@@ -493,6 +491,39 @@ public sealed class VguiModelPanelConformanceTests
         panel.Paint(list, Context());
 
         PanelMeshFlexFixture.ShouldBeFlexedBy(list.Models.ShouldHaveSingleItem().Models.ShouldHaveSingleItem(), 0.25f);
+    }
+
+    /// <remarks>
+    /// **A path whose model is read again draws the new model's weights** (B779 review 2 item 3): the HUD's panels outlive a
+    /// level, and the next level can answer the same path with other frames — `LevelShutdown` forgets every model, and a
+    /// map's pakfile is read before the install. The first frames' rule is `jaw + 0.25` (the vertex 0.5 at zero controls),
+    /// the second's `jaw + 0.5` (1.0).
+    /// </remarks>
+    [Test]
+    public void Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights()
+    {
+        PropModels.ModelFrames first = Constant(0.25f);
+        PropModels.ModelFrames current = first;
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => current)) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.25f);
+
+        current = Constant(0.5f);
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 0.5f);
+
+        static PropModels.ModelFrames Constant(float constant) => PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, constant), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
     }
 
     /// <remarks>

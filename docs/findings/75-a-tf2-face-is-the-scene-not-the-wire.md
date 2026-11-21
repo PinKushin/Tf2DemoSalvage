@@ -196,7 +196,7 @@ What the B725 reading left: the panels computed the descriptor weights only for 
 - **Which weights.** A CMDLPanel's (and its merges', and the StatTrak second-level merge's) are the rules at
   `CMDL::CMDL`'s zero controls; a CTFPlayerModelPanel's root's, the rules at its per-paint decay
   (`tf_playermodelpanel.cpp:2275-2361`); a `CModelPanelModel`'s, a C_BaseFlex's at rest (`c_baseflex.cpp:1220-1222`);
-  an attached C_BaseAnimating's (`basemodelpanel.cpp:467`), `LockFlexWeights`' zeros (*source*, the last as B513 read it).
+  an attached C_BaseAnimating's (`basemodelpanel.cpp:468`), `LockFlexWeights`' zeros (*source*, the last as B513 read it).
 - **A C_BaseFlex's delayed weights are its own, and they start at zero — a review's catch.** The first port took every
   panel's delayed weights as its current ones. A C_BaseFlex with `flex_smooth` on hands the mesh `m_flFlexDelayedWeight`
   (`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`), zeroed whenever the model is

@@ -180,6 +180,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_placements|Private readonly|System.Co
 Tf2DemoSalvage.Scene.EntityModelSet|field|_posedSize|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_prePoseOne|Private|System.Action`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_prePoseSeconds|Private|System.Double
+Tf2DemoSalvage.Scene.EntityModelSet|field|_precachedList|Private|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|_propByHandle|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_propsByEntity|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_props|Private readonly|Microsoft.Extensions.Logging.ILogger
@@ -365,6 +366,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PosedHitboxes|Public|(System.Int32)|S
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosesNothing|Private|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseOne|Private|(System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseRoots|Private|(System.Double)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheChanged|Public|(System.Collections.Generic.IReadOnlyList`1[System.String])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheStaticLighting|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32

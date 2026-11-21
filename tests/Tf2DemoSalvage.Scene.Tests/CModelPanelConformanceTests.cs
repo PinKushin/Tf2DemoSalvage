@@ -409,7 +409,7 @@ public sealed class CModelPanelConformanceTests
     /// **A <c>CModelPanel</c>'s models draw their meshes flexed by the weights they draw with** (B779), as a world model
     /// does: the <c>CModelPanelModel</c>, a C_BaseFlex nothing drives, at its rules over each controller's minimum
     /// (`c_baseflex.cpp:1220-1222`) — `jaw + 0.25` over 0.5..1 is 0.75, the vertex (1.5, 0, 0); an attached model, a plain
-    /// C_BaseAnimating (`new C_BaseAnimating`, `basemodelpanel.cpp:467`), at the zero weights `LockFlexWeights` leaves
+    /// C_BaseAnimating (`new C_BaseAnimating`, `basemodelpanel.cpp:468`), at the zero weights `LockFlexWeights` leaves
     /// (studiorender `0x1800584b0`, B513) — 0, which a ramp from −0.5 to 0.5 takes to 0.5, the vertex (1, 0, 0), where the
     /// C_BaseFlex's 0.75 would be the ramp's full 1. Neither has teeth.
     /// </remarks>
@@ -505,7 +505,7 @@ public sealed class CModelPanelConformanceTests
 
     /// <remarks>
     /// **A CModelPanel's attached model is a plain C_BaseAnimating** (review 1 item 2): `new C_BaseAnimating`
-    /// (`basemodelpanel.cpp:467`), whose `SetupWeights` is empty — so it sets no view target and reads the last one set, and
+    /// (`basemodelpanel.cpp:468`), whose `SetupWeights` is empty — so it sets no view target and reads the last one set, and
     /// its flex weights are the zeros `LockFlexWeights` hands a draw nobody fills (studiorender `0x1800584b0`, B513). The root
     /// here has no controllers, so it sets nothing either; the shared target left at (120, 300, 5) by an earlier draw stays,
     /// and the attached eye at (120, 5, 5) looks along +y: `$irisu` (−1, 0, 0). Its mouth reads descriptor 0 at zero: 0 —

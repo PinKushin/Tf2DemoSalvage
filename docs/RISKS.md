@@ -42680,7 +42680,8 @@ its weights or packing change. Wired: `VguiMdlPanel`'s root (`RootFlexWeights`),
 merge (`DrawBoneMergedOnto`) at zero controls; `TfPlayerModelPanel`'s root at the decayed controls, **the Teeth gate
 removed** — the rules run for every root with flex descriptors; `VguiModelPanel`'s `CModelPanelModel` at its rules at
 rest and an attached model at zero weights. *Tests*: `VguiModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedAtZeroFlexControls`
-(root and merge, and the face kept across paints), `CModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith`
+(root and merge; the face's reuse across paints is `PanelMeshFlexTests.For_TheSameWeightsAgain_DoesNotRebuild`, round 2),
+`CModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith`
 (rest and attached), `TfPlayerModelPanelConformanceTests.Paint_AClassModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFromTheDecayingControls`
 (0.05 then 0.0975), `PackedVerticesTests.PackedOrder_APackedModel_IsTheCornerEachBufferVertexCarries`; all five panel rows
 red first (`Flex` null). *Sabotage*: the Teeth gate restored reddened only the TF row; the attached model as a C_BaseFlex
@@ -42732,6 +42733,26 @@ missing order taken as empty (the not-packed row), the draw list dropping the fa
 delay-equals-weights reading for a CMDL rests on the null pointer, not on studiorender's handling of it; `flex_smooth` is
 taken as on, as the world's faces take it. **B559 is unchanged in evidence**: whether the flexed face
 closes any of the portrait's deficit is still *interpolated*, not measured. *Not verified by looking*.
+
+**Review round 2** (no high or medium; every item fixed here):
+1. *The HUD's precache guard outlived the level.* `ViewerPresenter` builds one `FramePresenter` (`ViewerPresenter.cs`,
+   the constructor) and keeps it across a map change: `ClearMap` calls its `ClearMap`, then `LevelSystems.Shutdown`
+   reaches `EntityModelSet.LevelShutdown`, which forgets every model. The presenter precached the panels' models only
+   when their list CHANGED, and kept its last list, so the same class panel on the next level was never packed — no
+   frames, no order, the panel's model not drawn at all, not only unflexed. The guard moved into the set
+   (`EntityModelSet.PrecacheChanged`), and `LevelShutdown` resets it with the models. *Tests*:
+   `PackedVerticesTests.PrecacheChanged_TheSameListAfterALevelShutdown_PacksItAgain` (red first: no order on the second
+   level) and `PrecacheChanged_TheSameListTwiceInALevel_ReadsOnce` (the reason the guard exists).
+2. *The face's reuse was unasserted.* The panel test's `ShouldBeSameAs` could not fail — a rebuild returns the same kept
+   stream — and is gone. `PanelMeshFlex.Rebuilds` counts the accumulations where they happen;
+   `PanelMeshFlexTests.For_TheSameWeightsAgain_DoesNotRebuild` holds the cache hit.
+3. *A path's zero-control weights were kept by path alone*, so frames read again for that path (the next level, a map's
+   pakfile) drew the old weights. Now kept with the frames they came from. *Test*:
+   `VguiModelPanelConformanceTests.Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights` (red first: 0.5 for 1.0).
+4. `new C_BaseAnimating` is `basemodelpanel.cpp:468`, not :467 — corrected here, in B725, finding 75 and the code.
+
+*Sabotage*: the reset removed from `LevelShutdown`, the cache hit's early return deleted, and the weights kept by path
+alone each reddened only their own row.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
@@ -45490,7 +45511,7 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `C_BaseFlex::SetupWeights` (:1397) only otherwise; a corpse whose player is dead sets the PLAYER's target, his
      `UpdateLookAt` from his origin (`C_TFRagdoll::SetupWeights` → `pPlayer->SetupWeights`, `c_tf_player.cpp:634-637`;
      `ClientThink` runs the look-at dead or alive, :5948-5955; the clamp taken in the corpse's attachment, *interpolated*);
-     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:467`). *Tests*:
+     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:468`). *Tests*:
      `Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers` (2 rows),
      `Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget` (2 rows),
      `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. **Review 2**:
@@ -45536,7 +45557,7 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null).~~ **Superseded**
      (the bounds check at :1456 was read as the index; the read at :1485-1486 is by `localToGlobal`): see "the TF panel,
      read further" below. A CModelPanel's attached models are plain C_BaseAnimatings (`new C_BaseAnimating`,
-     `basemodelpanel.cpp:467`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
+     `basemodelpanel.cpp:468`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
      No TF2 class model has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
      `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
      *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. Neither panel flexes its

@@ -65,6 +65,26 @@ public sealed class PanelMeshFlexTests
         range.ShouldBe(new FlexSlots(1, 1));
     }
 
+    /// <remarks>
+    /// **Unchanged weights reuse the face built for them** (B779 review 2 item 2): a panel paints every frame and its
+    /// weights rarely move, so a paint with the same weights, delayed weights, order and model accumulates nothing. Counted
+    /// by the rebuilds the code itself records; a changed weight is the control that a rebuild is counted.
+    /// </remarks>
+    [Test]
+    public void For_TheSameWeightsAgain_DoesNotRebuild()
+    {
+        PanelMeshFlex flex = new();
+        OrderCache cache = new(PanelMeshFlexFixture.Order);
+        PropModels.ModelFrames model = Model();
+
+        flex.For(cache, Path, model, [0.25f]);
+        flex.For(cache, Path, model, [0.25f]);
+        flex.Rebuilds.ShouldBe(1);
+
+        flex.For(cache, Path, model, [0.3f]);
+        flex.Rebuilds.ShouldBe(2, "the control: a changed weight rebuilds");
+    }
+
     /// <remarks>**A model not yet packed draws unflexed, and does not throw** (round 1 review item 5): the cache answers no
     /// order until the HUD's precache packs it.</remarks>
     [Test]

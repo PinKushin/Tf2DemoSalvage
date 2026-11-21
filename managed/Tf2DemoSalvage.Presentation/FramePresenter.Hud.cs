@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -93,9 +94,6 @@ public sealed partial class FramePresenter
 
         return HudStateAt(view with { Scripts = _hudScripts, Hooks = _hudHooks }, worldToScreen, frame, window.Eye);
     }
-
-    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
-    private string? _panelModelsPrecached;
 
     /// <summary>The engine's tools panel and `CFPSPanel` on it, drawn through VGUI; null until the game's files are open.</summary>
     /// <remarks>
@@ -273,15 +271,9 @@ public sealed partial class FramePresenter
         _vguiHud.Viewport.ParticleMaterials = _overlay.Loaded?.Assets?.ParticleMaterials;
 
         // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
-        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
-        // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
-
-        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
-        {
-            _panelModelsPrecached = panelModels;
-            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
-        }
+        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is precached, and the set keeps
+        // that guard so a level shutdown resets it with the models (B779 review 2 item 1).
+        _models.PrecacheChanged([.. _vguiHud.ModelsToPrecache().Where(path => path.Length > 0)]);
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;

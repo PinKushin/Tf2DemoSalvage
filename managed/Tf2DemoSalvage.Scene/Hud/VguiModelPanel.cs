@@ -427,7 +427,7 @@ public class VguiModelPanel : VguiEditablePanel
                 continue;
             }
 
-            // `new C_BaseAnimating` (basemodelpanel.cpp:467): no flex of its own, no view target (B725 review 1).
+            // `new C_BaseAnimating` (basemodelpanel.cpp:468): no flex of its own, no view target (B725 review 1).
             model.Attached.Add(new PanelModel(attachedPath, attachedFrames, attachedModel, NewEntity(attachedModel))
             {
                 Skin = skin >= 0 ? skin : 0,

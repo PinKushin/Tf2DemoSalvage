@@ -579,8 +579,12 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary>Each drawn CMDL's face values, kept and rewritten each paint: the HUD paints, then the frame draws it (B725).</summary>
     private readonly Dictionary<VguiMdl, StudioFace> _faces = [];
 
-    /// <summary>Each model's descriptor weights at zero flex controls, by path, computed once.</summary>
-    private readonly Dictionary<string, float[]> _zeroControlWeights = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Each model's descriptor weights at zero flex controls, by path, with the frames they were computed from: a path is
+    /// read again after a level shutdown, possibly from the next map's pakfile, so the frames decide (B779 review 2 item 3).
+    /// </summary>
+    private readonly Dictionary<string, (PropModels.ModelFrames Frames, float[] Weights)> _zeroControlWeights =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// What <c>CMDL::Draw</c> hands the studio render for one model's eyes and mouth (B725 5f, 5g), or null for a model with
@@ -660,13 +664,14 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(frames);
 
-        if (!_zeroControlWeights.TryGetValue(path, out float[]? weights))
+        if (!_zeroControlWeights.TryGetValue(path, out (PropModels.ModelFrames Frames, float[] Weights) kept)
+            || !ReferenceEquals(kept.Frames, frames))
         {
-            weights = FaceFlex.Rules(frames.Flex, new float[frames.Flex.Controllers.Count]);
-            _zeroControlWeights[path] = weights;
+            kept = (frames, FaceFlex.Rules(frames.Flex, new float[frames.Flex.Controllers.Count]));
+            _zeroControlWeights[path] = kept;
         }
 
-        return weights;
+        return kept.Weights;
     }
 
     /// <summary>One model as <c>CMDL::Draw</c> draws it: its skin row from the model's own table
