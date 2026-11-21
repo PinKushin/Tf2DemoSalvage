@@ -172,7 +172,9 @@ public sealed class ScriptWaveDeckConformanceTests
         SoundPresenter presenter = Presenter(played, Entry(channel:6, "a.wav", "b.wav"));
         Silent sink = new();
 
+        // A patch (`CSoundPatch`), the only kind a stop names.
         SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true } };
 
         presenter.Schedule = new SoundSchedule([Dealt(10, 0), loop, Dealt(25, 0), loop with { Tick = 30, IsStop = true }]);
 
@@ -184,6 +186,26 @@ public sealed class ScriptWaveDeckConformanceTests
         // held rather than opening, so it adds nothing here (finding 90).
         played.ShouldBe(["a.wav", "b.wav", "b.wav"]);
         sink.Silenced.ShouldBe(["b.wav"]);
+    }
+
+    /// <remarks>
+    /// A seek back reloads, and the reload's `S_StopAllSounds` (B550) ends every patch playing, so the deck stops holding
+    /// it for a stop that can no longer name anything.
+    /// </remarks>
+    [Test]
+    public void Update_ASeekBackPastAPlayingPatch_ForgetsIt()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 6, "a.wav", "b.wav"));
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true } }]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        presenter.PatchesHeld.ShouldBe(1, "the condition: the patch was dealt");
+
+        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
+        presenter.PatchesHeld.ShouldBe(0);
     }
 
     /// <remarks>

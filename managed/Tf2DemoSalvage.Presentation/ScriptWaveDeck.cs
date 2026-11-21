@@ -31,8 +31,17 @@ public sealed class ScriptWaveDeck
 {
     private readonly Dictionary<string, bool[]> _available = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>What each draw was dealt, for the stop or change that names it and the draw that follows it.</summary>
-    private readonly Dictionary<ScriptWaveDraw, Dealt> _dealt = [];
+    /// <summary>
+    /// Each patch (<see cref="ScriptWaveDraw.Scaled"/>) dealt and not yet stopped: its wave and script volume, for the
+    /// change or stop that names it. Nothing else is ever named again.
+    /// </summary>
+    private readonly Dictionary<ScriptWaveDraw, Dealt> _patches = [];
+
+    /// <summary>
+    /// The last draw dealt and how many waves it found. A chain's draws are dealt one after another, so this is the only
+    /// draw one can follow; any earlier one is replayed as the engine made it.
+    /// </summary>
+    private (ScriptWaveDraw? Draw, int Available) _last;
 
     /// <summary>The stream a deal draws from, moved to the sound's position — so dealing again draws the same numbers.</summary>
     private readonly UniformRandomStream _stream = new();
@@ -111,13 +120,14 @@ public sealed class ScriptWaveDeck
 
         Parameters drawn = Draw(entry, draw.Emitted, known: null);
         string wave = entry.Waves[drawn.Wave];
-        _dealt[draw] = new Dealt(wave, drawn.Available, drawn.Volume);
+        _last = (draw, drawn.Available);
 
         SceneSound dealt = sound with { Name = wave, SoundLevel = drawn.SoundLevel };
 
         // A patch, first draw or not: `Play`'s volume times the script volume drawn, at `Play`'s pitch.
         if (draw.Scaled)
         {
+            _patches[draw] = new Dealt(wave, drawn.Volume);
             return dealt with { Volume = sound.Volume * drawn.Volume };
         }
 
@@ -125,24 +135,48 @@ public sealed class ScriptWaveDeck
     }
 
     /// <summary>
-    /// A stop, a change, or a re-established loop, named as the start it belongs to was dealt — `CSoundPatch` and
-    /// `S_AlterChannel` act on the wave already playing, and pick nothing. A patch's new volume multiplies the script volume
-    /// its start drew.
+    /// A patch's stop or change, named as its start was dealt — `CSoundPatch` acts on the wave already playing and picks
+    /// nothing — with its new volume times the script volume its start drew. A stop forgets the patch.
     /// </summary>
     /// <param name="sound">The sound.</param>
-    /// <returns>It, named.</returns>
+    /// <returns>It, named; as it is when its start was never dealt, which the engine would find not playing.</returns>
     public SceneSound Named(SceneSound sound)
     {
-        if (sound.WaveDraw is not { } draw || !_dealt.TryGetValue(draw, out Dealt dealt))
+        if (sound.WaveDraw is not { } draw || !_patches.TryGetValue(draw, out Dealt dealt))
         {
             return sound;
         }
 
-        return draw.Scaled ? sound with { Name = dealt.Wave, Volume = sound.Volume * dealt.Volume } : sound with { Name = dealt.Wave };
+        if (sound.IsStop)
+        {
+            _patches.Remove(draw);
+        }
+
+        return sound with { Name = dealt.Wave, Volume = sound.Volume * dealt.Volume };
     }
 
-    /// <summary>Every wave available again — the state of a client that has emitted nothing.</summary>
-    public void Clear() => _available.Clear();
+    /// <summary>Every wave available again — the state of a client that has emitted nothing — and nothing dealt against them.</summary>
+    public void Clear()
+    {
+        _available.Clear();
+        ForgetPlaying();
+    }
+
+    /// <summary>
+    /// What a reload's `S_StopAllSounds` ends (B550): every patch, which nothing can name after it, and any chain, which
+    /// cannot span it. The flags stay — they live in soundemittersystem.dll, which a reload does not touch (B504).
+    /// </summary>
+    public void ForgetPlaying()
+    {
+        _patches.Clear();
+        _last = default;
+    }
+
+    /// <summary>Whether the last draw dealt is held for a draw chained after it.</summary>
+    internal bool ChainHeld => _last.Draw is not null;
+
+    /// <summary>How many patches are held for the change or stop that names them.</summary>
+    internal int PatchesHeld => _patches.Count;
 
     /// <summary>Puts <see cref="_stream"/> where <paramref name="draw"/>'s numbers start.</summary>
     /// <remarks>
@@ -163,7 +197,7 @@ public sealed class ScriptWaveDeck
 
         if (scripts.TryGetValue(before.Script, out SoundScriptEntry entry) && entry.Waves.Count > 0)
         {
-            Draw(entry, before.Emitted, _dealt.TryGetValue(before, out Dealt dealt) ? dealt.Available : null);
+            Draw(entry, before.Emitted, Equals(_last.Draw, before) ? _last.Available : null);
         }
     }
 
@@ -203,6 +237,6 @@ public sealed class ScriptWaveDeck
     /// <summary>One `CSoundParameters`, and how many waves its pick chose among.</summary>
     private readonly record struct Parameters(float Volume, int Pitch, int Wave, int SoundLevel, int Available);
 
-    /// <summary>A dealt draw: its wave, how many waves were available to it, and the script volume it drew.</summary>
-    private readonly record struct Dealt(string Wave, int Available, float Volume);
+    /// <summary>A dealt patch: its wave and the script volume it drew.</summary>
+    private readonly record struct Dealt(string Wave, float Volume);
 }

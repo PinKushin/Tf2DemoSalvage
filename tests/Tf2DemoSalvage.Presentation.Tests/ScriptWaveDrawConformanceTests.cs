@@ -181,6 +181,89 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
+    /// When the flags reset, what was dealt against them goes too: a chained impact dealt after the reset replays its
+    /// shrapnel against the fresh flags (two waves, so a number) rather than the one wave left when it was dealt.
+    /// </remarks>
+    [Test]
+    public void Deal_AfterTheFlagsReset_AChainedImpactReplaysItsShrapnelAgainstTheFreshFlags()
+    {
+        SoundScriptEntry shrapnel = Entry(ImpactSounds.Shrapnel, "bounce1.wav", "bounce2.wav");
+        SoundScriptEntry impact = Entry("Test.Impact", "x.wav", "y.wav");
+        Dictionary<string, SoundScriptEntry> scripts = Scripts(shrapnel, impact);
+        int seed = RicochetSeed();
+
+        IReadOnlyList<SceneSound> sounds = ImpactSounds.For(new BulletLanding(5, Origin, impact.Name, Ricochets: true), seed, scripts);
+
+        ScriptWaveDeck deck = new();
+        deck.Deal(ExplosionSounds.FromWorldAt(shrapnel, Seeded(99), 4, Origin, emitted: true), scripts);
+        deck.Deal(sounds[0], scripts);
+        deck.Clear();
+        SceneSound dealt = deck.Deal(sounds[1], scripts);
+
+        UniformRandomStream control = Seeded(seed);
+        control.RandomInt(1, 10);
+        control.RandomFloat(shrapnel.Volume.Low, shrapnel.Volume.High);
+        control.RandomFloat(shrapnel.Pitch.Low, shrapnel.Pitch.High);
+        control.RandomInt(0, 1);
+        control.RandomFloat(shrapnel.SoundLevel.Low, shrapnel.SoundLevel.High);
+        float volume = control.RandomFloat(impact.Volume.Low, impact.Volume.High);
+        int pitch = (int)control.RandomFloat(impact.Pitch.Low, impact.Pitch.High);
+
+        (dealt.Volume, dealt.Pitch).ShouldBe((volume, pitch));
+    }
+
+    /// <remarks>
+    /// A chain's draws are dealt one after the other, so once another sound is dealt nothing can chain after the earlier
+    /// one, and only a patch is named again later — by its change or its stop. A hundred one-shots hold one record.
+    /// </remarks>
+    [Test]
+    public void Deal_AHundredOneShots_HoldsOnlyTheLastForAChain()
+    {
+        SoundScriptEntry entry = Entry("Test.Three", "a.wav", "b.wav", "c.wav");
+        ScriptWaveDeck deck = new();
+
+        for (int seed = 1; seed <= 100; seed++)
+        {
+            deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(seed), seed, Origin, emitted: true), Scripts(entry));
+        }
+
+        (deck.ChainHeld, deck.PatchesHeld).ShouldBe((true, 0));
+    }
+
+    /// <remarks>A patch is held while it plays — its change is named against it — and forgotten at its stop.</remarks>
+    [Test]
+    public void Named_APatchsStop_ForgetsIt()
+    {
+        SoundScriptEntry entry = Entry("Test.Patch", "loop.wav");
+        SceneSound patch = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true);
+        ScriptWaveDeck deck = new();
+
+        deck.Deal(patch, Scripts(entry));
+        deck.Named(patch with { Tick = 2, ChangesVolume = true });
+        deck.PatchesHeld.ShouldBe(1, "the change leaves it held");
+
+        deck.Named(patch with { Tick = 3, IsStop = true });
+        deck.PatchesHeld.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A reload's `S_StopAllSounds` (B550) ends every patch, so nothing can name one after it, and a chain cannot span it;
+    /// the flags, which live in soundemittersystem.dll, stay (B504).
+    /// </remarks>
+    [Test]
+    public void ForgetPlaying_AfterAPatchAndAOneShot_HoldsNothingButKeepsTheFlags()
+    {
+        SoundScriptEntry entry = Entry("Test.Three", "a.wav", "b.wav", "c.wav");
+        ScriptWaveDeck deck = new();
+        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true), Scripts(entry));
+        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(8), 2, Origin, emitted: true), Scripts(entry));
+
+        deck.ForgetPlaying();
+
+        (deck.ChainHeld, deck.PatchesHeld, deck.Available(entry.Name, 3)).ShouldBe((false, 0, 2));
+    }
+
+    /// <remarks>
     /// The shrapnel before an impact was EMITTED (`EmitSound` → `EmitSoundByHandle`, `tf_fx_impacts.cpp:88`), so its
     /// `GetParametersForSound` cleared the wave it picked (FUN_180003370, `isbeingemitted`). When the impact is dealt
     /// without its shrapnel having been, the replay that finds where the impact starts IS that emit: it deals the

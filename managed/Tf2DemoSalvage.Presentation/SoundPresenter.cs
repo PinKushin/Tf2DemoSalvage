@@ -335,6 +335,9 @@ public sealed partial class SoundPresenter(
         // back, with nothing reported anywhere.
         soundscape.Clear();
         _late.Clear();
+
+        // Every patch ended with its channel, so nothing names one again; the wave flags stay (B504).
+        _deck.ForgetPlaying();
     }
 
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
@@ -362,6 +365,9 @@ public sealed partial class SoundPresenter(
 
     /// <summary>Every script's wave flags, as the sounds played so far left them (B503), and what each draw was dealt (B782).</summary>
     private readonly ScriptWaveDeck _deck = new();
+
+    /// <summary>How many patches the deck holds for a later stop or change (B782 review).</summary>
+    internal int PatchesHeld => _deck.PatchesHeld;
 
     /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
     /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
