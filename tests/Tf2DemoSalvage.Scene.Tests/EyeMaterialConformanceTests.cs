@@ -101,6 +101,25 @@ public sealed class EyeMaterialConformanceTests
     }
 
     /// <remarks>
+    /// **Teeth's bump path reads `$bumpmap` and `$phongexponent`** (`teeth.cpp:40-41`, :88, :247): the bump map handed in is
+    /// kept for Teeth only, and the exponent read as stated or the declared 100 (*interpolated*: that an undefined parameter
+    /// reads its declared default).
+    /// </remarks>
+    [TestCase("Teeth", "\"$phongexponent\" \"30\"", 30f, true)]
+    [TestCase("Teeth", "", 100f, true)]
+    [TestCase("Eyes", "", 100f, false)]
+    public void Read_ABumpMapAndPhongExponent_AreTeethsAlone(string shaderName, string line, float exponent, bool keepsBump)
+    {
+        MapTexture bump = new(1, 1, 1, 1, TextureImage.Rgba(new byte[] { 128, 128, 255, 255 }), IsTransparent: false);
+        EyeShader shader = EyeMaterial.ShaderOf(shaderName)!.Value;
+
+        EyeMaterial read = EyeMaterial.Read(Parse("\"" + shaderName + "\" { " + line + " }"), shader, null, null, null, bump);
+
+        read.PhongExponent.ShouldBe(exponent);
+        (read.BumpMap is not null).ShouldBe(keepsBump);
+    }
+
+    /// <remarks>
     /// **The mouth flag is `$clientShader` "MouthShader", any case** (B725 5e): TF2's x64 `studiorender.dll` sets each
     /// material's flag to `stricmp( $clientShader, "MouthShader" ) == 0` at load (`0x180058172-0x1800581cf`, the string at
     /// `0x180081348`). Every one of the 15 Teeth materials TF2 mounts states it (HL2's `hl2_misc` VPKs: 15 occurrences, as

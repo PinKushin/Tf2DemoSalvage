@@ -30,6 +30,12 @@ internal sealed unsafe partial class WorldRenderer
 
     private const int EyeIrisSlot = 19;
 
+    /// <summary>Teeth's <c>$bumpmap</c> slot (<c>teeth_bump</c>, B725).</summary>
+    private const int EyeBumpSlot = 21;
+
+    /// <summary>The shader code <c>VsEye</c> reads for <c>teeth_bump</c>, past the three <see cref="Scene.EyeShader"/> values.</summary>
+    private const float TeethBumpCode = 4f;
+
     private const string EyeShaderText = """
 
         // **The face shaders' constants** (B725): what the studio render writes into the material before the mesh draws,
@@ -51,6 +57,7 @@ internal sealed unsafe partial class WorldRenderer
         Texture2D eyeCornea    : register(t17);
         Texture2D eyeOcclusion : register(t18);
         Texture2D eyeIris      : register(t19);
+        Texture2D teethBumpMap : register(t21);
 
         struct EyeVsOut
         {
@@ -201,7 +208,38 @@ internal sealed unsafe partial class WorldRenderer
             bool halfLambert = eyeUp.w > 0.5f;
             float shader = eyeOrigin.w;
 
-            if (shader > 2.5f)
+            if (shader > 3.5f)
+            {
+                // teeth_bump (teeth_bump_vs20.fxc:75-147): `ApplyMorph` adds the normal's delta to the tangent too
+                // (common_vs_fxc.h:380-389), the skinning carries both and makes T = (N × S) · w (:740), and all three are
+                // normalised after the bones (:97-101). The darkening on that normal (:117); each light's attenuation per
+                // vertex (:136-139) for the pixel shader.
+                float3 tangentS = input.tangent.xyz;
+                float3 normal = posedNormal;
+
+                if (skinning.x >= 1.0f)
+                {
+                    float3 boneOrigin = SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x);
+                    normal = SkinPosition(input.nrm + input.flexNrm, input.bones, input.weights, skinning.x) - boneOrigin;
+                    tangentS = SkinPosition(input.tangent.xyz + input.flexNrm, input.bones, input.weights, skinning.x) - boneOrigin;
+                }
+
+                normal = mul(float4(normal, 0.0f), model).xyz;
+                tangentS = mul(float4(tangentS, 0.0f), model).xyz;
+                float3 tangentT = cross(normal, tangentS) * input.tangent.w;
+
+                output.nrm = normalize(normal);
+                output.tangent = normalize(tangentS);
+                output.binormal = normalize(tangentT);
+                output.vertexLight = float3(teethLighting.w * saturate(dot(output.nrm, teethLighting.xyz)), 0.0f, 0.0f);
+
+                int bumpCount = EyeLightCount();
+                output.falloffCosine01 = float4(
+                    bumpCount > 0 ? EyeLightAtten(0, wpos) : 0.0f, bumpCount > 1 ? EyeLightAtten(1, wpos) : 0.0f, 0.0f, 0.0f);
+                output.falloffCosine23 = float4(
+                    bumpCount > 2 ? EyeLightAtten(2, wpos) : 0.0f, bumpCount > 3 ? EyeLightAtten(3, wpos) : 0.0f, 0.0f, 0.0f);
+            }
+            else if (shader > 2.5f)
             {
                 // Teeth (teeth_vs20.fxc:84-121): the skinned normal as it is, DoLighting without half-Lambert, darkened.
                 float3 normal = mul(float4(posedNormal, 0.0f), model).xyz;
@@ -424,6 +462,50 @@ internal sealed unsafe partial class WorldRenderer
             return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), baseSample.a);
         }
 
+        // **`teeth_bump_ps2x.fxc:54-101`, ps_2_b** (B725 open 4): the bump map's normal in the tangent frame, lit by
+        // `PixelShaderDoLighting` with `bHalfLambert` TRUE (:74-78) — the ambient cube by that normal plus each light's
+        // `color · atten · saturate( N · L · 0.5 + 0.5 )²` (common_vertexlitgeneric_dx9.h:86-136, :259-319) — and
+        // `PixelShaderDoSpecularLighting` (:321-390) at `$phongexponent`, or from the bump's alpha where that is 0
+        // (:69-71); `( specular · base.a + base.rgb · diffuse ) · darkening`, alpha 1 (:93, :100).
+        float4 PsTeethBump(EyeVsOut input) : SV_TARGET
+        {
+            float4 baseSample = albedoMap.Sample(wrapSampler, input.uv);
+            float4 normalTexel = teethBumpMap.Sample(wrapSampler, input.uv);
+            float3 tangentNormal = 2.0f * normalTexel.xyz - 1.0f;
+            float3 normal = normalize(tangentNormal.x * input.tangent + tangentNormal.y * input.binormal + tangentNormal.z * input.nrm);
+
+            float specularExponent = eyeScalars.y;
+
+            if (specularExponent == 0.0f)
+            {
+                specularExponent = 1.0f * (1.0f - normalTexel.w) + 150.0f * normalTexel.w;
+            }
+
+            float3 eyeDir = normalize(eyePosition.xyz - input.wpos);
+            float3 diffuse = EyeAmbient(normal);
+            float3 specular = float3(0.0f, 0.0f, 0.0f);
+            int count = EyeLightCount();
+
+            [unroll]
+            for (int light = 0; light < 4; light++)
+            {
+                if (light < count)
+                {
+                    float3 toward = EyePixelToward(light, input.wpos);
+                    float3 colour = EyeLightColour(light) * EyeFalloff(input, light);
+                    float wrapped = saturate(dot(normal, toward) * 0.5f + 0.5f);
+                    diffuse += colour * wrapped * wrapped;
+
+                    float3 reflected = 2.0f * normal * dot(normal, eyeDir) - eyeDir;
+                    specular += pow(saturate(dot(reflected, toward)), specularExponent) * saturate(dot(normal, toward)) * colour;
+                }
+            }
+
+            float3 result = (specular * baseSample.a + baseSample.rgb * diffuse) * input.vertexLight.x;
+
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
+        }
+
         // **`teeth_ps2x.fxc:37-48`**: the base times the vertex's light.
         float4 PsTeeth(EyeVsOut input) : SV_TARGET
         {
@@ -434,12 +516,13 @@ internal sealed unsafe partial class WorldRenderer
         """;
 
     /// <summary>Each face material by index, with its cornea, occlusion map and Eyes' iris uploaded.</summary>
-    private readonly Dictionary<int, (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris)> _eyes = [];
+    private readonly Dictionary<int, (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris, ComPtr<ID3D11ShaderResourceView> Bump)> _eyes = [];
 
     private ComPtr<ID3D11VertexShader> _eyeVertex;
     private ComPtr<ID3D11PixelShader> _eyeRefractPixel;
     private ComPtr<ID3D11PixelShader> _eyesPixel;
     private ComPtr<ID3D11PixelShader> _teethPixel;
+    private ComPtr<ID3D11PixelShader> _teethBumpPixel;
     private ComPtr<ID3D11Buffer> _eyeConstants;
 
     /// <summary>The face materials whose own cube is 8-bit (<see cref="IsByteCube"/>), so the eye shader reads it through sRGB.</summary>
@@ -464,7 +547,8 @@ internal sealed unsafe partial class WorldRenderer
             eye,
             eye.Cornea is { } cornea ? Upload(device, context, cornea, srgb: false) : default,
             eye.AmbientOcclusion is { } occlusion ? Upload(device, context, occlusion) : default,
-            eye.Iris is { } iris ? Upload(device, context, iris) : default);
+            eye.Iris is { } iris ? Upload(device, context, iris) : default,
+            eye.BumpMap is { } bump ? Upload(device, context, bump, srgb: false) : default);
 
         if (cube is { } own && IsByteCube(own.Faces))
         {
@@ -492,11 +576,12 @@ internal sealed unsafe partial class WorldRenderer
 
     private void ReleaseEyes()
     {
-        foreach ((Scene.EyeMaterial _, ComPtr<ID3D11ShaderResourceView> cornea, ComPtr<ID3D11ShaderResourceView> occlusion, ComPtr<ID3D11ShaderResourceView> iris) in _eyes.Values)
+        foreach ((Scene.EyeMaterial _, ComPtr<ID3D11ShaderResourceView> cornea, ComPtr<ID3D11ShaderResourceView> occlusion, ComPtr<ID3D11ShaderResourceView> iris, ComPtr<ID3D11ShaderResourceView> bump) in _eyes.Values)
         {
             cornea.Dispose();
             occlusion.Dispose();
             iris.Dispose();
+            bump.Dispose();
         }
 
         _eyes.Clear();
@@ -510,6 +595,7 @@ internal sealed unsafe partial class WorldRenderer
         _eyeRefractPixel.Dispose();
         _eyesPixel.Dispose();
         _teethPixel.Dispose();
+        _teethBumpPixel.Dispose();
         _eyeConstants.Dispose();
     }
 
@@ -533,7 +619,7 @@ internal sealed unsafe partial class WorldRenderer
         Scene.MouthShading? mouth,
         bool byteCube)
     {
-        if (!_eyes.TryGetValue(material, out (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris) eye))
+        if (!_eyes.TryGetValue(material, out (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris, ComPtr<ID3D11ShaderResourceView> Bump) eye))
         {
             return false;
         }
@@ -565,11 +651,17 @@ internal sealed unsafe partial class WorldRenderer
         Scene.MouthShading? drawn = parameters.MouthShader ? mouth : null;
         (float X, float Y, float Z) forward = drawn?.Forward ?? parameters.Forward;
 
-        Put(into, 0, state.Origin.X, state.Origin.Y, state.Origin.Z, (float)parameters.Shader);
+        // `teeth_bump` (`hasBump = params[BUMPMAP]->IsTexture()`, teeth.cpp:88): the shader code 4, and `$phongexponent` in
+        // the glossiness slot, which Teeth otherwise leaves unread.
+        bool teethBump = parameters.Shader == Scene.EyeShader.Teeth && eye.Bump.Handle is not null;
+
+        Put(into, 0, state.Origin.X, state.Origin.Y, state.Origin.Z, teethBump ? TeethBumpCode : (float)parameters.Shader);
         Put(into, 4, state.Up.X, state.Up.Y, state.Up.Z, parameters.HalfLambert ? 1f : 0f);
         Put(into, 8, state.IrisU.X, state.IrisU.Y, state.IrisU.Z, state.IrisU.W);
         Put(into, 12, state.IrisV.X, state.IrisV.Y, state.IrisV.Z, state.IrisV.W);
-        Put(into, 16, parameters.Dilation, parameters.Glossiness, byteCube ? 1f : 0f, parameters.CorneaBumpStrength);
+        Put(
+            into, 16, parameters.Dilation, teethBump ? parameters.PhongExponent : parameters.Glossiness, byteCube ? 1f : 0f,
+            parameters.CorneaBumpStrength);
         float rayCast = parameters.SphereTexKill ? 2f : 1f;
 
         Put(
@@ -588,6 +680,7 @@ internal sealed unsafe partial class WorldRenderer
         ComPtr<ID3D11PixelShader> pixel = parameters.Shader switch
         {
             Scene.EyeShader.Eyes => _eyesPixel,
+            Scene.EyeShader.Teeth when teethBump => _teethBumpPixel,
             Scene.EyeShader.Teeth => _teethPixel,
             _ => _eyeRefractPixel,
         };
@@ -599,6 +692,7 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(EyeCorneaSlot, 1, ref eye.Cornea);
         context.PSSetShaderResources(EyeOcclusionSlot, 1, ref eye.Occlusion);
         context.PSSetShaderResources(EyeIrisSlot, 1, ref eye.Iris);
+        context.PSSetShaderResources(EyeBumpSlot, 1, ref eye.Bump);
 
         return true;
     }
@@ -635,6 +729,7 @@ internal sealed unsafe partial class WorldRenderer
         _eyeRefractPixel = PixelShader(_device, compiler, "PsEyeRefract");
         _eyesPixel = PixelShader(_device, compiler, "PsEyes");
         _teethPixel = PixelShader(_device, compiler, "PsTeeth");
+        _teethBumpPixel = PixelShader(_device, compiler, "PsTeethBump");
 
         BufferDesc buffer = new()
         {

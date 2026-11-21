@@ -386,6 +386,82 @@ public sealed class EyeShaderRenderTests
         below.ShouldBe((10, 26, 58), "full height fog: the volume's colour, decoded and encoded back");
     }
 
+    /// <remarks>
+    /// **A Teeth material with a `$bumpmap` lights per pixel** (B725 open 4, `teeth_bump`): `teeth.cpp:88`, `:101-137`,
+    /// `:228-257` choose `teeth_bump_vs20`/`teeth_bump_ps20b`, whose pixel shader takes the normal from the bump map in the
+    /// tangent frame (`teeth_bump_ps2x.fxc:65-67`) and lights it with `PixelShaderDoLighting( …, bHalfLambert = true )`
+    /// (:74-78, `common_vertexlitgeneric_dx9.h:86-136`, :259-319) — half-Lambert, where plain Teeth passes false — then
+    /// `( specular · base.a + base.rgb · diffuse ) · darkening` (:93), darkening `$illumfactor · saturate( N · $forward )`
+    /// on the vertex normal (`teeth_bump_vs20.fxc:117`). Base grey 128 with alpha 0 (no specular); `$forward` (0, −1, 0),
+    /// `$illumfactor` 1, so the darkening is 1.
+    /// - A flat bump (128, 128, 255) and a lamp level with the surface (N · L = 0): `0.1 + (0 · 0.5 + 0.5)²` = 0.35; plain
+    ///   Teeth would light 0.1.
+    /// - A bump tilted to the tangent (255, 128, 128) and a lamp along +x (the tangent): the bumped normal faces it,
+    ///   `0.1 + 1²`; the vertex normal alone would give 0.35.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DrawModelPose_TeethWithABumpMap_LightsTheBumpedNormalHalfLambert(bool tilted)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapTexture bump = tilted ? Uniform4(255, 128, 128, 255) : Uniform4(128, 128, 255, 255);
+
+        Draw(target, TeethBump(bump, baseAlpha: 0), null, locals: [Lamp(Far, 0f, 0f)], mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        // The flat texel is (0.0039, 0.0039, 1) before normalising: within the ±1 the pixel allows.
+        int expected = Pixel(Cube + (tilted ? 1f : 0.25f));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, tilted {tilted}: centre {centre}, predicted {expected}, plain teeth {Pixel(Cube)}");
+        Near(centre, expected, "PixelShaderDoLighting on the bumped normal, half-Lambert");
+    }
+
+    /// <remarks>
+    /// **The specular is the base alpha's** (`teeth_bump_ps2x.fxc:85-93`): `PixelShaderDoSpecularLighting` with
+    /// `$phongexponent` (`teeth.cpp:247`, declared default 100), `R = 2N(N · E) − E`, `pow( saturate( R · L ), k ) ·
+    /// saturate( N · L ) · colour · atten` (`common_vertexlitgeneric_dx9.h:167-198`). A lamp of 0.5 at the camera on the flat
+    /// bump: R · L = 1, so the specular is the lamp's 0.5; with base alpha 255 the pixel is `0.5 + 0.2158 · (0.1 + 0.5)`,
+    /// with alpha 0 `0.2158 · 0.6`.
+    /// </remarks>
+    [TestCase(255)]
+    [TestCase(0)]
+    public void DrawModelPose_TeethWithABumpMap_AddTheSpecularByTheBaseAlpha(int baseAlpha)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, TeethBump(Uniform4(128, 128, 255, 255), (byte)baseAlpha), null,
+            locals: [new LocalLight(0f, -Far, 0f, 0.5f, 0.5f, 0.5f, 1f, 0f, 0f, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        float specular = 0.5f * baseAlpha / 255f;
+        int expected = Encode(specular + (LinearGrey * (Cube + 0.5f)));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth bump, base alpha {baseAlpha}: centre {centre}, predicted {expected}");
+        Near(centre, expected, "specular · base.a + base · diffuse");
+    }
+
+    /// <summary>A Teeth material with a `$bumpmap`, flagged for the mouth, `$forward` (0, −1, 0), `$illumfactor` 1.</summary>
+    private static MapAssets TeethBump(MapTexture bump, byte baseAlpha) => MapAssets.ForMaterials(
+        [Uniform4(128, 128, 128, baseAlpha) with
+        {
+            Eye = new EyeMaterial(
+                EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 1f, MouthShader: true, BumpMap: bump),
+        }],
+        ["Teeth"]);
+
     private static OffscreenTarget? Target()
     {
         OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
