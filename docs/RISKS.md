@@ -42569,7 +42569,10 @@ most a few numbers; it allocates nothing.
 2. *The dealt table grew for the whole playback.* Only the LAST deal is held for a chain (a chain's draws are dealt
    one after another), and only patches (`Scaled`) are held for the change or stop that names them, until that stop.
    `Clear` forgets both; a reload's `S_StopAllSounds` ends every patch, so `StopForReload` calls `ForgetPlaying`. No
-   level-change reset: the engine's flags do not reset there and neither do ours.
+   level-change reset of the FLAGS — *interpolated, not read:* `CSoundEmitterSystem::LevelShutdownPostEntity` calls
+   `ClearSoundOverrides`, which ships closed in soundemittersystem.dll and was not disassembled, so whether the engine's
+   flags survive a level change is this port's reading (corrected by review round 2, which also found the patches DO
+   reset there: see round 2, item 3).
 3. *A scaled first draw was not scaled at its start.* `Deal` now scales a patch whatever its place in a chain. The
    medigun's heal and detach are patches (`controller.Play( patch, 1.f, 100.f )`, `tf_weapon_medigun.cpp:2061`,
    `:2327`), so they are now `Scaled` at volume 1, which makes the case live.

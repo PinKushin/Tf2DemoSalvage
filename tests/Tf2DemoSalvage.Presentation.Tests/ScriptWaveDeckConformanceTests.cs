@@ -209,6 +209,28 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     /// <remarks>
+    /// A level change resets the sound controller — `CSoundControllerImp::SystemReset`, "level change, etc."
+    /// (`soundenvelope.cpp:862-878`), shuts down every patch — so the deck stops holding them when the level's scripts
+    /// arrive (`LevelSystems` sets them for each map).
+    /// </remarks>
+    [Test]
+    public void Scripts_ALevelChange_ForgetsEveryPatch()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 6, "a.wav", "b.wav"));
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } }]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        presenter.PatchesHeld.ShouldBe(1, "the condition: the patch was dealt");
+
+        SoundScriptCatalog? level = presenter.Scripts;
+        presenter.Scripts = level;
+        presenter.PatchesHeld.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A skip drops every unreliable temp entity.** `CL_ParseTempEntities`' queueing (engine.dll FUN_1801f9bc0) returns
     /// before queueing anything when the message is unreliable (a non-zero count) and the demo player's skip test — the
     /// vtable slot +0x48 that `CDemoPlayer::ReadPacket` (FUN_180072ee0) asks too — is true. A blast skipped over never

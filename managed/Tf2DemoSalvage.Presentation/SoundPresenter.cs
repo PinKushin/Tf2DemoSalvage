@@ -357,8 +357,22 @@ public sealed partial class SoundPresenter(
     /// <remarks>
     /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
     /// wave, but a sound the CLIENT emits by script name, an explosion's, is resolved against this (B415).
+    ///
+    /// **Set once per level** (`LevelSystems`), and a level change resets the sound controller:
+    /// `CSoundControllerImp::SystemReset` ("level change, etc.", `soundenvelope.cpp:862-878`) shuts down every patch, so
+    /// the deck forgets them. Its wave flags stay. *Not read from source:* whether the engine's flags survive a level
+    /// change — `CSoundEmitterSystem::LevelShutdownPostEntity` calls `ClearSoundOverrides`, which ships closed in
+    /// soundemittersystem.dll and was not disassembled; keeping them is this port's reading, not an observation.
     /// </remarks>
-    public SoundScriptCatalog? Scripts { get; set; }
+    public SoundScriptCatalog? Scripts
+    {
+        get;
+        set
+        {
+            field = value;
+            _deck.ForgetPlaying();
+        }
+    }
 
     /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
     private readonly List<SceneSound> _emitted = [];
