@@ -1672,7 +1672,7 @@ public sealed record ViewerSettings
         // A value the cvar's declared bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543),
         // by `ClampValue`'s own two tests (`:891`, `:897`); every other value keeps its string as written.
         if (written is not null &&
-            EngineConVars.TryByConsoleName(name, out EngineConVar? declared) &&
+            EngineConVars.TryByName(name, out EngineConVar? declared) &&
             float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten))
         {
             if (asWritten < declared.Min)

@@ -42667,8 +42667,8 @@ viewer's own settings file — a hand-written `mat_wireframe 1` there turns wire
 `sv_cheats 0`, as `mat_fullbright` there always has, because that file keeps the menus' choices
 (`OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice` pins it). Review 11: `+DEMO_TIMESCALE 8` is the
 playback speed as the lower-case one is (`Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed`, red with an ordinal match);
-the launch line stores and logs an accepted set under the ConVar's own name; `ViewerSettings.ConVarText`'s clamp finds
-the ConVar in any case; `sv_cheats 0` reverting a menu-set wireframe is pinned
+the launch line logs an accepted set under the ConVar's own name (the stored value was already found in any case);
+`sv_cheats 0` reverting a menu-set wireframe is pinned
 (`KeyPressed_SvCheatsZeroAfterTheMenuSetWireframe_ClearsTheDevice`, red without the menu's record). Untested and left:
 the launch line's log text (the tests read it through a null logger; only the stored values are asserted);
 `ViewerSettings.ConVarText`'s typed-setting lookup stays ordinal, as every caller passes the engine's own name;

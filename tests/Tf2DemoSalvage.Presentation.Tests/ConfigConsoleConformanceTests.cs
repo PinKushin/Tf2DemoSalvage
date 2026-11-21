@@ -762,9 +762,10 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
         console.ReadSettingsFrom(_ => null);
 
-        console.Load("sv_cheats 1\nMAT_WIREFRAME 1");
+        console.Load("sv_cheats 1\nMAT_WIREFRAME 1\nCL_SHOWFPS 1");
 
-        set.ShouldBe(["sv_cheats 1", "mat_wireframe 1"]);
+        set.ShouldBe(
+            ["sv_cheats 1", "mat_wireframe 1", "cl_showfps 1"], "a non-cheat ConVar in another case is set too (B791 review 12)");
     }
 
     /// <remarks>
