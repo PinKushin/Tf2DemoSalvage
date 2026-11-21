@@ -59,6 +59,9 @@ public sealed class PhysicsFrictionSounds
     /// <summary>Forgets every loop without stopping it — a seek, after which nothing the old frames started is playing.</summary>
     public void Clear() => Array.Clear(_slots);
 
+    /// <summary>How many slots hold a playing loop.</summary>
+    internal int Playing => Array.FindAll(_slots, static slot => slot is not null).Length;
+
     /// <summary>One client frame: its friction reports, then the stale loops stopped.</summary>
     /// <param name="tick">The frame's tick, which the sounds carry.</param>
     /// <param name="time">`gpGlobals->curtime`, in seconds.</param>

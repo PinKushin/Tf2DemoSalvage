@@ -3,9 +3,11 @@ using System.Collections.Generic;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
@@ -206,6 +208,36 @@ public sealed class ScriptWaveDeckConformanceTests
 
         presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
         presenter.PatchesHeld.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// A reload's `S_StopAllSounds` (B550) silences the corpse scrapes with everything else, and the deck forgets their
+    /// patches; the friction slots must go too, whichever way the reload lands. A slot left behind would send its next
+    /// change against a patch nothing holds.
+    /// </remarks>
+    [Test]
+    public void Update_AReload_ForgetsTheScrapeLoops()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav"));
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0)]);
+
+        VphysicsSurfaceProps surfaces = new([]);
+        surfaces.ParseSurfaceData(System.Text.Encoding.Latin1.GetBytes(
+            "\"default\" { \"scraperough\" \"Test.Scrape\" } \"flesh\" { \"scraperough\" \"Test.Scrape\" }"));
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Test.Scrape"] = new("Test.Scrape", 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["scrape.wav"]),
+        };
+        CorpseFriction friction = new(40, 7750f, surfaces.GetSurfaceIndex("flesh"), surfaces.GetSurfaceIndex("default"));
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);
+        presenter.FrictionSounds.Step(25, 0.4, [friction], static (entity, tick) => (entity, tick, 0f), surfaces, scripts).ShouldHaveSingleItem();
+        presenter.FrictionSounds.Playing.ShouldBe(1, "the condition: a scrape loop plays");
+
+        presenter.Update(new Silent(), 10, Listener, Right, now: 1d);
+        presenter.FrictionSounds.Playing.ShouldBe(0);
     }
 
     /// <remarks>

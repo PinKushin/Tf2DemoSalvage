@@ -336,8 +336,10 @@ public sealed partial class SoundPresenter(
         soundscape.Clear();
         _late.Clear();
 
-        // Every patch ended with its channel, so nothing names one again; the wave flags stay (B504).
+        // Every patch ended with its channel, so nothing names one again; the wave flags stay (B504). The scrape loops
+        // ended with them, whichever way the reload lands — a slot kept would change a patch nothing holds.
         _deck.ForgetPlaying();
+        _frictionSounds.Clear();
     }
 
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
