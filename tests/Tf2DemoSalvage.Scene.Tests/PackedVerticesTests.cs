@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -130,5 +131,35 @@ public sealed class PackedVerticesTests
 
         first.ShouldBeGreaterThan(0, "the control: the first call read it");
         reads.ShouldBe(first);
+    }
+
+    /// <remarks>
+    /// **An unchanged list costs nothing per frame** (B779 review 3 item 3): the HUD hands its panel models every frame, so
+    /// the comparison is element by element against a kept copy, not a joined string. Least over eight calls after the first.
+    /// The control: a changed list is precached (the asks counted where the set takes them).
+    /// </remarks>
+    [Test]
+    public void PrecacheChanged_AnUnchangedList_AllocatesNothing()
+    {
+        EntityModelSet models = new() { Geometry = Skinned };
+        List<string> paths = [Path, "models/other.mdl"];
+        long least = long.MaxValue;
+
+        models.PrecacheChanged(paths);
+
+        for (int run = 0; run < 8; run++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            models.PrecacheChanged(paths);
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        least.ShouldBe(0L);
+        models.PrecacheAsks.ShouldBe(9);
+        models.PrecachesRun.ShouldBe(1, "the control: one list, packed once");
+
+        paths.RemoveAt(1);
+        models.PrecacheChanged(paths);
+        models.PrecachesRun.ShouldBe(2, "the control: a changed list is packed");
     }
 }

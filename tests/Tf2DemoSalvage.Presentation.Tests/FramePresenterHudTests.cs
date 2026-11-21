@@ -23,8 +23,9 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// empty scheme and draws defaults. **What the HUD draws is `VguiHud`'s and has its own suites**; asserted here is when
 /// it exists, what it asks the window and at which ticks.
 ///
-/// **Not here:** the HUD's scripts and attribute hooks, which need `items_game.txt`, and the class model panel's
-/// precache, which needs a HUD with a model panel in it. The first-person frames hold the drawn HUD, byte for byte.
+/// **Not here:** the HUD's scripts and attribute hooks, which need `items_game.txt`, and which models the class panel's
+/// precache names, which needs a class model; that the frame asks for it is here (B779 review 3). The first-person frames
+/// hold the drawn HUD, byte for byte.
 /// </remarks>
 public sealed class FramePresenterHudTests
 {
@@ -59,6 +60,7 @@ public sealed class FramePresenterHudTests
             });
 
             Game = GameContent.Open(null, NullLoggerFactory.Instance);
+            Models = models;
             Frames = new FramePresenter(
                 models, moment, new MomentPresenter(moment, new FrameLedger(), NullLogger.Instance), sound, NullLogger.Instance, NullLogger.Instance, Audio);
             Frames.AttachHud(new HudWindow(
@@ -87,6 +89,9 @@ public sealed class FramePresenterHudTests
         }
 
         public GameContent? Game { get; }
+
+        /// <summary>The model set the presenter and its HUD share.</summary>
+        public EntityModelSet Models { get; }
 
         public FramePresenter Frames { get; }
 
@@ -126,6 +131,43 @@ public sealed class FramePresenterHudTests
         window.Asked.ShouldBe([100, 101]);
         window.Positions.ShouldBe(2, "cl_showpos is read when the tools panel is framed, once an overlay");
         window.Clocks.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **Every overlay hands the HUD's panel models to the model set's precache** (B779 review 3 item 1b): what the class
+    /// panel, the match doors, the round sign and the item panels will draw must be packed before they paint, and a model
+    /// first needed mid-demo reaches the device only this way. Counted by the asks the set takes; the set decides whether
+    /// the list changed.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels()
+    {
+        Window window = new();
+
+        window.Overlay(100);
+        window.Overlay(101);
+
+        window.Models.PrecacheAsks.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A level load tells the HUD's model panels the map is new** (B779 review 3 item 1a): each `CModelPanel` hears
+    /// `game_newmap` (`basemodelpanel.cpp:56`, :196-205) and sets its model up again from the new level's frames. Production
+    /// sends it from `FramePresenter.LevelInit`. The control: the round sign, set up, is clean before the load.
+    /// </remarks>
+    [Test]
+    public void LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty()
+    {
+        Window window = new();
+
+        window.Overlay(100);
+        VguiModelPanel sign = window.Frames.Hud.ShouldNotBeNull().MatchStatus.RoundSignModel;
+        sign.UpdateModel();
+        sign.PanelDirty.ShouldBeFalse("the control");
+
+        window.Frames.LevelInit(SyntheticMap.Read(Timeline), doPixelVisibility: true);
+
+        sign.PanelDirty.ShouldBeTrue();
     }
 
     [Test]

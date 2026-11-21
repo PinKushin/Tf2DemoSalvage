@@ -496,6 +496,79 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **`game_newmap` reaches a model panel at any depth** (B779 review 3 item 1c): every `CModelPanel` listens for it
+    /// itself (`basemodelpanel.cpp:56`), wherever it sits; production's are grandchildren of the viewport (the match status
+    /// holds the doors and the round sign). The control: set up, the panel is clean before the event.
+    /// </remarks>
+    [Test]
+    public void NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        VguiPanel holder = new(viewport, "MatchStatus");
+        VguiModelPanel panel = new(holder, "RoundSignModel", new FramesCache(_ => null, null));
+
+        panel.UpdateModel();
+        panel.PanelDirty.ShouldBeFalse("the control: nothing to set up, so it is clean");
+
+        viewport.NewMap();
+
+        panel.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A panel whose model is not loaded yet stays dirty until it is** (B779 review 3 item 2): the engine's `SetupModel`
+    /// loads the model in the call (`basemodelpanel.cpp:387`, `modelinfo` by name), so its `UpdateModel` (:520) clearing the
+    /// flag always follows a set-up model. Ours precaches the panel's models on the frame, so a paint can come first; were
+    /// the flag cleared then, the model would never be set up. First paint: nothing loaded, nothing drawn; second: drawn.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
+    {
+        PropModels.ModelFrames frames = Frames(eyed: false, mouthed: false);
+        PropModels.ModelFrames? current = null;
+        VguiModelPanel panel = Framed(startFramed: false, rootNow: () => current);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        surface.Draws.ShouldBeEmpty("the control: nothing loaded, nothing drawn");
+
+        current = frames;
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem();
+    }
+
+    /// <remarks>
+    /// **`game_newmap` lets the old level's model go** (B779 review 3 item 4): the next paint sets the panel up from the new
+    /// level's frames anyway (`UpdateModel` before the draw), so holding the old `CModelPanelModel` — its frames and the
+    /// mesh face built from them — keeps a dead level's model alive for nothing. The CMDL panels, which hear no
+    /// `game_newmap`, drop the faces and weights they keep by frames at the same moment. The controls: both held them.
+    /// </remarks>
+    [Test]
+    public void NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, flexed: true);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        PropModels.ModelFrames flexed = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => flexed, null)) { Wide = 100, Tall = 100 };
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        mdl.SetMDL("models/player/demo.mdl");
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        mdl.Paint(surface, viewport.Context!);
+        panel.HoldsModel.ShouldBeTrue("the control");
+        (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((1, true), "the control");
+
+        viewport.NewMap();
+
+        panel.HoldsModel.ShouldBeFalse();
+        (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((0, false));
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
     /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
     /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
@@ -603,13 +676,14 @@ public sealed class CModelPanelConformanceTests
         bool flexed = false,
         byte flexSpeed = 255,
         PropModels.ModelFrames? root = null,
-        Func<PropModels.ModelFrames>? rootNow = null)
+        Func<PropModels.ModelFrames?>? rootNow = null)
     {
         PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
+        Func<PropModels.ModelFrames?> rootFrames = rootNow ?? (() => frames);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
-            path => attached is not null && path == AttachedPath ? attached : rootNow?.Invoke() ?? frames,
+            path => attached is not null && path == AttachedPath ? attached : rootFrames(),
             sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";
@@ -656,7 +730,7 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>
-    private sealed class FramesCache(Func<string, PropModels.ModelFrames> find, StudioViewTarget? viewTarget) : IMdlCache
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find, StudioViewTarget? viewTarget) : IMdlCache
     {
         public StudioViewTarget? ViewTarget { get; } = viewTarget;
 

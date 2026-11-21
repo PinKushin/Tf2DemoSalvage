@@ -568,16 +568,21 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     }
 
     /// <inheritdoc/>
-    public override IEnumerable<string> ModelsToPrecache()
+    /// <remarks>The StatTrak module is a CMDL of its own, outside the merge list.</remarks>
+    public override void ForgetLevel()
     {
-        foreach (string path in base.ModelsToPrecache())
-        {
-            yield return path;
-        }
+        base.ForgetLevel();
+        StatTrack.MeshFlex.Release();
+    }
+
+    /// <inheritdoc/>
+    public override void AddModelsToPrecache(ICollection<string> into)
+    {
+        base.AddModelsToPrecache(into);
 
         if (!StatTrack.Disabled && StatTrack.Path is { } module)
         {
-            yield return module;
+            into.Add(module);
         }
     }
 }

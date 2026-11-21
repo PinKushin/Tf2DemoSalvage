@@ -1248,6 +1248,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   the shared eye target is set once a frame in our draw order, where TF2 sets it at every draw of every view (B780);
   the StatTrak module's eyes and target in a player model panel are not TF2's (B778), and the freeze panel's and spectator bar's item panels keep an eye target of their own instead of the one every face shares (B804);
   a resting worn item or corpse eases its slow face shapes in over its first frames in TF2 and shows them settled at once here (B805);
+  a worn item or corpse whose model has face shapes but no face controls shows its rules' resting shape, where TF2 shows none (B809), and after a map change a model the next map replaces can keep the old model's resting face values and moved vertices (B810);
   a Teeth material's mouth values are set per draw, where TF2 leaves them in the shared material (B777).
 - **Sound draws (beta.69), open:**
   a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);

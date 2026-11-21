@@ -414,8 +414,10 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>The <c>game_newmap</c> game event, as every <c>CModelPanel</c> under the viewport hears it.</summary>
     /// <remarks>
     /// Each <c>CModelPanel</c> listens for it from its constructor (<c>basemodelpanel.cpp:56</c>) and marks itself dirty, so
-    /// its models are set up again from the new level's (<c>:196-205</c>; B779 review 2). Only those panels are walked here:
-    /// the viewport's own <c>game_newmap</c> (the spectator GUI's) is carried by the timeline instead (B516).
+    /// its models are set up again from the new level's (<c>:196-205</c>; B779 review 2), at any depth — production's are the
+    /// match status's children, the viewport's grandchildren. A <c>CMDLPanel</c> hears no such event; it is told to drop what
+    /// it keeps by the old level's frames, which is memory, not behaviour (review 3 item 4). The viewport's own
+    /// <c>game_newmap</c> (the spectator GUI's) is carried by the timeline instead (B516).
     /// </remarks>
     public void NewMap() => NewMap(this);
 
@@ -424,6 +426,11 @@ public sealed class HudViewport : VguiEditablePanel
         if (panel is VguiModelPanel modelPanel)
         {
             modelPanel.OnGameEvent(VguiModelPanel.GameNewMap);
+        }
+        else if (panel is VguiMdlPanel mdlPanel)
+        {
+            // Not an event a CMDL panel hears: only the memory it keeps by the old level's frames (B779 review 3 item 4).
+            mdlPanel.ForgetLevel();
         }
 
         foreach (VguiPanel child in panel.Children)

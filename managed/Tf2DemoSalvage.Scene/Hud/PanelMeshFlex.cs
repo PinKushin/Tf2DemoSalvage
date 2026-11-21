@@ -53,6 +53,9 @@ internal sealed class PanelMeshFlex
     /// <summary>How many times the face was accumulated, counted where it is (B243): what a cache hit saves.</summary>
     internal int Rebuilds { get; private set; }
 
+    /// <summary>Whether a model's frames are kept, with the face built from them.</summary>
+    internal bool HoldsFrames => _frames is not null;
+
     /// <summary>The face for these weights.</summary>
     /// <param name="cache">The cache that packed the model.</param>
     /// <param name="path">The model's path.</param>
@@ -103,6 +106,21 @@ internal sealed class PanelMeshFlex
         _face = applied > 0 ? FaceFlex.IntoFlexedSlots((_positions, _normals), _corners!, _stream) : null;
 
         return (_face, _face is null ? null : _range);
+    }
+
+    /// <summary>Drops the kept frames, packing and face, so a level that has ended is not held alive by them.</summary>
+    public void Release()
+    {
+        _weights = [];
+        _delayed = [];
+        _order = null;
+        _frames = null;
+        _corners = null;
+        _range = null;
+        _positions = [];
+        _normals = [];
+        _stream = [];
+        _face = null;
     }
 
     /// <summary>Copies <paramref name="from"/> into <paramref name="into"/>, resized only when the length changes.</summary>

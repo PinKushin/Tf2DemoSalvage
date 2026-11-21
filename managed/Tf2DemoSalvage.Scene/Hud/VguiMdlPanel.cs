@@ -222,18 +222,29 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary>The model paths this panel needs precached, root first.</summary>
     /// <returns>The root's path, then each merge model's.</returns>
-    public virtual IEnumerable<string> ModelsToPrecache()
+    public IEnumerable<string> ModelsToPrecache()
     {
+        List<string> paths = [];
+        AddModelsToPrecache(paths);
+        return paths;
+    }
+
+    /// <summary>The same, added to a list the caller keeps, which a frame's precache reuses (B779 review 3 item 3).</summary>
+    /// <param name="into">The list.</param>
+    public virtual void AddModelsToPrecache(ICollection<string> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
         if (_root.Path is { Length: > 0 } root)
         {
-            yield return root;
+            into.Add(root);
         }
 
         foreach (VguiMdl merge in _merges)
         {
             if (merge.Path is { Length: > 0 } path)
             {
-                yield return path;
+                into.Add(path);
             }
         }
     }
@@ -573,6 +584,28 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary>How many CMDL faces this panel keeps, for the test that clearing the merges drops theirs.</summary>
     internal int KeptFaces => _faces.Count;
+
+    /// <summary>
+    /// Drops what this panel keeps by a model's frames — its CMDLs' mesh faces and the zero-control weights — when a level
+    /// ends (B779 review 3 item 4). A CMDL panel hears no <c>game_newmap</c>; this is not behaviour, only memory: each is
+    /// rebuilt from the next level's frames at the next paint, as it would be on finding the frames changed.
+    /// </summary>
+    public virtual void ForgetLevel()
+    {
+        _zeroControlWeights.Clear();
+        _root.MeshFlex.Release();
+
+        foreach (VguiMdl merge in _merges)
+        {
+            merge.MeshFlex.Release();
+        }
+    }
+
+    /// <summary>How many models' zero-control weights this panel keeps.</summary>
+    internal int KeptZeroControlWeights => _zeroControlWeights.Count;
+
+    /// <summary>Whether the root CMDL keeps a mesh face, and so the frames it was built from.</summary>
+    internal bool RootHoldsMeshFace => _root.MeshFlex.HoldsFrames;
 
     private readonly StudioViewTarget _ownViewTarget = new();
 

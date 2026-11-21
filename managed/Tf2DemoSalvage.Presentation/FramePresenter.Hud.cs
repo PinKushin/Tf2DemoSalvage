@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -107,6 +106,12 @@ public sealed partial class FramePresenter
 
     /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
     private VguiHud? _vguiHud;
+
+    /// <summary>The HUD, once built, for the tests of what the frame hands it.</summary>
+    internal VguiHud? Hud => _vguiHud;
+
+    /// <summary>The HUD's panel models this frame, refilled each frame for the model set's precache.</summary>
+    private readonly List<string> _panelModels = [];
 
     // The HUD's stock view of the install, and the install it was made from.
     private GameArchives? _hudArchives;
@@ -272,8 +277,11 @@ public sealed partial class FramePresenter
 
         // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
         // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is precached, and the set keeps
-        // that guard so a level shutdown resets it with the models (B779 review 2 item 1).
-        _models.PrecacheChanged([.. _vguiHud.ModelsToPrecache().Where(path => path.Length > 0)]);
+        // that guard so a level shutdown resets it with the models (B779 review 2 item 1). Into a kept list, compared in
+        // place, so an unchanged frame allocates nothing (review 3 item 3).
+        _panelModels.Clear();
+        _vguiHud.AddModelsToPrecache(_panelModels);
+        _models.PrecacheChanged(_panelModels);
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;

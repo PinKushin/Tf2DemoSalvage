@@ -1487,23 +1487,28 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     private static bool IsValidPickupWeaponSlot(int slot) =>
         slot is ItemSchema.LoadoutSlotPrimary or ItemSchema.LoadoutSlotSecondary or ItemSchema.LoadoutSlotMelee;
 
-    /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>
     /// <inheritdoc/>
-    public override IEnumerable<string> ModelsToPrecache()
+    /// <remarks>The StatTrak module is a CMDL of its own, outside the merge list.</remarks>
+    public override void ForgetLevel()
     {
-        foreach (string path in base.ModelsToPrecache())
-        {
-            yield return path;
-        }
+        base.ForgetLevel();
+        StatTrackModel.MeshFlex.Release();
+    }
+
+    /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>
+    /// <param name="into">The list.</param>
+    public override void AddModelsToPrecache(ICollection<string> into)
+    {
+        base.AddModelsToPrecache(into);
 
         foreach (string path in _pendingLoads)
         {
-            yield return path;
+            into.Add(path);
         }
 
         if (!StatTrackModel.Disabled && StatTrackModel.Path is { } module)
         {
-            yield return module;
+            into.Add(module);
         }
     }
 

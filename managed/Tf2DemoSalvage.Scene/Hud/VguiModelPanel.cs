@@ -147,21 +147,32 @@ public class VguiModelPanel : VguiEditablePanel
     /// <returns>The model, then each attached model.</returns>
     public IEnumerable<string> ModelsToPrecache()
     {
+        List<string> paths = [];
+        AddModelsToPrecache(paths);
+        return paths;
+    }
+
+    /// <summary>The same, added to a list the caller keeps, which a frame's precache reuses (B779 review 3 item 3).</summary>
+    /// <param name="into">The list.</param>
+    public void AddModelsToPrecache(ICollection<string> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
         if (ModelInfo is not { } info)
         {
-            yield break;
+            return;
         }
 
         if (info.ModelName is { Length: > 0 } model)
         {
-            yield return model;
+            into.Add(model);
         }
 
         foreach ((string? attached, _) in info.AttachedModels)
         {
             if (attached is { Length: > 0 })
             {
-                yield return attached;
+                into.Add(attached);
             }
         }
     }
@@ -280,6 +291,12 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`SetPanelDirty`.</summary>
     public void SetPanelDirty() => _panelDirty = true;
 
+    /// <summary>`m_bPanelDirty`: whether the next `UpdateModel` sets the model up.</summary>
+    internal bool PanelDirty => _panelDirty;
+
+    /// <summary>Whether the panel holds a set-up model (`m_hModel`).</summary>
+    internal bool HoldsModel => _model is not null;
+
     /// <summary>The game event a <c>CModelPanel</c> listens for (`ListenForGameEvent( "game_newmap" )`, :56).</summary>
     public const string GameNewMap = "game_newmap";
 
@@ -293,6 +310,11 @@ public class VguiModelPanel : VguiEditablePanel
         if (string.Equals(name, GameNewMap, StringComparison.Ordinal))
         {
             _panelDirty = true;
+
+            // The old level's model goes now rather than at the next paint's set-up (review 3 item 4): a panel that does
+            // not paint again would otherwise keep a dead level's frames. Nothing draws it in between — `Paint` sets the
+            // model up before it draws.
+            _model = null;
         }
     }
 
@@ -370,28 +392,38 @@ public class VguiModelPanel : VguiEditablePanel
     }
 
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
+    /// <remarks>
+    /// **The flag stays while a named model is not loaded yet** (B779 review 3 item 2). The engine clears it after every
+    /// `SetupModel`, whose load is in the call (`modelinfo` by name, :387), so the model is always there by then. Ours
+    /// precaches a panel's models on the frame, and a paint can come first; cleared then, the model would never be set up.
+    /// </remarks>
     public void UpdateModel()
     {
         if (_panelDirty)
         {
-            SetupModel();
-            _panelDirty = false;
+            _panelDirty = !SetupModel();
         }
     }
 
     /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
-    private void SetupModel()
+    /// <returns>False only when a model is named but not loaded yet, so the panel stays dirty.</returns>
+    private bool SetupModel()
     {
         if (ModelInfo is not { } info)
         {
-            return;
+            return true;
         }
 
         _model = null;
 
-        if (DrawnModelName is not { Length: > 0 } path || _mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
+        if (DrawnModelName is not { Length: > 0 } path)
         {
-            return;
+            return true;
+        }
+
+        if (_mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
+        {
+            return false;
         }
 
         PanelModel model = new(path, frames, skinned, NewEntity(skinned));
@@ -458,6 +490,8 @@ public class VguiModelPanel : VguiEditablePanel
         {
             CalculateFrameDistanceInternal(info, frames.HeaderBounds);
         }
+
+        return true;
     }
 
     /// <summary>

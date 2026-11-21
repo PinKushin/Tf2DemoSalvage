@@ -213,8 +213,9 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   unpacked on the next map, drawing nothing (B779 review 2).
 - **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
   it; the HUD precaches every panel's models into the world's model set each frame the list changes
-  (`VguiHud.ModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer
-  order it needs (*measured* on a synthetic model through the production set). The filing was a deduction never checked.
+  (`VguiHud.AddModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer
+  order it needs. *Read* for the HUD's route; the pack and the face through the production set *measured* on a synthetic
+  model, and the frame's ask counted through the presenter since B779 review 3. The filing was a deduction never checked.
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

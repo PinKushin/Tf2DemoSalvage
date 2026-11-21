@@ -42388,6 +42388,31 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B810 — the world's per-path face caches outlive the level: resting weights and flexed corners (2026-11-21) — OPEN
+
+Found in B779 review 3 (item 5). `EntityModelSet.LevelShutdown` (`EntityModels.Packing.cs`) forgets every model, packing
+and per-model face — `_restingFace`, `_packedOrder`, `_frames` — because a path is map-scoped: the next map's pakfile is
+read first, so the same path can be another model. Two caches keyed by path are left out of it:
+`_restingWeights` (`EntityModels.FacesAndLighting.cs:252`, `RestingWeightsOf` :254-262), the rules at rest for a C_BaseFlex
+no scene drives, which its eyes' controllers and its mouth read; and `_flexedCorners` (:527, `FlexedCornersOf` :539-546),
+the buffer slots a model's flexes move, built from that level's flexes and packing order. **The failure**: on a level
+whose model for a path differs, the first keeps the old model's weights (a mouth or eye set up from another model's
+rules), and the second spreads a face over the old model's slots — vertices the new model's flexes do not name moved,
+and its own left at rest, or the write skipped where a slot is out of range. *Read*, not measured; the same failure B779
+review 2 fixed for the panels. The fix is the two `Clear()`s in `LevelShutdown` with a test of a path read again.
+
+## B809 — a C_BaseFlex in the world whose model has no flex controllers still runs its rules at rest (2026-11-21) — OPEN
+
+Found in B779 review 3 (item 5). `C_BaseFlex::SetupGlobalWeights` zeroes the flex weights (and the delayed ones) and returns
+false for a model with no flex controllers (`c_baseflex.cpp:1198-1207`), so `SetupWeights` never reaches
+`SetupLocalWeights` or the rules (`:1152-1155`): the mesh is drawn at zero weights. `EntityModelSet.RestingFaceOf`
+(`EntityModels.FacesAndLighting.cs:160-162`) and `RestingWeightsOf` (:258) run `FaceFlex.Rules` over each controller's
+minimum for any C_BaseFlex — a worn item, a corpse — with or without controllers. **The failure**: a model with flex
+descriptors and rules but no controllers (a rule reading only constants, or a controller another model owns) draws the
+rules' output on its mesh, mouth and eyes, where TF2 draws zero; with a ramp not zero at zero, zero is not the rest pose
+either (B513). The panel's `CModelPanelModel` had the same gap and is fixed (B779 review 1 item 7). *Read*; how many
+shipped models have descriptors without controllers is not counted.
+
 ## B805 — a resting C_BaseFlex in the world draws its delayed weights as its current ones; the engine's rise from zero (2026-11-21) — OPEN
 
 Found in B779 review 1 (item 7). A C_BaseFlex with `flex_smooth` on hands the studio render its own delayed weights
@@ -42762,8 +42787,36 @@ re-setup themselves" (:196-205). Ported as `VguiModelPanel.OnGameEvent( "game_ne
 under the viewport by `HudViewport.NewMap`, which `FramePresenter.LevelInit` calls at each level load. *Test*:
 `CModelPanelConformanceTests.Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames` (red first, with `NewMap` a stub:
 the old frames' 1.5 for the new 2.0). *Sabotage*: the walk not descending into the viewport's children reddened only that
-row. *Not tested*: the `FramePresenter.LevelInit` call itself (read; the presenter has no test harness that loads a
-level).
+row. ~~*Not tested*: the `FramePresenter.LevelInit` call itself (read; the presenter has no test harness that loads a
+level).~~ Wrong: `FramePresenterTests` already calls `LevelInit` on a synthetic map, and `FramePresenterHudTests` builds
+the HUD through an install of nothing; the call is tested since review 3.
+
+**Review round 3** (no high; every item fixed here, two world gaps filed):
+1. *The production wiring was untested* (medium). Through the presenter's own harness (`FramePresenterHudTests.Window`):
+   `LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty` holds `FramePresenter.LevelInit`'s `NewMap`, on the real HUD's
+   round sign — a grandchild of the viewport, as all of production's `CModelPanel`s are; and
+   `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels` holds the frame's precache, counted where the set
+   takes the ask (`EntityModelSet.PrecacheAsks`). The walk's depth: `CModelPanelConformanceTests.NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty`.
+   All three passed first, the wiring being there; each was sabotaged.
+2. *A panel whose model was not loaded at its first paint never set it up* (low): `UpdateModel` cleared the flag after a
+   `SetupModel` that found no model. The engine's `SetupModel` loads in the call (:387), so its clear always follows a
+   set-up model; ours precaches on the frame, so the flag now stays until the named model is there.
+   `CModelPanelConformanceTests.Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` (red first: nothing drawn).
+3. *A frame's precache list allocated* (low): each panel adds to a caller's list (`AddModelsToPrecache`), the presenter
+   keeps one, and `PrecacheChanged` compares element by element against its kept copy. `PackedVerticesTests.PrecacheChanged_AnUnchangedList_AllocatesNothing`
+   (red first: 104 bytes a call).
+4. *Panels pinned the old level's frames* (low): at `game_newmap` a `CModelPanel` drops its model, and
+   `HudViewport.NewMap` tells each CMDL panel to drop the faces and zero-control weights it keeps by frames
+   (`VguiMdlPanel.ForgetLevel`, the StatTrak CMDLs too) — memory, not behaviour.
+   `CModelPanelConformanceTests.NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces` (red first: the model held).
+5. *The world's same gaps*, filed: **B809** (a C_BaseFlex without controllers runs its rules) and **B810** (the per-path
+   resting weights and flexed corners outlive the level). Not fixed here.
+
+*Sabotage*, two batches of disjoint breaks: no `NewMap` at level init (its row), no precache call (its row), the flag
+cleared after any set-up (its row), the unchanged-list shortcut never taken (its row and the reads-once row, which holds
+the same shortcut), `game_newmap` keeping the model (the release row); the walk stopped one level below the viewport (the
+grandchild row and the presenter's level-init row — production's panels are grandchildren), `ForgetLevel` a no-op (the
+release row, at the CMDL panel).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
