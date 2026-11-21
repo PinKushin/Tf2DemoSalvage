@@ -569,6 +569,58 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **`game_newmap` releases a CMDL panel's merge models' mesh faces too** (B779 review 4 item 2): `ForgetLevel` walks the
+    /// merge list as well as the root. The control: the drawn merge held one.
+    /// </remarks>
+    [Test]
+    public void NewMap_AMergeModelDrawnWithAMeshFace_ReleasesIt()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        PropModels.ModelFrames flexed = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => flexed, null)) { Wide = 100, Tall = 100 };
+
+        mdl.SetMDL("models/player/demo.mdl");
+        VguiMdl merge = mdl.SetMergeMDL("models/player/items/demo/hat.mdl").ShouldNotBeNull();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        mdl.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context);
+        merge.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        viewport.NewMap();
+
+        merge.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A late attached model is set up once it loads** (B779 review 4 item 4): `SetupModel` skips an attached model it
+    /// cannot find (`continue`), and the engine's never misses one, its load being in the call (:387). Ours precaches on the
+    /// frame, so the panel stays dirty until every model it names is set up. First paint: the root alone; second, once the
+    /// attachment has loaded: both.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
+    {
+        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
+        bool attachedLoaded = false;
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        VguiModelPanel panel = Framed(
+            startFramed: false,
+            attached: attachedFrames,
+            rootNow: () => root,
+            attachedNow: () => attachedLoaded ? attachedFrames : null);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(1, "the control: the root alone");
+
+        attachedLoaded = true;
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws[1].Models.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
     /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
     /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
@@ -676,14 +728,16 @@ public sealed class CModelPanelConformanceTests
         bool flexed = false,
         byte flexSpeed = 255,
         PropModels.ModelFrames? root = null,
-        Func<PropModels.ModelFrames?>? rootNow = null)
+        Func<PropModels.ModelFrames?>? rootNow = null,
+        Func<PropModels.ModelFrames?>? attachedNow = null)
     {
         PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
         Func<PropModels.ModelFrames?> rootFrames = rootNow ?? (() => frames);
+        Func<PropModels.ModelFrames?> attachedFrames = attachedNow ?? (() => attached);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
-            path => attached is not null && path == AttachedPath ? attached : rootFrames(),
+            path => attached is not null && path == AttachedPath ? attachedFrames() : rootFrames(),
             sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";

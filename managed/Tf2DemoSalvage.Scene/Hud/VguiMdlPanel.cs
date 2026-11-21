@@ -220,16 +220,10 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>m_flTime = GetAutoPlayTime() - m_flCycleStartTime</c> (<c>mdlpanel.cpp:638</c>).</summary>
     public double CycleTime => RealTimeSeconds - CycleStartTime;
 
-    /// <summary>The model paths this panel needs precached, root first.</summary>
-    /// <returns>The root's path, then each merge model's.</returns>
-    public IEnumerable<string> ModelsToPrecache()
-    {
-        List<string> paths = [];
-        AddModelsToPrecache(paths);
-        return paths;
-    }
-
-    /// <summary>The same, added to a list the caller keeps, which a frame's precache reuses (B779 review 3 item 3).</summary>
+    /// <summary>
+    /// The model paths this panel needs precached — the root's, then each merge model's — added to a list the caller keeps,
+    /// which a frame's precache reuses (B779 review 3 item 3).
+    /// </summary>
     /// <param name="into">The list.</param>
     public virtual void AddModelsToPrecache(ICollection<string> into)
     {

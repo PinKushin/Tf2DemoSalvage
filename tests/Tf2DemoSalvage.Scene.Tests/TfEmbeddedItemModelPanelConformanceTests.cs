@@ -121,6 +121,27 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
         panel.MdlCache.PackedOrder("models/items/hat.mdl").ShouldBeSameAs(order);
     }
 
+    /// <remarks>
+    /// **A level's end releases the StatTrak module's mesh face too** (B779 review 4 item 2): the module is a CMDL of its own,
+    /// outside the merge list, so `ForgetLevel`'s override releases it. Its face is seeded as its draw would build it (the
+    /// embedded panel's strange-weapon draw needs an item schema and a weapon model). The control: it held one.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AStatTrakModuleWithAMeshFace_ReleasesIt()
+    {
+        HudViewport viewport = new() { Wide = 1366, Tall = 768 };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel");
+        PropModels.ModelFrames module = PanelMeshFlexFixture.Flexed(
+            new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], []) { Flex = new StudioFlexData(["jaw"], [], [], []) });
+
+        panel.StatTrack.MeshFlex.For(new OrderCache([1, 0]), "models/stattrack.mdl", module, [0.25f]);
+        panel.StatTrack.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.StatTrack.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
     /// <summary>A cache answering one packed order for every path.</summary>
     private sealed class OrderCache(IReadOnlyList<int> order) : IMdlCache
     {

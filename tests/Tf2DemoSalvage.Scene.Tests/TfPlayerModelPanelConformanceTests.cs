@@ -183,7 +183,9 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.SetToPlayerClass(1);
 
         panel.MergeMdls.ShouldBeEmpty("the callback waits for the model");
-        panel.ModelsToPrecache().ShouldBe([ScoutModel, Scattergun], "the waiting model is asked for, or it never loads");
+        List<string> precache = [];
+        panel.AddModelsToPrecache(precache);
+        precache.ShouldBe([ScoutModel, Scattergun], "the waiting model is asked for, or it never loads");
 
         cache.Load(Scattergun);
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
@@ -389,6 +391,31 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         PanelMeshFlexFixture.ShouldBeFlexedBy(
             System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == StatTrak), 0.25f);
+    }
+
+    /// <remarks>
+    /// **A level's end releases the drawn StatTrak module's mesh face** (B779 review 4 item 2): the module is a CMDL outside
+    /// the merge list, so `ForgetLevel`'s override releases it. Drawn as the row above draws it; the control: it held one.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AfterTheStatTrakModuleWasDrawnFlexed_ReleasesItsMeshFace()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel, Scattergun, StatTrak);
+        cache.FlexedPath = StatTrak;
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13,
+            new EconAttributeValue(834, 350),
+            new EconAttributeValue(214, 12),
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))) with { IteratesDefinition = true });
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.StatTrackModel.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.StatTrackModel.MeshFlex.HoldsFrames.ShouldBeFalse();
     }
 
     [Test]

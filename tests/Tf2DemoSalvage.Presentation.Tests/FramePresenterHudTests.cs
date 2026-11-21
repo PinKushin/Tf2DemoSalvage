@@ -151,12 +151,14 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **A level load tells the HUD's model panels the map is new** (B779 review 3 item 1a): each `CModelPanel` hears
-    /// `game_newmap` (`basemodelpanel.cpp:56`, :196-205) and sets its model up again from the new level's frames. Production
-    /// sends it from `FramePresenter.LevelInit`. The control: the round sign, set up, is clean before the load.
+    /// **Every level change tells the HUD's model panels the map is new** (B779 review 3 item 1a, review 4 item 5): each
+    /// `CModelPanel` hears `game_newmap` (`basemodelpanel.cpp:56`, :196-205) and sets its model up again from the new level's
+    /// frames. Production sends it from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every level's
+    /// shutdown — so a load that then fails, after the model set has forgotten every model, still reaches the panels, where
+    /// `LevelInit` runs only after a load that succeeded. The control: the round sign, set up, is clean before the change.
     /// </remarks>
     [Test]
-    public void LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty()
+    public void ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty()
     {
         Window window = new();
 
@@ -165,7 +167,7 @@ public sealed class FramePresenterHudTests
         sign.UpdateModel();
         sign.PanelDirty.ShouldBeFalse("the control");
 
-        window.Frames.LevelInit(SyntheticMap.Read(Timeline), doPixelVisibility: true);
+        window.Frames.ClearMap();
 
         sign.PanelDirty.ShouldBeTrue();
     }

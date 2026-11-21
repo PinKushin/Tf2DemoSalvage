@@ -566,8 +566,8 @@ public sealed class VguiModelPanelConformanceTests
 
     /// <remarks>
     /// **A model only a panel draws is flexed through the production cache** (B779): no world prop wears it, so the set
-    /// packs it only because the HUD precaches what its panels draw (`VguiHud.ModelsToPrecache` into
-    /// `EntityModelSet.Precache`, `FramePresenter.Hud.cs`), and the panel's face is spread over that packing. The set packs
+    /// packs it only because the HUD precaches what its panels draw (`VguiHud.AddModelsToPrecache` into
+    /// `EntityModelSet.PrecacheChanged`, `FramePresenter.Hud.cs`), and the panel's face is spread over that packing. The set packs
     /// the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts it in slot 0:
     /// the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0). The control: the set packed it.
     /// </remarks>
@@ -1065,15 +1065,16 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
-    public void ModelsToPrecache_ARootAndMergeModels_YieldsRootFirst()
+    public void AddModelsToPrecache_ARootAndMergeModels_AddsRootFirst()
     {
         VguiMdlPanel panel = new(null, "model", Cache.None);
+        List<string> precache = [];
 
         panel.SetMDL("models/player/scout.mdl");
         panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl");
+        panel.AddModelsToPrecache(precache);
 
-        panel.ModelsToPrecache().ShouldBe(
-            ["models/player/scout.mdl", "models/weapons/c_models/c_scattergun.mdl"]);
+        precache.ShouldBe(["models/player/scout.mdl", "models/weapons/c_models/c_scattergun.mdl"]);
     }
 
     [Test]

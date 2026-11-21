@@ -269,6 +269,12 @@ public sealed partial class FramePresenter
         _strikes.Clear();
         _impacts.ClearMap();
         _shadows.ClearMap();
+
+        // `game_newmap`: each `CModelPanel` sets its models up again from the next level's frames (basemodelpanel.cpp:196-205,
+        // B779 review 2). Here, at every level change, rather than at `LevelInit`, which only a load that succeeds reaches
+        // while the model set forgets every model either way (review 4 item 5); a panel stays dirty until its models load.
+        // The HUD outlives the level; a HUD not built yet has nothing to set up.
+        _vguiHud?.Viewport.NewMap();
     }
 
     /// <summary>A new level: its glows start from nothing, and its particle materials' sheets are the ones a system reads.</summary>
@@ -291,10 +297,6 @@ public sealed partial class FramePresenter
                 ? material.Sequences
                 : null
             : null;
-
-        // `game_newmap`: each `CModelPanel` sets its models up again from this level's frames (basemodelpanel.cpp:196-205,
-        // B779 review 2). The HUD outlives the level; a HUD not built yet has nothing to set up.
-        _vguiHud?.Viewport.NewMap();
     }
 
     /// <summary>What the HUD reads at a tick, with what the local player is looking at.</summary>

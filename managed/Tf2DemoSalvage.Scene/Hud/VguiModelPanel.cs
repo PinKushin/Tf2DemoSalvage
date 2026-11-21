@@ -143,16 +143,10 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`gpGlobals->frametime`, set by whoever drives the frame.</summary>
     public float FrameTime { get; set; }
 
-    /// <summary>The paths this panel draws, for precaching.</summary>
-    /// <returns>The model, then each attached model.</returns>
-    public IEnumerable<string> ModelsToPrecache()
-    {
-        List<string> paths = [];
-        AddModelsToPrecache(paths);
-        return paths;
-    }
-
-    /// <summary>The same, added to a list the caller keeps, which a frame's precache reuses (B779 review 3 item 3).</summary>
+    /// <summary>
+    /// The paths this panel draws, for precaching — the model, then each attached model — added to a list the caller keeps,
+    /// which a frame's precache reuses (B779 review 3 item 3).
+    /// </summary>
     /// <param name="into">The list.</param>
     public void AddModelsToPrecache(ICollection<string> into)
     {
@@ -168,9 +162,10 @@ public class VguiModelPanel : VguiEditablePanel
             into.Add(model);
         }
 
-        foreach ((string? attached, _) in info.AttachedModels)
+        // By index: a `foreach` over the `Collection<T>` boxes its enumerator, once per panel per frame (review 4 item 1).
+        for (int index = 0; index < info.AttachedModels.Count; index++)
         {
-            if (attached is { Length: > 0 })
+            if (info.AttachedModels[index].ModelName is { Length: > 0 } attached)
             {
                 into.Add(attached);
             }
@@ -393,7 +388,8 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
     /// <remarks>
-    /// **The flag stays while a named model is not loaded yet** (B779 review 3 item 2). The engine clears it after every
+    /// **The flag stays while a named model — the root or an attachment (review 4 item 4) — is not loaded yet** (B779 review 3
+    /// item 2). The engine clears it after every
     /// `SetupModel`, whose load is in the call (`modelinfo` by name, :387), so the model is always there by then. Ours
     /// precaches a panel's models on the frame, and a paint can come first; cleared then, the model would never be set up.
     /// </remarks>
@@ -406,7 +402,7 @@ public class VguiModelPanel : VguiEditablePanel
     }
 
     /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
-    /// <returns>False only when a model is named but not loaded yet, so the panel stays dirty.</returns>
+    /// <returns>False when a model it names — the root or an attachment — is not loaded yet, so the panel stays dirty.</returns>
     private bool SetupModel()
     {
         if (ModelInfo is not { } info)
@@ -468,10 +464,19 @@ public class VguiModelPanel : VguiEditablePanel
             }
         }
 
+        // Whether every model named was there; an attachment still loading leaves the panel dirty (review 4 item 4).
+        bool allSetUp = true;
+
         foreach ((string? attachedPath, int skin) in info.AttachedModels)
         {
-            if (attachedPath is null || _mdlCache.FindMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
+            if (attachedPath is null)
             {
+                continue;
+            }
+
+            if (_mdlCache.FindMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
+            {
+                allSetUp = false;
                 continue;
             }
 
@@ -491,7 +496,7 @@ public class VguiModelPanel : VguiEditablePanel
             CalculateFrameDistanceInternal(info, frames.HeaderBounds);
         }
 
-        return true;
+        return allSetUp;
     }
 
     /// <summary>

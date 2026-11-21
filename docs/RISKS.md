@@ -42714,7 +42714,8 @@ its row and B725's `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex
 merge row; the face cache ignoring a weight change only the TF row's second paint; the set answering no order only its
 row. **A model only a panel draws** (round 2, the lead's ruling under D261: first filed here as left unflexed for want of
 a packing, a deduction never checked): the HUD precaches every panel's models into the world's set
-(`VguiHud.ModelsToPrecache` into `EntityModelSet.Precache`, `FramePresenter.Hud.cs`), which packs them, so the order is
+(`VguiHud.AddModelsToPrecache` into `EntityModelSet.PrecacheChanged`, `FramePresenter.Hud.cs`; review 2 and 3 named it so),
+which packs them, so the order is
 there. *Test*: `VguiModelPanelConformanceTests.Paint_APanelOnlyModelPrecachedIntoTheSet_DrawsItsMeshFlexed` (through the
 production set; the moved vertex lands in the slot the set packed it at, 1, where the fixture's own order would put it at
 0). It passed on its first run, the code it reads being already on the branch; *sabotage*: the set answering no order
@@ -42784,7 +42785,8 @@ model. `VguiModelPanel`'s `PanelModel` — its frames, its resting and delayed w
 which `UpdateModel` runs only when the panel is dirty, and nothing marked it dirty at a new map. The engine does: every
 `CModelPanel` listens for `game_newmap` (`basemodelpanel.cpp:56`) and sets `m_bPanelDirty` "to force the models to
 re-setup themselves" (:196-205). Ported as `VguiModelPanel.OnGameEvent( "game_newmap" )`, delivered to every model panel
-under the viewport by `HudViewport.NewMap`, which `FramePresenter.LevelInit` calls at each level load. *Test*:
+under the viewport by `HudViewport.NewMap`, which `FramePresenter.LevelInit` called at each level load (moved to
+`FramePresenter.ClearMap` in review 4, item 5, so a failed load reaches the panels too). *Test*:
 `CModelPanelConformanceTests.Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames` (red first, with `NewMap` a stub:
 the old frames' 1.5 for the new 2.0). *Sabotage*: the walk not descending into the viewport's children reddened only that
 row. ~~*Not tested*: the `FramePresenter.LevelInit` call itself (read; the presenter has no test harness that loads a
@@ -42793,7 +42795,8 @@ the HUD through an install of nothing; the call is tested since review 3.
 
 **Review round 3** (no high; every item fixed here, two world gaps filed):
 1. *The production wiring was untested* (medium). Through the presenter's own harness (`FramePresenterHudTests.Window`):
-   `LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty` holds `FramePresenter.LevelInit`'s `NewMap`, on the real HUD's
+   `LevelInit_OnceTheHudExists_MarksItsModelPanelsDirty` held `FramePresenter.LevelInit`'s `NewMap` (now `ClearMap`'s,
+   held by `ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty`, review 4 item 5), on the real HUD's
    round sign — a grandchild of the viewport, as all of production's `CModelPanel`s are; and
    `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels` holds the frame's precache, counted where the set
    takes the ask (`EntityModelSet.PrecacheAsks`). The walk's depth: `CModelPanelConformanceTests.NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty`.
@@ -42817,6 +42820,40 @@ cleared after any set-up (its row), the unchanged-list shortcut never taken (its
 the same shortcut), `game_newmap` keeping the model (the release row); the walk stopped one level below the viewport (the
 grandchild row and the presenter's level-init row — production's panels are grandchildren), `ForgetLevel` a no-op (the
 release row, at the CMDL panel).
+
+**Review round 4** (no high; every item fixed here):
+1. *An attached-model panel allocated per frame*: `AddModelsToPrecache`'s `foreach` over the `Collection<T>` boxed its
+   enumerator; by index now. `VguiHudPrecacheTests.AddModelsToPrecacheThenPrecacheChanged_AnUnchangedFrame_AllocatesNothing`
+   measures the whole frame route — the HUD filling the kept list, an attached model among its panels, then the set's
+   comparison (red first: 48 bytes a frame).
+2. *`ForgetLevel`'s other paths*: `CModelPanelConformanceTests.NewMap_AMergeModelDrawnWithAMeshFace_ReleasesIt`,
+   `TfPlayerModelPanelConformanceTests.ForgetLevel_AfterTheStatTrakModuleWasDrawnFlexed_ReleasesItsMeshFace`,
+   `TfEmbeddedItemModelPanelConformanceTests.ForgetLevel_AStatTrakModuleWithAMeshFace_ReleasesIt` (its face seeded as the
+   draw builds it; the embedded panel's strange-weapon draw needs a schema and a weapon model).
+3. *The HUD's list*: `VguiHudPrecacheTests.AddModelsToPrecache_PanelsWithModels_ListsEachPanelsModelsInOrder`, on a HUD with
+   no install whose class panel, doors (with an attachment) and round sign are given models by hand.
+4. *A late attached model was never set up*: `SetupModel` skipped it and the flag cleared. The panel now stays dirty until
+   every model it names is set up. `CModelPanelConformanceTests.Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`
+   (red first: the root alone at the second paint). While dirty the panel is set up again each paint, so its animation
+   restarts on each such paint until the attachment loads — *interpolated* as a few frames at most; not measured.
+5. *`game_newmap` missed a failed load*: `ViewerPresenter.ClearMap` runs `FramePresenter.ClearMap` and then the level
+   shutdown at every level change, while `LevelInit` follows only a load that succeeded. `NewMap` moved to
+   `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here).
+   `FramePresenterHudTests.ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty` replaces the level-init row (red first).
+6. *Test-only wrappers*: `VguiMdlPanel.ModelsToPrecache()` and `VguiModelPanel.ModelsToPrecache()` removed (D180); their
+   two tests use `AddModelsToPrecache`.
+7. *Stale names*: this entry's fix paragraph, the panel-only test's remark and `docs/HANDOFF-hud.md` now name
+   `VguiHud.AddModelsToPrecache` and `EntityModelSet.PrecacheChanged`.
+8. *The stay-dirty retry on a model that never loads costs one dictionary lookup a paint and no file read* (a reviewer's
+   reading, recorded, not measured here): `UpdateModel` → `SetupModel` → `IMdlCache.FindMdl`, which
+   `EntityModelSet.FindMdl` answers from `_frames` (`EntityModels.cs`, `_frames.TryGetValue`); a file is read only by
+   `Precache`, which `PrecacheChanged` runs on a changed list alone. No change.
+
+*Sabotage*, two batches: the `foreach` back (the whole-route allocation row), the merge loop, the player panel's StatTrak
+release and the embedded panel's each removed (each its own row), no `NewMap` at `ClearMap` (its row); the round sign's line
+removed from the HUD's list (the listing row, and the allocation row's count control), a missing attachment not marking
+the set-up incomplete (the attachment row — a first attempt at this break computed the same `false` as the fix and reddened
+nothing, and was redone).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

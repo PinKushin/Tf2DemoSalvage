@@ -271,7 +271,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     }
 
     /// <summary>`m_StatTrackModel`.</summary>
-    private VguiMdl StatTrack { get; } = new() { Disabled = true };
+    internal VguiMdl StatTrack { get; } = new() { Disabled = true };
 
     /// <summary>`m_flStatTrackScale`.</summary>
     private float StatTrackScale { get; set; } = 1f;
