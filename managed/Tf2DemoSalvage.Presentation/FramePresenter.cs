@@ -270,15 +270,25 @@ public sealed partial class FramePresenter
         _impacts.ClearMap();
         _shadows.ClearMap();
 
-        // The level change as the HUD's model panels see it: the shutdown releases each `CModelPanel`'s model
-        // (`cl_entitylist->Release()`, cdll_client_int.cpp:1735; B779 review 8) and the next map's `game_newmap` marks it
-        // dirty, so it sets its models up again from the next level's frames (basemodelpanel.cpp:196-205, review 2).
-        // Here, at every level change, rather than at `LevelInit`, which only a load that succeeds reaches
-        // while the model set forgets every model either way (review 4 item 5); a panel that finds a model missing then keeps
-        // it and sets itself up again once the precache brings it (review 5).
-        // The HUD outlives the level; a HUD not built yet has nothing to set up.
+        // A map load as the HUD's model panels see it. **The shutdown half only after a level** (B779 review 9 item 1):
+        // `CHLClient::LevelShutdown` returns at once while no level was initialised (cdll_client_int.cpp:1714-1715), and
+        // otherwise releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`, :1735;
+        // review 8). **The event half at every load**: the next map's `game_newmap` marks the panel dirty, so it sets its
+        // models up again from the next level's frames (basemodelpanel.cpp:196-205, review 2). Here rather than at
+        // `LevelInit`, which only a load that succeeds reaches while the model set forgets every model either way (review 4
+        // item 5); a panel that finds a model missing then keeps it and sets itself up again once the precache brings it
+        // (review 5). The HUD outlives the level; a HUD not built yet has nothing to set up.
+        if (_levelInitialized)
+        {
+            _vguiHud?.Viewport.LevelShutdown();
+            _levelInitialized = false;
+        }
+
         _vguiHud?.Viewport.NewMap();
     }
+
+    /// <summary>`g_bLevelInitialized` (`cdll_client_int.cpp:345`): set at a level's init (:1612), cleared at its shutdown (:1717).</summary>
+    private bool _levelInitialized;
 
     /// <summary>A new level: its glows start from nothing, and its particle materials' sheets are the ones a system reads.</summary>
     /// <param name="map">The map that was read.</param>
@@ -287,6 +297,9 @@ public sealed partial class FramePresenter
     public void LevelInit(LoadedMap map, bool doPixelVisibility)
     {
         ArgumentNullException.ThrowIfNull(map);
+
+        // `LevelInitPreEntity` sets `g_bLevelInitialized` (cdll_client_int.cpp:1612): the next load's shutdown is a real one.
+        _levelInitialized = true;
 
         // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
         // device counts their occlusion is decided here for the whole level (B378).

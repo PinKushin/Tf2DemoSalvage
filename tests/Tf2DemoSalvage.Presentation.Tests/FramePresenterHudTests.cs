@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Tests;
@@ -158,18 +159,107 @@ public sealed class FramePresenterHudTests
     /// `LevelInit` runs only after a load that succeeded. The control: the round sign, set up, is clean before the change.
     /// </remarks>
     [Test]
-    public void ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty()
+    public void ClearMap_AfterALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty()
     {
         Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
 
-        window.Overlay(100);
-        VguiModelPanel sign = window.Frames.Hud.ShouldNotBeNull().MatchStatus.RoundSignModel;
-        sign.UpdateModel();
-        sign.PanelDirty.ShouldBeFalse("the control");
+        window.Frames.LevelInit(SyntheticMap.Read(Timeline), doPixelVisibility: true);
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull("the level's shutdown released it (cdll_client_int.cpp:1735)");
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **The first level's load releases nothing** (B779 review 9 item 1): `CHLClient::LevelShutdown` returns at once while
+    /// no level was initialised (`cdll_client_int.cpp:1714-1715`; `g_bLevelInitialized` is set at `LevelInitPreEntity`,
+    /// :1610-1612). So a load before any level was initialised leaves the panel's model, and the new map's event still marks
+    /// the panel dirty. The control: the sign held a model.
+    /// </remarks>
+    [Test]
+    public void ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+        object model = sign.SetUpModel.ShouldNotBeNull();
 
         window.Frames.ClearMap();
 
+        sign.SetUpModel.ShouldBeSameAs(model);
         sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <summary>An empty scheme's context, for a panel's own settings: the install of nothing has no `ClientScheme.res`.</summary>
+    private static VguiContext Context()
+    {
+        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 720), scheme.Find("Fonts")!, 1280, 720, "english");
+    }
+
+    /// <summary>One bone at the origin, one sequence: enough for a panel to set the model up.</summary>
+    private static PropModels.SkinnedModel OneBone()
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+            [(0, [new StudioSequence(Animation: 0, Flags: 0, Label: "idle", Blend: null, Activity: "idle", ActivityWeight: 1)])];
+
+        return new PropModels.SkinnedModel(
+            Bones:
+            [
+                new StudioBone(
+                    Name: "root",
+                    Parent: -1,
+                    Position: (0f, 0f, 0f),
+                    Rotation: (0f, 0f, 0f, 1f),
+                    PoseToBone: new float[] { 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f },
+                    Flags: ~0),
+            ],
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: [],
+            MasterPose: []);
+    }
+
+    /// <summary>The HUD built, its round sign given a model the presenter's set has packed, and set up.</summary>
+    private static VguiModelPanel SignWithAModel(Window window)
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        PropModels.ModelFrames frames = new(
+            [
+                new PropVertex[]
+                {
+                    new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: OneBone());
+
+        window.Models.Geometry = requested => requested == path ? frames : null;
+        window.Models.Precache([path]);
+        window.Overlay(100);
+
+        VguiHud hud = window.Frames.Hud.ShouldNotBeNull();
+        VguiModelPanel sign = hud.MatchStatus.RoundSignModel;
+
+        sign.ApplySettings(
+            KeyValuesTree.Load(
+                Encoding.UTF8.GetBytes($$"""
+                    "Panel" { "fieldName" "Panel" "wide" "100" "tall" "100" "model" { "modelname" "{{path}}" } }
+                    """),
+                "panel.res",
+                _ => null),
+            Context());
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldNotBeNull("the control: the sign has a model");
+        sign.PanelDirty.ShouldBeFalse("the control");
+
+        return sign;
     }
 
     [Test]

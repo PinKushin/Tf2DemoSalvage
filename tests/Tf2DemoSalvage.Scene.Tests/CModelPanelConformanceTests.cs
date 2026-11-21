@@ -573,6 +573,7 @@ public sealed class CModelPanelConformanceTests
         object? old = panel.SetUpModel.ShouldNotBeNull("the control");
         (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((1, true), "the control");
 
+        viewport.LevelShutdown();
         viewport.NewMap();
 
         panel.SetUpModel.ShouldBeNull("released with the level's entities, as `m_hModel` is");
@@ -582,6 +583,38 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(surface, viewport.Context!);
 
         panel.SetUpModel.ShouldNotBeNull().ShouldNotBeSameAs(old);
+    }
+
+    /// <remarks>
+    /// **A level's shutdown forgets the models a set-up missed, too** (B779 review 9 item 3): the shutdown releases the panel's
+    /// model and no set-up follows until the panel is dirty (`m_hModel` null, `basemodelpanel.cpp:534` clears the flag only in
+    /// `UpdateModel`). Kept, the old level's missed names would set the panel up the moment one of them turned up. Here the
+    /// attachment is missed, the level shuts down with no new map's event, and the attachment then loads: nothing is set up.
+    /// The control: before the shutdown the panel had its root.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames()
+    {
+        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
+        bool attachedLoaded = false;
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        VguiModelPanel panel = Framed(
+            startFramed: false,
+            attached: attachedFrames,
+            rootNow: () => root,
+            attachedNow: () => attachedLoaded ? attachedFrames : null);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        panel.SetUpModel.ShouldNotBeNull("the control");
+
+        panel.ForgetLevel();
+        attachedLoaded = true;
+        panel.Paint(surface, viewport.Context!);
+
+        panel.SetUpModel.ShouldBeNull();
     }
 
     /// <remarks>
@@ -623,6 +656,7 @@ public sealed class CModelPanelConformanceTests
         mdl.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context);
         merge.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
 
+        viewport.LevelShutdown();
         viewport.NewMap();
 
         merge.MeshFlex.HoldsFrames.ShouldBeFalse();
@@ -650,6 +684,7 @@ public sealed class CModelPanelConformanceTests
         mdl.Paint(surface, viewport.Context);
         mdl.KeptEntity(path).ShouldBeSameAs(first, "the control: one entity within a level");
 
+        viewport.LevelShutdown();
         viewport.NewMap();
         current = Frames(eyed: false, mouthed: false);
         mdl.Paint(surface, viewport.Context);

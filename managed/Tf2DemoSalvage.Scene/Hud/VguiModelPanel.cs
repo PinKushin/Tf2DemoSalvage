@@ -316,7 +316,14 @@ public class VguiModelPanel : VguiEditablePanel
     /// the client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel` — and a panel
     /// that does not paint on the next level holds no old frames, skeleton or face (B779 review 8).
     /// </summary>
-    public void ForgetLevel() => _model = null;
+    public void ForgetLevel()
+    {
+        _model = null;
+
+        // The old level's missed names too: kept, the first of them to turn up would set the panel up with no new map's
+        // event to ask for it (review 9 item 3).
+        _missed.Clear();
+    }
 
     /// <summary>`SetSkin` (:747).</summary>
     /// <param name="skin">The skin.</param>

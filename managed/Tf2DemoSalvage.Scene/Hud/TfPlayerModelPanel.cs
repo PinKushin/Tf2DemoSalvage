@@ -1093,6 +1093,10 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <summary><c>m_flexWeight[ index ]</c>, for the test that the decay steps every paint.</summary>
     internal float FlexWeightAt(int index) => _flexWeight[index];
 
+    /// <summary>Whether anything kept for a model's flex data is held: the data, its shared slots, or the buffers sized for it.</summary>
+    internal bool HoldsFlexSlots =>
+        _flexSlotsFor is not null || _flexSlots.Length > 0 || _flexSource.Length > 0 || _flexRuleWeights.Length > 0;
+
     /// <summary>One paint's <see cref="RootFlexWeights"/>, for the tests of its cache and its allocation.</summary>
     internal float[]? StepRootFlex(string path, PropModels.ModelFrames frames) => RootFlexWeights(path, frames);
 
@@ -1493,6 +1497,13 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     {
         base.ForgetLevel();
         StatTrackModel.MeshFlex.Release();
+
+        // The root's shared slots are kept per model's flex data: the old level's model, held (review 9 item 4), with the
+        // buffers sized for it.
+        _flexSlotsFor = null;
+        _flexSlots = [];
+        _flexSource = [];
+        _flexRuleWeights = [];
     }
 
     /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>

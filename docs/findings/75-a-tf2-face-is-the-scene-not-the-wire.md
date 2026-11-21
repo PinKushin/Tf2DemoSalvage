@@ -209,7 +209,16 @@ What the B725 reading left: the panels computed the descriptor weights only for 
 - **A `CModelPanel` sets its model up again at every new map.** It listens for `game_newmap` from its constructor
   (`basemodelpanel.cpp:56`) and marks itself dirty "to force the models to re-setup themselves" (:196-205), so the next
   paint builds a new `CModelPanelModel` from the new level's model (*source*). Ours had no such event and kept the old
-  level's model, weights and all; ported. And the HUD's precache of the panels' models must not survive the level its
+  level's model, weights and all; ported.
+- **The model is gone before the event, released with the level** (*source*, B779 review 8). `CHLClient::LevelShutdown`
+  runs `cl_entitylist->Release()` (`cdll_client_int.cpp:1735`), and `CClientEntityList::Release` releases every entity
+  (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — so between the old level's end
+  and the next set-up `m_hModel.Get()` is null, and `SetSequence` or `SetBodyGroup` finds nothing. **But not at the first
+  load**: `LevelShutdown` returns at once while no level was initialised (:1714-1715; `g_bLevelInitialized`, set at
+  :1612), so the first map's load releases nothing and only the event marks the panel dirty (review 9). **A wrong turn,
+  kept** (review 7): reading the event handler alone — dirty, and `DeleteModelData` only at the next `SetupModel`
+  (:395) — the port kept the model until the set-up. True for the event, wrong for the level change our viewport's walk
+  is called at, where the shutdown has released it already. And the HUD's precache of the panels' models must not survive the level its
   models die with — a guard that remembered "this list is already packed" across a level change left the same list
   unpacked on the next map, drawing nothing (B779 review 2).
 - **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed

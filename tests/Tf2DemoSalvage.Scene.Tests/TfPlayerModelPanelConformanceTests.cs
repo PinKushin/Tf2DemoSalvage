@@ -394,6 +394,24 @@ public sealed class TfPlayerModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A level's end releases the root's flex slots** (B779 review 9 item 4): the shared slots are kept per model's flex
+    /// data, and kept past the level they hold the old level's model. The control: a paint built them.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AfterAFlexedRootWasPainted_ReleasesItsFlexSlots()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        panel.SetToPlayerClass(1);
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.HoldsFlexSlots.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.HoldsFlexSlots.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **A level's end releases the drawn StatTrak module's mesh face** (B779 review 4 item 2): the module is a CMDL outside
     /// the merge list, so `ForgetLevel`'s override releases it. Drawn as the row above draws it; the control: it held one.
     /// </remarks>

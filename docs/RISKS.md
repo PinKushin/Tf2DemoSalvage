@@ -42955,6 +42955,27 @@ new-frames row), the embedded panel not drawing its module (the embedded draw ro
 4. `VguiModelPanel.HoldsModel` removed (D180): nothing read it after round 7.
 5. Finding 105 cites the HUD's precache as `EntityModelSet.PrecacheChanged` at `FramePresenter.Hud.cs:284`.
 
+**Review round 9** (lows; fixed here):
+1. *The first load released what the engine keeps* (parity): `CHLClient::LevelShutdown` returns at once while no level was
+   initialised (`cdll_client_int.cpp:1714-1715`; `g_bLevelInitialized` set at `LevelInitPreEntity`, :1610-1612, cleared at
+   :1717). The viewport's walk is now two: `HudViewport.LevelShutdown` (the shutdown's half) and `HudViewport.NewMap` (the
+   event's). `FramePresenter.ClearMap` runs the first only after a `LevelInit` (a `_levelInitialized` flag in its place),
+   the second at every load. *Test*: `FramePresenterHudTests.ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty`
+   (red first: released).
+2. *The presenter's row held only the flag*: `ClearMap_AfterALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` gives the
+   real HUD's round sign a model the presenter's set packed, loads a level, and asserts the model released and the panel
+   dirty — the wiring through the viewport's walk end to end, to a grandchild of the viewport.
+3. *`VguiModelPanel.ForgetLevel` kept the missed names*: cleared now. `CModelPanelConformanceTests.ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames`
+   (red first: the panel set up from the old level's missed attachment).
+4. *`TfPlayerModelPanel.ForgetLevel` kept the old flex data*: `_flexSlotsFor` and the buffers sized for it (`_flexSlots`,
+   `_flexSource`, `_flexRuleWeights`; Gemini's addition) released. `TfPlayerModelPanelConformanceTests.ForgetLevel_AfterAFlexedRootWasPainted_ReleasesItsFlexSlots`
+   (red first: held).
+5. *Finding 75* now has the level's release before the event, the first load's exception, and round 7's wrong turn.
+
+*Sabotage*: batch A — the shutdown half at every load (the before-any-level row), `_missed` kept (item 3's row), the
+buffers kept with the data dropped (item 4's row); batch B — the data kept with the buffers dropped (item 4's row), the
+flag inverted (both presenter rows; a never-shutdown break was refused by the analyzer as dead code).
+
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
 Found in B725 5g. `CTFPlayerModelPanel::RenderStatTrack` draws its second-level merge with

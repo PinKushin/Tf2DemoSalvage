@@ -411,36 +411,48 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
     public IMdlCache? MdlCache { get; set; }
 
-    /// <summary>A level change, as the HUD's model panels see it: the old level's shutdown, then the new map's <c>game_newmap</c>.</summary>
+    /// <summary>A level's end, as the HUD's model panels see it — the half of a level change that a first load lacks.</summary>
     /// <remarks>
-    /// **The shutdown half**: `CHLClient::LevelShutdown` releases every client entity (`cdll_client_int.cpp:1735`), a
-    /// <c>CModelPanel</c>'s model among them (<see cref="VguiModelPanel.ForgetLevel"/>, B779 review 8); a <c>CMDLPanel</c>
-    /// drops what it keeps by the old level's path or frames (<see cref="VguiMdlPanel.ForgetLevel"/>, review 3 item 4).
-    /// **The event half**: each <c>CModelPanel</c> listens for <c>game_newmap</c> from its constructor
-    /// (<c>basemodelpanel.cpp:56</c>) and marks itself dirty, so its models are set up again from the new level's
-    /// (<c>:196-205</c>; review 2). At any depth — production's are the match status's children, the viewport's grandchildren.
-    /// Its one production caller is <c>FramePresenter.ClearMap</c>. The viewport's own <c>game_newmap</c> (the spectator
-    /// GUI's) is carried by the timeline instead (B516).
+    /// `CHLClient::LevelShutdown` releases every client entity (`cdll_client_int.cpp:1735`), a <c>CModelPanel</c>'s model
+    /// among them (<see cref="VguiModelPanel.ForgetLevel"/>, B779 review 8); a <c>CMDLPanel</c> drops what it keeps by the old
+    /// level's path or frames (<see cref="VguiMdlPanel.ForgetLevel"/>, review 3 item 4). It returns at once while no level was
+    /// initialised (:1714-1715), so a caller runs this only after a level (review 9). At any depth — production's model panels
+    /// are the match status's children, the viewport's grandchildren. Its one production caller is <c>FramePresenter.ClearMap</c>.
     /// </remarks>
-    public void NewMap() => NewMap(this);
-
-    private static void NewMap(VguiPanel panel)
+    public void LevelShutdown() => Walk(this, static panel =>
     {
         if (panel is VguiModelPanel modelPanel)
         {
-            // The level change is both halves: the shutdown releases the panel's model, the new map's event marks it dirty.
             modelPanel.ForgetLevel();
-            modelPanel.OnGameEvent(VguiModelPanel.GameNewMap);
         }
         else if (panel is VguiMdlPanel mdlPanel)
         {
-            // Not an event a CMDL panel hears: only the memory it keeps by the old level's frames (B779 review 3 item 4).
             mdlPanel.ForgetLevel();
         }
+    });
+
+    /// <summary>The new map's <c>game_newmap</c>, as every <c>CModelPanel</c> under the viewport hears it.</summary>
+    /// <remarks>
+    /// Each listens for it from its constructor (<c>basemodelpanel.cpp:56</c>) and marks itself dirty, so its models are set up
+    /// again from the new level's (<c>:196-205</c>; review 2), at any depth. Its one production caller is
+    /// <c>FramePresenter.ClearMap</c>, at every load, a first one included. The viewport's own <c>game_newmap</c> (the
+    /// spectator GUI's) is carried by the timeline instead (B516).
+    /// </remarks>
+    public void NewMap() => Walk(this, static panel =>
+    {
+        if (panel is VguiModelPanel modelPanel)
+        {
+            modelPanel.OnGameEvent(VguiModelPanel.GameNewMap);
+        }
+    });
+
+    private static void Walk(VguiPanel panel, Action<VguiPanel> visit)
+    {
+        visit(panel);
 
         foreach (VguiPanel child in panel.Children)
         {
-            NewMap(child);
+            Walk(child, visit);
         }
     }
 
