@@ -55,6 +55,9 @@ public sealed class MedigunSoundsConformanceTests
 
         sounds.ShouldAllBe(sound => sound.WaveDraw != null && sound.WaveDraw.Scaled);
         sounds.Select(static sound => sound.Volume).ShouldBe([1f, 1f, 1f]);
+
+        // A control, not the test: before the patches were scaled they carried the script volume itself, which a deal left
+        // alone, so this read 0.75 then too. The two lines above are what fail without the scaling.
         new ScriptWaveDeck().Deal(sounds[0], scripts).Volume.ShouldBe(0.75f);
     }
 

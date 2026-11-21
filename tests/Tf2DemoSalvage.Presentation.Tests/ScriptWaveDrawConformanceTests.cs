@@ -413,6 +413,10 @@ public sealed class ScriptWaveDrawConformanceTests
         (int secondPlace, int soundLevel) = Numbers(entry, available: 2);
         string[] left = [.. entry.Waves.Where((_, index) => index != firstWave)];
 
+        // The control: the soundlevel range is wide enough that the third number — what a deal taking no wave number would
+        // read — gives a different soundlevel, so the assertion can fail.
+        Numbers(entry, available: 1).SoundLevel.ShouldNotBe(soundLevel);
+
         (first.Name, first.SoundLevel, second.Name, second.SoundLevel).ShouldBe(
             (entry.Waves[firstWave], soundLevel, left[secondPlace], soundLevel));
     }
