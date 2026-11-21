@@ -42388,7 +42388,7 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B782 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
+## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
 
 Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
 `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
@@ -44839,7 +44839,7 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    user-settable cvar that changes the picture is engine behaviour, not an unknown command); (3) the linear-and-quadratic
    attenuation's order; (4) the damping's spline and its threshold observed — 0.008 is 20 where linear gives 19, 0.0101
    is 255 and 0.0099 is 25; (5) `EyeShading.Forward` and `Radius` required; (6) `mat_wireframe` skips the glint as
-   `bWireframe` does — the rest of that, the studio render's wireframe material, filed as **B782**; (7) `vgui/black` bound
+   `bWireframe` does — the rest of that, the studio render's wireframe material, filed as **B788**; (7) `vgui/black` bound
    without a map; (8) these notes. *Tests*: `LightAt_ALinearAndQuadraticLight_AddsFltEpsilonAfterTheLinearTerm`,
    `RegenerateProcedural_Glints_AreTheKernelThroughTheGammaTables` (130; 136 and 42; two half-glints 130),
    `DrawModelPose_EyesWithASaturatedGlint_AreDampedBySimpleSplineUnderOneHundredth`,

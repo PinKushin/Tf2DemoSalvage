@@ -865,7 +865,7 @@ internal sealed unsafe partial class WorldRenderer
 
         // **`mat_wireframe` (with `sv_cheats`, engine.dll `0x1800f5855`-`0x1800f5873`) sets the config's `bWireframe`, and
         // the mesh setup skips the glint under it** (`0x18000f7d1`). The engine then draws the model with studiorender's
-        // own wireframe material (`0x1800041ec`), not this shader at all — B782; here the glint is black.
+        // own wireframe material (`0x1800041ec`), not this shader at all — B788; here the glint is black.
         if (Wireframe || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
         {
             return (projection, _glintBlack);

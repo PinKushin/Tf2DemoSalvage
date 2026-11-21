@@ -204,4 +204,4 @@ The `Eyes` shader adds a 32×32 render target the studio render draws for every 
   *arithmetic*). A review's first answer was to ignore the cvar; it is user-settable, so it was ported.
 - **`mat_wireframe` reaches the glint through `sv_cheats`.** The engine's `bWireframe` is `sv_cheats && mat_wireframe`
   (`0x1800f5855`), and under it the studio render skips the glint and draws the model with its own wireframe material
-  — the second half is B782 (*read*).
+  — the second half is B788 (*read*).
