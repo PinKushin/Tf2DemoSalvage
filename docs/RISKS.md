@@ -44521,7 +44521,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
     `ClampCycle` again reddens the server 1.25 and client rows.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); the glint target and teeth_bump open, listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps closed 2026-11-20, review 1 fixed (B777-B781 filed from them); teeth_bump ported 2026-11-20; Eyes' glint read and still to port (not for the owner: the port is unfinished work), listed last
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -44745,7 +44745,42 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
-4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
+   **Read 2026-11-20, port still OPEN** — not for the owner: the engine is read and unambiguous so far; the port is a
+   multi-function job that did not fit the session that finished item 4. What the next one starts from (TF2 x64
+   `studiorender.dll`, `llvm-objdump`; output nowhere in the repo):
+   - *The sampling* (published): `eyes_vs20.fxc:139-140` projects `glintTC = dot( $glintu|$glintv, (pos, 1) )`;
+     `eyes_ps2x.fxc:52-57` adds `glint.rgb · fGlintDamping`, the glint sampler NOT sRGB (`eyes_dx8_dx9_helper.cpp:379-380`
+     turns sRGB on for samplers 0 and 1 only). `fGlintDamping` = saturated `GetAmbientLightCubeLuminance`, then 1 above
+     0.01, else `lum · SimpleSplineRemapVal( lum, 0, 0.01, 0, 1 )` (:445-453).
+   - *The projection* (`0x18001dbe0`, from the eyeball mesh setup at `0x18000f7c1`): `s = 0.5 / radius`
+     (`mstudioeyeball_t` +0x18; the constant at `0x180080414` is the 0.5 the other paths use — *read the bytes before
+     relying on it*), `$glintu = ( s · viewRight, 0.5 − org · it )`, `$glintv = ( s · viewUp, … )`, `org` the eyeball
+     state's world origin (+0x38), the view basis the render context's (+0x54 right, +0x60 up; +0x48 the origin).
+   - *The texture* (`0x18001e020`, called when the config byte at +0x24 is non-negative): with a glint LOD texture and
+     `r_glint_alwaysdraw` 0, an eye whose `ComputePixelWidthOfSphere( org, radius )` is below the config's threshold (+0x10)
+     takes the static LOD texture; else, with `r_glint_procedural` 0 and dxlevel ≥ 90, it renders the 32×32 `_rt_eyeglint`
+     (made at `0x18001dcb0`) by `0x18001f510`; otherwise the CPU-regenerated `proc_eyeglint` (`CGlintTextureRegenerator`).
+   - *The glint points* (`0x18001d600`, called from `0x18001f54e`): the view delta normalised; the cornea offset along the
+     eye's forward from the iris and cornea radii (`radius · 0.5` and the constant at `0x180080a98`); per light from
+     `0x180021680` (index, point, out direction, out colour), a front glint where the reflected direction faces the
+     view and a second, back pass scaled by `radius`; each written as (x, y, colour) records of 0x14 bytes.
+   - *The pass* (`0x18001f510`): additive `EyeGlint` quads into the target — `eyeglint_vs20.fxc` passes `tc`, the glint
+     centre and colour; `eyeglint_ps2x.fxc:20-36` sums five Gaussian taps `saturate( exp( −25 |d|² ) )` (centre ×5) and
+     scales by 4/9. Still to read: the quad layout and the texel mapping (`0x18001f938` on, constants `0x180080a90`,
+     `0x180080aa0`), and `0x180021680`'s light list.
+4. *`teeth_bump`* — **PORTED 2026-11-20** (`fix/b725-smaller`). A Teeth material with a `$bumpmap` (`teeth.cpp:88`,
+   `params[BUMPMAP]->IsTexture()`) draws `teeth_bump_vs20`/`teeth_bump_ps20b`: the bump normal in the tangent frame
+   (`teeth_bump_ps2x.fxc:65-67`; the frame made and normalised after the bones, `teeth_bump_vs20.fxc:75-147`), lit by
+   `PixelShaderDoLighting` with `bHalfLambert` **true** (:74-78) and `PixelShaderDoSpecularLighting` at `$phongexponent`
+   (declared 100, `teeth.cpp:41`, :247; 0 takes it from the bump alpha, :69-71), `( specular · base.a + base.rgb · diffuse )
+   · darkening`, alpha 1 (:93, :100). *Tests*: `DrawModelPose_TeethWithABumpMap_LightsTheBumpedNormalHalfLambert` (flat
+   bump, lamp level: 0.35; tilted bump, lamp along the tangent: 1.1), `DrawModelPose_TeethWithABumpMap_AddTheSpecularByTheBaseAlpha`
+   (lamp 0.5 at the camera: `0.5 + 0.2158 · 0.6` at base alpha 255), `Read_ABumpMapAndPhongExponent_AreTeethsAlone`. Red
+   first: the generic draw gave 40 and 40 for the two diffuse rows (78 and 134 predicted) and 134 for the specular row.
+   *Sabotage*, each restored: no half-Lambert wrap — only the flat row; specular unmasked by base alpha — only the alpha-0
+   row; the bump's tangent component dropped — only the tilted row; the bump kept for every shader — only the Eyes read
+   row. *Interpolated*: that an undefined `$phongexponent` reads its declared 100. The one shipped `teeth_bump` material,
+   `models/alyx/fmouth`, is HL2's.
 5. *Smaller* — **all seven parts worked 2026-11-20** (`fix/b725-smaller`); what they found is filed as B777-B781. Review round 1
    (Sonnet, Fable, Gemini) fixed on the branch: a bone-merged cosmetic's and a dead player's corpse's view target, a
    CModelPanel's attached models, the TF panel's per-paint allocation, the merges' kept faces on `ClearMergeMDLs`; recorded
