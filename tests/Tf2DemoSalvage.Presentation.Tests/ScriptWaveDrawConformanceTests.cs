@@ -320,6 +320,55 @@ public sealed class ScriptWaveDrawConformanceTests
         deck.Deal(sound, Scripts(entry)).ShouldBe(deck.Deal(sound, Scripts(entry)));
     }
 
+    /// <remarks>
+    /// The same sound dealt twice on a three-wave entry: the same numbers each time, against the flags each time — three
+    /// waves, then the two the first left. Both take one wave number, so the soundlevel is the fourth number both times.
+    /// </remarks>
+    [Test]
+    public void Deal_TheSameMultiWaveSoundTwice_DrawsTheSameNumbersAgainstTheFlagsThen()
+    {
+        SoundScriptEntry entry = Entry("Test.Three", "a.wav", "b.wav", "c.wav");
+        SceneSound sound = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: true);
+        ScriptWaveDeck deck = new();
+
+        SceneSound first = deck.Deal(sound, Scripts(entry));
+        SceneSound second = deck.Deal(sound, Scripts(entry));
+
+        int firstWave = Numbers(entry, available: 3).Wave;
+        (int secondPlace, int soundLevel) = Numbers(entry, available: 2);
+        string[] left = [.. entry.Waves.Where((_, index) => index != firstWave)];
+
+        (first.Name, first.SoundLevel, second.Name, second.SoundLevel).ShouldBe(
+            (entry.Waves[firstWave], soundLevel, left[secondPlace], soundLevel));
+    }
+
+    /// <remarks>
+    /// A patch's change whose start was never dealt — dropped by a seek, say — names nothing: the engine's
+    /// `SoundChangeVolume` finds no such patch playing, so the change is left as its producer carried it.
+    /// </remarks>
+    [Test]
+    public void Named_AChangeOfAPatchWhoseStartWasNeverDealt_IsLeftAsCarried()
+    {
+        SoundScriptEntry entry = Entry("Test.Patch", "loop.wav");
+        SceneSound change = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true) with
+        {
+            Volume = 0.5f,
+            ChangesVolume = true,
+        };
+
+        new ScriptWaveDeck().Named(change).ShouldBe(change);
+    }
+
+    /// <summary>Seed 7's wave place and soundlevel over an entry with <paramref name="available"/> waves left.</summary>
+    private static (int Wave, int SoundLevel) Numbers(SoundScriptEntry entry, int available)
+    {
+        UniformRandomStream control = Seeded(7);
+        control.RandomFloat(entry.Volume.Low, entry.Volume.High);
+        control.RandomFloat(entry.Pitch.Low, entry.Pitch.High);
+        int wave = control.RandomInt(0, available - 1);
+        return (wave, (int)control.RandomFloat(entry.SoundLevel.Low, entry.SoundLevel.High));
+    }
+
     /// <summary>The first seed whose <c>RandomInt( 1, 10 )</c> is at most 3 — `ImpactCallback`'s ricochet.</summary>
     private static int RicochetSeed()
     {
