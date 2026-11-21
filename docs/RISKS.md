@@ -42704,7 +42704,8 @@ reddened it at its control, and the face spread over the reversed order reddened
    stores it — a list is copied by `Accumulate` per call, 72 bytes).
 2. *The deferred cache's forward*: `TfEmbeddedItemModelPanelConformanceTests.MdlCache_APanelMadeWithoutACache_AnswersTheViewportsPackedOrder`.
 3. *The StatTrak module*: `TfPlayerModelPanelConformanceTests.RenderStatTrack_AModuleWithAVertexFlex_DrawsItsMeshAtZeroControls`.
-4. *Release notes*: B779 moved out of the known gaps into beta.69's changes; B804 added to the gaps.
+4. *Release notes*: B779 removed from the known gaps, and B804 and B805 added. Its changes line is the lead's to write
+   at the next release: beta.69 is published, so its section gains nothing (the lead's correction).
 5. *The order key*: `PanelMeshFlexTests.For_TheOrderChangesWithUnchangedWeights_SpreadsOverTheNewOrder` and
    `For_AModelNotYetPacked_DrawsUnflexed`. Gemini (high): the key lacked the model, so a root switched by `SetMDL` to a
    model with the same order and equal weights kept the first face — the rewrite keys on the frames too;
