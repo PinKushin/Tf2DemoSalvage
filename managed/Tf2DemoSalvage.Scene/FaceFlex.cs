@@ -175,38 +175,6 @@ public static class FaceFlex
         return stream;
     }
 
-    /// <summary>
-    /// A model's mesh flexed by one set of descriptor weights with no delayed weights of their own — the face a draw hands
-    /// the studio render through <c>LockFlexWeights</c> alone — in buffer order, with the slots it can move.
-    /// </summary>
-    /// <remarks>
-    /// <c>CMDL::Draw</c> (TF2 <c>client.dll</c>) locks the weights with no delayed array (<c>r9</c> zeroed at
-    /// <c>0x180937167</c> for <c>LockFlexWeights</c>, <c>0x180937173</c>) and hands <c>DrawModel</c> a null delayed pointer
-    /// (<c>0x1809371e8</c>), so the delay is the weights themselves, as <see cref="StudioFlexRules.Accumulate"/> takes a model
-    /// with no smoothing (B779).
-    /// </remarks>
-    /// <param name="model">The model.</param>
-    /// <param name="weights">Its descriptor weights.</param>
-    /// <param name="packedOrder">Each buffer vertex's corner.</param>
-    /// <returns>The face and its range, or nulls when nothing moves.</returns>
-    public static (float[]? Face, FlexSlots? Range) MeshFace(
-        PropModels.ModelFrames model, float[] weights, IReadOnlyList<int> packedOrder)
-    {
-        ArgumentNullException.ThrowIfNull(model);
-        ArgumentNullException.ThrowIfNull(packedOrder);
-
-        if (!model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0
-            || Deltas(model.Flex, weights, weights, model.VertexCount) is not { } deltas)
-        {
-            return (null, null);
-        }
-
-        ImmutableArray<int> at = FlexedCorners(model.Flex, model.CornerVertex, packedOrder).At;
-
-        return (InBufferOrder(deltas, model.CornerVertex, packedOrder),
-            at.Length > 0 ? new FlexSlots(at[0], at[^1] - at[0] + 1) : null);
-    }
-
     /// <summary>The buffer slots a flex of this model can move, each with its <c>.vvd</c> vertex's offset (finding 92).</summary>
     /// <remarks>
     /// **The engine's accumulation walks only the vertices a flex names** (`R_StudioFlexVerts`, studiorender

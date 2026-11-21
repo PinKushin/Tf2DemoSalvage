@@ -468,6 +468,72 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **The face reaches the list the renderer draws from** (B779 review 1 item 9): the HUD paints into a
+    /// <see cref="VguiDrawList"/>, whose <see cref="VguiDrawList.Models"/> `VguiRenderer.Draw` hands one at a time to
+    /// `Device3D.DrawPanelModels`, which passes each instance's `Flex` and `FlexRange` to the model draw as they stand
+    /// (`Device3D.cs`, `flex: instance.Flex`). This is the production surface, not the recording one; the device call after
+    /// it is read, not run (it needs a device and a desktop).
+    /// </remarks>
+    [Test]
+    public void Paint_IntoTheDrawList_CarriesTheFlexedFaceToTheRenderersModelDraw()
+    {
+        PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => frames)) { Wide = 100, Tall = 100 };
+        VguiDrawList list = new(_ => (0, 0));
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.Paint(list, Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(list.Models.ShouldHaveSingleItem().Models.ShouldHaveSingleItem(), 0.25f);
+    }
+
+    /// <remarks>
+    /// **A root switched to another model draws the new model's face** (B779 review 1, Gemini): the root CMDL keeps its
+    /// face across `SetMDL`, and here both models answer the same packed order and both draw at the zero-control weight
+    /// 0.25, so neither the order nor the weights tell them apart. The first model's ramp starts at 0 (0.25, the vertex
+    /// 0.5); the second's at −0.5 (0.75, the vertex 1.5).
+    /// </remarks>
+    [Test]
+    public void Paint_ARootSwitchedToAnotherModelWithEqualWeightsAndOrder_DrawsTheNewModelsFace()
+    {
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        };
+        PropModels.ModelFrames first = PanelMeshFlexFixture.Flexed(plain);
+        PropModels.ModelFrames second = PanelMeshFlexFixture.Flexed(plain, target0: -0.5f);
+
+        VguiMdlPanel panel = new(
+            null, "model", new FramesCache(path => path.Contains("second", StringComparison.Ordinal) ? second : first))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/first.mdl");
+        RecordingModelSurface surface = new();
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.25f);
+
+        panel.SetMDL("models/player/second.mdl");
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 0.75f);
+    }
+
+    /// <remarks>
     /// **A model only a panel draws is flexed through the production cache** (B779): no world prop wears it, so the set
     /// packs it only because the HUD precaches what its panels draw (`VguiHud.ModelsToPrecache` into
     /// `EntityModelSet.Precache`, `FramePresenter.Hud.cs`), and the panel's face is spread over that packing. The set packs

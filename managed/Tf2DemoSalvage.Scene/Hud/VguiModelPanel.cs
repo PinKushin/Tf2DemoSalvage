@@ -601,11 +601,13 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         StudioViewTarget viewTarget = ViewTarget;
-        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget, _mdlCache)];
+        double curTime = viewport.State.CurTime;
+        List<ModelInstance> drawn =
+            [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget, _mdlCache, curTime, FrameTime)];
 
         foreach (PanelModel attached in model.Attached)
         {
-            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget, _mdlCache));
+            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget, _mdlCache, curTime, FrameTime));
         }
 
         surface.Paint3D(
@@ -728,8 +730,21 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         /// <summary>`DrawModel( STUDIO_RENDER )`: posed at its cycle, or bone-merged onto <paramref name="follows"/>.</summary>
+        /// <param name="modelToWorld">Its placement, or null to keep the last.</param>
+        /// <param name="follows">The model it bone-merges onto, or null.</param>
+        /// <param name="locals">The panel's lights.</param>
+        /// <param name="viewTarget">The render context's view target.</param>
+        /// <param name="cache">The cache that packed it, for its flexed mesh.</param>
+        /// <param name="curTime">`gpGlobals->curtime`, for `RunFlexDelay`.</param>
+        /// <param name="frameTime">`gpGlobals->frametime`, for `RunFlexDelay`.</param>
         public ModelInstance Draw(
-            float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals, StudioViewTarget viewTarget, IMdlCache cache)
+            float[]? modelToWorld,
+            AnimatingEntity? follows,
+            IReadOnlyList<LocalLight> locals,
+            StudioViewTarget viewTarget,
+            IMdlCache cache,
+            double curTime,
+            double frameTime)
         {
             if (Entity.Pose is SkeletonPose pose)
             {
@@ -754,8 +769,8 @@ public class VguiModelPanel : VguiEditablePanel
                 skinSwap = swaps[Skin >= 0 && Skin < swaps.Count ? Skin : 0];
             }
 
-            // The mesh flexed by the weights it draws with, as a world model's is (B779).
-            (float[]? flex, FlexSlots? flexRange) = _meshFlex.For(cache, Path, Frames, DrawnWeights);
+            // The mesh flexed by the weights it draws with, as a world model's is (B779), and a C_BaseFlex's delayed weights.
+            (float[]? flex, FlexSlots? flexRange) = _meshFlex.For(cache, Path, Frames, DrawnWeights, DelayedWeights(curTime, frameTime));
 
             return new ModelInstance(
                 Path,
@@ -776,11 +791,40 @@ public class VguiModelPanel : VguiEditablePanel
         /// The descriptor weights it draws with, computed once (its model never changes): a C_BaseFlex nothing drives runs
         /// its rules at each controller's minimum (`c_baseflex.cpp:1220-1222` with `m_flexWeight` zero), as the world's does
         /// (`EntityModelSet.FaceShading`); a C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender
-        /// 0x1800584b0, B513): every descriptor 0.
+        /// 0x1800584b0, B513): every descriptor 0. So does a C_BaseFlex whose model has no controllers:
+        /// `SetupGlobalWeights` zeroes the weights and returns false before any rule runs (`c_baseflex.cpp:1198-1207`,
+        /// `:1152-1155`).
         /// </summary>
-        private float[] DrawnWeights => _restingWeights ??= IsBaseFlex
+        private float[] DrawnWeights => _restingWeights ??= IsBaseFlex && Frames.Flex.Controllers.Count > 0
             ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
             : new float[Frames.Flex.Descriptors.Count];
+
+        /// <summary>
+        /// A C_BaseFlex's delayed weights this draw (B779 review 1 item 7), or null for a draw that hands none.
+        /// `UsesFlexDelayedWeights` is true for a C_BaseFlex with `flex_smooth` on (`c_baseflex.cpp:1123-1126`; on, as the
+        /// world's faces take it), and `SetupLocalWeights` then runs `RunFlexDelay` into `m_flFlexDelayedWeight` and hands
+        /// those to the mesh (`:1308-1311`): zeroed when the model is set (`:203-213`), they rise toward the weights over the
+        /// first frames. Without controllers `SetupLocalWeights` never runs and `SetupGlobalWeights` zeroes them
+        /// (`:1202-1205`) — the weights' own zeros. A plain C_BaseAnimating hands none.
+        /// </summary>
+        private float[]? DelayedWeights(double curTime, double frameTime)
+        {
+            if (!IsBaseFlex || Frames.Flex.Controllers.Count == 0)
+            {
+                return null;
+            }
+
+            float[] weights = DrawnWeights;
+            _flexDelayed ??= new float[weights.Length];
+            FaceFlex.Delay(weights, _flexDelayed, ref _flexDelayTime, curTime, frameTime);
+            return _flexDelayed;
+        }
+
+        /// <summary>`m_flFlexDelayedWeight`.</summary>
+        private float[]? _flexDelayed;
+
+        /// <summary>`m_flFlexDelayTime`: written only by `RunFlexDelay` (`c_baseflex.cpp:1310`), zero before.</summary>
+        private double _flexDelayTime;
 
         private readonly PanelMeshFlex _meshFlex = new();
 

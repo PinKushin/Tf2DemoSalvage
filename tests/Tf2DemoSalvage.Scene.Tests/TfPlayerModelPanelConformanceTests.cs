@@ -364,6 +364,33 @@ public sealed class TfPlayerModelPanelConformanceTests
 
     private const string StatTrak = "models/weapons/c_models/stattrack.mdl";
 
+    /// <remarks>
+    /// **The StatTrak module's mesh is flexed at its CMDL's zero controls** (B779 review 1 item 3): `RenderStatTrack` draws it
+    /// with `m_StatTrackModel.m_MDL.Draw( … )` (`tf_playermodelpanel.cpp:1574`), a `CMDL::Draw` like any other, whose rules
+    /// run on `CMDL::CMDL`'s zeros (`client.dll` `0x180936e20`, `0x180937138-0x1809371a7`): `jaw + 0.25` over 0.5..1 is 0.25.
+    /// No shipped stat clock has flexes; the module is the only second-level merge, so it is the case that holds the path.
+    /// </remarks>
+    [Test]
+    public void RenderStatTrack_AModuleWithAVertexFlex_DrawsItsMeshAtZeroControls()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel, Scattergun, StatTrak);
+        cache.FlexedPath = StatTrak;
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13,
+            new EconAttributeValue(834, 350),
+            new EconAttributeValue(214, 12),
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))) with { IteratesDefinition = true });
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(
+            System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == StatTrak), 0.25f);
+    }
+
     [Test]
     public void RenderStatTrack_AStrangePaintkittedWeapon_DrawsItsModuleScaledOnTheWeapon()
     {
@@ -439,6 +466,9 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         public bool Mouthed { get; set; }
 
+        /// <summary>A model path answered with a vertex flex at zero controls (B779 review 1 item 3), or null.</summary>
+        public string? FlexedPath { get; set; }
+
         public PropModels.ModelFrames? FindMdl(string path)
         {
             if (!_loaded.Contains(path))
@@ -464,6 +494,19 @@ public sealed class TfPlayerModelPanelConformanceTests
                 Attachments: attachments);
 
             IReadOnlyList<StudioMouth> mouths = Mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [];
+
+            // A model given the `jaw + 0.25` rule over 0.5..1 and the fixture's mesh flex: 0.25 at zero controls.
+            if (path == FlexedPath)
+            {
+                return PanelMeshFlexFixture.Flexed(frames with
+                {
+                    Flex = new StudioFlexData(
+                        ["jaw"],
+                        [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                        [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                        []),
+                });
+            }
 
             return Faced && path == ScoutModel
                 ? PanelMeshFlexFixture.Flexed(frames with

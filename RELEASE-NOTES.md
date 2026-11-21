@@ -15,6 +15,7 @@ None of these changes was verified by looking against a TF2 frame. Each follows 
   - `teeth_bump`, a Half-Life 2 material, is lit per pixel as TF2's shader does it.
   - The Eyes shader's glint is drawn. By default it is the glint TF2 renders on the GPU (the viewer computes it on the CPU to the same values, apart from a rare rounding tie); `r_glint_procedural 1` (default 0, set in your config) selects TF2's other glint instead, the one TF2 makes on the CPU with that setting, and `r_glint_alwaysdraw 1` (default 0) draws it on every eye however small, instead of skipping an eye under 20 pixels. Both are read from your config and from the command line, and a change made while a demo plays reaches the picture. No TF2 model names an Eyes material, so these change no TF2 player.
   - Under `mat_wireframe`, the Eyes glint is skipped, as TF2 does; the rest of the wireframe is still not TF2's (see *Known gaps*).
+- **A model panel's face moves as TF2 draws it (B779).** The HUD's model panels (the class portrait, the match doors, the round sign and the freeze panel's and spectator bar's item) now draw a model's face with its flex applied, as TF2 does for every model with face shapes, not only for models with a mouth. The class portrait draws at the panel's slowly settling face values; the other panels at each model's resting values, and a model in a plain model panel eases into them over its first frames, as in TF2. How much a TF2 portrait changes was not measured, and this was not verified by looking.
 - **Other changes since beta.68:** two more face-shader behaviors were checked against TF2 and need no change: the shaders take no static light from a color mesh, and EyeRefract's packed binormal reads the same value as ours (B725).
 
 ## Changes in 0.1.0-beta.68
@@ -1246,7 +1247,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set while a demo plays do not reach the picture until the device is rebuilt (B790);
   no draw writes its depth into destination alpha as TF2's main view and 3D sky do, and nothing here reads it yet, so no drawn value changes (B781);
   the shared eye target is set once a frame in our draw order, where TF2 sets it at every draw of every view (B780);
-  a model panel's face mesh is drawn without its flex (B779), and the StatTrak module's eyes and target in a player model panel are not TF2's (B778);
+  the StatTrak module's eyes and target in a player model panel are not TF2's (B778), and the freeze panel's and spectator bar's item panels keep an eye target of their own instead of the one every face shares (B804);
   a Teeth material's mouth values are set per draw, where TF2 leaves them in the shared material (B777).
 - **Sound draws (beta.69), open:**
   a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);

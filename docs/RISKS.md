@@ -42388,6 +42388,20 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B805 — a resting C_BaseFlex in the world draws its delayed weights as its current ones; the engine's rise from zero (2026-11-21) — OPEN
+
+Found in B779 review 1 (item 7). A C_BaseFlex with `flex_smooth` on hands the studio render its own delayed weights
+(`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`): `m_flFlexDelayedWeight` is
+zeroed whenever the model is set (`:203-213`) and `RunFlexDelay` (`:1265-1279`) moves it toward the weights each frame,
+`d = ExponentialDecay( 0.8, 0.033, frametime )` — so for its first frames the mesh's slow vertex animations (speed byte
+below 255) lag the weights. `EntityModelSet.RestingFaceOf`, which draws a worn item whose parent is not a player and a
+corpse whose player is alive again as a C_BaseFlex at rest, takes the delayed weights as the current ones and keeps one
+face per model (`FaceFlex.Deltas( …, weights, weights, … )`), so such a prop draws its settled face from its first
+frame. A player's own face already runs `RunFlexDelay` (`EntityModelSet.Delayed`). The `CModelPanelModel`'s same case
+was ported in B779. *Read* for the engine and ours; how many shipped resting models have a slow vertex animation, which
+decides whether any picture changes, is not counted. The fix is per-entity delayed state for the resting C_BaseFlex,
+which a cached per-model face cannot hold.
+
 ## B804 — the embedded item panel's draws set a view target of their own, not the render context's one (2026-11-21) — OPEN
 
 Found during B779. Every `CMDL::Draw` sets the studio render context's one view target before it draws, eyes or none
@@ -42658,9 +42672,9 @@ not measured; the portrait's deficit is reported as depending on which way the s
 **Fix.** Read again in TF2's x64 `client.dll` (disassembled with `llvm-objdump`): the only test before the rules is
 `numflexdesc` (`cmp [rdx+0x104], r15d`, `0x180937138`); `LockFlexWeights` is called with `r9` zeroed (`0x180937167`), so
 no delayed array is asked for, and `DrawModel` is handed a null delayed pointer (`0x1809371e8`) — the delay is the
-weights themselves, as `StudioFlexRules.Accumulate` already takes a model with no smoothing. The world's buffer-order
-spread is shared: `FaceFlex.MeshFace` (deltas at the weights, `InBufferOrder`, the flexed range), which
-`EntityModelSet.RestingFaceOf` now calls too. Panels reach the set's packing through `IMdlCache.PackedOrder` (the
+weights themselves, as `StudioFlexRules.Accumulate` already takes a model with no smoothing. The mesh is flexed by the
+world's own primitives (`FaceFlex.FlexedCorners`, `ClearMoved`, `IntoFlexedSlots`; round 1 replaced a first
+`FaceFlex.MeshFace` that allocated per rebuild). Panels reach the set's packing through `IMdlCache.PackedOrder` (the
 embedded item panel's deferred cache forwards it), and `PanelMeshFlex` keeps each panel model's face, rebuilt only when
 its weights or packing change. Wired: `VguiMdlPanel`'s root (`RootFlexWeights`), merges and the StatTrak second-level
 merge (`DrawBoneMergedOnto`) at zero controls; `TfPlayerModelPanel`'s root at the decayed controls, **the Teeth gate
@@ -42679,9 +42693,43 @@ there. *Test*: `VguiModelPanelConformanceTests.Paint_APanelOnlyModelPrecachedInt
 production set; the moved vertex lands in the slot the set packed it at, 1, where the fixture's own order would put it at
 0). It passed on its first run, the code it reads being already on the branch; *sabotage*: the set answering no order
 reddened it at its control, and the face spread over the reversed order reddened its face assertion. Recorded in
-`docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`. *Not measured*: the delay-equals-weights reading rests on the
-null pointer, not on studiorender's handling of it; and the fixture's speed byte 255 cannot tell delayed from current
-weights. **B559 is unchanged in evidence**: whether the flexed face
+`docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`.
+
+**Review round 1** (three reviewers; every item fixed on this branch):
+1. *Allocation*: `PanelMeshFlex` rebuilt through fresh arrays every change of weight — the TF panel's decay changes them
+   every paint. Now the world's route (`FlexFor`, findings 80 and 92): the moved slots once per model and packing,
+   `ClearMoved` → `Accumulate` → `IntoFlexedSlots` into kept scratch and stream. `FaceFlex.MeshFace` went with it, and
+   `RestingFaceOf` is main's again. *Test*: `PanelMeshFlexTests.For_AWeightChangeOnAKnownModel_AllocatesNothing` (red
+   first against the committed code, 1408 bytes a rebuild; the fixture's vertex list is now an array, as the reader
+   stores it — a list is copied by `Accumulate` per call, 72 bytes).
+2. *The deferred cache's forward*: `TfEmbeddedItemModelPanelConformanceTests.MdlCache_APanelMadeWithoutACache_AnswersTheViewportsPackedOrder`.
+3. *The StatTrak module*: `TfPlayerModelPanelConformanceTests.RenderStatTrack_AModuleWithAVertexFlex_DrawsItsMeshAtZeroControls`.
+4. *Release notes*: B779 moved out of the known gaps into beta.69's changes; B804 added to the gaps.
+5. *The order key*: `PanelMeshFlexTests.For_TheOrderChangesWithUnchangedWeights_SpreadsOverTheNewOrder` and
+   `For_AModelNotYetPacked_DrawsUnflexed`. Gemini (high): the key lacked the model, so a root switched by `SetMDL` to a
+   model with the same order and equal weights kept the first face — the rewrite keys on the frames too;
+   `VguiModelPanelConformanceTests.Paint_ARootSwitchedToAnotherModelWithEqualWeightsAndOrder_DrawsTheNewModelsFace`.
+6. *Wording*: the delay-is-the-weights reading is marked interpolated where the code states it (`PanelMeshFlex`).
+7. *`RunFlexDelay` for a `CModelPanelModel`* — **ported**, because no filed B covered the world's same convention (it is
+   filed now: **B805**). A C_BaseFlex with `flex_smooth` on hands the mesh its delayed weights
+   (`c_baseflex.cpp:1123-1126`, `:1308-1311`), zeroed when the model is set (`:203-213`); `PanelModel` now keeps
+   `m_flFlexDelayedWeight` and `m_flFlexDelayTime` and runs `FaceFlex.Delay` at the panel's `curtime` and `frametime`.
+   Read on the way: a C_BaseFlex whose model has no controllers draws zero weights and zero delayed weights
+   (`SetupGlobalWeights`, `:1198-1207`), where ours ran its rules at rest — fixed. *Tests*:
+   `CModelPanelConformanceTests.Paint_AModelPanelModelWithASlowFlex_RisesByItsDelayedWeights` (speed 0: 0, then
+   `1.5 · (1 − d)`), `Paint_AModelPanelModelWithoutControllers_DrawsAtZeroWeights`, and
+   `PanelMeshFlexTests.For_DelayedWeightsAndASpeedOfZero_MovesByTheDelayedWeight` (red first, 0.5 for 0.2).
+8. *`ZeroControlWeights`' remark* now says the linked/unlinked choice is visible on the mesh.
+9. *Output level*: `VguiModelPanelConformanceTests.Paint_IntoTheDrawList_CarriesTheFlexedFaceToTheRenderersModelDraw`, through
+   the production `VguiDrawList` whose models `VguiRenderer` hands to `Device3D.DrawPanelModels` (`flex: instance.Flex`);
+   the device call is read, not run.
+
+*Sabotage*, two batches of disjoint breaks, each reddening exactly its rows: no delayed weights (the slow-flex row, 1.5 at
+paint 1), StatTrak with no weights (its row), the deferred forward null (its row), the model dropped from the key (the
+switch row, 0.5 for 1.5); the no-controllers guard removed (its row), the order dropped from the key (the order row), a
+missing order taken as empty (the not-packed row), the draw list dropping the face (its row). *Not measured*: the
+delay-equals-weights reading for a CMDL rests on the null pointer, not on studiorender's handling of it; `flex_smooth` is
+taken as on, as the world's faces take it. **B559 is unchanged in evidence**: whether the flexed face
 closes any of the portrait's deficit is still *interpolated*, not measured. *Not verified by looking*.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN

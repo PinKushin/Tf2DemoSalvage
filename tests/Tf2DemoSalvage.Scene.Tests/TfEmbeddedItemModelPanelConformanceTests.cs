@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -102,6 +103,34 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
             "texture " + second, $"color {secondColor} 255", "subrect 20 8 170 108",
         ]);
         surface.SubRects.ShouldBe(["20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv]);
+    }
+
+    /// <remarks>
+    /// **An item panel a `.res` file makes reaches the viewport's packing** (B779 review 1 item 2): the freeze panel's and
+    /// the spectator GUI's item panels are built with no cache and ask the viewport's on each use, and the mesh flex spreads
+    /// its face over the order that cache packed. The control: the viewport's cache is the one answering.
+    /// </remarks>
+    [Test]
+    public void MdlCache_APanelMadeWithoutACache_AnswersTheViewportsPackedOrder()
+    {
+        int[] order = [2, 0, 1];
+        HudViewport viewport = new() { Wide = 1366, Tall = 768, MdlCache = new OrderCache(order) };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel");
+
+        viewport.MdlCache.PackedOrder("models/items/hat.mdl").ShouldBeSameAs(order, "the control");
+        panel.MdlCache.PackedOrder("models/items/hat.mdl").ShouldBeSameAs(order);
+    }
+
+    /// <summary>A cache answering one packed order for every path.</summary>
+    private sealed class OrderCache(IReadOnlyList<int> order) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => null;
+
+        public IReadOnlyList<int>? PackedOrder(string path) => order;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
     /// <summary>The 140x100 panel at 1366x768 holding the hat, image data pos (12, 5), its image loaded.</summary>

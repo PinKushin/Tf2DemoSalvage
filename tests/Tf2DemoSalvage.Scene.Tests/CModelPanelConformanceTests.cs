@@ -433,6 +433,54 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A <c>CModelPanelModel</c>'s mesh reads its delayed weights, which rise from zero** (B779 review 1 item 7): a
+    /// C_BaseFlex with `flex_smooth` on hands the mesh `m_flFlexDelayedWeight` (`c_baseflex.cpp:1123-1126`, `:1308-1311`),
+    /// zeroed when the model is set (`:203-213`), and `RunFlexDelay` (`:1265-1279`) blends nothing on the first draw
+    /// (`m_flFlexDelayTime` still 0) and then `delayed · d + weight · (1 − d)`, `d = ExponentialDecay( 0.8, 0.033,
+    /// frametime )`. A speed byte of 0 reads the delayed weight alone: paint 1 moves the vertex 0, paint 2 (0.1 s later,
+    /// frametime 0.015) `2 · 0.75 · (1 − d)`. Delayed taken as current would move it 1.5 both times.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelPanelModelWithASlowFlex_RisesByItsDelayedWeights()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, flexed: true, flexSpeed: 0);
+        panel.FrameTime = 0.015f;
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        float d = MathF.Exp(MathF.Log(0.8f) / 0.033f * 0.015f);
+        float[] expected = [0f, 2f * 0.75f * (1f - d)];
+        float[] at = [1f, 1.1f];
+
+        for (int paint = 0; paint < expected.Length; paint++)
+        {
+            VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+            viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: at[paint]));
+            panel.Paint(surface, viewport.Context!);
+
+            float[] face = surface.Draws.ShouldHaveSingleItem().Models[0].Flex.ShouldNotBeNull();
+            face[0].ShouldBe(expected[paint], 1e-5f, $"paint {paint + 1}");
+        }
+    }
+
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
+    /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
+    /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
+    /// at zero the fixture's ramp moves nothing, so the mesh is drawn unflexed.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelPanelModelWithoutControllers_DrawsAtZeroWeights()
+    {
+        PropModels.ModelFrames frames = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiModelPanel panel = Framed(startFramed: false, root: frames with { Flex = frames.Flex with { Controllers = [] } });
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws.ShouldHaveSingleItem().Models[0].Flex.ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> without controllers reads the render context's view target** (B725 5d): its
     /// `SetupGlobalWeights` returns false before `SetViewTarget` (`c_baseflex.cpp:1198-1207`), so it sets none and its eyes
     /// take the last one set. Left at (120, 300, 5) by an earlier draw: the eye at (120, 5, 5) looks along +y, right =
@@ -518,9 +566,11 @@ public sealed class CModelPanelConformanceTests
         StudioViewTarget? viewTarget = null,
         PropModels.ModelFrames? attached = null,
         bool sharedTarget = true,
-        bool flexed = false)
+        bool flexed = false,
+        byte flexSpeed = 255,
+        PropModels.ModelFrames? root = null)
     {
-        PropModels.ModelFrames frames = Frames(eyed, mouthed, flexed);
+        PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
@@ -548,7 +598,7 @@ public sealed class CModelPanelConformanceTests
     /// A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1; or, flexed,
     /// that rule and <see cref="PanelMeshFlexFixture"/>'s mesh flex without teeth.
     /// </summary>
-    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed, bool flexed = false)
+    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed, bool flexed = false, byte flexSpeed = 255)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
@@ -567,7 +617,7 @@ public sealed class CModelPanelConformanceTests
                 : StudioFlexData.None,
         };
 
-        return flexed ? PanelMeshFlexFixture.Flexed(frames) : frames;
+        return flexed ? PanelMeshFlexFixture.Flexed(frames, speed: flexSpeed) : frames;
     }
 
     /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>

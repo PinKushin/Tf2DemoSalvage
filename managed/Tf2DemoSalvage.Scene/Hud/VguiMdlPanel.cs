@@ -102,8 +102,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// (<c>SetIdentityMatrix</c>, mdlpanel.cpp:75) until <see cref="SetModelAnglesAndPosition"/>.</summary>
     private float[] _rootMdlToWorld = Identity3x4;
 
-    /// <summary><c>vgui::MDLCache()</c>.</summary>
-    protected IMdlCache MdlCache { get; }
+    /// <summary><c>vgui::MDLCache()</c>; internal for the test that an item panel's deferred cache forwards it (B779).</summary>
+    protected internal IMdlCache MdlCache { get; }
 
     /// <summary>
     /// The root model's bones set up as the next paint will (`m_RootMDL.m_MDL.SetUpBones( m_RootMDL.m_MDLToWorld, … )`),
@@ -639,7 +639,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// CTFPlayerModelPanel) links it (<c>c_baseflex.cpp:1132-1142</c>). Unlinked, a rule reads <c>m_pFlexControls[ −1 ]</c>,
     /// the float before the array: <c>m_flTime</c> (+0x1c; the array is +0x20, <c>CMDL::CMDL</c> <c>0x180936e20</c>). Whether
     /// a model was linked depends on what the session drew before (B725 5f); taken as linked, the common case for a model a
-    /// player also wears.
+    /// player also wears. **Since B779 this choice is visible**: the mesh is flexed by these weights, so an unlinked model
+    /// whose rule reads <c>m_pFlexControls[ −1 ]</c> would move its vertices by the panel's <c>m_flTime</c>, not hold them
+    /// at the zero-control face drawn here — before, only a mouthed Teeth material read the difference.
     /// </remarks>
     /// <param name="path">The root's model path.</param>
     /// <param name="frames">The root's model.</param>

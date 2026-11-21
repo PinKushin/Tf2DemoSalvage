@@ -197,6 +197,14 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   `CMDL::CMDL`'s zero controls; a CTFPlayerModelPanel's root's, the rules at its per-paint decay
   (`tf_playermodelpanel.cpp:2275-2361`); a `CModelPanelModel`'s, a C_BaseFlex's at rest (`c_baseflex.cpp:1220-1222`);
   an attached C_BaseAnimating's (`basemodelpanel.cpp:467`), `LockFlexWeights`' zeros (*source*, the last as B513 read it).
+- **A C_BaseFlex's delayed weights are its own, and they start at zero — a review's catch.** The first port took every
+  panel's delayed weights as its current ones. A C_BaseFlex with `flex_smooth` on hands the mesh `m_flFlexDelayedWeight`
+  (`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`), zeroed whenever the model is
+  set (`:203-213`) and moved toward the weights each frame by `RunFlexDelay` (`:1265-1279`) — the first draw blends
+  nothing, since `m_flFlexDelayTime` is written only there (`:1310`). So a `CModelPanelModel`'s slow vertex animations
+  rise from rest over its first frames; ported (*source*). The world's resting C_BaseFlex has the same divergence, filed
+  as B805. Read on the way: a C_BaseFlex whose model has no flex controllers draws zero weights, delayed or not —
+  `SetupGlobalWeights` zeroes both and returns false before any rule (`:1198-1207`, `:1152-1155`) (*source*).
 - **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
   it; the HUD precaches every panel's models into the world's model set each frame the list changes
   (`VguiHud.ModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer

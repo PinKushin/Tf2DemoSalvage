@@ -17,12 +17,14 @@ internal static class PanelMeshFlexFixture
     /// <summary>The frames with that mesh flex added to their rules.</summary>
     /// <param name="frames">The model, whose <see cref="PropModels.ModelFrames.Flex"/> holds the descriptors, controllers and rules.</param>
     /// <param name="target0">Where the ramp leaves zero; below zero, a zero weight already moves the vertex fully.</param>
+    /// <param name="speed">The vertex animation's speed byte: 255 reads the weight alone, 0 the delayed weight alone.</param>
     /// <returns>The flexed model.</returns>
-    public static PropModels.ModelFrames Flexed(PropModels.ModelFrames frames, float target0 = 0f) => frames with
+    public static PropModels.ModelFrames Flexed(PropModels.ModelFrames frames, float target0 = 0f, byte speed = 255) => frames with
     {
         Flex = frames.Flex with
         {
-            Flexes = [new StudioMeshFlex(0, 0, target0, target0 + 1f, 10f, 11f, [new StudioVertAnim(1, 255, 0, (2f, 0f, 0f), (0f, 0f, 1f))])],
+            // The vertices as an array, as the reader stores them: `Accumulate` copies any other list once per call.
+            Flexes = [new StudioMeshFlex(0, 0, target0, target0 + 1f, 10f, 11f, new[] { new StudioVertAnim(1, speed, 0, (2f, 0f, 0f), (0f, 0f, 1f)) })],
         },
         CornerVertex = [0, 1],
         VertexCount = 2,

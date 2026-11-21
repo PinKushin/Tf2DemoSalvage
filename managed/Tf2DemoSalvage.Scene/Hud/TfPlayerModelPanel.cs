@@ -1105,8 +1105,11 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <remarks>
     /// **The decay steps every paint; the rules run every paint for a model with flex descriptors** (B779): `CMDL::Draw`
     /// tests `numflexdesc` (`client.dll` `0x180937138`) and nothing else before `RunFlexRules`, whose weights flex the
-    /// mesh and set the mouth up. The rules write into this panel's own array, so a paint allocates nothing once the model
-    /// is known (B725 review 1 item 4).
+    /// mesh and set the mouth up. The rules write into this panel's own array and the mesh flex into its own kept arrays,
+    /// so neither the flex step nor the mesh's rebuild allocates once the model is known (B725 review 1 item 4,
+    /// `RootFlexWeights_OnAStableMouthedModel_AllocatesNothingAfterTheFirstPaint`; B779 review 1 item 1,
+    /// `PanelMeshFlexTests.For_AWeightChangeOnAKnownModel_AllocatesNothing`). The rest of a paint — its bone arrays, the
+    /// draw list — is not held to that.
     /// </remarks>
     protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
     {
