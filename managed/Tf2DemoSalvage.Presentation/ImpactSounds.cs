@@ -11,7 +11,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Tick">When the impact fires.</param>
 /// <param name="At">Where the sound plays: the decal trace's end, or the server's origin when it met nothing.</param>
 /// <param name="ImpactSound">The struck surface's `bulletimpact` script name, or null when it declares none.</param>
-/// <param name="Ricochets">Whether `Impact` returned true for a `DMG_BULLET`, which offers the shrapnel ricochet.</param>
+/// <param name="Ricochets">Whether its damage is exactly `DMG_BULLET`, which offers the shrapnel ricochet. Every landing is a
+/// hit `Impact` returned true for, so every landing draws the ricochet's number either way (B786).</param>
 public readonly record struct BulletLanding(int Tick, (float X, float Y, float Z) At, string? ImpactSound, bool Ricochets)
 {
     /// <summary>Where on its tick's frame its temp entity fires (B505); its sounds carry it.</summary>
@@ -87,8 +88,9 @@ public static class ImpactSounds
                 ? found
                 : null;
 
-        // `random->RandomInt( 1, 10 ) <= 3`, asked only when `Impact` returned true for a bullet.
-        if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
+        // `random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET )`, left to right: every hit `Impact` accepted
+        // takes the number, and only then is the damage type tested (B786).
+        if (random.RandomInt(1, 10) <= 3 && landing.Ricochets &&
             scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
         {
             sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true, leads: impact is not null) with

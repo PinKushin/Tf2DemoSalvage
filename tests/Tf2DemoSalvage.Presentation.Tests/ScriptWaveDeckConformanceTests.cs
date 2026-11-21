@@ -102,11 +102,13 @@ public sealed class ScriptWaveDeckConformanceTests
 
     /// <remarks>
     /// Every sound the client emits BY NAME goes through `EmitSoundByHandle`, which deals: `TFExplosionCallback`
-    /// (`tf_fx_explosions.cpp:162`), `ImpactSound`'s `EmitSound( filter, …, pszSound, … )` (`fx_impact.cpp`), the tracer
-    /// whiz (`fx_tracer.cpp`) and a HUD's `EmitSound` with `SOUND_FROM_LOCAL_PLAYER` (`tf_hud_deathnotice.cpp:751`).
+    /// (`tf_fx_explosions.cpp:162`), `ImpactSound`'s `EmitSound( filter, …, pszSound, … )` (`fx_impact.cpp`) and a HUD's
+    /// `EmitSound` with `SOUND_FROM_LOCAL_PLAYER` (`tf_hud_deathnotice.cpp:751`). **The tracer whiz does not** (B785):
+    /// `FX_TracerSound` (`clientsideeffects_test.cpp:211-289`) resolves the script with a plain `GetParametersForSound`,
+    /// not being emitted, and plays its wave through `enginesound->EmitSound`, so it clears no wave.
     /// </remarks>
     [Test]
-    public void Producers_EverySoundEmittedByName_Deals()
+    public void Producers_EverySoundEmittedByName_DealsAndTheWhizDoesNot()
     {
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -123,7 +125,8 @@ public sealed class ScriptWaveDeckConformanceTests
         SceneSound? whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts, default);
         SceneSound? hud = HudSounds.Emit(5, Script, scripts);
 
-        new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Emitted);
+        new[] { blast.WaveDraw, impact.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Emitted);
+        whiz!.Value.WaveDraw!.Emitted.ShouldBeFalse();
     }
 
     [Test]

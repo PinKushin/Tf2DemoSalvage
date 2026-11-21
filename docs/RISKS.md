@@ -42418,7 +42418,12 @@ collide — a scrape loop on entity 64 at tick t and one on entity 0 at t + 1 �
 record, and the first stop removes it for both: the other's later change or stop then names nothing (its change keeps
 the carried volume without the script volume, B782's `Named`).
 
-## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — OPEN
+## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `ImpactSounds.For` draws `RandomInt( 1, 10 )` first for every landing (each is a hit `Impact` accepted), and
+only then tests `Ricochets` (exactly `DMG_BULLET`). Test: `For_ALandingOfAnyDamage_DrawsTheRicochetNumberBeforeItsImpact`,
+the impact's draws starting one number on for a non-bullet hit (red before: 0 numbers), the bullet row its control. The
+camera gate before the draw is B783, still open. Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
 `if ( Impact( … ) ) { … if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET ) ) … }` —
@@ -42428,7 +42433,14 @@ damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentati
 `DMG_BULLET`" — so a non-bullet hit skips the draw and its impact sound starts one number early (volume, pitch, wave,
 soundlevel all shift). *Read from published source.* Related: B783 (the camera test comes first of all).
 
-## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — OPEN
+## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `TracerWhiz.SoundAt` resolves the script with `emitted: false`, so the whiz clears no wave. **The citation
+below is the wrong function:** `FX_TFTracerSound` is called only by the `BrightTracer` effect (`tf_fx_tracers.cpp:114`);
+TF2's tracers reach the shared `FX_TracerSound` (`clientsideeffects_test.cpp:211-289`, its 24-unit whiz and random
+0.1-0.1 s wait are ours), which reads the script the same way — `C_BaseEntity::GetParametersForSound( pszSoundName,
+params, NULL )` then `enginesound->EmitSound` — so the finding stands. Test:
+`Producers_EverySoundEmittedByName_DealsAndTheWhizDoesNot` (red before: the whiz emitted). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
 resolves the script with `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` — a plain
