@@ -42533,7 +42533,7 @@ when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigCo
 `mat_wireframe 1` with `sv_cheats 0` goes through. In TF2 it is `FCVAR_CHEAT` (`engine.dll` `0x180007b94`, flags
 `0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **The split is D253's**, not
 D75's: D75 says the gate is not implemented and that a pasted config setting these works; D253 supersedes that for a
-config, a user's bind and a launch option and exempts the viewer's menus; the default keys' exemption is D253 as
+config, a user's bind and a launch option and exempts the viewer's settings file, which keeps its menus' choices; the default keys' exemption is D253 as
 `ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key — an exemption no owner decision records,
 which is B792. **Which applies where**: the menu item and the
 viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
