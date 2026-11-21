@@ -160,9 +160,7 @@ public sealed partial class EntityModelSet
             float[] weights = IsCBaseFlex(prop)
                 ? FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex))
                 : new float[model.Flex.Descriptors.Count];
-            face = FaceFlex.Deltas(model.Flex, weights, weights, model.VertexCount) is { } deltas
-                ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
-                : null;
+            face = FaceFlex.MeshFace(model, weights, order).Face;
             _restingFace[RestingKey(prop)] = face;
         }
 

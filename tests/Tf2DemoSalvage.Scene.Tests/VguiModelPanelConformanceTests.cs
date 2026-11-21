@@ -424,6 +424,50 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A panel's models draw their meshes flexed by the weights their draw computes** (B779). `CMDL::Draw` (TF2
+    /// `client.dll` `0x180936f70`), for a model with flex descriptors (`numflexdesc`, tested at `0x180937138`), locks the
+    /// studio render's weights (`0x180937173`), runs the rules on `m_pFlexControls` into them (`0x18093718b`) and draws with
+    /// them (`0x1809371f2`) — with no teeth to read them. `CMDLPanel`'s `SetupFlexWeights` is empty (`mdlpanel.h:101`), so
+    /// the root's controls are `CMDL::CMDL`'s zeros (`0x180936e20`), and so are a merge's (B725 5g): the rule `jaw + 0.25`
+    /// over 0.5..1 gives 0.25, the vertex moves (0.5, 0, 0). A C_BaseFlex at rest would give 0.75, unflexed 0.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedAtZeroFlexControls(bool asMerge)
+    {
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames flexed = PanelMeshFlexFixture.Flexed(plain with
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+
+        VguiMdlPanel panel = new(
+            null, "model", new FramesCache(path => path.Contains("hat", StringComparison.Ordinal) == asMerge ? flexed : plain))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+        panel.Paint(surface, Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[asMerge ? 1 : 0], 0.25f);
+        surface.Draws[1].Models[asMerge ? 0 : 1].Flex.ShouldBeNull("the other has no flex");
+        surface.Draws[1].Models[asMerge ? 1 : 0].Flex.ShouldBeSameAs(
+            surface.Draws[0].Models[asMerge ? 1 : 0].Flex, "unchanged weights keep the face built for them");
+    }
+
+    /// <remarks>
     /// **A merge model's eyes look at the world origin** (B725 5g). A merge CMDL keeps its constructor's
     /// `m_vecViewTarget` (0, 0, 0) and `m_bWorldSpaceViewTarget` false (`CMDL::CMDL`, TF2 `client.dll` `0x180936e20`), so
     /// `CMDL::Draw` transforms the target by the `rootToWorld` it is handed (`0x1809370e3`), the merge's identity
@@ -1354,6 +1398,8 @@ public sealed class VguiModelPanelConformanceTests
         public StudioViewTarget ViewTarget { get; } = new();
 
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => -1;
 

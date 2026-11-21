@@ -601,11 +601,11 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         StudioViewTarget viewTarget = ViewTarget;
-        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget)];
+        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget, _mdlCache)];
 
         foreach (PanelModel attached in model.Attached)
         {
-            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget));
+            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget, _mdlCache));
         }
 
         surface.Paint3D(
@@ -728,7 +728,8 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         /// <summary>`DrawModel( STUDIO_RENDER )`: posed at its cycle, or bone-merged onto <paramref name="follows"/>.</summary>
-        public ModelInstance Draw(float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals, StudioViewTarget viewTarget)
+        public ModelInstance Draw(
+            float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals, StudioViewTarget viewTarget, IMdlCache cache)
         {
             if (Entity.Pose is SkeletonPose pose)
             {
@@ -753,6 +754,9 @@ public class VguiModelPanel : VguiEditablePanel
                 skinSwap = swaps[Skin >= 0 && Skin < swaps.Count ? Skin : 0];
             }
 
+            // The mesh flexed by the weights it draws with, as a world model's is (B779).
+            (float[]? flex, FlexSlots? flexRange) = _meshFlex.For(cache, Path, Frames, DrawnWeights);
+
             return new ModelInstance(
                 Path,
                 Identity4x4,
@@ -763,8 +767,22 @@ public class VguiModelPanel : VguiEditablePanel
                 BodyParts: Frames.BodyParts,
                 Body: Body,
                 Locals: locals,
-                Face: Face(viewTarget));
+                Face: Face(viewTarget),
+                Flex: flex,
+                FlexRange: flexRange);
         }
+
+        /// <summary>
+        /// The descriptor weights it draws with, computed once (its model never changes): a C_BaseFlex nothing drives runs
+        /// its rules at each controller's minimum (`c_baseflex.cpp:1220-1222` with `m_flexWeight` zero), as the world's does
+        /// (`EntityModelSet.FaceShading`); a C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender
+        /// 0x1800584b0, B513): every descriptor 0.
+        /// </summary>
+        private float[] DrawnWeights => _restingWeights ??= IsBaseFlex
+            ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
+            : new float[Frames.Flex.Descriptors.Count];
+
+        private readonly PanelMeshFlex _meshFlex = new();
 
         /// <summary>
         /// The eyes of a <c>CModelPanelModel</c>, a C_BaseFlex (<c>basemodelpanel.h:23</c>) (B725): its <c>m_viewtarget</c> is
@@ -806,15 +824,8 @@ public class VguiModelPanel : VguiEditablePanel
 
             StudioEyes.FillEyes(_face, Frames, Entity.Bones, shared.Target);
 
-            // A C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender 0x1800584b0, B513): every descriptor 0.
-            if (mouthed && _restingWeights is null)
-            {
-                _restingWeights = IsBaseFlex
-                    ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
-                    : new float[Frames.Flex.Descriptors.Count];
-            }
-            _face.Mouth = mouthed && _restingWeights is { } weights
-                ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), weights)
+            _face.Mouth = mouthed
+                ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), DrawnWeights)
                 : null;
 
             return _face;
@@ -823,7 +834,7 @@ public class VguiModelPanel : VguiEditablePanel
         /// <summary>What <see cref="Face"/> writes, kept (B725 review).</summary>
         private StudioFace? _face;
 
-        /// <summary>The model's descriptor weights at rest, for its mouth, computed once (its model never changes).</summary>
+        /// <summary>What <see cref="DrawnWeights"/> computed.</summary>
         private float[]? _restingWeights;
 
         private static float[] DefaultPoses(PropModels.SkinnedModel model)

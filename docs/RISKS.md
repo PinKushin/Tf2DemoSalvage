@@ -42598,7 +42598,7 @@ read by every eye drawn after (`StudioViewTarget`). What differs is WHEN it is s
   (taken as (0, 0, 0)). Visible only for an eyed `prop_dynamic` (or a C_BaseFlex without controllers, or a CModelPanel's
   attached C_BaseAnimating) beside faces.
 
-## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — OPEN
+## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — FIXED 2026-11-21: every panel model's mesh is flexed by the weights its draw computes
 
 Found in B725 5f. `CMDL::Draw` (TF2 `client.dll` `0x180936f70`), for a model with flex descriptors, locks the studio
 render's flex weights (`LockFlexWeights`, `0x180937173`), runs the model's rules on `m_pFlexControls` into them
@@ -42612,6 +42612,28 @@ material because nothing else reads them today; the engine runs them every paint
 (`CMDL::Draw`, `0x180937138-0x1809371a7`), and so must ours once the mesh is flexed by them. *May bear on B559* (the HUD class portrait 15-20 per channel off
 TF2's, cause unknown): a flexed face moves vertices and their normals, which changes shading on the face — *interpolated*,
 not measured; the portrait's deficit is reported as depending on which way the surface faces, which a normal change would.
+
+**Fix.** Read again in TF2's x64 `client.dll` (disassembled with `llvm-objdump`): the only test before the rules is
+`numflexdesc` (`cmp [rdx+0x104], r15d`, `0x180937138`); `LockFlexWeights` is called with `r9` zeroed (`0x180937167`), so
+no delayed array is asked for, and `DrawModel` is handed a null delayed pointer (`0x1809371e8`) — the delay is the
+weights themselves, as `StudioFlexRules.Accumulate` already takes a model with no smoothing. The world's buffer-order
+spread is shared: `FaceFlex.MeshFace` (deltas at the weights, `InBufferOrder`, the flexed range), which
+`EntityModelSet.RestingFaceOf` now calls too. Panels reach the set's packing through `IMdlCache.PackedOrder` (the
+embedded item panel's deferred cache forwards it), and `PanelMeshFlex` keeps each panel model's face, rebuilt only when
+its weights or packing change. Wired: `VguiMdlPanel`'s root (`RootFlexWeights`), merges and the StatTrak second-level
+merge (`DrawBoneMergedOnto`) at zero controls; `TfPlayerModelPanel`'s root at the decayed controls, **the Teeth gate
+removed** — the rules run for every root with flex descriptors; `VguiModelPanel`'s `CModelPanelModel` at its rules at
+rest and an attached model at zero weights. *Tests*: `VguiModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedAtZeroFlexControls`
+(root and merge, and the face kept across paints), `CModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith`
+(rest and attached), `TfPlayerModelPanelConformanceTests.Paint_AClassModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFromTheDecayingControls`
+(0.05 then 0.0975), `PackedVerticesTests.PackedOrder_APackedModel_IsTheCornerEachBufferVertexCarries`; all five panel rows
+red first (`Flex` null). *Sabotage*: the Teeth gate restored reddened only the TF row; the attached model as a C_BaseFlex
+its row and B725's `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; merges drawn with no weights only the
+merge row; the face cache ignoring a weight change only the TF row's second paint; the set answering no order only its
+row. *Not measured*: the delay-equals-weights reading rests on the null pointer, not on studiorender's handling of it;
+whether a HUD-only model the world never packs is packed (a panel then draws it unflexed, as before); and the fixture's
+speed byte 255 cannot tell delayed from current weights. **B559 is unchanged in evidence**: whether the flexed face
+closes any of the portrait's deficit is still *interpolated*, not measured. *Not verified by looking*.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
@@ -45420,7 +45442,7 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      No TF2 class model has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
      `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
      *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. Neither panel flexes its
-     MESH by those weights, which `CMDL::Draw` does: **B779**.
+     MESH by those weights, which `CMDL::Draw` does: **B779** (fixed 2026-11-21).
      *The TF panel, read further* (the lead's ruling: read where the global numbers come from): the reads are the model's,
      not the session's. `AddGlobalFlexController` numbers names in first-seen order (`c_baseflex.cpp:1341-1361`), but
      RunFlexRules' FETCH1 reads `src[ controller[ index ].localToGlobal ]` (`client.dll` `0x1803177ea-0x18031781f`, as

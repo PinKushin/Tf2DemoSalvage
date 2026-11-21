@@ -263,6 +263,31 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.FlexWeightAt(0).ShouldBe(0.04875f, 1e-6f);
     }
 
+    /// <remarks>
+    /// **The class model's mesh is flexed by the decaying controls, teeth or none** (B779): `CMDL::Draw` runs the rules for
+    /// every model with flex descriptors (TF2 `client.dll` `0x180937138-0x1809371a7`) and draws the mesh with them
+    /// (`0x1809371f2`), after `SetupFlexWeights` decayed the controls (`tf_playermodelpanel.cpp:2275-2361`). The rule
+    /// `lip + 1` over `lip` −1..1: paint 1 gives 0.05, the vertex (0.1, 0, 0); paint 2, 0.0975. A plain CMDLPanel's zero
+    /// controls would give 1, and before this fix no face was drawn without teeth.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFromTheDecayingControls()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        panel.SetToPlayerClass(1);
+
+        float[] expected = [0.05f, 0.0975f];
+
+        for (int paint = 0; paint < expected.Length; paint++)
+        {
+            VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+            panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+            PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws.ShouldHaveSingleItem().Models[0], expected[paint]);
+        }
+    }
+
     [Test]
     public void SetEyeGlowEffect_WithAnEyeglowAttachment_RendersTheGlowThere()
     {
@@ -441,7 +466,7 @@ public sealed class TfPlayerModelPanelConformanceTests
             IReadOnlyList<StudioMouth> mouths = Mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [];
 
             return Faced && path == ScoutModel
-                ? frames with
+                ? PanelMeshFlexFixture.Flexed(frames with
                 {
                     Mouths = mouths,
                     HasTeeth = Mouthed,
@@ -450,9 +475,11 @@ public sealed class TfPlayerModelPanelConformanceTests
                         [new StudioFlexController("default", "lip", -1f, 1f)],
                         [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 1f), new StudioFlexOp(4, 0, 0f)])],
                         []),
-                }
+                })
                 : frames;
         }
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => group switch
         {

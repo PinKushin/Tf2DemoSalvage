@@ -1103,9 +1103,10 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// </summary>
     /// <inheritdoc/>
     /// <remarks>
-    /// **The decay steps every paint; the rules run only for a model whose mouth reads them** (B725 review 1): the engine runs
-    /// both each paint, and its rules also flex the panel's mesh — which ours does not draw (B779) — so for a model without a
-    /// mouthed Teeth material nothing here reads them. When B779 is fixed the rules run for every model with flex.
+    /// **The decay steps every paint; the rules run every paint for a model with flex descriptors** (B779): `CMDL::Draw`
+    /// tests `numflexdesc` (`client.dll` `0x180937138`) and nothing else before `RunFlexRules`, whose weights flex the
+    /// mesh and set the mouth up. The rules write into this panel's own array, so a paint allocates nothing once the model
+    /// is known (B725 review 1 item 4).
     /// </remarks>
     protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
     {
@@ -1114,7 +1115,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         IReadOnlyList<StudioFlexController> controllers = frames.Flex.Controllers;
         DecayFlexWeights(_flexWeight, controllers);
 
-        if (!frames.HasTeeth || frames.Mouths.Count == 0)
+        if (frames.Flex.Descriptors.Count == 0)
         {
             return null;
         }

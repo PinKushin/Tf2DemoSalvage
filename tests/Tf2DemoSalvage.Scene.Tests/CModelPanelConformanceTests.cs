@@ -406,6 +406,33 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A <c>CModelPanel</c>'s models draw their meshes flexed by the weights they draw with** (B779), as a world model
+    /// does: the <c>CModelPanelModel</c>, a C_BaseFlex nothing drives, at its rules over each controller's minimum
+    /// (`c_baseflex.cpp:1220-1222`) — `jaw + 0.25` over 0.5..1 is 0.75, the vertex (1.5, 0, 0); an attached model, a plain
+    /// C_BaseAnimating (`new C_BaseAnimating`, `basemodelpanel.cpp:467`), at the zero weights `LockFlexWeights` leaves
+    /// (studiorender `0x1800584b0`, B513) — 0, which a ramp from −0.5 to 0.5 takes to 0.5, the vertex (1, 0, 0), where the
+    /// C_BaseFlex's 0.75 would be the ramp's full 1. Neither has teeth.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith(bool asAttached)
+    {
+        PropModels.ModelFrames attached = PanelMeshFlexFixture.Flexed(Frames(eyed: false, mouthed: false, flexed: false) with
+        {
+            Flex = Frames(eyed: false, mouthed: true).Flex,
+        }, target0: -0.5f);
+        VguiModelPanel panel = asAttached ? Framed(startFramed: false, attached: attached) : Framed(startFramed: false, flexed: true);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        IReadOnlyList<ModelInstance> models = surface.Draws.ShouldHaveSingleItem().Models;
+        PanelMeshFlexFixture.ShouldBeFlexedBy(models[asAttached ? 1 : 0], asAttached ? 0.5f : 0.75f);
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> without controllers reads the render context's view target** (B725 5d): its
     /// `SetupGlobalWeights` returns false before `SetViewTarget` (`c_baseflex.cpp:1198-1207`), so it sets none and its eyes
     /// take the last one set. Left at (120, 300, 5) by an earlier draw: the eye at (120, 5, 5) looks along +y, right =
@@ -490,9 +517,10 @@ public sealed class CModelPanelConformanceTests
         bool mouthed = false,
         StudioViewTarget? viewTarget = null,
         PropModels.ModelFrames? attached = null,
-        bool sharedTarget = true)
+        bool sharedTarget = true,
+        bool flexed = false)
     {
-        PropModels.ModelFrames frames = Frames(eyed, mouthed);
+        PropModels.ModelFrames frames = Frames(eyed, mouthed, flexed);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
@@ -516,18 +544,21 @@ public sealed class CModelPanelConformanceTests
 
     private const string AttachedPath = "models/attached.mdl";
 
-    /// <summary>A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1.</summary>
-    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed)
+    /// <summary>
+    /// A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1; or, flexed,
+    /// that rule and <see cref="PanelMeshFlexFixture"/>'s mesh flex without teeth.
+    /// </summary>
+    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed, bool flexed = false)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
 
-        return new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
+        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
         {
             Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
             Mouths = mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [],
             HasTeeth = mouthed,
-            Flex = mouthed
+            Flex = mouthed || flexed
                 ? new StudioFlexData(
                     ["jaw"],
                     [new StudioFlexController("default", "jaw", 0.5f, 1f)],
@@ -535,6 +566,8 @@ public sealed class CModelPanelConformanceTests
                     [])
                 : StudioFlexData.None,
         };
+
+        return flexed ? PanelMeshFlexFixture.Flexed(frames) : frames;
     }
 
     /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>
@@ -543,6 +576,8 @@ public sealed class CModelPanelConformanceTests
         public StudioViewTarget? ViewTarget { get; } = viewTarget;
 
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => -1;
 

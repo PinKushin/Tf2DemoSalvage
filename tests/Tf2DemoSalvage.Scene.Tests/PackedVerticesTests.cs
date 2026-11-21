@@ -77,4 +77,20 @@ public sealed class PackedVerticesTests
 
         models.PackedVertices(Path).ShouldBeSameAs(first);
     }
+
+    /// <remarks>
+    /// **A model panel's flexed mesh is spread over the order the set packed** (B779): the panels reach the set as their
+    /// <see cref="Hud.IMdlCache"/>, and a face in any other order moves the wrong vertices. Packing groups the corners by
+    /// material, so buffer vertices 0..3 carry corners 0, 2, 1, 3; a model never packed answers none.
+    /// </remarks>
+    [Test]
+    public void PackedOrder_APackedModel_IsTheCornerEachBufferVertexCarries()
+    {
+        Hud.IMdlCache models = new EntityModelSet { Geometry = Skinned };
+
+        ((EntityModelSet)models).Precache([Path]);
+
+        models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
+        models.PackedOrder("models/never.mdl").ShouldBeNull();
+    }
 }

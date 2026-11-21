@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>
@@ -17,4 +19,12 @@ public interface IMdlCache : IModelBodygroups
     /// cache with no render context behind it (a panel then keeps its own).
     /// </summary>
     public StudioViewTarget? ViewTarget => null;
+
+    /// <summary>
+    /// Each buffer vertex's corner, as the model's geometry was packed for the device — what a flexed mesh's deltas are
+    /// spread over (B779) — or null for a model not packed, which a panel then draws unflexed.
+    /// </summary>
+    /// <param name="path">The model's path.</param>
+    /// <returns>The packed order, or null.</returns>
+    public IReadOnlyList<int>? PackedOrder(string path) => null;
 }

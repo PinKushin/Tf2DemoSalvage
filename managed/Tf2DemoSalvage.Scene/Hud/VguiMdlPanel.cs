@@ -35,6 +35,9 @@ public sealed class VguiMdl
 
     /// <summary>The war paint a <c>WeaponSkin</c> material binds, the item it draws being the proxy's (B754), or null.</summary>
     public WeaponSkin? WeaponSkin { get; set; }
+
+    /// <summary>The mesh face this CMDL's draw last flexed (B779), kept with it so a dropped merge drops it.</summary>
+    internal PanelMeshFlex MeshFlex { get; } = new();
 }
 
 /// <summary>
@@ -415,10 +418,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         // key for it. So every panel here keeps it, and `OnPaint3D` sets a world-space view target at the
         // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. `CMDL::Draw` takes a world-space target
         // as it stands (see CmdlFace).
+        float[]? rootWeights = RootFlexWeights(rootPath, rootFrames);
         StudioFace? rootFace = CmdlFace(
-            _root, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z), RootFlexWeights(rootPath, rootFrames));
+            _root, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z), rootWeights);
 
-        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones)) with { Face = rootFace };
+        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones), rootWeights) with { Face = rootFace };
 
         renderContext.Models.Add(rootDrawn);
 
@@ -436,10 +440,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
             // A merge's CMDL keeps its constructor's view target, (0, 0, 0) in model space, carried by its identity
             // `m_MDLToWorld` (`SetMergeMDL`, mdlpanel.cpp:853) to the world origin; its flex controls stay zero.
-            StudioFace? mergeFace = CmdlFace(merge, mergeFrames, merged.Bones, (0f, 0f, 0f), ZeroControlWeights(mergePath, mergeFrames));
+            float[] mergeWeights = ZeroControlWeights(mergePath, mergeFrames);
+            StudioFace? mergeFace = CmdlFace(merge, mergeFrames, merged.Bones, (0f, 0f, 0f), mergeWeights);
 
             renderContext.Models.Add(
-                Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones)) with { Face = mergeFace });
+                Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones), mergeWeights) with { Face = mergeFace });
 
             RenderingMergedModel(renderContext, mergeFrames, mergePath, merged.Bones);
         }
@@ -498,7 +503,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             StudioBones.Concatenate(boneToWorld, model.Bones[bone].PoseToBone.Span, skinned[bone]);
         }
 
-        renderContext.Models.Add(Drawn(path, frames, mdl, skinned));
+        // A CMDL draw like the others, so its mesh flexes at its zero controls (B779).
+        renderContext.Models.Add(Drawn(path, frames, mdl, skinned, ZeroControlWeights(path, frames)));
 
         return true;
     }
@@ -663,8 +669,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary>One model as <c>CMDL::Draw</c> draws it: its skin row from the model's own table
     /// (<c>g_skinref[m_nSkin]</c>, an out-of-range family falling back to zero as the engine does) and its body number
-    /// over its body parts.</summary>
-    private ModelInstance Drawn(string path, PropModels.ModelFrames frames, VguiMdl mdl, float[][] bones)
+    /// over its body parts, and its mesh flexed by the descriptor weights its <c>RunFlexRules</c> wrote (B779).</summary>
+    private ModelInstance Drawn(string path, PropModels.ModelFrames frames, VguiMdl mdl, float[][] bones, float[]? weights)
     {
         IReadOnlyDictionary<int, int>? skinSwap = null;
 
@@ -672,6 +678,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         {
             skinSwap = swaps[mdl.Skin >= 0 && mdl.Skin < swaps.Count ? mdl.Skin : 0];
         }
+
+        (float[]? flex, FlexSlots? flexRange) = mdl.MeshFlex.For(MdlCache, path, frames, weights);
 
         return new ModelInstance(
             path,
@@ -685,7 +693,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             MaterialOverride: mdl.MaterialOverride,
             Paint: mdl.Paint,
             Locals: Locals,
-            WeaponSkin: mdl.WeaponSkin);
+            WeaponSkin: mdl.WeaponSkin,
+            Flex: flex,
+            FlexRange: flexRange);
     }
 
     /// <summary><c>AngleMatrix( angRot, vecPos, matrix )</c>: a row of <c>(forward[i], left[i], up[i], origin[i])</c>

@@ -449,6 +449,10 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>The studio render context's one view target, which the HUD's model panels reach through this cache (B725 5d).</summary>
     public StudioViewTarget ViewTarget { get; } = new();
 
+    /// <inheritdoc/>
+    public IReadOnlyList<int>? PackedOrder(string path) =>
+        _packedOrder.TryGetValue(path, out int[]? order) ? order : null;
+
     /// <summary>What was posed and how, reported under `props` as the prop loader does.</summary>
     private readonly ILogger _props;
 
