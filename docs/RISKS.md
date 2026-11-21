@@ -42605,6 +42605,18 @@ emit replay confirmed against the engine), each fixed with its test seen red and
 6. A control marked as one; a soundlevel assertion given a control proving it can fail.
 7. B787 now records that colliding seeds merge two patches' records.
 
+**Review round 3 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A level change forgot the patches but not the scrape slots.* One `SoundPresenter.ForgetPatches` (deck and friction
+   slots) now serves the reload and the level change. *Read from published source:* a level change deletes the
+   ragdolls, and `C_TFRagdoll::~C_TFRagdoll` (`c_tf_player.cpp:590-593`) calls `PhysCleanupFrictionSounds`
+   (`physics.cpp:1024-1031`) → `ShutdownFriction` (`:711-717`), which destroys the patch and empties the slot.
+2. The reload test landed behind; a reload landing ahead (`PlaySkipFrames` after a reloading batch) is tested too.
+3. *A head whose follower's script is missing at deal time stayed held.* The follower releases it on that early return.
+4. The hundred-detaches test asserts the hundred first.
+5. `PhysicsFrictionSounds.Playing` (tests only) counts in a loop instead of allocating.
+6. `Scripts` is set when an install opens and again per map — twice for the first level; the remark says so.
+
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 
 TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks

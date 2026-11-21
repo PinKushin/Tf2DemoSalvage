@@ -214,6 +214,27 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
+    /// An impact whose script the deal-time catalog does not hold plays nothing (`GetParametersForSoundEx` fails), but it
+    /// is still the follower its shrapnel was held for, so the head goes with it rather than waiting for a reload.
+    /// </remarks>
+    [Test]
+    public void Deal_AnImpactWhoseScriptIsMissingAtDealTime_ReleasesItsShrapnel()
+    {
+        SoundScriptEntry shrapnel = Entry(ImpactSounds.Shrapnel, "bounce1.wav", "bounce2.wav");
+        SoundScriptEntry impact = Entry("Test.Impact", "x.wav", "y.wav");
+        IReadOnlyList<SceneSound> sounds = ImpactSounds.For(
+            new BulletLanding(5, Origin, impact.Name, Ricochets: true), RicochetSeed(), Scripts(shrapnel, impact));
+
+        ScriptWaveDeck deck = new();
+        Dictionary<string, SoundScriptEntry> level = Scripts(shrapnel);
+        deck.Deal(sounds[0], level);
+        deck.HeadsHeld.ShouldBe(1, "the condition: the shrapnel is held for its impact");
+
+        deck.Deal(sounds[1], level).ShouldBe(sounds[1]);
+        deck.HeadsHeld.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// No producer chains three draws — an impact follows its shrapnel, a patch's `Init` follows the scrape's read — and the
     /// deck's head records assume two, so a third link is refused where it is made.
     /// </remarks>
@@ -288,8 +309,10 @@ public sealed class ScriptWaveDrawConformanceTests
             Entry("WeaponMedigun.HealingWorld", "heal.wav"), Entry("WeaponMedigun.HealingDetachWorld", "detach.wav"));
         SceneHealBeam[] beams = [.. Enumerable.Range(0, 100).Select(static heal => new SceneHealBeam(40, 3, false, 2, heal * 100, (heal * 100) + 50) { Owner = 7 })];
         ScriptWaveDeck deck = new();
+        IReadOnlyList<SceneSound> sounds = MedigunSounds.For(beams, static (_, _) => (0f, 0f, 0f), scripts);
+        sounds.Count(static sound => sound.Name == "detach.wav").ShouldBe(100, "the condition: a hundred detaches are dealt");
 
-        foreach (SceneSound sound in MedigunSounds.For(beams, static (_, _) => (0f, 0f, 0f), scripts))
+        foreach (SceneSound sound in sounds)
         {
             if (sound.IsStop)
             {
