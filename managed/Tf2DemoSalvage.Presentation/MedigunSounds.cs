@@ -68,7 +68,7 @@ public static class MedigunSounds
                 int mode = beam.Item is { } item && weaponModeOf is not null ? weaponModeOf(item) : 0;
                 string heal = HealSounds[mode >= 0 && mode < HealSounds.Length ? mode : 0];
 
-                loop ??= Patch(EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts, emitted: false, ClientSoundPhase.DataChanged));
+                loop ??= Patch(EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts, emitted: false, ClientSoundPhase.DataChanged), kept: true);
 
                 // The next target arriving as this one goes: healing never stopped.
                 if (index + 1 < ordered.Count && ordered[index + 1].Start == beam.End)
@@ -103,7 +103,9 @@ public static class MedigunSounds
 
                 sounds.Add(playing with { Tick = end, IsStop = true });
 
-                if (Patch(EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts, emitted: false, ClientSoundPhase.DataChanged)) is { } detach)
+                // Nothing stops or changes the detach — the next heal start destroys it (`StopHealSound( false, false,
+                // true )`, `tf_weapon_medigun.cpp:2325`) — so its deal is not kept.
+                if (Patch(EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts, emitted: false, ClientSoundPhase.DataChanged), kept: false) is { } detach)
                 {
                     sounds.Add(detach);
                 }
@@ -118,9 +120,11 @@ public static class MedigunSounds
     /// (`soundenvelope.cpp:353-381`) keeps the script's wave, volume, soundlevel and channel, and the patch plays at its
     /// own pitch and at volume 1 times the script volume it kept — a SCALED draw, whose script volume the deal supplies.
     /// </summary>
-    private static SceneSound? Patch(SceneSound? drawn) =>
+    /// <param name="drawn">The patch's `Init` draw, or null when no script declares the name.</param>
+    /// <param name="kept">Whether a later stop names it (the heal loop), so its deal is kept (<see cref="ScriptWaveDraw.Kept"/>).</param>
+    private static SceneSound? Patch(SceneSound? drawn, bool kept) =>
         drawn is { } sound
-            ? sound with { Pitch = PatchPitch, Volume = PatchVolume, WaveDraw = sound.WaveDraw! with { Scaled = true } }
+            ? sound with { Pitch = PatchPitch, Volume = PatchVolume, WaveDraw = sound.WaveDraw! with { Scaled = true, Kept = kept } }
             : null;
 
     /// <summary>The volume both medigun patches are played at.</summary>

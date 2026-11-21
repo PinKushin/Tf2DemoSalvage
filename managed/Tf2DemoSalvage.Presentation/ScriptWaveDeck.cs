@@ -32,16 +32,16 @@ public sealed class ScriptWaveDeck
     private readonly Dictionary<string, bool[]> _available = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Each patch (<see cref="ScriptWaveDraw.Scaled"/>) dealt and not yet stopped: its wave and script volume, for the
-    /// change or stop that names it. Nothing else is ever named again.
+    /// Each patch a later change or stop names (<see cref="ScriptWaveDraw.Kept"/>), dealt and not yet stopped: its wave
+    /// and script volume. Nothing else is ever named again.
     /// </summary>
     private readonly Dictionary<ScriptWaveDraw, Dealt> _patches = [];
 
     /// <summary>
-    /// The last draw dealt and how many waves it found. A chain's draws are dealt one after another, so this is the only
-    /// draw one can follow; any earlier one is replayed as the engine made it.
+    /// Each chain head (<see cref="ScriptWaveDraw.Leads"/>) dealt and not yet followed, by reference — the follower names
+    /// that very draw — with how many waves it found, however many deals land between the two.
     /// </summary>
-    private (ScriptWaveDraw? Draw, int Available) _last;
+    private readonly Dictionary<ScriptWaveDraw, int> _heads = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>The stream a deal draws from, moved to the sound's position — so dealing again draws the same numbers.</summary>
     private readonly UniformRandomStream _stream = new();
@@ -120,14 +120,22 @@ public sealed class ScriptWaveDeck
 
         Parameters drawn = Draw(entry, draw.Emitted, known: null);
         string wave = entry.Waves[drawn.Wave];
-        _last = (draw, drawn.Available);
+
+        if (draw.Leads)
+        {
+            _heads[draw] = drawn.Available;
+        }
+
+        if (draw.Kept)
+        {
+            _patches[draw] = new Dealt(wave, drawn.Volume);
+        }
 
         SceneSound dealt = sound with { Name = wave, SoundLevel = drawn.SoundLevel };
 
         // A patch, first draw or not: `Play`'s volume times the script volume drawn, at `Play`'s pitch.
         if (draw.Scaled)
         {
-            _patches[draw] = new Dealt(wave, drawn.Volume);
             return dealt with { Volume = sound.Volume * drawn.Volume };
         }
 
@@ -163,17 +171,18 @@ public sealed class ScriptWaveDeck
     }
 
     /// <summary>
-    /// What a reload's `S_StopAllSounds` ends (B550): every patch, which nothing can name after it, and any chain, which
-    /// cannot span it. The flags stay — they live in soundemittersystem.dll, which a reload does not touch (B504).
+    /// What a reload's `S_StopAllSounds` (B550) or a level change's `CSoundControllerImp::SystemReset`
+    /// (`soundenvelope.cpp:862-878`, "level change, etc.": every patch `Shutdown`) ends: every patch, which nothing can
+    /// name after it, and any chain, which cannot span it. The flags stay (B504).
     /// </summary>
     public void ForgetPlaying()
     {
         _patches.Clear();
-        _last = default;
+        _heads.Clear();
     }
 
-    /// <summary>Whether the last draw dealt is held for a draw chained after it.</summary>
-    internal bool ChainHeld => _last.Draw is not null;
+    /// <summary>How many chain heads are held for the draw that follows each.</summary>
+    internal int HeadsHeld => _heads.Count;
 
     /// <summary>How many patches are held for the change or stop that names them.</summary>
     internal int PatchesHeld => _patches.Count;
@@ -181,23 +190,18 @@ public sealed class ScriptWaveDeck
     /// <summary>Puts <see cref="_stream"/> where <paramref name="draw"/>'s numbers start.</summary>
     /// <remarks>
     /// A draw after another starts where that one ended, which is that one's draws over again: with the count it was dealt
-    /// against when it was dealt (a shrapnel before its impact), or — when it was not (`PhysFrictionSound`'s draw before its
-    /// patch, never a sound of its own) — as the engine made it, against the flags now and clearing its pick if it was
-    /// emitted. A read changes no flag.
+    /// against when it was dealt (a shrapnel before its impact, however many deals came between), or — when it was not
+    /// (`PhysFrictionSound`'s draw before its patch, never a sound of its own) — as the engine made it, against the flags
+    /// now and clearing its pick if it was emitted. A read changes no flag. A chain is at most two draws
+    /// (<see cref="ScriptWaveDraw.After"/> refuses a third), so the draw before starts the stream itself.
     /// </remarks>
     private void StartAt(ScriptWaveDraw draw, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
     {
-        if (draw.After is not { } before)
-        {
-            _stream.MoveTo(draw.Stream);
-            return;
-        }
+        _stream.MoveTo(draw.Stream);
 
-        StartAt(before, scripts);
-
-        if (scripts.TryGetValue(before.Script, out SoundScriptEntry entry) && entry.Waves.Count > 0)
+        if (draw.After is { } before && scripts.TryGetValue(before.Script, out SoundScriptEntry entry) && entry.Waves.Count > 0)
         {
-            Draw(entry, before.Emitted, Equals(_last.Draw, before) ? _last.Available : null);
+            Draw(entry, before.Emitted, _heads.Remove(before, out int available) ? available : null);
         }
     }
 

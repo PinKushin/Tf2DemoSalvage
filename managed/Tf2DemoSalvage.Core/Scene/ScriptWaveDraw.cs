@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -27,11 +29,31 @@ public sealed record ScriptWaveDraw(string Script, bool Emitted, RandomStreamPos
     /// The `GetParametersForSound` drawn on the same stream just before this one, or null for the first: an impact after its
     /// shrapnel's, a sound patch's `Init` after `PhysFrictionSound`'s own. This one's numbers start where that one's ended.
     /// </summary>
-    public ScriptWaveDraw? After { get; init; }
+    /// <exception cref="ArgumentException">The draw before is itself after another: a chain is at most two draws.</exception>
+    /// <remarks>No producer chains three, and the deal's record of a chain's head (<see cref="Leads"/>) assumes two.</remarks>
+    public ScriptWaveDraw? After
+    {
+        get;
+        init
+        {
+            if (value?.After is not null)
+            {
+                throw new ArgumentException("A chain of script draws is at most two: this one's draw before is itself after another.", nameof(value));
+            }
+
+            field = value;
+        }
+    }
 
     /// <summary>
     /// A `CSoundPatch` played by `Play( patch, volume, pitch )`: the sound's <c>Volume</c> multiplies the script volume this
     /// draw gives (`GetVolumeForEngine`), and its <c>Pitch</c> is the one `Play` gave, not this draw's.
     /// </summary>
     public bool Scaled { get; init; }
+
+    /// <summary>A draw another is made <see cref="After"/> — a shrapnel whose impact follows — so its deal is kept for it.</summary>
+    public bool Leads { get; init; }
+
+    /// <summary>A patch a later change or stop names, so its deal is kept until the stop: a heal loop, a scrape; not a detach.</summary>
+    public bool Kept { get; init; }
 }

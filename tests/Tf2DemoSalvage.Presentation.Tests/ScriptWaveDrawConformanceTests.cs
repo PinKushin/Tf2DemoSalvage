@@ -181,6 +181,52 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
+    /// A chain's head is found however many deals land between it and its follower: the impact starts where its
+    /// shrapnel's DEALT draw ended (two waves, so a number) and clears nothing more — the shrapnel's own deal cleared one,
+    /// so one of two is left.
+    /// </remarks>
+    [Test]
+    public void Deal_AnUnrelatedDealBetweenAShrapnelAndItsImpact_LeavesTheImpactOnTheShrapnelsDealtCount()
+    {
+        SoundScriptEntry shrapnel = Entry(ImpactSounds.Shrapnel, "bounce1.wav", "bounce2.wav");
+        SoundScriptEntry impact = Entry("Test.Impact", "x.wav", "y.wav");
+        SoundScriptEntry other = Entry("Test.Other", "o.wav");
+        Dictionary<string, SoundScriptEntry> scripts = Scripts(shrapnel, impact, other);
+        int seed = RicochetSeed();
+
+        IReadOnlyList<SceneSound> sounds = ImpactSounds.For(new BulletLanding(5, Origin, impact.Name, Ricochets: true), seed, scripts);
+
+        ScriptWaveDeck deck = new();
+        deck.Deal(sounds[0], scripts);
+        deck.Deal(ExplosionSounds.FromWorldAt(other, Seeded(99), 5, Origin, emitted: true), scripts);
+        SceneSound dealt = deck.Deal(sounds[1], scripts);
+
+        UniformRandomStream control = Seeded(seed);
+        control.RandomInt(1, 10);
+        control.RandomFloat(shrapnel.Volume.Low, shrapnel.Volume.High);
+        control.RandomFloat(shrapnel.Pitch.Low, shrapnel.Pitch.High);
+        control.RandomInt(0, 1);
+        control.RandomFloat(shrapnel.SoundLevel.Low, shrapnel.SoundLevel.High);
+        float volume = control.RandomFloat(impact.Volume.Low, impact.Volume.High);
+        int pitch = (int)control.RandomFloat(impact.Pitch.Low, impact.Pitch.High);
+
+        (dealt.Volume, dealt.Pitch, deck.Available(shrapnel.Name, 2), deck.HeadsHeld).ShouldBe((volume, pitch, 1, 0));
+    }
+
+    /// <remarks>
+    /// No producer chains three draws — an impact follows its shrapnel, a patch's `Init` follows the scrape's read — and the
+    /// deck's head records assume two, so a third link is refused where it is made.
+    /// </remarks>
+    [Test]
+    public void After_AChainOfThree_IsRefused()
+    {
+        ScriptWaveDraw head = new("Test.A", Emitted: true, new RandomStreamPosition(1, 0));
+        ScriptWaveDraw second = new("Test.B", Emitted: true, head.Stream) { After = head };
+
+        Should.Throw<ArgumentException>(() => new ScriptWaveDraw("Test.C", Emitted: true, head.Stream) { After = second });
+    }
+
+    /// <remarks>
     /// When the flags reset, what was dealt against them goes too: a chained impact dealt after the reset replays its
     /// shrapnel against the fresh flags (two waves, so a number) rather than the one wave left when it was dealt.
     /// </remarks>
@@ -213,11 +259,11 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
-    /// A chain's draws are dealt one after the other, so once another sound is dealt nothing can chain after the earlier
-    /// one, and only a patch is named again later — by its change or its stop. A hundred one-shots hold one record.
+    /// Only a draw another follows (a shrapnel before its impact) is held for it, and only a patch a change or stop will
+    /// name is held for that: a hundred one-shots hold nothing.
     /// </remarks>
     [Test]
-    public void Deal_AHundredOneShots_HoldsOnlyTheLastForAChain()
+    public void Deal_AHundredOneShots_HoldsNothing()
     {
         SoundScriptEntry entry = Entry("Test.Three", "a.wav", "b.wav", "c.wav");
         ScriptWaveDeck deck = new();
@@ -227,7 +273,35 @@ public sealed class ScriptWaveDrawConformanceTests
             deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(seed), seed, Origin, emitted: true), Scripts(entry));
         }
 
-        (deck.ChainHeld, deck.PatchesHeld).ShouldBe((true, 0));
+        (deck.HeadsHeld, deck.PatchesHeld).ShouldBe((0, 0));
+    }
+
+    /// <remarks>
+    /// The medigun's detach is a patch nothing ever stops or changes — the next heal start destroys it,
+    /// `StopHealSound( false, false, true )` (`tf_weapon_medigun.cpp:2325`) — so a hundred heals' detaches hold nothing.
+    /// The heal loops, each stopped, hold nothing either once stopped.
+    /// </remarks>
+    [Test]
+    public void Deal_AHundredMedigunDetaches_HoldNothing()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts(
+            Entry("WeaponMedigun.HealingWorld", "heal.wav"), Entry("WeaponMedigun.HealingDetachWorld", "detach.wav"));
+        SceneHealBeam[] beams = [.. Enumerable.Range(0, 100).Select(static heal => new SceneHealBeam(40, 3, false, 2, heal * 100, (heal * 100) + 50) { Owner = 7 })];
+        ScriptWaveDeck deck = new();
+
+        foreach (SceneSound sound in MedigunSounds.For(beams, static (_, _) => (0f, 0f, 0f), scripts))
+        {
+            if (sound.IsStop)
+            {
+                deck.Named(sound);
+            }
+            else
+            {
+                deck.Deal(sound, scripts);
+            }
+        }
+
+        deck.PatchesHeld.ShouldBe(0);
     }
 
     /// <remarks>A patch is held while it plays — its change is named against it — and forgotten at its stop.</remarks>
@@ -235,7 +309,7 @@ public sealed class ScriptWaveDrawConformanceTests
     public void Named_APatchsStop_ForgetsIt()
     {
         SoundScriptEntry entry = Entry("Test.Patch", "loop.wav");
-        SceneSound patch = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true);
+        SceneSound patch = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true, kept: true);
         ScriptWaveDeck deck = new();
 
         deck.Deal(patch, Scripts(entry));
@@ -251,16 +325,17 @@ public sealed class ScriptWaveDrawConformanceTests
     /// the flags, which live in soundemittersystem.dll, stay (B504).
     /// </remarks>
     [Test]
-    public void ForgetPlaying_AfterAPatchAndAOneShot_HoldsNothingButKeepsTheFlags()
+    public void ForgetPlaying_AfterAPatchAndAChainHead_HoldsNothingButKeepsTheFlags()
     {
         SoundScriptEntry entry = Entry("Test.Three", "a.wav", "b.wav", "c.wav");
         ScriptWaveDeck deck = new();
-        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true), Scripts(entry));
-        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(8), 2, Origin, emitted: true), Scripts(entry));
+        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true, kept: true), Scripts(entry));
+        deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(8), 2, Origin, emitted: true, leads: true), Scripts(entry));
+        (deck.HeadsHeld, deck.PatchesHeld).ShouldBe((1, 1), "the condition: both are held");
 
         deck.ForgetPlaying();
 
-        (deck.ChainHeld, deck.PatchesHeld, deck.Available(entry.Name, 3)).ShouldBe((false, 0, 2));
+        (deck.HeadsHeld, deck.PatchesHeld, deck.Available(entry.Name, 3)).ShouldBe((0, 0, 2));
     }
 
     /// <remarks>

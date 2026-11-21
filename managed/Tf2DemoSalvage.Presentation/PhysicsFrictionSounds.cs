@@ -165,7 +165,7 @@ public sealed class PhysicsFrictionSounds
             // the script's channel replaces CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the
             // patch's pitch and its volume, which `GetVolumeForEngine` multiplies by the script volume it kept: a SCALED
             // draw, whose script volume the deal supplies when it plays (B782).
-            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false, parameters.WaveDraw, scaled: true);
+            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false, parameters.WaveDraw, scaled: true, kept: true);
 
             started = patch with
             {

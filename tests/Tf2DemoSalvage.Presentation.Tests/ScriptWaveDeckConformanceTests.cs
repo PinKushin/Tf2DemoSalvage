@@ -174,7 +174,7 @@ public sealed class ScriptWaveDeckConformanceTests
 
         // A patch (`CSoundPatch`), the only kind a stop names.
         SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
-        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true } };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
 
         presenter.Schedule = new SoundSchedule([Dealt(10, 0), loop, Dealt(25, 0), loop with { Tick = 30, IsStop = true }]);
 
@@ -198,7 +198,7 @@ public sealed class ScriptWaveDeckConformanceTests
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, Entry(channel: 6, "a.wav", "b.wav"));
         SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
-        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true } }]);
+        presenter.Schedule = new SoundSchedule([loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } }]);
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
         presenter.Update(new Silent(), 25, Listener, Right, now: 0.4d);

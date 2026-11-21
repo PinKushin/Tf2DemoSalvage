@@ -84,6 +84,8 @@ public static class ExplosionSounds
     /// </param>
     /// <param name="after">The `GetParametersForSound` drawn on <paramref name="random"/> just before this one, or null.</param>
     /// <param name="scaled">A `CSoundPatch`'s `Init` draw (<see cref="ScriptWaveDraw.Scaled"/>).</param>
+    /// <param name="leads">Another draw will be made after this one (<see cref="ScriptWaveDraw.Leads"/>).</param>
+    /// <param name="kept">A later change or stop names this patch (<see cref="ScriptWaveDraw.Kept"/>).</param>
     /// <returns>
     /// The sound as a full deck would deal it; its own draws are made again, against the flags, when it plays
     /// (<see cref="SceneSound.WaveDraw"/>, `ScriptWaveDeck.Deal`).
@@ -95,9 +97,17 @@ public static class ExplosionSounds
         (float X, float Y, float Z) at,
         bool emitted,
         ScriptWaveDraw? after = null,
-        bool scaled = false)
+        bool scaled = false,
+        bool leads = false,
+        bool kept = false)
     {
-        ScriptWaveDraw draw = new(entry.Name, emitted, after?.Stream ?? random.Position) { After = after, Scaled = scaled };
+        ScriptWaveDraw draw = new(entry.Name, emitted, after?.Stream ?? random.Position)
+        {
+            After = after,
+            Scaled = scaled,
+            Leads = leads,
+            Kept = kept,
+        };
 
         // `GetParametersForSound` (soundemittersystem.dll FUN_180003370), in its order, from one stream: volume, pitch, the
         // wave (FUN_180005680's `RandomInt( 0, count - 1 )` over the AVAILABLE waves), then the soundlevel. Here every wave
