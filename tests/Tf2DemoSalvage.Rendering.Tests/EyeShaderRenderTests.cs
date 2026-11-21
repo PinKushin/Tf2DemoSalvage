@@ -408,7 +408,7 @@ public sealed class EyeShaderRenderTests
         TestContext.Out.WriteLine($"{shader} under wireframe: own {own}, wireframe {wire}, predicted (0, 255, 255)");
         own.G.ShouldBe(0, "the control: the material's own, which has no green");
         wire.ShouldBe((0, 255, 255), "unlit white times [0 1 1]");
-        target.PixelAt(20, 20).ShouldBe((0, 0, 0), "edges only: the material's $decal offset keeps the wireframe fill");
+        target.PixelAt(20, 20).ShouldBe((0, 0, 0), "edges only: the wireframe fill mode draws no interior");
     }
 
     /// <remarks>
@@ -431,6 +431,26 @@ public sealed class EyeShaderRenderTests
         Draw(target, Wireframed("VertexLitGeneric", ignoresZ: true), null, modelPath: modelPath);
 
         target.PixelAt(34, 30).ShouldBe((red, green, blue), "the brush entity's own red, lit, is drawn: not swapped, not absent");
+    }
+
+    /// <remarks>
+    /// **Without the wireframe material (no TF2 install), a model keeps its own under `mat_wireframe`** (B788 review 3,
+    /// Sonnet): its red, lit, on the edge, (89, 0, 0).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = true;
+        Draw(target, MapAssets.ForMaterials([Uniform4(255, 0, 0, 255)], ["VertexLitGeneric"]), null);
+
+        target.PixelAt(34, 30).ShouldBe((89, 0, 0));
     }
 
     /// <remarks>
@@ -462,6 +482,37 @@ public sealed class EyeShaderRenderTests
         TestContext.Out.WriteLine($"full blue fog: own {own}, wireframe {wire}");
         own.ShouldBe((0, 0, 255), "the control: the model's own material is all fog");
         wire.ShouldBe((0, 255, 255));
+    }
+
+    /// <remarks>
+    /// **A model's frame is read after its material's proxy chain runs** (B788 review 3, Sonnet; B343): `$frame` is what the
+    /// chain writes, so reading it before the chain gives the previous draw's. Material 0 animates `$basetexture` at one
+    /// frame a second over red then green frames; at 1.5 seconds the chain writes frame 1, green, lit (0, 89, 0). Read before
+    /// the chain, the frame is the earlier value, 0, red.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_AnAnimatedMaterial_BindsTheFrameItsProxyChainWrote()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<MaterialProxy> animated = VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes("""
+            "VertexLitGeneric" { "Proxies" { "AnimatedTexture" { "animatedtexturevar" "$basetexture" "animatedtextureframenumvar" "$frame" "animatedtextureframerate" 1 } } }
+            """)).Proxies;
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255)],
+            ["VertexLitGeneric"],
+            proxies: [animated],
+            animationFrames: [[Uniform4(255, 0, 0, 255), Uniform4(0, 255, 0, 255)]]);
+
+        target.Seconds = 1.5;
+        Draw(target, assets, null);
+
+        target.PixelAt(20, 20).ShouldBe((0, Encode(Cube), 0));
     }
 
     /// <remarks>
@@ -579,6 +630,7 @@ public sealed class EyeShaderRenderTests
     public void FogModeOf_TheWireframeShader_IsNone()
     {
         WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "Wireframe").ShouldBe(2f);
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "Wireframe_DX9").ShouldBe(2f, "a fallback suffix, as ModelMaterialShading reads it");
         WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "VertexLitGeneric").ShouldBe(0f, "the control");
     }
 

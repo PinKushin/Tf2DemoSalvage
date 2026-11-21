@@ -91,10 +91,18 @@ internal sealed class FakeViewerWindow : IViewerWindow
     public void ShowWireframe(bool ticked)
     {
         Told.Add($"ShowWireframe {ticked}");
-        WireframeTicked?.Invoke(ticked);
+
+        // The real item reports on `CheckedChanged`, so ticking an item already ticked reports nothing (B788 review 3).
+        if (ticked != _wireframeTicked)
+        {
+            _wireframeTicked = ticked;
+            WireframeTicked?.Invoke(ticked);
+        }
     }
 
-    /// <summary>What ticking the Wireframe item does: a real menu reports the change back to the session.</summary>
+    private bool _wireframeTicked;
+
+    /// <summary>What ticking the Wireframe item does: a real menu reports a CHANGE back to the session.</summary>
     public Action<bool>? WireframeTicked { get; set; }
 
     /// <inheritdoc/>

@@ -997,15 +997,21 @@ public sealed class MapAssets
     }
 
     /// <summary>Appends the studio render's wireframe material to the table (B788), or null when the install lacks it.</summary>
-    /// <remarks>The VMT names no <c>$basetexture</c>, so it resolves to the standard white a VertexLitGeneric binds without one.</remarks>
+    /// <remarks>
+    /// The VMT names no <c>$basetexture</c>, so it resolves to the standard white a VertexLitGeneric binds without one. **Not
+    /// from the map's pakfile**: the studio render names it <c>//platform/materials/debug/debugmrmwireframe</c>, the
+    /// <c>PLATFORM</c> search path, which a map's pakfile (mounted on <c>GAME</c>) is not on (B788 review 3, Fable; the string
+    /// is the closed binary's, the search-path reading is the filesystem's convention, *interpolated*).
+    /// </remarks>
     private static ModelWireframe? LoadWireframeMaterial(
-        ILogger assets, MaterialTable table, PakFile pak, GameArchives archives, int maximumTextureSize, TextureFiles? textures)
+        ILogger assets, MaterialTable table, GameArchives archives, int maximumTextureSize, TextureFiles? textures)
     {
+        PakFile pak = PakFile.Read(ReadOnlyMemory<byte>.Empty);
         ResolvedMaterial material =
             Resolve(assets, WireframeMaterialPath, pak, archives, maximumTextureSize, report: false, model: true, textures: textures);
         string path = "materials/" + WireframeMaterialPath + ".vmt";
 
-        if (material.Texture is not { } texture || (pak.ReadFile(path) ?? archives.Read(path)) is not { } vmt)
+        if (material.Texture is not { } texture || archives.Read(path) is not { } vmt)
         {
             assets.LogInformation("{Message}", $"{WireframeMaterialPath} not found: models keep their own materials under mat_wireframe");
             return null;
@@ -1948,7 +1954,7 @@ public sealed class MapAssets
             LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures, painted?.Materials ?? []);
 
         // The studio render's wireframe material, loaded at its init whatever is drawn (B788).
-        ModelWireframe? wireframe = LoadWireframeMaterial(assets, table, pak, archives, maximumTextureSize, textures);
+        ModelWireframe? wireframe = LoadWireframeMaterial(assets, table, archives, maximumTextureSize, textures);
 
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
@@ -4148,7 +4154,7 @@ public sealed class MapAssets
             // `Wireframe` is VertexLitGeneric's init and draw under another name (`wireframe_dx9.cpp:30-50`, B788).
             bool vertexLit = shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
                 shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) ||
-                shader.Equals("Wireframe", StringComparison.OrdinalIgnoreCase);
+                shader.StartsWith("Wireframe", StringComparison.OrdinalIgnoreCase);
 
             if (!lightmapped && !vertexLit)
             {

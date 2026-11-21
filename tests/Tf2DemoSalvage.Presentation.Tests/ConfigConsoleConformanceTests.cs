@@ -676,8 +676,8 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown("x");
         console.KeyDown("y");
 
-        triggered.ShouldBeEmpty("both refused");
-        console.RefusedCheats.ShouldBe(["mat_wireframe", "mat_wireframe"]);
+        triggered.ShouldBeEmpty("neither toggles");
+        console.RefusedCheats.ShouldBe(["mat_wireframe"], "the set is refused; the bare name is no set, TF2 prints the value");
 
         console.KeyDown("CTRL+w");
 

@@ -1150,9 +1150,10 @@ public sealed class ConfigConsole
             }
 
             // **A bare cheat ConVar's name is the viewer's one-shot for it** (`mat_wireframe` toggles the view), and on TF2's
-            // command paths that is a cheat set like `mat_wireframe 1`, refused as it is (B791). TF2 would print the value.
+            // command paths it does nothing without cheats (B791). TF2 prints the value and sets nothing, so it is not a refused
+            // SET either: no refusal is reported (B788 review 3).
             if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
-                EngineConVars.TryByName(command, out EngineConVar? bare) && RefuseCheat(bare, string.Empty))
+                EngineConVars.TryByName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
             {
                 acted = true;
                 continue;

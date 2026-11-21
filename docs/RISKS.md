@@ -42506,7 +42506,7 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
-## B805 — the other material-system debug views are not checked against D253's cheat gate or the engine's draw (2026-11-21) — OPEN
+## B806 — the other material-system debug views are not checked against D253's cheat gate or the engine's draw (2026-11-21) — OPEN
 
 Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but the debug views beside it —
 `mat_luxels` (`FCVAR_CHEAT` per the review), `mat_drawflat`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`,
@@ -42567,7 +42567,15 @@ the eye. Tests (`Tf2DemoSalvage.Rendering.Tests`): `EyeShaderRenderTests.DrawMod
 `…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `…_UnderWireframeInFullFog_DrawsTheEdgeUnfogged`,
 `…_WithAForcedAnimatedMaterial_BindsTheForcedMaterialsFrame`, `FogModeOf_TheWireframeShader_IsNone`, and
 `OverrideMaterialLoadingTests.Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays` (real
-install). Each reddened under its own sabotage. *Not verified by looking*: no viewer was launched. Out of this entry: the
+install). Each reddened under its own sabotage. Review 3: the model path bound the animation frame BEFORE
+`SetMaterial` ran the proxy chain that writes `$frame`, so a model showed the previous draw's frame (B343's order, which
+the world path keeps; Sonnet) — now after it, `…_AnAnimatedMaterial_BindsTheFrameItsProxyChainWrote` (red (89, 0, 0)
+before, green after); the selection is one method, `DrawnMaterial`, so the draw's two diagnostic lines name the material
+bound (B243; Fable); the material loads from the game archives only, not the map's pakfile, since the studio render names
+it on the `PLATFORM` search path (`//platform/…`; the path reading *interpolated*; Fable); a device opened again with the
+menu already ticked is told directly (`ViewerSessionTests.OpenDevice_AgainWithTheWireframeMenuAlreadyTicked_TellsTheNewDevice`;
+Sonnet); a config's bare `mat_wireframe` without cheats is no longer reported as a refused set (TF2 prints the value;
+Sonnet); `…_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn`. *Not verified by looking*: no viewer was launched. Out of this entry: the
 world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
 ## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
@@ -42598,7 +42606,9 @@ with it: a bind to `sv_cheats` on a key that has a viewer default (`F8`) lost th
 is replicated and `ConfigConsole.SetsState` did not count it. **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
 set does nothing and there is nothing to refuse; they are engine ConVars (`view.cpp:296` finds `r_drawentities` by name;
-neither is declared in the SDK, so the entry's "`FCVAR_CHEAT` in the SDK" was wrong), and their flags in `engine.dll` are not
+the game's own declaration of neither is in the SDK — `matsys_controls/mdlpanel.cpp:272` declares an `r_drawentities`
+`FCVAR_CHEAT`, but that is the tool panel's own static, not the engine's; review 3, Fable — so the entry's "`FCVAR_CHEAT` in
+the SDK" does not describe the engine's), and their flags in `engine.dll` are not
 read. Tests (`Tf2DemoSalvage.Presentation.Tests`): `ConfigConsoleConformanceTests.Load_MatWireframeWithCheatsOff_IsRefused`,
 `…KeyDown_AConfigsBindsToMatWireframeWithCheatsOff_TriggerNothingAndTheDefaultKeyStillDoes`,
 `…KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet`, `LaunchOptionsTests.Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats`,

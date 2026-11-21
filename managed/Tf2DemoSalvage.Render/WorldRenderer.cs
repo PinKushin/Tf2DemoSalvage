@@ -6298,6 +6298,45 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private const int DetailBlendFactor = 1;
 
+    /// <summary>The material a model batch draws with: its skin's, then a forced override, then the wireframe (B788).</summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="skin">The skin family's swaps by SKINREF slot, or null for family zero.</param>
+    /// <param name="overrideMaterial">The whole-model override's VMT path, or null.</param>
+    /// <param name="modelPath">The model's name, a brush entity's <c>*N</c> included.</param>
+    /// <returns>The material index the draw binds.</returns>
+    /// <remarks>
+    /// **One route for the draw and its diagnostic lines**, so a log names the material bound rather than recomputing it
+    /// (B243; B788 review 3, Fable: the logs ignored the override and the wireframe).
+    ///
+    /// **A whole-model override replaces the resolved material outright, which is what makes it different from a skin**
+    /// (B325). A skin picks another entry from the model's own table, and this ignores the table:
+    /// `modelrender->ForcedMaterialOverride( pOverrideMaterial )` (`c_baseanimating.cpp:3438`) binds ONE material for the
+    /// whole draw, so a gold corpse's hands, coat and boots all paint from it. Substituted before anything reads the
+    /// material, so the override is a material rather than a texture: gold's look is mostly `$envmap
+    /// cubemaps/cubemap_gold001` with `$envmaptint [1.5 1.2 .2]` and a rim term, and ice adds a bump, a phong warp and a
+    /// light warp. **An override that did not resolve leaves the model's own**, rather than falling to the white chequer —
+    /// what the engine shows when `m_MaterialOverride.Init` fails.
+    ///
+    /// **Under `mat_wireframe` the studio render draws every mesh with its own wireframe material** (B788):
+    /// `R_StudioSetupSkinAndLighting` (`studiorender.dll` `0x1800041ec`) takes it when `bWireframe` is set and no material is
+    /// forced (`+0x250`), so a forced one, tested first, wins. Every mesh, a face's too: the eye shaders never see their
+    /// material. Not loaded (no TF2 install), the model keeps its own. A STUDIO model only: a brush entity (a `*N` model)
+    /// is the world renderer's, which the studio render never draws (B803).
+    /// </remarks>
+    private int DrawnMaterial(WorldBatch batch, IReadOnlyDictionary<int, int>? skin, string? overrideMaterial, string modelPath)
+    {
+        int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
+            ? swapped
+            : batch.MaterialIndex;
+
+        if (overrideMaterial is not null && _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
+        {
+            return forced;
+        }
+
+        return Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
+    }
+
     /// <summary>The animation frame a material shows now, or a null handle (B341).</summary>
     /// <param name="materialIndex">Which material.</param>
     /// <param name="still">What to bind when the material animates nothing.</param>
@@ -7316,7 +7355,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _ when Modulates(surface) => VmtMaterial.IsDecalModulateShader(shader) ? FogModeDecalGrey : FogModeGrey,
 
         // The `Wireframe` shader sets `MATERIAL_VAR_NOFOG` (`wireframe_dx9.cpp:36`, B788).
-        _ when string.Equals(shader, "Wireframe", StringComparison.OrdinalIgnoreCase) => FogModeNone,
+        _ when shader?.StartsWith("Wireframe", StringComparison.OrdinalIgnoreCase) == true => FogModeNone,
         { IsAdditive: true } => 1f,
         _ => 0f,
     };
@@ -8519,44 +8558,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // material becomes in another, which has two answers as soon as two meshes share it and
             // no answer at all when family zero's texture is the one the map does not ship. The
             // engine indexes by the mesh's own reference, which is what `MaterialSlot` carries.
-            int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
-                ? swapped
-                : batch.MaterialIndex;
-
-            // **A whole-model override replaces the resolved material outright, which is what makes
-            // it different from a skin** (B325). A skin picks another entry from the model's own
-            // table — the lookup directly above — and this ignores the table:
-            // `modelrender->ForcedMaterialOverride( pOverrideMaterial )` (`c_baseanimating.cpp:3438`)
-            // binds ONE material for the whole draw, so a gold corpse's hands, coat and boots all
-            // paint from it.
-            //
-            // **Substituted here, before anything reads `material`, so the override is a material
-            // rather than a texture.** Gold's look is mostly `$envmap cubemaps/cubemap_gold001` with
-            // `$envmaptint [1.5 1.2 .2]` and a rim term, and ice adds a bump, a phong warp and a
-            // light warp — swapping slot 0 alone would have kept the PLAYER material's cubemap,
-            // phong, detail and blend state under a flat swatch, which draws something and is not
-            // the engine's answer.
-            //
-            // **An override that did not resolve leaves the model's own**, rather than falling to
-            // the white chequer. A machine without TF2 has neither material, and a corpse in its own
-            // skin is far closer to right than a magenta one — and is what the engine shows when
-            // `m_MaterialOverride.Init` fails.
-            if (overrideMaterial is not null &&
-                _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
-            {
-                material = forced;
-            }
-
-            // **Under `mat_wireframe` the studio render draws every mesh with its own wireframe material** (B788):
-            // `R_StudioSetupSkinAndLighting` (`studiorender.dll` `0x1800041ec`) takes it when `bWireframe` is set and no
-            // material is forced (`+0x250`), so a forced one, tested first, wins. Every mesh, a face's too: the eye
-            // shaders below never see their material. Not loaded (no TF2 install), the model keeps its own, as above. A
-            // STUDIO model only: a brush entity (a `*N` model) is the world renderer's, which the studio render never draws
-            // (B803).
-            else if (Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*'))
-            {
-                material = wireframe.Material;
-            }
+            int material = DrawnMaterial(batch, skin, overrideMaterial, modelPath);
 
             // **Culling per material, because that is where the engine keeps it.** $nocull sets
             // MATERIAL_VAR_NOCULL and shaders test it per material (imaterial.h:369,
@@ -8813,10 +8815,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                         batches
                             .Select(each =>
                             {
-                                int drawn = skin is not null &&
-                                    skin.TryGetValue(each.MaterialSlot, out int swap)
-                                    ? swap
-                                    : each.MaterialIndex;
+                                int drawn = DrawnMaterial(each, skin, overrideMaterial, modelPath);
 
                                 // **The classification, because its absence made an ASSUMPTION
                                 // load-bearing.** This line named the material indices and nothing
@@ -8831,9 +8830,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                             })
                             .Distinct()));
             }
-
-            // The frame of the material DRAWN — a skin's swap, a forced one or the wireframe — not the batch's own (B788).
-            texture = AnimationFrame(material, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
@@ -8879,6 +8875,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // material did not resolve. A brush entity adds its class colour on top (B219).
             SubmitSpans.Lap(SubmitSpan.BatchState);
             SetMaterial(context, material, batch.Category, tint, paint, burn, urine);
+
+            // **The frame after the chain has run, because the chain is what writes `$frame`** (B343; B788 review 3: read
+            // before it, the frame was the previous draw's). The frame of the material DRAWN — a skin's swap, a forced one or
+            // the wireframe — not the batch's own (B788).
+            texture = AnimationFrame(material, texture);
+            context.PSSetShaderResources(0, 1, ref texture);
 
             if (refracting)
             {
@@ -9005,8 +9007,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 $"in the {pass} pass, body {body}, " +
                 $"skin {(skin is null ? "own" : $"{skin.Count} swaps")}, " +
                 $"materials [{string.Join(", ", batches.Select(each =>
-                    skin is not null && skin.TryGetValue(each.MaterialSlot, out int swap)
-                        ? $"{swap}<-{each.MaterialIndex}:{DescribeMaterial(swap)}"
+                    DrawnMaterial(each, skin, overrideMaterial, modelPath) is var bound && bound != each.MaterialIndex
+                        ? $"{bound}<-{each.MaterialIndex}:{DescribeMaterial(bound)}"
                         : $"{each.MaterialIndex}:{DescribeMaterial(each.MaterialIndex)}").Distinct())}]");
         }
 

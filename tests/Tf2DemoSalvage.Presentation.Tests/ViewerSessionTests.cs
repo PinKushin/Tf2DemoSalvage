@@ -324,8 +324,8 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"toggle mat_wireframe\"\n").WithDevice();
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
 
-        rig.Session.SetWireframe(true);
-        rig.Device.Wireframe.ShouldBeTrue("the control: the menu reached the device");
+        rig.Window.ShowWireframe(true);
+        rig.Device.Wireframe.ShouldBeTrue("the control: the menu's tick reached the device");
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
 
@@ -621,6 +621,24 @@ public sealed class ViewerSessionTests
         rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
 
         rig.Device.Wireframe.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A device opened again with the menu already ticked draws wireframe too** (B788 review 3, Sonnet): the real menu
+    /// reports on `CheckedChanged`, so a second tick of an item already ticked reaches nothing, and the new device must be
+    /// told by the session itself.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_AgainWithTheWireframeMenuAlreadyTicked_TellsTheNewDevice()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_wireframe", "1"));
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+        rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
+        FakeRenderDevice second = new();
+
+        rig.Session.OpenDevice(() => second, NoAttach, 800, 600).ShouldBeTrue();
+
+        second.Wireframe.ShouldBeTrue();
     }
 
     /// <summary>An attach that hands nothing over, for the tests about the opening itself.</summary>
