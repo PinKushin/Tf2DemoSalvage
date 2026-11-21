@@ -11,8 +11,9 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Tick">When the impact fires.</param>
 /// <param name="At">Where the sound plays: the decal trace's end, or the server's origin when it met nothing.</param>
 /// <param name="ImpactSound">The struck surface's `bulletimpact` script name, or null when it declares none.</param>
-/// <param name="Ricochets">Whether its damage is exactly `DMG_BULLET`, which offers the shrapnel ricochet. Every landing is a
-/// hit `Impact` returned true for, so every landing draws the ricochet's number either way (B786).</param>
+/// <param name="Ricochets">Whether its damage is exactly `DMG_BULLET`, which offers the shrapnel ricochet. Every landing is
+/// TAKEN as a hit `Impact` returned true for, so every landing draws the ricochet's number either way (B786); the hits
+/// `Impact` refuses are not modelled (B795).</param>
 public readonly record struct BulletLanding(int Tick, (float X, float Y, float Z) At, string? ImpactSound, bool Ricochets)
 {
     /// <summary>Where on its tick's frame its temp entity fires (B505); its sounds carry it.</summary>
@@ -89,7 +90,7 @@ public static class ImpactSounds
                 : null;
 
         // `random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET )`, left to right: every hit `Impact` accepted
-        // takes the number, and only then is the damage type tested (B786).
+        // takes the number, and only then is the damage type tested (B786). Every landing is taken as accepted (B795).
         if (random.RandomInt(1, 10) <= 3 && landing.Ricochets &&
             scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
         {

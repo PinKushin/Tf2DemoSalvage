@@ -42388,6 +42388,30 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B796 — a bullet landing on an entity sounds whatever its team; `ImpactCallback` plays nothing when the damage type equals the struck entity's apparent team (2026-11-21) — OPEN
+
+Found in B785/B786's review (round 1, Fable). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:36-49`) sets `bImpact`
+false — no `Impact`, no ricochet draw, no impact sound — when `m_nDamageType` (TF2 sends the shooter's team there) equals
+the struck entity's team, or the disguise team of a disguised spy. `ModelDecalFor` already refuses the same-team decal
+(`DecalEffects.cs:557`); the sound path has neither half: `DecalEffects.LandingsOver` (`:658-666`) builds a landing for
+every server impact on an entity. *Read from published source; not measured on the corpus.*
+
+## B795 — a landing `Impact` refuses still draws the ricochet number and can ricochet (2026-11-21) — OPEN
+
+Found in B785/B786's review (round 1, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:79-91`) draws
+`RandomInt( 1, 10 )` and offers `Bounce.Shrapnel` only inside `if ( Impact( … ) )`, while the impact sound
+(`:92-133`) plays either way. `Impact` (`fx_impact.cpp:117-190`) returns false when `decalNumber` is -1 (`:131`), when
+`FX_AffectRagdolls` hit a ragdoll (`:122-125`, `:183`), and when the client's own decal trace found nothing
+(`tr.fraction == 1`, `:183`), which a player decal does whenever `C_TFPlayer::AddDecal` (`c_tf_player.cpp:7883-7927`)
+returns before tracing: the victim stealthed, disguised, a miniboss, invulnerable, or `tr.startsolid`; and also when
+`AddStudioDecal`'s `ClipRayToEntity` misses the hitboxes (`c_baseentity.cpp:3620-3624`), or a flesh decal is skipped
+(Pyro vision, low violence, truce, `fx_impact.cpp:138-145`). Ours takes every landing as accepted
+(`ImpactSounds.For`, B786): an own bullet on an enemy (`DecalEffects.cs:471`) and a server impact on an entity (`:661`)
+draw the number and can ricochet in those cases. `ModelDecalFor` (`:554-610`) already tests most of them for the decal;
+a server landing is built at load, before any player's conditions at its tick are known. A world landing is kept only
+where the decal trace hit (`ServerImpacts.cs:111`), so only its `decalNumber == -1` case is open. *Read from published
+source.*
+
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
@@ -42420,12 +42444,13 @@ the carried volume without the script volume, B782's `Named`).
 
 ## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — FIXED 2026-11-21
 
-**Fixed:** `ImpactSounds.For` draws `RandomInt( 1, 10 )` first for every landing (each is a hit `Impact` accepted), and
+**Fixed:** `ImpactSounds.For` draws `RandomInt( 1, 10 )` first for every landing (each TAKEN as a hit `Impact`
+accepted, which a hit on a stealthed, disguised or übercharged player, or one missing the hitboxes, is not: B795), and
 only then tests `Ricochets` (exactly `DMG_BULLET`). Test: `For_ALandingOfAnyDamage_DrawsTheRicochetNumberBeforeItsImpact`,
 the impact's draws starting one number on for a non-bullet hit (red before: 0 numbers), the bullet row its control. The
 camera gate before the draw is B783, still open. Not verified by listening.
 
-Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
+**As filed:** found by B782's review round 1. `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
 `if ( Impact( … ) ) { … if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET ) ) … }` —
 the `&&` evaluates left to right, so every in-range impact that `Impact` accepts takes the number, and only then is the
 damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs:85`) asks
@@ -42442,7 +42467,7 @@ TF2's tracers reach the shared `FX_TracerSound` (`clientsideeffects_test.cpp:211
 params, NULL )` then `enginesound->EmitSound` — so the finding stands. Test:
 `Producers_EverySoundEmittedByName_DealsAndTheWhizDoesNot` (red before: the whiz emitted). Not verified by listening.
 
-Found by B782's review round 1. **Not fixed here.** `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
+**As filed** (the function cited is the wrong one, see above): found by B782's review round 1. `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
 resolves the script with `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` — a plain
 `GetParametersForSound`, `isbeingemitted` false, so FUN_180003370 clears no wave — and plays the resolved WAVE with
 `enginesound->EmitSound( filter, SOUND_FROM_WORLD, CHAN_STATIC, params.soundname, … )`, which never passes through
