@@ -42834,8 +42834,11 @@ release row, at the CMDL panel).
    no install whose class panel, doors (with an attachment) and round sign are given models by hand.
 4. *A late attached model was never set up*: `SetupModel` skipped it and the flag cleared. The panel now stays dirty until
    every model it names is set up. `CModelPanelConformanceTests.Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`
-   (red first: the root alone at the second paint). While dirty the panel is set up again each paint, so its animation
-   restarts on each such paint until the attachment loads — *interpolated* as a few frames at most; not measured.
+   (red first: the root alone at the second paint). ~~While dirty the panel is set up again each paint, so its animation
+   restarts on each such paint until the attachment loads — *interpolated* as a few frames at most; not measured.~~
+   **Wrong** (review 5): for an attachment that never loads — a missing file, frames with no skinned model — "until it
+   loads" is never, and the root was rebuilt every paint for good: frozen on its first frame, its delayed flex weights
+   back at rest, its arrays reallocated. Replaced in review 5 item 1.
 5. *`game_newmap` missed a failed load*: `ViewerPresenter.ClearMap` runs `FramePresenter.ClearMap` and then the level
    shutdown at every level change, while `LevelInit` follows only a load that succeeded. `NewMap` moved to
    `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here).
@@ -42847,13 +42850,36 @@ release row, at the CMDL panel).
 8. *The stay-dirty retry on a model that never loads costs one dictionary lookup a paint and no file read* (a reviewer's
    reading, recorded, not measured here): `UpdateModel` → `SetupModel` → `IMdlCache.FindMdl`, which
    `EntityModelSet.FindMdl` answers from `_frames` (`EntityModels.cs`, `_frames.TryGetValue`); a file is read only by
-   `Precache`, which `PrecacheChanged` runs on a changed list alone. No change.
+   `Precache`, which `PrecacheChanged` runs on a changed list alone. No change. **Wrong for a failed attachment**
+   (review 5): a held flag re-ran the whole `SetupModel` each paint, a new model and its arrays, not a lookup. Since review
+   5 a model that never loads costs one `FindMdl` lookup per missing model a paint and nothing else.
 
 *Sabotage*, two batches: the `foreach` back (the whole-route allocation row), the merge loop, the player panel's StatTrak
 release and the embedded panel's each removed (each its own row), no `NewMap` at `ClearMap` (its row); the round sign's line
 removed from the HUD's list (the listing row, and the allocation row's count control), a missing attachment not marking
 the set-up incomplete (the attachment row — a first attempt at this break computed the same `false` as the fix and reddened
 nothing, and was redone).
+
+**Review round 5** (one medium, both reviewers; fixed here):
+1. *An attached model that never loads rebuilt the panel every paint* (medium) — round 4 item 4 held the flag until every
+   named model loaded, and a failed load never does. The engine: `SetupModel` skips a model that fails to load
+   (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it whatever it found (:531);
+   the root animates without its attachment. Ours now does the same, and keeps the models a set-up missed: the panel is
+   set up again only when one of them can be found — a late precache (the HUD's list is precached on the frame, so a
+   model first named this frame is packed by the next) — and a load that failed stays missing at one lookup a paint. An
+   `attached_model` with an empty `modelname` is skipped by `SetupModel` too, as `AddModelsToPrecache` already skipped it
+   (it was handed to the cache as ""). *Tests*: `CModelPanelConformanceTests.Paint_AnAttachedModelThatNeverLoads_KeepsOneRootModelAndACleanPanel`
+   (three paints, frames with no skinned model and an empty name: one model instance, the root alone, the panel clean;
+   red first, at the empty name's second instance), with the late-root and late-attachment rows still passing. *Sabotage*:
+   no retry when a missed model becomes findable (the late-root and late-attachment rows), the empty-name skip back to
+   null only (the failed-attachment row), the flag held while anything is missed (the failed-attachment row, the model
+   rebuilt at the second paint). The test does not read the root's cycle: the synthetic sequence's rate is not one the
+   test controls; a rebuilt model is what resets it, and that is what the row holds.
+2. *Round 4's items 4 and 8* corrected above.
+3. *Two readings stay interpolated*: a CMDL's null delayed pointer taken as "the delay is the weights" (studiorender's
+   handling not read), and a `CModelPanelModel`'s `RunFlexDelay` stepping once per `Draw` here (once a paint), where the
+   engine steps it once per draw of the entity — the same while a panel draws its model once a paint, which is not
+   measured.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

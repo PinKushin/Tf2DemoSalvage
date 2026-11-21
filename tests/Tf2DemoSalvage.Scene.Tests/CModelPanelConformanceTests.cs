@@ -621,6 +621,39 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **An attached model that never loads leaves the panel as the engine leaves it** (B779 review 5 item 1): `SetupModel`
+    /// skips a failed attachment (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it
+    /// whatever happened (:531) — the panel clean, the root set up once and animating, the attachment absent. Held dirty, the
+    /// panel would set its root up again at every paint (its cycle back to zero, its delayed flex weights back to rest). Three
+    /// paints, the attachment never there: one model instance throughout, drawn alone, the panel clean. Its frames answer
+    /// `Skinned` null, a load that failed rather than one not yet made; an empty `modelname` is a second attachment that
+    /// names nothing.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModelThatNeverLoads_KeepsOneRootModelAndACleanPanel()
+    {
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        PropModels.ModelFrames failed = root with { Skinned = null };
+        VguiModelPanel panel = Framed(startFramed: false, attached: failed, rootNow: () => root, emptyAttachment: true);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        object?[] models = new object?[3];
+
+        for (int paint = 0; paint < models.Length; paint++)
+        {
+            viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f + paint));
+            panel.Paint(surface, viewport.Context!);
+            models[paint] = panel.SetUpModel;
+            surface.Draws[paint].Models.Count.ShouldBe(1, $"paint {paint + 1}: the root alone");
+        }
+
+        models[0].ShouldNotBeNull("the control: the root was set up");
+        models[1].ShouldBeSameAs(models[0]);
+        models[2].ShouldBeSameAs(models[0]);
+        panel.PanelDirty.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
     /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
     /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
@@ -729,7 +762,8 @@ public sealed class CModelPanelConformanceTests
         byte flexSpeed = 255,
         PropModels.ModelFrames? root = null,
         Func<PropModels.ModelFrames?>? rootNow = null,
-        Func<PropModels.ModelFrames?>? attachedNow = null)
+        Func<PropModels.ModelFrames?>? attachedNow = null,
+        bool emptyAttachment = false)
     {
         PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
         Func<PropModels.ModelFrames?> rootFrames = rootNow ?? (() => frames);
@@ -741,6 +775,11 @@ public sealed class CModelPanelConformanceTests
             sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";
+
+        if (emptyAttachment)
+        {
+            attachedLine += " \"attached_model\" { \"modelname\" \"\" }";
+        }
 
         panel.ApplySettings(
             KeyValuesTree.Load(Encoding.UTF8.GetBytes($$"""

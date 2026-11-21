@@ -292,6 +292,9 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>Whether the panel holds a set-up model (`m_hModel`).</summary>
     internal bool HoldsModel => _model is not null;
 
+    /// <summary>The set-up model itself, for the test that a paint does not set it up again.</summary>
+    internal object? SetUpModel => _model;
+
     /// <summary>The game event a <c>CModelPanel</c> listens for (`ListenForGameEvent( "game_newmap" )`, :56).</summary>
     public const string GameNewMap = "game_newmap";
 
@@ -388,38 +391,62 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
     /// <remarks>
-    /// **The flag stays while a named model — the root or an attachment (review 4 item 4) — is not loaded yet** (B779 review 3
-    /// item 2). The engine clears it after every
-    /// `SetupModel`, whose load is in the call (`modelinfo` by name, :387), so the model is always there by then. Ours
-    /// precaches a panel's models on the frame, and a paint can come first; cleared then, the model would never be set up.
+    /// **The engine's flag, and one addition for our precache** (B779 reviews 3-5). `UpdateModel` clears `m_bPanelDirty`
+    /// after `SetupModel` whatever it found (:531), and `SetupModel` skips a model that fails to load (:473-478): the root
+    /// animates without its missing attachment, set up once. So does ours. The engine's load is in the call
+    /// (`modelinfo` by name, :387); ours precaches a panel's models on the frame, so a paint can come before a model is
+    /// packed. **The models a set-up missed are kept, and the panel is set up again only when one of them can now be found**
+    /// — a late precache, not a failed load: a load that failed stays missing, and costs one cache lookup per missing model
+    /// a paint (`EntityModelSet.FindMdl`, a dictionary) and nothing else, the root never rebuilt for it.
     /// </remarks>
     public void UpdateModel()
     {
-        if (_panelDirty)
+        if (_panelDirty || AMissedModelIsFoundNow())
         {
-            _panelDirty = !SetupModel();
+            SetupModel();
+            _panelDirty = false;
         }
     }
 
-    /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
-    /// <returns>False when a model it names — the root or an attachment — is not loaded yet, so the panel stays dirty.</returns>
-    private bool SetupModel()
+    /// <summary>Whether a model the last set-up could not find can be found now: precached since.</summary>
+    private bool AMissedModelIsFoundNow()
     {
+        for (int index = 0; index < _missed.Count; index++)
+        {
+            if (_mdlCache.FindMdl(_missed[index]) is { Skinned: not null })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The models the last <see cref="SetupModel"/> named and could not find.</summary>
+    private readonly List<string> _missed = [];
+
+    /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
+    /// <remarks>A model it names and cannot find is skipped, as the engine skips it, and kept in <see cref="_missed"/>.</remarks>
+    private void SetupModel()
+    {
+        _missed.Clear();
+
         if (ModelInfo is not { } info)
         {
-            return true;
+            return;
         }
 
         _model = null;
 
         if (DrawnModelName is not { Length: > 0 } path)
         {
-            return true;
+            return;
         }
 
         if (_mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
         {
-            return false;
+            _missed.Add(path);
+            return;
         }
 
         PanelModel model = new(path, frames, skinned, NewEntity(skinned));
@@ -464,19 +491,18 @@ public class VguiModelPanel : VguiEditablePanel
             }
         }
 
-        // Whether every model named was there; an attachment still loading leaves the panel dirty (review 4 item 4).
-        bool allSetUp = true;
-
         foreach ((string? attachedPath, int skin) in info.AttachedModels)
         {
-            if (attachedPath is null)
+            // An empty name names nothing: neither precached (`AddModelsToPrecache`) nor looked for (review 5 item 1).
+            if (attachedPath is not { Length: > 0 })
             {
                 continue;
             }
 
+            // Skipped, as the engine skips a model that fails to load (:473-478); kept, in case a precache brings it.
             if (_mdlCache.FindMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
             {
-                allSetUp = false;
+                _missed.Add(attachedPath);
                 continue;
             }
 
@@ -495,8 +521,6 @@ public class VguiModelPanel : VguiEditablePanel
         {
             CalculateFrameDistanceInternal(info, frames.HeaderBounds);
         }
-
-        return allSetUp;
     }
 
     /// <summary>

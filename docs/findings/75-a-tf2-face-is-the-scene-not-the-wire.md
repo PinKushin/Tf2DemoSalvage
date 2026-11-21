@@ -202,7 +202,8 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   (`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`), zeroed whenever the model is
   set (`:203-213`) and moved toward the weights each frame by `RunFlexDelay` (`:1265-1279`) — the first draw blends
   nothing, since `m_flFlexDelayTime` is written only there (`:1310`). So a `CModelPanelModel`'s slow vertex animations
-  rise from rest over its first frames; ported (*source*). The world's resting C_BaseFlex has the same divergence, filed
+  rise from rest over its first frames; ported (*source*). Ours steps the delay once per panel draw (once a paint); the
+  engine steps it once per draw of the entity — the same while a panel draws its model once a paint, *interpolated*. The world's resting C_BaseFlex has the same divergence, filed
   as B805. Read on the way: a C_BaseFlex whose model has no flex controllers draws zero weights, delayed or not —
   `SetupGlobalWeights` zeroes both and returns false before any rule (`:1198-1207`, `:1152-1155`) (*source*).
 - **A `CModelPanel` sets its model up again at every new map.** It listens for `game_newmap` from its constructor
