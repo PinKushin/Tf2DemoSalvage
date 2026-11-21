@@ -42814,9 +42814,10 @@ the HUD through an install of nothing; the call is tested since review 3.
    `HudViewport.NewMap` tells each CMDL panel to drop the faces and zero-control weights it keeps by frames
    (`VguiMdlPanel.ForgetLevel`, the StatTrak CMDLs too) — memory, not behaviour.
    `CModelPanelConformanceTests.NewMap_AfterAPaint_ReleasesTheOldLevelsModelAndFaces` (red first: the model held).
-   *Corrected in review 7*: the engine only marks the panel dirty at `game_newmap` and deletes `m_hModel` in the next
-   `SetupModel` (`DeleteModelData`, :395), so ours keeps the model until then; the CMDL panels still drop theirs at the
-   event. The row is now `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
+   *Corrected in review 7, and that correction corrected in review 8*: the `game_newmap` event alone only marks the panel
+   dirty (`DeleteModelData` at the next `SetupModel`, :395), but `NewMap` is the level change, whose shutdown releases every
+   client entity (`cdll_client_int.cpp:1735`), the panel's model among them — so releasing it there was right, as the
+   shutdown's half. The row is now `NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
 5. *The world's same gaps*, filed: **B809** (a C_BaseFlex without controllers runs its rules) and **B810** (the per-path
    resting weights and flexed corners outlive the level). Not fixed here.
 
@@ -42909,7 +42910,8 @@ nothing, and was redone).
 new-entity row).
 
 **Review round 7** (no high or medium; fixed here):
-1. *`game_newmap` dropped the model the engine keeps* (parity): `CModelPanel::FireGameEvent` only marks the panel dirty
+1. *Right for the event, wrong for the level change — corrected in review 8, below.* *`game_newmap` dropped the model the
+   engine keeps* (parity): `CModelPanel::FireGameEvent` only marks the panel dirty
    (`basemodelpanel.cpp:196-205`); `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339).
    Ours cleared it at the event, so `SetSequence` (:708) and `SetBodyGroup` (:367-382) between the event and the next
    paint found no model. The event now only marks the panel dirty; `SetupModel` already cleared the model first.
@@ -42931,6 +42933,27 @@ new-entity row).
 
 *Sabotage*, one batch: the model cleared at the event again (the two item-1 rows), the entity keyed on the path alone (the
 new-frames row), the embedded panel not drawing its module (the embedded draw row).
+
+**Review round 8** (one medium; fixed here):
+1. *The level change keeps no model* (medium, parity): `HudViewport.NewMap`'s one production caller is
+   `FramePresenter.ClearMap`, the level change, where the engine's `CHLClient::LevelShutdown` runs
+   `cl_entitylist->Release()` (`cdll_client_int.cpp:1735`) and `CClientEntityList::Release` releases every entity
+   (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — `m_hModel.Get()` null until
+   the next `SetupModel`. Round 7 had moved the release to the set-up for the event's sake, which the event alone is.
+   Now two halves: `VguiModelPanel.ForgetLevel` (the shutdown's: the model released) and `OnGameEvent( "game_newmap" )`
+   (the event's: dirty only), both called by the viewport's walk at a level change. *Tests*:
+   `CModelPanelConformanceTests.NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (after the level change, no
+   model and `SetSequence` false; a new model at the paint — red first: the old model held) and
+   `SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel` (the event alone, driven directly: the model
+   kept). *Sabotage*: the event clearing the model (the event row); the walk not calling `ForgetLevel` (the level-change
+   row) — run apart, as with both in one batch the event's clear masked the walk's.
+2. *Docs*: round 3 item 4's and round 7 item 1's notes above, `VguiModelPanel.OnGameEvent`'s summary, `HudViewport.NewMap`'s
+   and `FramePresenter.ClearMap`'s comments now say the level change is the shutdown and the event.
+3. *Whether a panel set up the frame its model is precached draws flexed*: it does. `Precache` goes through `Add`
+   (`EntityModels.Packing.cs:584` → :183) into one `PackModels` call (:229), which writes the model's frames (:263) and its
+   packed order (:414) before it returns — so the first set-up that finds the model also finds its order. Read; no change.
+4. `VguiModelPanel.HoldsModel` removed (D180): nothing read it after round 7.
+5. Finding 105 cites the HUD's precache as `EntityModelSet.PrecacheChanged` at `FramePresenter.Hud.cs:284`.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

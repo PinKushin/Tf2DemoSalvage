@@ -270,8 +270,10 @@ public sealed partial class FramePresenter
         _impacts.ClearMap();
         _shadows.ClearMap();
 
-        // `game_newmap`: each `CModelPanel` sets its models up again from the next level's frames (basemodelpanel.cpp:196-205,
-        // B779 review 2). Here, at every level change, rather than at `LevelInit`, which only a load that succeeds reaches
+        // The level change as the HUD's model panels see it: the shutdown releases each `CModelPanel`'s model
+        // (`cl_entitylist->Release()`, cdll_client_int.cpp:1735; B779 review 8) and the next map's `game_newmap` marks it
+        // dirty, so it sets its models up again from the next level's frames (basemodelpanel.cpp:196-205, review 2).
+        // Here, at every level change, rather than at `LevelInit`, which only a load that succeeds reaches
         // while the model set forgets every model either way (review 4 item 5); a panel that finds a model missing then keeps
         // it and sets itself up again once the precache brings it (review 5).
         // The HUD outlives the level; a HUD not built yet has nothing to set up.

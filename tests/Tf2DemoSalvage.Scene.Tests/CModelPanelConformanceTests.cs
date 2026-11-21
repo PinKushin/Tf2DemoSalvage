@@ -549,11 +549,13 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **The old level's model goes at the next set-up, as the engine's does; a CMDL panel's caches at the event** (B779
-    /// reviews 3 and 7). `CModelPanel` only marks itself dirty at `game_newmap` (`basemodelpanel.cpp:196-205`); its
-    /// `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339) and builds the new one. So the old
-    /// `CModelPanelModel` is held until the next paint's set-up, which replaces it. The CMDL panels, which hear no
-    /// `game_newmap`, drop the faces and weights they keep by frames at the event. The controls: both held them.
+    /// **A level change releases the panel's model; the next paint sets it up again** (B779 reviews 3, 7, 8). `NewMap` is
+    /// the level change: the engine's `CHLClient::LevelShutdown` releases every client entity (`cl_entitylist->Release()`,
+    /// `cdll_client_int.cpp:1735`; `CClientEntityList::Release`, `cliententitylist.cpp:63-93`), the panel's client-only
+    /// `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel`; the new map's `game_newmap`
+    /// marks the panel dirty (`basemodelpanel.cpp:196-205`). So before the next paint the panel has no model and
+    /// `SetSequence` finds none; the paint sets a new one up. The CMDL panels drop the faces and weights they keep by
+    /// frames at the same moment. The controls: both held them.
     /// </remarks>
     [Test]
     public void NewMap_ThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces()
@@ -573,7 +575,8 @@ public sealed class CModelPanelConformanceTests
 
         viewport.NewMap();
 
-        panel.SetUpModel.ShouldBeSameAs(old, "held until the set-up replaces it, as `m_hModel` is");
+        panel.SetUpModel.ShouldBeNull("released with the level's entities, as `m_hModel` is");
+        panel.SetSequence("ref").ShouldBeFalse("no model to act on until the next set-up");
         (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((0, false));
 
         panel.Paint(surface, viewport.Context!);
@@ -582,12 +585,13 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **Between `game_newmap` and the next paint, the panel's calls reach its model** (B779 review 7 item 1): the engine's
-    /// `SetSequence` (:708) and `SetBodyGroup` (:367-382) act on `m_hModel`, which `game_newmap` leaves in place (it only marks
-    /// the panel dirty, :196-205). So `SetSequence` after the event finds the model's `ref` sequence. The control: before.
+    /// **The `game_newmap` event alone leaves the panel's model in place** (B779 reviews 7 and 8): `FireGameEvent` only
+    /// marks the panel dirty (:196-205), and the model goes at the next `SetupModel` (`DeleteModelData`, :395), so
+    /// `SetSequence` (:708) between the two still finds the model's `ref` sequence. Driven here as the event alone; a level
+    /// change also releases the model (the row above). The control: before.
     /// </remarks>
     [Test]
-    public void SetSequence_AfterNewMapBeforeThePaint_ReachesTheModel()
+    public void SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel()
     {
         VguiModelPanel panel = Framed(startFramed: false);
         HudViewport viewport = (HudViewport)panel.Parent!;
@@ -596,9 +600,10 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context!);
         panel.SetSequence("ref").ShouldBeTrue("the control");
 
-        viewport.NewMap();
+        panel.OnGameEvent(VguiModelPanel.GameNewMap);
 
         panel.SetSequence("ref").ShouldBeTrue();
+        panel.PanelDirty.ShouldBeTrue();
     }
 
     /// <remarks>

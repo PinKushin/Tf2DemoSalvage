@@ -289,9 +289,6 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`m_bPanelDirty`: whether the next `UpdateModel` sets the model up.</summary>
     internal bool PanelDirty => _panelDirty;
 
-    /// <summary>Whether the panel holds a set-up model (`m_hModel`).</summary>
-    internal bool HoldsModel => _model is not null;
-
     /// <summary>The set-up model itself, for the test that a paint does not set it up again.</summary>
     internal object? SetUpModel => _model;
 
@@ -300,9 +297,9 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>
     /// `CModelPanel::FireGameEvent` (:196-205): at `game_newmap`, "force the models to re-setup themselves" — the panel is
-    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2). The model itself
-    /// stays until that set-up deletes it (`DeleteModelData`, :395), as `m_hModel` does: `SetSequence` and `SetBodyGroup`
-    /// called in between act on it (review 7 item 1).
+    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2). The event alone
+    /// leaves the model to that set-up, which deletes it (`DeleteModelData`, :395); a level change has released it already
+    /// (<see cref="ForgetLevel"/>, review 8).
     /// </summary>
     /// <param name="name">The event's name.</param>
     public void OnGameEvent(string name)
@@ -312,6 +309,14 @@ public class VguiModelPanel : VguiEditablePanel
             _panelDirty = true;
         }
     }
+
+    /// <summary>
+    /// The level's end, as it reaches this panel's model: `CHLClient::LevelShutdown` releases every client entity
+    /// (`cl_entitylist->Release()`, `cdll_client_int.cpp:1735`; `CClientEntityList::Release`, `cliententitylist.cpp:63-93`),
+    /// the client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel` — and a panel
+    /// that does not paint on the next level holds no old frames, skeleton or face (B779 review 8).
+    /// </summary>
+    public void ForgetLevel() => _model = null;
 
     /// <summary>`SetSkin` (:747).</summary>
     /// <param name="skin">The skin.</param>
