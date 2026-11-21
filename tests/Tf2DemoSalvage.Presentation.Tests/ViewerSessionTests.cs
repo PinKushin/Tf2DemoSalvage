@@ -296,6 +296,7 @@ public sealed class ViewerSessionTests
     {
         using Rig rig = BuildWithAutoexec("bind \"F7\" \"r_glint_alwaysdraw 1\"\nbind \"F8\" \"r_glint_procedural 1\"\n").WithDevice();
         GlintSwitches before = rig.Device.EyeGlint;
+        int redraws = rig.Window.Count("Redraw");
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
         GlintSwitches afterAlways = rig.Device.EyeGlint;
@@ -303,6 +304,9 @@ public sealed class ViewerSessionTests
 
         (before, afterAlways, rig.Device.EyeGlint).ShouldBe(
             (default(GlintSwitches), new GlintSwitches(true, false), new GlintSwitches(true, true)));
+        (rig.Window.Count("Redraw") - redraws).ShouldBe(2, "a paused viewer repaints only when asked");
+        rig.Log.Lines.Where(static line => line.StartsWith("[render] r_glint_", StringComparison.Ordinal))
+            .ShouldBe(["[render] r_glint_alwaysdraw 1", "[render] r_glint_procedural 1"]);
     }
 
     /// <remarks>

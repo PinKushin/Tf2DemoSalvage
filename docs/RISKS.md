@@ -42400,8 +42400,10 @@ the eyeball mesh setup also skips the glint (`0x18000f7d1`). The tool panel buil
 `m_bWireFrame` (`mdlpanel.cpp:293-307`, *source*).
 
 Ours draws every model with its own shaders in wireframe fill (`WorldRenderer.Wireframe`). The menu's and the default
-key's wireframe is not gated by `sv_cheats`: D75 states that divergence for the debug draws. A config's or a bound key's
-`mat_wireframe` is TF2's command path, which D253 refuses without `sv_cheats` — and ours does not, B791. So under `mat_wireframe` a model's edges are lit and textured as
+key's wireframe is not gated by `sv_cheats`: D253 keeps the viewer's own menus and default keys outside TF2's refusal
+(as `ConfigConsole.cs:426` does for a built-in `mat_fullbright` key). A config's, a user's bind's or a launch option's
+`mat_wireframe` is TF2's command path, which D253 refuses without `sv_cheats` — and ours does not, B791. D253
+supersedes D75's sentence that a pasted config setting them works. So under `mat_wireframe` a model's edges are lit and textured as
 its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
 draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
 wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
@@ -42413,10 +42415,11 @@ while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `
 when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigConsole.cs:877`, `:927`;
 `LaunchOptions.cs:227`), and `mat_wireframe` is not in `EngineConVars`, so nothing marks it a cheat: a config's
 `mat_wireframe 1` with `sv_cheats 0` goes through. In TF2 it is `FCVAR_CHEAT` (`engine.dll` `0x180007b94`, flags
-`0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **D75** is the other half and
-is not changed by this: the viewer's menu item and its default key are debug draws, which D75 leaves ungated on
-purpose. **Which applies where**: D75 to the menu and the viewer's own default binding; D253 to a config, a user's
-bind and a launch option. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
+`0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **The split is D253's**, not
+D75's: D75 says the gate is not implemented and that a pasted config setting these works; D253 supersedes that for a
+config, a user's bind and a launch option, and keeps the viewer's own menus and default keys ungated (as
+`ConfigConsole.cs:426` does for a built-in `mat_fullbright` key). **Which applies where**: the menu item and the
+viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
 

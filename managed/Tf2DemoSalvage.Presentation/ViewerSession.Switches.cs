@@ -269,7 +269,7 @@ public sealed partial class ViewerSession
         // **The glint ConVars too** (B725): the studio render reads both at every eye draw (`studiorender.dll`
         // `0x18001e071`, `0x18001e0ad`), so a set from anywhere is the switch.
         else if (set.Name.Equals(Scene.ViewerSettings.GlintAlwaysDrawCommand, StringComparison.OrdinalIgnoreCase) ||
-                 set.Name.Equals(Scene.ViewerSettings.GlintProceduralCommand,StringComparison.OrdinalIgnoreCase))
+                 set.Name.Equals(Scene.ViewerSettings.GlintProceduralCommand, StringComparison.OrdinalIgnoreCase))
         {
             Scene.GlintSwitches glint = _settingsOwner.EyeGlint;
 
