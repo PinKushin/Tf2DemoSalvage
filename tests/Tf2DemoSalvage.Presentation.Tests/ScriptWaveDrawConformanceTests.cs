@@ -181,6 +181,28 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
+    /// The shrapnel before an impact was EMITTED (`EmitSound` → `EmitSoundByHandle`, `tf_fx_impacts.cpp:88`), so its
+    /// `GetParametersForSound` cleared the wave it picked (FUN_180003370, `isbeingemitted`). When the impact is dealt
+    /// without its shrapnel having been, the replay that finds where the impact starts IS that emit: it deals the
+    /// shrapnel's wave as the engine's would, leaving one of two.
+    /// </remarks>
+    [Test]
+    public void Deal_AnImpactWhoseShrapnelWasNeverDealt_ClearsTheWaveTheShrapnelsEmitPicks()
+    {
+        SoundScriptEntry shrapnel = Entry(ImpactSounds.Shrapnel, "bounce1.wav", "bounce2.wav");
+        SoundScriptEntry impact = Entry("Test.Impact", "x.wav", "y.wav");
+        Dictionary<string, SoundScriptEntry> scripts = Scripts(shrapnel, impact);
+
+        IReadOnlyList<SceneSound> sounds = ImpactSounds.For(new BulletLanding(5, Origin, impact.Name, Ricochets: true), RicochetSeed(), scripts);
+        sounds.Count.ShouldBe(2, "the condition: the seed ricochets");
+
+        ScriptWaveDeck deck = new();
+        deck.Deal(sounds[1], scripts);
+
+        deck.Available(shrapnel.Name, 2).ShouldBe(1);
+    }
+
+    /// <remarks>
     /// A patch made with no draw before it — a medigun's `SoundCreate` (`tf_weapon_medigun.cpp:2061`) — is played by
     /// `Play( patch, volume, pitch )` all the same: `GetVolumeForEngine` multiplies the volume `Play` gave by the script
     /// volume `CSoundPatch::Init` drew (`soundenvelope.cpp:353-381`), and the pitch is `Play`'s.

@@ -147,8 +147,9 @@ public sealed class ScriptWaveDeck
     /// <summary>Puts <see cref="_stream"/> where <paramref name="draw"/>'s numbers start.</summary>
     /// <remarks>
     /// A draw after another starts where that one ended, which is that one's draws over again: with the count it was dealt
-    /// against when it was dealt (a shrapnel before its impact), or — when it was never a sound of its own (`PhysFrictionSound`'s
-    /// draw before its patch) — against the flags now, which a read does not change.
+    /// against when it was dealt (a shrapnel before its impact), or — when it was not (`PhysFrictionSound`'s draw before its
+    /// patch, never a sound of its own) — as the engine made it, against the flags now and clearing its pick if it was
+    /// emitted. A read changes no flag.
     /// </remarks>
     private void StartAt(ScriptWaveDraw draw, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
     {
@@ -162,7 +163,7 @@ public sealed class ScriptWaveDeck
 
         if (scripts.TryGetValue(before.Script, out SoundScriptEntry entry) && entry.Waves.Count > 0)
         {
-            Draw(entry, emitted: false, _dealt.TryGetValue(before, out Dealt dealt) ? dealt.Available : null);
+            Draw(entry, before.Emitted, _dealt.TryGetValue(before, out Dealt dealt) ? dealt.Available : null);
         }
     }
 
