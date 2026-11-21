@@ -42396,13 +42396,15 @@ and left the last one set. Nothing set it back, so the landing's own starts were
 playing channels, where their entities were at that batch's tick rather than the landing's. **Fixed:** the landing sets
 `_originTick` back to its own tick after the batches. Test:
 `Update_ALandingAfterABatchReadEarlier_PlacesItsOwnStartAtTheLandingsTick`, a static start at the landing placed at 1000
-with a batch read at 990 (red before the fix: 990), and the control with no batch read. Not verified by listening.
+with a batch read at 990 (red before the fix: 990), and the control with no batch read; and
+`Update_ALandingAfterABatchReadEarlier_FollowsAPlayingChannelAtTheLandingsTick`, the follow half (review 1, Fable),
+which the reset moved below the landing's `Attenuate` reddens (990). Not verified by listening.
 
 ## B792 — the viewer's default keys set cheat ConVars under `sv_cheats 0`; the exemption is not in `ABOVE-VALVE.md` and has no owner decision (2026-11-21) — OPEN, needs the owner
 
 Found in B725's glint review (round 4, Sonnet and Fable). D253 (the owner's pick, "Copy TF2") refuses a cheat ConVar
 while `sv_cheats` is 0 on TF2's command paths — a config, a bound key, a launch option — and exempts only the viewer's
-**menus**, which `docs/ABOVE-VALVE.md` lists with a test. `ConfigConsole.KeyDown` (`ConfigConsole.cs:426-429`, commit
+**settings file**, which keeps its menus' cheat ConVars between runs; `docs/ABOVE-VALVE.md` lists that with a test. `ConfigConsole.KeyDown` (`ConfigConsole.cs:426-429`, commit
 `740fe450c`) also exempts the viewer's **default key bindings** (its built-in `mat_fullbright` key), citing D253 and D246.
 D253's text does not say that, the exemption is not in `ABOVE-VALVE.md`, and no owner decision records it. In TF2 a key
 bound to a cheat ConVar is refused like any other bind (D253, B718). **The question for the owner** (D246, CLAUDE.md:
@@ -42532,7 +42534,8 @@ when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigCo
 `0x4000`) and `WireFrameMode()` reads it only with cheats on (`game/client/view.h:68`). **The split is D253's**, not
 D75's: D75 says the gate is not implemented and that a pasted config setting these works; D253 supersedes that for a
 config, a user's bind and a launch option and exempts the viewer's menus; the default keys' exemption is D253 as
-`ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key. **Which applies where**: the menu item and the
+`ConfigConsole.cs:426` applies it (D246), for a built-in `mat_fullbright` key — an exemption no owner decision records,
+which is B792. **Which applies where**: the menu item and the
 viewer's default binding stay ungated; a config, a user's bind and a launch option are refused. **The fix** is an `EngineConVars` row (`mat_wireframe`, "0", cheat), with the menu kept on
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.

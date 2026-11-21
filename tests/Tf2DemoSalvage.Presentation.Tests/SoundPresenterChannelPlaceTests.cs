@@ -98,6 +98,30 @@ public sealed class SoundPresenterChannelPlaceTests
         return sink.Places.ShouldHaveSingleItem().Origin.ShouldNotBeNull().X;
     }
 
+    /// <remarks>The follow half of B793: a channel playing through the skip is moved, at the landing, to where its entity is then.</remarks>
+    [TestCase(false, ExpectedResult = 1000f)]
+    [TestCase(true, ExpectedResult = 1000f)]
+    public float Update_ALandingAfterABatchReadEarlier_FollowsAPlayingChannelAtTheLandingsTick(bool batchRead)
+    {
+        Sink sink = new();
+        SoundPresenter presenter = Presenter(
+            origins: null,
+            new SceneSound(41, "ambient/hum_loop.wav", 1, Other, 0, 1f, 75, 100, 0f, 0f, 0f, 0f));
+        presenter.EntityOrigin = (entity, tick) => entity == Other ? ((float)tick, 0f, 0f, 0f) : null;
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.4);
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.41);
+
+        if (batchRead)
+        {
+            presenter.SkipFrameRead(990, reload: false);
+        }
+
+        presenter.Update(sink, 1000, (0f, 0f, 0f), (0f, -1f, 0f), now: 15.0);
+
+        return sink.Moves[^1].Origin.X;
+    }
+
     /// <remarks>
     /// `CL_DispatchSound` (engine.dll FUN_18008caf0, 0x18008cd57-0x18008cd9c): `params.delay` is the sound's own delay, but
     /// with `SND_DELAY` (`test cl, 0x10`) and a delay above -0.1f (`comiss`, 0x18037b9dc) it is
