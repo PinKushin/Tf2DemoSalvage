@@ -462,6 +462,40 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A new map sets the panel's model up again, from the new level's frames** (B779 review 2, the lead's loose end).
+    /// `CModelPanel` listens for `game_newmap` (`basemodelpanel.cpp:56`) and marks itself dirty "to force the models to
+    /// re-setup themselves" (:196-205), so `UpdateModel` (:520) builds its `CModelPanelModel` again at the next paint. The HUD
+    /// outlives the level, and the next level can answer the path with other frames (a map's pakfile first): here the
+    /// first frames' rule `jaw + 0.25` rests at 0.75 (the vertex 1.5), the next level's `jaw + 0.5` at 1.0 (the ramp's full
+    /// 1, the vertex 2). Kept across the level, the panel would draw the old frames' 1.5.
+    /// </remarks>
+    [Test]
+    public void Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames()
+    {
+        PropModels.ModelFrames first = Frames(eyed: false, mouthed: false, flexed: true);
+        PropModels.ModelFrames next = first with
+        {
+            Flex = first.Flex with
+            {
+                Rules = [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.5f), new StudioFlexOp(4, 0, 0f)])],
+            },
+        };
+        PropModels.ModelFrames current = first;
+        VguiModelPanel panel = Framed(startFramed: false, rootNow: () => current);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.75f);
+
+        current = next;
+        viewport.NewMap();
+        panel.Paint(surface, viewport.Context!);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 1f);
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
     /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
     /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
@@ -568,13 +602,14 @@ public sealed class CModelPanelConformanceTests
         bool sharedTarget = true,
         bool flexed = false,
         byte flexSpeed = 255,
-        PropModels.ModelFrames? root = null)
+        PropModels.ModelFrames? root = null,
+        Func<PropModels.ModelFrames>? rootNow = null)
     {
         PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
-            path => attached is not null && path == AttachedPath ? attached : frames,
+            path => attached is not null && path == AttachedPath ? attached : rootNow?.Invoke() ?? frames,
             sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";

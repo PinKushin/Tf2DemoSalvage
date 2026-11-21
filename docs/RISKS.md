@@ -42754,6 +42754,17 @@ closes any of the portrait's deficit is still *interpolated*, not measured. *Not
 *Sabotage*: the reset removed from `LevelShutdown`, the cache hit's early return deleted, and the weights kept by path
 alone each reddened only their own row.
 
+**A `CModelPanel` kept across a level** (the lead's follow-up to the loose end above): yes, it kept the old level's
+model. `VguiModelPanel`'s `PanelModel` — its frames, its resting and delayed weights — is built only by `SetupModel`,
+which `UpdateModel` runs only when the panel is dirty, and nothing marked it dirty at a new map. The engine does: every
+`CModelPanel` listens for `game_newmap` (`basemodelpanel.cpp:56`) and sets `m_bPanelDirty` "to force the models to
+re-setup themselves" (:196-205). Ported as `VguiModelPanel.OnGameEvent( "game_newmap" )`, delivered to every model panel
+under the viewport by `HudViewport.NewMap`, which `FramePresenter.LevelInit` calls at each level load. *Test*:
+`CModelPanelConformanceTests.Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames` (red first, with `NewMap` a stub:
+the old frames' 1.5 for the new 2.0). *Sabotage*: the walk not descending into the viewport's children reddened only that
+row. *Not tested*: the `FramePresenter.LevelInit` call itself (read; the presenter has no test harness that loads a
+level).
+
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
 Found in B725 5g. `CTFPlayerModelPanel::RenderStatTrack` draws its second-level merge with

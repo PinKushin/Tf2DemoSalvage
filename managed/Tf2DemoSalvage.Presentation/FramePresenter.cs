@@ -291,6 +291,10 @@ public sealed partial class FramePresenter
                 ? material.Sequences
                 : null
             : null;
+
+        // `game_newmap`: each `CModelPanel` sets its models up again from this level's frames (basemodelpanel.cpp:196-205,
+        // B779 review 2). The HUD outlives the level; a HUD not built yet has nothing to set up.
+        _vguiHud?.Viewport.NewMap();
     }
 
     /// <summary>What the HUD reads at a tick, with what the local player is looking at.</summary>

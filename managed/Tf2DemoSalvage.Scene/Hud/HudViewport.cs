@@ -411,6 +411,27 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
     public IMdlCache? MdlCache { get; set; }
 
+    /// <summary>The <c>game_newmap</c> game event, as every <c>CModelPanel</c> under the viewport hears it.</summary>
+    /// <remarks>
+    /// Each <c>CModelPanel</c> listens for it from its constructor (<c>basemodelpanel.cpp:56</c>) and marks itself dirty, so
+    /// its models are set up again from the new level's (<c>:196-205</c>; B779 review 2). Only those panels are walked here:
+    /// the viewport's own <c>game_newmap</c> (the spectator GUI's) is carried by the timeline instead (B516).
+    /// </remarks>
+    public void NewMap() => NewMap(this);
+
+    private static void NewMap(VguiPanel panel)
+    {
+        if (panel is VguiModelPanel modelPanel)
+        {
+            modelPanel.OnGameEvent(VguiModelPanel.GameNewMap);
+        }
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            NewMap(child);
+        }
+    }
+
     /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
     public VguiAnimationController Animations { get; }
 

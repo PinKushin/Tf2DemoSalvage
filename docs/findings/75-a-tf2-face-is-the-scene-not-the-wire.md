@@ -205,6 +205,12 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   rise from rest over its first frames; ported (*source*). The world's resting C_BaseFlex has the same divergence, filed
   as B805. Read on the way: a C_BaseFlex whose model has no flex controllers draws zero weights, delayed or not —
   `SetupGlobalWeights` zeroes both and returns false before any rule (`:1198-1207`, `:1152-1155`) (*source*).
+- **A `CModelPanel` sets its model up again at every new map.** It listens for `game_newmap` from its constructor
+  (`basemodelpanel.cpp:56`) and marks itself dirty "to force the models to re-setup themselves" (:196-205), so the next
+  paint builds a new `CModelPanelModel` from the new level's model (*source*). Ours had no such event and kept the old
+  level's model, weights and all; ported. And the HUD's precache of the panels' models must not survive the level its
+  models die with — a guard that remembered "this list is already packed" across a level change left the same list
+  unpacked on the next map, drawing nothing (B779 review 2).
 - **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
   it; the HUD precaches every panel's models into the world's model set each frame the list changes
   (`VguiHud.ModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer

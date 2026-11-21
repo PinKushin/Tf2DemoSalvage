@@ -280,6 +280,22 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`SetPanelDirty`.</summary>
     public void SetPanelDirty() => _panelDirty = true;
 
+    /// <summary>The game event a <c>CModelPanel</c> listens for (`ListenForGameEvent( "game_newmap" )`, :56).</summary>
+    public const string GameNewMap = "game_newmap";
+
+    /// <summary>
+    /// `CModelPanel::FireGameEvent` (:196-205): at `game_newmap`, "force the models to re-setup themselves" — the panel is
+    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2).
+    /// </summary>
+    /// <param name="name">The event's name.</param>
+    public void OnGameEvent(string name)
+    {
+        if (string.Equals(name, GameNewMap, StringComparison.Ordinal))
+        {
+            _panelDirty = true;
+        }
+    }
+
     /// <summary>`SetSkin` (:747).</summary>
     /// <param name="skin">The skin.</param>
     public void SetSkin(int skin)
