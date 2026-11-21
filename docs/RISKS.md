@@ -42393,8 +42393,11 @@ disguise's pieces.
 Found in B784/B787's review (round 1, Sonnet and Fable). `ImpactSounds.SeedFor( x )` is `2^20 + x`, and four producers
 pass it numbers from unrelated spaces: a server landing's list index (`ImpactSounds.cs:63`), a client bullet's
 `shot · 32 + bullet` (`DecalEffects.cs:707`), the tracer whiz's tick (`TracerWhiz.cs:54`) and a HUD sound's
-`tick · 131 + FNV( name )` (`HudSounds.SeedFor`). Whenever two coincide, the two sounds draw the same volume, pitch, wave
-number and soundlevel, which the interpolation (finding 57) means to keep apart: the class B787 fixed for entity sounds.
+`tick · 131 + FNV( name )` (`HudSounds.SeedFor`). The whiz's key is the tick alone, so two whizzes in one tick collide
+within that one producer too. Whenever two seeds coincide the two sounds share one stream of raw draws — the same
+volume, pitch, wave number and soundlevel when they play one script; shifted when one spends a draw first (a landing's
+ricochet `RandomInt( 1, 10 )`) — which the interpolation (finding 57) means to keep apart: the class B787 fixed for
+entity sounds.
 *Arithmetic.* The fix shape is B787's: each producer's key whole, with the producer named in it, through one hash.
 
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
@@ -42418,7 +42421,8 @@ hashes it with the Fibonacci hash particle collections already use (`ParticleEff
 `SeedFor_TwoEntitiesTheOldSeedCollided_GetTwoSeeds`, three pairs the old seed collided (red before: equal), and
 `Deal_TwoKeptPatchesTheOldSeedCollided_HoldsTwoPatches`, the record half (review 1, Fable; the old seed reddens it). The hash can give `int.MinValue`, on which
 `UniformRandomStream.SetSeed`'s `-Math.Abs( seed )` threw where the engine's `-|seed|` keeps it (review 1, Gemini): now
-`seed < 0 ? seed : -seed`, test `SetSeed_TheMostNegativeSeed_SeedsAndDrawsLikeAnyOther` (red before: `OverflowException`). Every
+`seed < 0 ? seed : -seed`, test `SetSeed_TheMostNegativeSeed_DrawsAsSeedOne` (red before: `OverflowException`; the
+shipped `vstdlib.dll` measured to draw `int.MinValue` as seed 1, review 2, Fable). Every
 entity sound's draws move with the new seed, interpolated either way (finding 57). Not verified by listening.
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)

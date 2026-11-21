@@ -40,20 +40,25 @@ public sealed class UniformRandomStreamConformanceTests
     }
 
     /// <remarks>
-    /// <c>-|seed|</c> in machine code — an absolute value and a negate, each two's complement and neither trapping — leaves
-    /// <c>int.MinValue</c> as itself, so the engine seeds it like any other. A hashed seed (`ParticleEffects.SeedFor`,
-    /// B787) can be it. *Arithmetic.* The control is a stream seeded alike, which must draw the same.
+    /// <c>-|seed|</c> in machine code, two's complement and not trapping, leaves <c>int.MinValue</c> as itself, and the
+    /// warm-up's <c>-idum</c> is then below 1 and clamps to 1: the engine draws it as seed 1. *Measured* (B787 review 2):
+    /// 200 draws of the shipped `vstdlib.dll` at seed <c>int.MinValue</c> equal its draws at seed 1. A hashed seed
+    /// (`ParticleEffects.SeedFor`, B787) can be it.
     /// </remarks>
     [Test]
-    public void SetSeed_TheMostNegativeSeed_SeedsAndDrawsLikeAnyOther()
+    public void SetSeed_TheMostNegativeSeed_DrawsAsSeedOne()
     {
         UniformRandomStream stream = new();
-        UniformRandomStream control = new();
+        UniformRandomStream one = new();
 
         stream.SetSeed(int.MinValue);
-        control.SetSeed(int.MinValue);
+        one.SetSeed(1);
 
-        (stream.Position.Seed, stream.RandomInt(0, 99)).ShouldBe((int.MinValue, control.RandomInt(0, 99)));
+        int[] drawn = [stream.RandomInt(0, int.MaxValue - 1), stream.RandomInt(0, int.MaxValue - 1), stream.RandomInt(0, int.MaxValue - 1)];
+        int[] expected = [one.RandomInt(0, int.MaxValue - 1), one.RandomInt(0, int.MaxValue - 1), one.RandomInt(0, int.MaxValue - 1)];
+
+        stream.Position.Seed.ShouldBe(int.MinValue);
+        drawn.ShouldBe(expected);
     }
 
     /// <remarks>
