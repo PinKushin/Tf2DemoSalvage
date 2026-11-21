@@ -42388,6 +42388,16 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — OPEN
+
+Found in B785/B786's review (round 3, Fable). `UTIL_ImpactTrace` on a static prop dispatches `"Impact"` on entity 0 with
+the prop's index plus one as its hitbox, and `Impact` takes that branch to `AddDecalToStaticProp`
+(`fx_impact.cpp:149-152`); `ImpactCallback` plays `PlayImpactSound` for it as for any hit. Ours drops the dispatch on both
+roads: `ServerImpacts.OnEntities` keeps only `Entity > 0` (`ServerImpacts.cs:45`), and `ServerImpacts.From` (the world
+walk) skips any `HitBox != 0` (`:90`). So a server bullet on a static prop has no landing (`DecalEffects.LandingsOver`)
+and no decal; the client's own bullets on static props are handled (`ShotImpact.StaticProp`, `DecalReplay.cs:157`). *Read
+from published source and our code; how many such dispatches a real match carries is not measured.*
+
 ## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — OPEN
 
 Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:35-49`):
@@ -42397,8 +42407,12 @@ no `Impact`, no ricochet draw, no impact sound, MvM's robot and tank sounds incl
 `m_nDamageType` is the damage BITS (`FireBullet`'s `UTIL_ImpactTrace( &trace, nDamageType )`, `tf_player_shared.cpp:10526`),
 not a team: the gate fires when the bits numerically equal the struck entity's team number, and `DMG_BULLET` is 2,
 `TF_TEAM_RED` — so every exactly-`DMG_BULLET` impact on a RED entity makes no sound and no decal. *Arithmetic from the
-source; which weapons send exactly 2 is not checked.* Entities on team 0 or 1 always impact. `ModelDecalFor` refuses the
-equal-number decal (`DecalEffects.cs:557`) but not the disguise half; the sound path has neither: server impacts on
+source: `CBaseEntity::ImpactTrace` sets `data.m_nDamageType = iDamageType` (`baseentity_shared.cpp:684`, review 3,
+Gemini); which weapons send
+exactly 2 is not checked.* A non-player entity on team 0 or 1 always impacts (a player there could still be cleared by
+the disguise half). The DECAL already matches: `ModelDecalFor` refuses the equal-number decal (`DecalEffects.cs:556-558`)
+and every disguised player (`:562`, `AddDecal`'s return at `c_tf_player.cpp:7891-7894`), so the gap is the SOUND alone,
+where there is no gate: server impacts on
 entities (`DecalEffects.LandingsOver`, `:658-666`) are ungated, and the client's own bullets (`:464-471`) test only
 `victim.Team == bullet.Team`, which is `FireBullet`'s teammate rule (`tf_player_shared.cpp:10524`), not this gate.
 *Read from published source; not measured on the corpus.*
@@ -42410,7 +42424,8 @@ Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback`
 (`:92-134`) plays either way — on the server's origin and surfaceprop when the client's trace did not hit
 (`fx_impact.cpp:378-390`), which is what a server landing already uses. `Impact` (`fx_impact.cpp:102-187`) zeroes the
 trace (`:109-110`) and returns false when `decalNumber` is -1 (`:131-132`), when `FX_AffectRagdolls` hit a ragdoll
-(`:122-125`, `:183`), and when its decal trace found nothing (`tr.fraction == 1`, `:183`), which a player decal does
+(`:122-125`, `:183` — asked only for a struck entity the client did not create, and answering false at once when more
+than one ragdoll is simulating, `:77`), and when its decal trace found nothing (`tr.fraction == 1`, `:183`), which a player decal does
 whenever `C_TFPlayer::AddDecal` (`c_tf_player.cpp:7883-7927`) returns before tracing — the victim stealthed, disguised,
 a miniboss or invulnerable (its `tr.startsolid` test is dead on this path, the trace having been zeroed) — and also when
 `AddStudioDecal`'s `ClipRayToEntity` misses the hitboxes (`c_baseentity.cpp:3620-3624`), or a flesh decal is skipped
