@@ -653,6 +653,7 @@ public sealed class MapAssets
     /// <param name="compositorTextures">What a war paint composite reads, by name (B754); none when null.</param>
     /// <param name="wireframe">The studio render's wireframe material among these (B788), or null for none.</param>
     /// <param name="overrideMaterials">Whole-model override materials among these, by VMT path (B325); none when null.</param>
+    /// <param name="animationFrames">Each material's <c>$basetexture</c> frames by the same index, or null for none (B788).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -668,7 +669,8 @@ public sealed class MapAssets
         IReadOnlyList<IReadOnlyList<MaterialProxy>>? proxies = null,
         IReadOnlyDictionary<string, MapTexture>? compositorTextures = null,
         ModelWireframe? wireframe = null,
-        IReadOnlyDictionary<string, int>? overrideMaterials = null)
+        IReadOnlyDictionary<string, int>? overrideMaterials = null,
+        IReadOnlyList<IReadOnlyList<MapTexture>?>? animationFrames = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -697,6 +699,7 @@ public sealed class MapAssets
             CompositorTextures = compositorTextures ?? new Dictionary<string, MapTexture>(),
             Wireframe = wireframe,
             OverrideMaterials = overrideMaterials ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+            AnimationFrames = animationFrames ?? [],
         };
     }
 
@@ -749,8 +752,8 @@ public sealed class MapAssets
     /// **Read** (`studiorender.dll`, disassembled): `R_StudioSetupSkinAndLighting` (`0x1800041c0`) tests
     /// `StudioRenderConfig_t::bWireframe` (`0x1800041ec`) and no forced material (`+0x250`), then binds `+0x8b0` under
     /// `bDrawZBufferedWireframe` and `+0x8a8` otherwise, in place of the mesh's own. The two names sit together in the
-    /// binary, `//platform/materials/debug/debugmrmwireframe` (`0x180080b18`) and `…zbuffer` (`0x180080b48`); *interpolated*:
-    /// which field holds which, from their names. `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) zeroes the config
+    /// binary, `//platform/materials/debug/debugmrmwireframe` (`0x180080b18`) and `…zbuffer` (`0x180080b48`); the load at
+    /// `0x1800527eb` puts the first in `+0x8a8` (B788 review 1). `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) zeroes the config
     /// (`0x1800f5716`) and never sets `bDrawZBufferedWireframe`, so a demo's view takes `debugmrmwireframe`: shader
     /// <c>Wireframe</c>, <c>$color [0 1 1]</c>, <c>$ignorez 1</c> (the VMT `platform_misc` and `hl2_misc` both ship).
     /// </remarks>

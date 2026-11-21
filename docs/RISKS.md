@@ -42504,13 +42504,25 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
+## B805 — the other material-system debug views are not checked against D253's cheat gate or the engine's draw (2026-11-21) — OPEN
+
+Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but the debug views beside it —
+`mat_luxels` (`FCVAR_CHEAT` per the review), `mat_drawflat`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`,
+`mat_showlowresimage` — were not checked: whether each is `FCVAR_CHEAT` in `EngineConVars` (so D253 refuses it from a
+config, a bind or a launch option without `sv_cheats`), and whether what ours draws for each is what the engine binds.
+*Not read*; the flags are the review's, not re-read by the lead. Filed so B791 stays the one ConVar it names.
+
 ## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — OPEN
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
 `mat_wireframe`; the world's brushes, displacements and the 3D skybox still draw with their own materials in wireframe
 fill (`WorldRenderer.Wireframe`). What the engine binds for a brush surface under `mat_wireframe` — a material of its
 own, the surface's, or a fill mode only — is in the closed `engine.dll` world renderer and not read. *Not read;
-filed so B788's scope stays the studio models it names.*
+filed so B788's scope stays the studio models it names.* **Brush entities too** (a `*N` model: doors, func_brush):
+`R_DrawBrushModel` draws them, never the studio render, so B788's swap skips them (`!modelPath.StartsWith('*')`,
+`DrawModelPose_UnderWireframe_SwapsAStudioModelAndNotABrushEntity`) and they keep their own shaders in wireframe fill
+like the world's brushes. A lead for the read: `studiorender.dll` also names `debug/debugworldwireframe`
+(`0x180080ce8`, held at `+0x8e8`, per B788's review 1, Fable; not re-read by the lead).
 
 ## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — FIXED (2026-11-21)
 
@@ -42537,16 +42549,20 @@ render's wireframe material"). The material is `debug/debugmrmwireframe` (the st
 which of `+0x8a8`/`+0x8b0` holds it is *interpolated* from the names), and `UpdateStudioRenderConfig` never sets
 `bDrawZBufferedWireframe`, so the `zbuffer` twin is never used (*read*). Its VMT (`platform_misc`, `hl2_misc`): `Wireframe`,
 `$color [0 1 1]`, `$ignorez 1`, no `$basetexture`; the shader is VertexLitGeneric with `NOFOG` (`wireframe_dx9.cpp`). Ported:
-`MapAssets.Wireframe` loads it at map load (white, as a VertexLitGeneric with no base); `WorldRenderer.DrawModel` draws every
-model mesh with it under `mat_wireframe` unless a forced material is set (`0x1800041f2`), a face's meshes included;
+`MapAssets.Wireframe` loads it at map load (white: no base); `ModelMaterialShading.TakesDiffuseLighting` takes the
+`Wireframe` shader as UNLIT, because `Wireframe_DX9` runs VertexLitGeneric's helper with `bVertexLitGeneric` false
+(`wireframe_dx9.cpp:33`, `:43`, `:49`; review 1, Fable — the first port lit it); `WorldRenderer.DrawModel` draws every
+STUDIO model mesh with it under `mat_wireframe` unless a forced material is set (`0x1800041f2`), a face's meshes included,
+and binds the drawn material's animation frame rather than the batch's own (review 1, Sonnet); a brush entity keeps its own (B803);
 `SetMaterial` gives it no depth test or write (`$ignorez`, *interpolated* render state); `FogModeOf` gives the `Wireframe`
 shader no fog. Without a TF2 install the material is absent and models keep their own, the glint row above still covering
 the eye. Tests (`Tf2DemoSalvage.Rendering.Tests`): `EyeShaderRenderTests.DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial`
-(VertexLitGeneric and Eyes: (0, 89, 89) on the edge, black off it), `…_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ`,
+(VertexLitGeneric and Eyes: (0, 255, 255) on the edge, black off it), `…_UnderWireframe_SwapsAStudioModelAndNotABrushEntity`,
+`…_UnderWireframeOnAnAnimatedMaterial_BindsTheWireframesTexture`, `…_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ`,
 `…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `FogModeOf_TheWireframeShader_IsNone`, and
 `OverrideMaterialLoadingTests.Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays` (real
 install). Each reddened under its own sabotage. *Not verified by looking*: no viewer was launched. Out of this entry: the
-world's brushwork under `mat_wireframe` still draws its own shaders in wireframe fill; what the engine binds there is not read.
+world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
 ## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
 

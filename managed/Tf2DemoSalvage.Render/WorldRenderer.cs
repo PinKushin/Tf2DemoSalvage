@@ -3545,9 +3545,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// reached the rasteriser, whatever the material then did with it.
     ///
     /// `FCVAR_CHEAT` in the engine, gated behind `sv_cheats` by `WireFrameMode()`
-    /// (<c>game/client/view.h:68</c>). Not gated here: there is no server to protect and no player
-    /// to gain an advantage over, so the gate would be ceremony. That is a deliberate divergence
-    /// rather than an oversight.
+    /// (<c>game/client/view.h:68</c>). The gate is the console's, not this property's: a config's, a bind's or a
+    /// launch option's <c>mat_wireframe</c> is refused without <c>sv_cheats</c> (D253, B791), the menu's is not.
     /// </remarks>
     public bool Wireframe { get; set; }
 
@@ -8551,8 +8550,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **Under `mat_wireframe` the studio render draws every mesh with its own wireframe material** (B788):
             // `R_StudioSetupSkinAndLighting` (`studiorender.dll` `0x1800041ec`) takes it when `bWireframe` is set and no
             // material is forced (`+0x250`), so a forced one, tested first, wins. Every mesh, a face's too: the eye
-            // shaders below never see their material. Not loaded (no TF2 install), the model keeps its own, as above.
-            else if (Wireframe && _modelWireframe is { } wireframe)
+            // shaders below never see their material. Not loaded (no TF2 install), the model keeps its own, as above. A
+            // STUDIO model only: a brush entity (a `*N` model) is the world renderer's, which the studio render never draws
+            // (B803).
+            else if (Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*'))
             {
                 material = wireframe.Material;
             }
@@ -8831,7 +8832,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                             .Distinct()));
             }
 
-            texture = AnimationFrame(batch.MaterialIndex, texture);
+            // The frame of the material DRAWN — a skin's swap, a forced one or the wireframe — not the batch's own (B788).
+            texture = AnimationFrame(material, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
