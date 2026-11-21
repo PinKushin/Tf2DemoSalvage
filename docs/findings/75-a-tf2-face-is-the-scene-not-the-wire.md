@@ -194,6 +194,14 @@ The `Eyes` shader adds a 32×32 render target the studio render draws for every 
   `√(1 − ¼)`. Believed the other way round at first, from a summary written before the instruction was re-read.
 - **The pass's quads sit a quarter texel inside the grid.** NDC `2X/32 − 0.984375` is a quarter texel, not the half
   that would align D3D9's pixel centres; under D3D9 it covers `floor − 1 … floor + 1` sampled at `i − ¼`, under D3D11's
-  centres it would cover `floor − 2 … floor` (*arithmetic*). An earlier note said the two agree; they do not. The
-  sun's light, read in `engine.dll`, has no attenuation terms and so gets `a0 = 1` from the same all-zero rule as a lamp
-  (`0x1800f2186`), and a range of 1.8e19 whose square overflows to infinity and cuts nothing.
+  centres it would cover `floor − 2 … floor` (*arithmetic*). An earlier note said the two agree; they do not.
+- **The sun is a light like any lamp to the glint.** Its `LightDesc_t`, read in `engine.dll`, has no attenuation terms
+  and so gets `a0 = 1` from the same all-zero rule as a lamp (`0x1800f2186`), and a range of 1.8e19 whose square
+  overflows to infinity and cuts nothing (*read*).
+- **`r_glint_procedural` is a second picture, not a slower copy of the first.** The CPU regenerator (`0x18001d090`)
+  uses the same five-Gaussian kernel but truncates the centre, evaluates each texel at its own coordinate, and adds in
+  linear through mathlib's 2.2 gamma tables — so a dim glint the GPU pass stores as 14 it stores as 130 (*read*,
+  *arithmetic*). A review's first answer was to ignore the cvar; it is user-settable, so it was ported.
+- **`mat_wireframe` reaches the glint through `sv_cheats`.** The engine's `bWireframe` is `sv_cheats && mat_wireframe`
+  (`0x1800f5855`), and under it the studio render skips the glint and draws the model with its own wireframe material
+  — the second half is B782 (*read*).

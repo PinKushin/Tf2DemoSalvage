@@ -42388,6 +42388,23 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B782 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
+
+Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
+`engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
+`istudiorender.h:62-69`, the bitfields from bit 0) to `sv_cheats && mat_wireframe` (`0x1800f5855`-`0x1800f5873`; the
+ConVars at `0x180731d30` and `0x1806a0640`), and `bSoftwareSkin` (bit 1) with it. `studiorender.dll`
+`R_StudioSetupSkinAndLighting` (`0x1800041ec`), with `bWireframe` set and no forced material, draws every mesh with the
+studio render's own wireframe material (`+0x8a8`, or `+0x8b0` under `bDrawZBufferedWireframe`) in place of the model's;
+the eyeball mesh setup also skips the glint (`0x18000f7d1`). The tool panel builds the same config from its own
+`m_bWireFrame` (`mdlpanel.cpp:293-307`, *source*).
+
+Ours draws every model with its own shaders in wireframe fill (`WorldRenderer.Wireframe`, ungated by `sv_cheats` on
+purpose — that gate stays a deliberate divergence). So under `mat_wireframe` a model's edges are lit and textured as
+its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
+draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
+wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
+
 ## B781 — no draw writes its depth into destination alpha, where TF2's main view and 3D sky do for every opaque model (2026-11-20) — OPEN
 
 Found in B725's review (round 1, item 7, Sonnet). `CRendering3dView::SetupCurrentView` sets
@@ -44755,12 +44772,24 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      0.5; `mstudioeyeball_t` +0x18), `$glintu = ( s · viewRight, 0.5 − org · it )`, `$glintv` the same with viewUp, `org`
      the eyeball state's +0x38, the view basis the render context's (+0x54 right, +0x60 up, +0x48 origin) — which ours
      recovers from the view-projection (columns 0, 1, 3), the origin as `EyePosition` does.
-   - *The texture* (`0x18001e020`, called when the config byte at +0x24 is non-negative): with `r_glint_alwaysdraw` 0, an
-     eye whose `ComputePixelWidthOfSphere( org, radius )` is under the threshold (`comiss`, `jae`: from 20 it draws) takes
+   - *The texture* (`0x18001e020`, called when the config's `bWireframe`, byte +0x24 bit 7, is clear — `0x18000f7d1`):
+     with `r_glint_alwaysdraw` 0, an eye whose `ComputePixelWidthOfSphere( org, radius )` is under
+     `fEyeGlintPixelWidthLODThreshold` (config +0x10, `istudiorender.h:55`; `comiss`, `jae`: from 20 it draws) takes
      `vgui/black`; else, with `r_glint_procedural` 0 at DX ≥ 90, `0x18001f510` renders the 32×32 BGRA8888 `_rt_eyeglint`
-     (`0x18001dcb0`), binding `vgui/black` instead when no light makes a glint. The CPU `proc_eyeglint` path is not the
-     default and is not ported. *Interpolated*: that the threshold is `r_eyeglintlodpixels` (default "20.0", read
-     beside it in `engine.dll`); the mapping of the config field to that cvar is not read.
+     (`0x18001dcb0`), binding `vgui/black` instead when no light makes a glint (`0x18001f55a`); with it nonzero,
+     `CGlintTextureRegenerator` (`0x18001cbf0`, below). The threshold is `r_eyeglintlodpixels`: `engine.dll`
+     `UpdateStudioRenderConfig` copies it into config +0x10 (`0x1800f5929`, *read*), declared "20.0" with `FCVAR_CHEAT`
+     (`0x180006c1b`; the tool panel's own copy is `FCVAR_CHEAT` too, `mdlpanel.cpp:279`), so no user config changes it and
+     the constant 20 holds. Both glint cvars are flags 0 and default "0" (`0x180001060`, `0x1800010a0`): user-settable,
+     so a config's value reaches the viewer (`ViewerSettings`, D69).
+   - *The CPU regenerator* (`r_glint_procedural 1`; `0x18001cbf0` clears the 32×32 BGRA8888 `proc_eyeglint`,
+     `0x18001dd75`, and calls `0x18001d090` per glint): centre `(x + 0.5)·32` **truncated**, texels `trunc − 1 … trunc + 1`
+     at their own coordinate (no quarter shift), the kernel summed `(t(−,+) + t(+,+) + t(−,−) + t(+,−)) · 4/9 + t(0) · 20/9`
+     with `t = d² > 1 ? 0 : exp( −25 d² )` (`0x180080a80`, `0x180080aa4`, `0x180080aa8`), and each texel
+     `LinearToTexture( TextureToLinear( old ) + I · colour )` (`0x18005ac40`, `0x18005ac10`) through mathlib's tables
+     as `MathLib_Init( 2.2, 2.2, 0, 2 )` builds them (`0x180057b91`, `0x18005a760`; `color_conversion.cpp:201-217`,
+     :410-433). So the same glint is a different picture under the two settings: a 0.1 lamp's centre texel is 14 by the
+     GPU pass and 130 by the regenerator.
    - *The glint points* (`0x18001d600`, max 16): `viewDelta = normalize( viewOrigin − org )`; iris radius `r/2`, cornea
      `(float)( r · 0.6666666666666666 )` (`0x180080a98`, a double); `er = √(1 − ¼)`, `cr = √(1 − (iris/cornea)²)`; the
      cornea's centre `org + forward · (er·r − cr·cornea)`. Per light, `0x180021680` at the cornea's centre; where
@@ -44768,10 +44797,13 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `refl = normalize( delta + viewDelta )`; then `0x180021680` at `org`, and where that dot is **below** `er`
      (`comiss`, `jae` skips) a second at `( right · refl, up · refl ) · r`, the first's `refl`, the centre's colour. Every
      normalise is `rsqrtss` and one Newton step on `|v|² + 1e-10`; ours divides by the root exactly (*a few ULP apart*).
+     `rsqrtss` is an approximation whose bits differ between Intel and AMD, so the engine has no single answer here to
+     match; a glint centre landing on a texel boundary can round either way, so a texel can be ±1 on a rare tie.
    - *The lights* (`0x180021680`, `0x180021900`): `LightDesc_t` at render context +0xd8, 0x58 each, count at +0x238;
      delta `position − point`, `−direction` for a directional light; colour times the attenuation `m_Flags & 7` picks
      (`0x1800962d8`): 0 past a nonzero range; `1/a0`, `1/(d·a1 + FLT_EPSILON)`, `1/(d·a1 + a0)`, `1/(d²·a2 + FLT_EPSILON)`,
-     `1/(d²·a2 + a0)`, `1/(d·a1 + FLT_EPSILON + d²·a2)`, `1/(d·a1 + a0 + d²·a2)`, and 2²³ (`0x180080ab0`) with no term; no
+     `1/(d²·a2 + a0)`, `1/((d·a1 + FLT_EPSILON) + d²·a2)` (`0x18004f9c0`, summed in that order),
+     `1/((d·a1 + a0) + d²·a2)`, and 2²³ (`0x180080ab0`) with no term; no
      cone. The sun's `LightDesc_t` (`engine.dll` `0x1800f2010`, the directional case `0x1800f229c`) has no terms of its
      own, so the all-zero rule (`0x1800f2186`-`0x1800f2196`) gives it `a0 = 1`, and its range is 1.8e19 (`0x180391fdc`),
      whose square cuts nothing. Ours hands the face shaders' four lights, the sun first, as `EyeLightCount` does.
@@ -44784,7 +44816,9 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `$glintu` spans the eye's diameter: they agree only at radius 0.5 — the engine's arithmetic, ported as read.
    - **Not parity in mechanism (a scheduling deviation)**: ours fills the target on the CPU — `EyeGlint.Rasterise`
      evaluates the pixel shader at the texels D3D9 covers and blends each quad into eight bits before the next, round to
-     nearest — and uploads it per Eyes draw, where the engine renders it on the GPU per eye draw.
+     nearest — and uploads it per Eyes draw, where the engine renders it on the GPU per eye draw. Its bytes are the
+     engine's to within ±1 on a rare rounding tie (the normalises above). Where the engine binds `vgui/black` ours binds
+     one shared black texel and maps nothing.
    *Tests*: `EyeGlintConformanceTests` (21 + 2 rows: projection; each attenuation flag and FLT_EPSILON near the light;
    range; directional delta; a sun, a lamp beside and one behind make three glints at predicted places and colours; the
    cap; one glint's texels, 139 at (16, 16) and, off-centre, (20, 10) = 10 that only D3D9's coverage draws; two
@@ -44800,6 +44834,22 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    the `zoffset` turn — the zoffset test; the damping held at 1 — the 0.005 row; the LOD skipped in the renderer — the
    1e5 row; the glint not added — the 195 and 4 rows; the sun's `a0` 0 — the light-list test. Not verified by looking (no
    TF2 model has an `Eyes` material to compare).
+   *Review round 1 (Sonnet, Fable, Gemini), fixed*: (1) `r_glint_alwaysdraw` ported, read from a config; (2)
+   `r_glint_procedural` ported with the CPU regenerator above, selected by the cvar (Fable's ruling over "ignore it": a
+   user-settable cvar that changes the picture is engine behaviour, not an unknown command); (3) the linear-and-quadratic
+   attenuation's order; (4) the damping's spline and its threshold observed — 0.008 is 20 where linear gives 19, 0.0101
+   is 255 and 0.0099 is 25; (5) `EyeShading.Forward` and `Radius` required; (6) `mat_wireframe` skips the glint as
+   `bWireframe` does — the rest of that, the studio render's wireframe material, filed as **B782**; (7) `vgui/black` bound
+   without a map; (8) these notes. *Tests*: `LightAt_ALinearAndQuadraticLight_AddsFltEpsilonAfterTheLinearTerm`,
+   `RegenerateProcedural_Glints_AreTheKernelThroughTheGammaTables` (130; 136 and 42; two half-glints 130),
+   `DrawModelPose_EyesWithASaturatedGlint_AreDampedBySimpleSplineUnderOneHundredth`,
+   `DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses` (always-draw 195 at 1e5; GPU 66 against procedural
+   189 for a 0.1 lamp; wireframe 0), `DrawModelPose_EyesWithoutAGlintAfterOneWith_TakeBlack` (195 then 0),
+   `Load_TheGlintConVars_ReadEachOverTheEngineDefaults`, `ApplyOver_*` (the device takes both). *Red first*: the old order
+   (1/2 where 1/(2 + 2ε)); the stubbed regenerator, 3 of 3. *Sabotage*, each restored, each reddening only its rows: the
+   quarter shift in the regenerator and the gamma tables dropped (both: its 3 rows); the spline made linear with the
+   threshold at 0.0102 (19 and 26); `r_glint_alwaysdraw` ignored (0), `r_glint_procedural` ignored (66), the wireframe
+   skip dropped (195), the stale target bound for black (195 then 195). Item 5 is held by the compiler (CS7036, seen).
 4. *`teeth_bump`* — **PORTED 2026-11-20** (`fix/b725-smaller`). A Teeth material with a `$bumpmap` (`teeth.cpp:88`,
    `params[BUMPMAP]->IsTexture()`) draws `teeth_bump_vs20`/`teeth_bump_ps20b`: the bump normal in the tangent frame
    (`teeth_bump_ps2x.fxc:65-67`; the frame made and normalised after the bones, `teeth_bump_vs20.fxc:75-147`), lit by
