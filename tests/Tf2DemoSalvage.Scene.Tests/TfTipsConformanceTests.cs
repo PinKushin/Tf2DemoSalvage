@@ -173,6 +173,18 @@ public sealed class TfTipsConformanceTests
     }
 
     [Test]
+    public void NextClassTip_BeforeTheTablesStringsResolve_CountsThemOnceTheyDo()
+    {
+        // The viewer always hands a lookup (VguiSurfaceHost), so "not loaded yet" is a table that finds nothing — which
+        // must not latch zero counts either.
+        Dictionary<string, string> empty = [];
+        TfTips tips = new(new UniformRandomStream());
+
+        tips.NextClassTip(Soldier, false, empty.GetValueOrDefault, null).ShouldBeEmpty();
+        Next(tips, Soldier).ShouldBe("soldier one");
+    }
+
+    [Test]
     public void NextClassTip_ForAnUnchosenClass_LeavesTheClassIndexAlone()
     {
         // `GetRandomTip` reads `GetTip` directly and never moves `m_iCurrentClassTip`.

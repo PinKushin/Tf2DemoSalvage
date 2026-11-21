@@ -90,22 +90,30 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
         }
 
         _tipCountAll = 0;
+        bool resolved = false;
 
         for (int playerClass = FirstClass; playerClass <= LastClass; playerClass++)
         {
-            _tipCount[playerClass] = Count(localize, string.Create(CultureInfo.InvariantCulture, $"Tip_{playerClass}_Count"));
+            string? count = localize?.Invoke(CountTokens[playerClass]);
+
+            resolved |= count is not null;
+            _tipCount[playerClass] = count is null ? 0 : CStdlib.Atoi(count);
             _tipCountAll += _tipCount[playerClass];
         }
 
-        _arenaTipCount = Count(localize, "Tip_arena_Count");
+        _arenaTipCount = localize?.Invoke("Tip_arena_Count") is { } arena ? CStdlib.Atoi(arena) : 0;
 
-        // The engine's `Init` runs once the localisation is loaded; with no table yet the counts are not latched, so a
-        // later call with one counts them.
-        _inited = localize is not null;
+        // The engine's `Init` runs once the localisation is loaded. The viewer's lookup exists before its strings do, so
+        // the counts are latched only once a `Tip_%d_Count` resolves; until then each call counts again.
+        _inited = resolved;
     }
 
-    private static int Count(Func<string, string?>? localize, string token) =>
-        localize?.Invoke(token) is { } count ? CStdlib.Atoi(count) : 0;
+    /// <summary>`Tip_%d_Count` by class, 1 to 9.</summary>
+    private static readonly string[] CountTokens =
+    [
+        string.Empty, "Tip_1_Count", "Tip_2_Count", "Tip_3_Count", "Tip_4_Count", "Tip_5_Count", "Tip_6_Count", "Tip_7_Count",
+        "Tip_8_Count", "Tip_9_Count",
+    ];
 
     /// <summary>`GetRandomTip` (:99): the abuse tip by chance (:112), else one tip drawn over every class's (:119).</summary>
     private string RandomTip(Func<string, string?>? localize, Func<string, string?>? lookupBinding)

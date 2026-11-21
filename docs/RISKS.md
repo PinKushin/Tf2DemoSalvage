@@ -43697,6 +43697,8 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    skipped the frame that would have shown it. To keep the frame at 0 bytes, `SetHealth` keeps each number's text by value
    and `ForceSubPanelsToUpdateWithNewDialogVariables` walks `Children` by index; the allocation test now uses a 350/450
    student, above the runtime's cached small-integer strings, and was red (64 bytes) with the text rebuilt per call.
+2. *`Init` still latched on a table that finds nothing* (Sonnet): the viewer always passes a lookup. It now latches only
+   once a `Tip_%d_Count` resolves; `NextClassTip_BeforeTheTablesStringsResolve_*` was red on round 1's null test.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
