@@ -300,20 +300,26 @@ public static class EyeGlint
             return Unattenuated;
         }
 
-        float distance = MathF.Sqrt(distanceSquared);
-        float denominator = constant ? light.Attenuation0 : 0f;
+        // The table's own order (0x18004f9c0 for linear and quadratic): the linear term — else the quadratic — first, then
+        // a0 or, without one, FLT_EPSILON in its place, then the quadratic term where both are present.
+        float first = 0f;
 
         if (linear)
         {
-            denominator += distance * light.Attenuation1;
+            first = MathF.Sqrt(distanceSquared) * light.Attenuation1;
+        }
+        else if (quadratic)
+        {
+            first = distanceSquared * light.Attenuation2;
         }
 
-        if (quadratic)
+        float denominator = first + (constant ? light.Attenuation0 : Epsilon);
+
+        if (linear && quadratic)
         {
             denominator += distanceSquared * light.Attenuation2;
         }
 
-        // Without a constant term the table adds FLT_EPSILON in its place.
-        return 1f / (constant ? denominator : denominator + Epsilon);
+        return 1f / denominator;
     }
 }

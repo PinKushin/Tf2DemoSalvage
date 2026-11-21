@@ -72,6 +72,19 @@ public sealed class EyeGlintConformanceTests
     }
 
     /// <remarks>
+    /// **The linear-and-quadratic entry adds FLT_EPSILON right after the linear term** (<c>0x18004f9c0</c>:
+    /// <c>sqrt(d²) · a1 + ε</c>, then <c>+ d² · a2</c>). With d = 1, a1 = 1 + ε and a2 = 1 the order shows in the last
+    /// bit: <c>(1 + 2ε) + 1</c> = 2 + 2ε exactly, where <c>((1 + ε) + 1) + ε</c> rounds to even twice and gives 2.
+    /// </remarks>
+    [Test]
+    public void LightAt_ALinearAndQuadraticLight_AddsFltEpsilonAfterTheLinearTerm()
+    {
+        GlintLight lamp = new(false, (1f, 0f, 0f), default, (1f, 1f, 1f), 0f, 0f, 1.00000012f, 1f);
+
+        EyeGlint.LightAt(lamp, (0f, 0f, 0f)).Colour.R.ShouldBe(1f / 2.00000024f);
+    }
+
+    /// <remarks>
     /// Every table entry returns 0 first where the light has a range and the point is past it (<c>d² &gt; range²</c>): a
     /// range of 1.5 at 2 units is dark, one of 3 is not. A directional light's delta is <c>−direction</c> (<c>0x180021900</c>),
     /// one unit long.
