@@ -111,8 +111,19 @@ public sealed class ScriptWaveDeck
     {
         ArgumentNullException.ThrowIfNull(scripts);
 
-        if (sound.WaveDraw is not { } draw || !scripts.TryGetValue(draw.Script, out SoundScriptEntry entry) || entry.Waves.Count == 0)
+        if (sound.WaveDraw is not { } draw)
         {
+            return sound;
+        }
+
+        if (!scripts.TryGetValue(draw.Script, out SoundScriptEntry entry) || entry.Waves.Count == 0)
+        {
+            // `GetParametersForSoundEx` fails and nothing plays, but this is still the follower its head was held for.
+            if (draw.After is { } before)
+            {
+                _heads.Remove(before);
+            }
+
             return sound;
         }
 
