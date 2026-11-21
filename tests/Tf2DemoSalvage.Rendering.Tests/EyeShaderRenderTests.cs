@@ -339,6 +339,39 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **The damping is `lum · SimpleSpline( lum / 0.01 )` below 0.01 and 1 above** (`eyes_dx8_dx9_helper.cpp:445-453`).
+    /// Two lamps at the camera put two glints on texel (16, 16), 139 + 139, saturated to 255, so the pixel is the damping
+    /// itself (linear, encoded):
+    /// - Luminance 0.008: `SimpleSpline( 0.8 )` = 0.896, damping 0.007168, 20 (20.35) — where `lum · x` would give 19
+    ///   (18.77) and `lum` alone 22; exact, since the spline is the only thing the row tells apart.
+    /// - 0.0101, just above the threshold: 1, so 255.
+    /// - 0.0099, just below: `0.0099 · 0.9997`, 25.
+    /// </remarks>
+    [TestCase(0.008f, 20, 0)]
+    [TestCase(0.0101f, 255, 1)]
+    [TestCase(0.0099f, 25, 1)]
+    public void DrawModelPose_EyesWithASaturatedGlint_AreDampedBySimpleSplineUnderOneHundredth(float cube, int expected, int tolerance)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, 1200f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+        AmbientCube dim = new((cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube), (cube, cube, cube));
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [Lamp(0f, -300f, 0f), Lamp(0f, -300f, 0f)], cube: dim);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes saturated glint, luminance {cube}: {texel}, predicted {expected}");
+        Math.Abs(texel.R - expected).ShouldBeLessThanOrEqualTo(tolerance, "the saturated glint times the damping");
+    }
+
+    /// <remarks>
     /// **The glint's lights are the face shaders' four, the sun first** (`EyeLightCount`), each as the engine builds its
     /// `LightDesc_t` (`engine.dll` `0x1800f2010`): the sun `MATERIAL_LIGHT_DIRECTIONAL` with no terms of its own, which
     /// the all-zero rule makes `a0 = 1` (`0x1800f2186`-`0x1800f2196`), and no range that cuts (0x1800f22cd, 1.8e19); a
