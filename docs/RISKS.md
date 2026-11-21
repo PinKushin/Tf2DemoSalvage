@@ -42388,6 +42388,19 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
+
+Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
+(`game/shared/SoundEmitterSystem.cpp:465-468`): `if ( !soundemitterbase->GetParametersForSoundEx( ep.m_pSoundName,
+handle, params, gender, true ) ) return;` — a name no loaded script declares draws nothing and plays nothing. *Read
+from published source.* Ours: a producer resolves the script against the catalog it was handed when it built the
+sound, and `ScriptWaveDeck.Deal` returns the sound UNCHANGED when the catalog at play time (`SoundPresenter.Scripts`,
+set per level) lacks that script — so it plays with the wave, volume, pitch and soundlevel its producer drew against a
+full deck. That happens when a sound built against one catalog (the install's, or another level's) is played after the
+catalog changed: a level's map script overriding or removing an entry, or a sound scheduled before the level's scripts
+arrived. How often the corpus hits it is not measured. The fix is to drop the sound at that early return (as a start;
+a stop or change of a patch never dealt already names nothing).
+
 ## B787 — `EntitySounds.Stream`'s seed `tick · 64 + entity` collides for an entity of 64 or more (2026-11-20) — OPEN
 
 Found by B782's review round 1. **Not fixed here.** `EntitySounds.SeedFor` (`managed/Tf2DemoSalvage.Presentation/EntitySounds.cs`)
@@ -42620,6 +42633,15 @@ emit replay confirmed against the engine), each fixed with its test seen red and
 4. The hundred-detaches test asserts the hundred first.
 5. `PhysicsFrictionSounds.Playing` (tests only) counts in a loop instead of allocating.
 6. `Scripts` is set when an install opens and again per map — twice for the first level; the remark says so.
+
+**Review round 4 (Sonnet, Fable, Gemini; no blocker):**
+
+1. *A level change forgot the patches but stopped none.* The engine stops them (`ShutdownFriction` → `SoundDestroy`,
+   `SystemReset` → `Shutdown`). The deck now records each kept patch's entity and channel; the `Scripts` setter queues
+   them and the next pass — the first to reach the sink — silences each. Checked: both setters run while a demo opens,
+   whose new schedule makes the first pass a reload that silences everything anyway; the stops do not rely on it.
+2. Round 3 item 1's entity teardown is cited and its unread step marked inferred.
+3. The missing-script comment no longer says "nothing plays" of ours; filed as B789.
 
 ## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
 

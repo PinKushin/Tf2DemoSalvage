@@ -118,7 +118,9 @@ public sealed class ScriptWaveDeck
 
         if (!scripts.TryGetValue(draw.Script, out SoundScriptEntry entry) || entry.Waves.Count == 0)
         {
-            // `GetParametersForSoundEx` fails and nothing plays, but this is still the follower its head was held for.
+            // The engine's `GetParametersForSoundEx` fails here and `EmitSoundByHandle` returns, so nothing plays
+            // (`SoundEmitterSystem.cpp:465-468`); ours still plays the sound as its producer drew it — B789, open. Either
+            // way this is the follower its head was held for, so it releases it.
             if (draw.After is { } before)
             {
                 _heads.Remove(before);

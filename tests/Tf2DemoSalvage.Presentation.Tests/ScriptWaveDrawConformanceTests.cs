@@ -214,8 +214,9 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
-    /// An impact whose script the deal-time catalog does not hold plays nothing (`GetParametersForSoundEx` fails), but it
-    /// is still the follower its shrapnel was held for, so the head goes with it rather than waiting for a reload.
+    /// An impact whose script the deal-time catalog does not hold plays nothing in the engine (`GetParametersForSoundEx`
+    /// fails, `SoundEmitterSystem.cpp:465-468`; ours still plays it, B789), but it is still the follower its shrapnel was
+    /// held for, so the head goes with it rather than waiting for a reload.
     /// </remarks>
     [Test]
     public void Deal_AnImpactWhoseScriptIsMissingAtDealTime_ReleasesItsShrapnel()
