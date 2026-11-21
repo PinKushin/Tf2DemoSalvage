@@ -173,8 +173,8 @@ and the whole `int` range, whose span wraps to 0 — and so does a difference ab
 `low + draw % span`. The old port was wrong both ways: it took a draw for `RandomInt( 5, 5 )` — moving the stream for
 every later caller — and divided by zero on `RandomInt( 0, -1 )`.
 
-*Measured:* the `vstdlib-random int` probe calls the shipped export and the port over twelve ranges, twenty rounds, seven
-seeds — 1,680 calls, all equal; the old port disagreed on the second call of seed 0. *Read from the shipped binary's
+*Measured:* the `vstdlib-random int` probe calls the shipped export and the port over fifteen ranges (the last three
+added in review to reach the `difference > 0x7fffffff` branch), twenty rounds, seven seeds — 2,100 calls, all equal; the old port disagreed on the second call of seed 0. *Read from the shipped binary's
 disassembly* for the rule. One approximation stays, in `ScriptWaveDeck`: it stores one draw of `RandomInt( 0,
 0x7ffffffe )` (which refuses nothing, since `maxAcceptable` there is `0x7ffffffe`, the generator's own ceiling) and takes
 it mod the wave count at play time, where the engine would refuse the draw with probability about `count / 2^31`.

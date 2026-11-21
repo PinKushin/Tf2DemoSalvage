@@ -43699,6 +43699,11 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    student, above the runtime's cached small-integer strings, and was red (64 bytes) with the text rebuilt per call.
 2. *`Init` still latched on a table that finds nothing* (Sonnet): the viewer always passes a lookup. It now latches only
    once a `Tip_%d_Count` resolves; `NextClassTip_BeforeTheTablesStringsResolve_*` was red on round 1's null test.
+3. *`RandomInt`'s `difference > 0x7fffffff` branch and its rejection were not pinned* (Fable, Sonnet). `(-1, int.MaxValue)`
+   and `(int.MinValue, 0)` added to the probe's ranges and the seed-0 sequence: the probe now reports 2,100 calls equal
+   to the shipped export. `RandomInt_ADifferenceAboveMaxRandomRange_*` and `RandomInt_AFirstDrawAboveTheThreshold_*`
+   (seed 3, `0..2^29`: the first number refused, the answer the second's) added. Sabotaged: the guard removed (three red),
+   the redraw removed (two red).
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

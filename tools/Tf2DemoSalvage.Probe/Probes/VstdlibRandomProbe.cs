@@ -55,6 +55,9 @@ public sealed class VstdlibRandomProbe : IProbe
     [
         (5, 5), (1, 100), (0, -1), (0, 0x40000000), (1, 9), (0, 3), (0, 0x40000000), (0, int.MaxValue - 1), (-7, 7),
         (int.MinValue, int.MaxValue), (0, 0x40000000), (1, 100),
+
+        // A difference of 2^31, above MAX_RANDOM_RANGE: answered with the low end and no draw, the `ja` at 0x18000fb9d.
+        (-1, int.MaxValue), (int.MinValue, 0), (1, 100),
     ];
 
     /// <summary>The exported global `RandomInt` against <see cref="UniformRandomStream.RandomInt"/>, range by range.</summary>
