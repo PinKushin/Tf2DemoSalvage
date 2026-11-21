@@ -79,8 +79,77 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
     /// also counts the runtime, so the least over several steps is taken (memory: a thread allocation counter counts the
     /// runtime).
     /// </remarks>
+    /// <remarks>
+    /// **The root's whole flex step allocates nothing on a stable model** (review 2 item 3): the decay, the controls and the
+    /// rule run, through the panel's own `RootFlexWeights`. The rules walk was a `foreach` over `IReadOnlyList`, a boxed
+    /// enumerator per rule per paint. Least over eight steps, after a first that sizes the buffers.
+    /// </remarks>
     [Test]
-    public void StepFlexControls_AfterTheFirstStep_AllocatesNothing()
+    public void RootFlexWeights_OnAStableMouthedModel_AllocatesNothingAfterTheFirstPaint()
+    {
+        TfPlayerModelPanel panel = Panel();
+        PropModels.ModelFrames model = Mouthed([new("default", "lip", -1f, 1f)]);
+        long least = long.MaxValue;
+
+        panel.StepRootFlex("models/player/scout.mdl", model);
+
+        for (int run = 0; run < 8; run++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            panel.StepRootFlex("models/player/scout.mdl", model);
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        least.ShouldBe(0L);
+    }
+
+    /// <remarks>
+    /// **The shared slots are kept per model and rebuilt on a switch** (review 2 item 3): one controller `lip` −1..1, then a
+    /// model of three — `jaw` 0..1, `lip` −1..1, `JAW` −1..1 — whose rule reads controller 0, which shares `JAW`'s slot, then
+    /// back. `m_flexWeight` is the panel's, by local index, never reset (:129): the second model's index 0 is the first's
+    /// `lip` weight stepped again. Weights after: paint 1 (A) index 0 0.025; paint 2 (B) index 0 decays as 0..1
+    /// (0.025·0.95 = 0.02375), index 2 as −1..1 from 0 (0.025, control −0.95): the rule reads −0.95 + 1 = 0.05. Paint 3 (A)
+    /// index 0 as −1..1 from 0.02375: −0.9525·0.95 = −0.904875, rule 0.095125.
+    /// </remarks>
+    [Test]
+    public void RootFlexWeights_ARootSwitchedBetweenModels_RebuildsTheSlotsForEach()
+    {
+        TfPlayerModelPanel panel = Panel();
+        PropModels.ModelFrames one = Mouthed([new("default", "lip", -1f, 1f)]);
+        PropModels.ModelFrames three = Mouthed(
+            [new("default", "jaw", 0f, 1f), new("default", "lip", -1f, 1f), new("default", "JAW", -1f, 1f)]);
+
+        panel.StepRootFlex("a.mdl", one).ShouldNotBeNull()[0].ShouldBe(0.05f, 1e-5f);
+        panel.StepRootFlex("b.mdl", three).ShouldNotBeNull()[0].ShouldBe(0.05f, 1e-5f, "controller 0 reads JAW's slot");
+        panel.StepRootFlex("a.mdl", one).ShouldNotBeNull()[0].ShouldBe(0.095125f, 1e-5f);
+    }
+
+    private static TfPlayerModelPanel Panel() => new(new HudViewport(), "classmodelpanel", new NoModels());
+
+    /// <summary>A mouthed model whose rule is `controller 0 + 1` into descriptor 0.</summary>
+    private static PropModels.ModelFrames Mouthed(StudioFlexController[] controllers) =>
+        new([], new System.Collections.Generic.Dictionary<int, (int, int, float)>(), [], [])
+        {
+            Mouths = [new StudioMouth(0, (1f, 0f, 0f), 0)],
+            HasTeeth = true,
+            Flex = new StudioFlexData(
+                ["lip"],
+                controllers,
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 1f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        };
+
+    private sealed class NoModels : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => null;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
+    [Test]
+    public void DecayAndFlexControls_WithKeptSlotsAndBuffers_AllocateNothing()
     {
         float[] flexWeight = new float[TfPlayerModelPanel.MaxStudioFlexCtrl];
         StudioFlexController[] controllers = [new("default", "jaw", 0f, 1f), new("default", "lip", -1f, 1f), new("default", "JAW", -1f, 1f)];

@@ -1093,6 +1093,9 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <summary><c>m_flexWeight[ index ]</c>, for the test that the decay steps every paint.</summary>
     internal float FlexWeightAt(int index) => _flexWeight[index];
 
+    /// <summary>One paint's <see cref="RootFlexWeights"/>, for the tests of its cache and its allocation.</summary>
+    internal float[]? StepRootFlex(string path, PropModels.ModelFrames frames) => RootFlexWeights(path, frames);
+
     /// <summary>
     /// <c>SetupFlexWeights</c> (:2275-2361) then <c>CMDL::Draw</c>'s <c>RunFlexRules</c> (B725 5f): the controls decayed one
     /// paint, the rules run on them. No scene plays and no voice speaks in a demo's panel, so <c>m_pScene</c> and the visemes

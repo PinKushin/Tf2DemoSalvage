@@ -60,8 +60,13 @@ public static class StudioFlexRules
 
         Span<float> stack = stackalloc float[StackSize];
 
-        foreach (StudioFlexRule rule in data.Rules)
+        // Index loops: a `foreach` over an `IReadOnlyList` boxes an enumerator per rule per call (B725 review 2).
+        IReadOnlyList<StudioFlexRule> rules = data.Rules;
+
+        for (int at = 0; at < rules.Count; at++)
         {
+            StudioFlexRule rule = rules[at];
+
             if (rule.Flex < 0 || rule.Flex >= descriptors || rule.Flex >= dest.Length)
             {
                 continue;
@@ -69,10 +74,11 @@ public static class StudioFlexRules
 
             stack.Clear();
             int k = 0;
+            IReadOnlyList<StudioFlexOp> ops = rule.Ops;
 
-            foreach (StudioFlexOp op in rule.Ops)
+            for (int step = 0; step < ops.Count; step++)
             {
-                k = Step(data, op, stack, k, src, dest, controllers, descriptors);
+                k = Step(data, ops[step], stack, k, src, dest, controllers, descriptors);
             }
 
             dest[rule.Flex] = stack[0];
