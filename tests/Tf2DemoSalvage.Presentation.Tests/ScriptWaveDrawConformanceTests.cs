@@ -181,8 +181,29 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
-    /// A deal draws from a COPY of the sound's stream, so dealing the same sound again — the skip of a seek back — draws the
-    /// same numbers against whatever the flags then hold.
+    /// A patch made with no draw before it — a medigun's `SoundCreate` (`tf_weapon_medigun.cpp:2061`) — is played by
+    /// `Play( patch, volume, pitch )` all the same: `GetVolumeForEngine` multiplies the volume `Play` gave by the script
+    /// volume `CSoundPatch::Init` drew (`soundenvelope.cpp:353-381`), and the pitch is `Play`'s.
+    /// </remarks>
+    [Test]
+    public void Deal_AScaledFirstDraw_MultipliesItsVolumeByTheScriptVolumeItDraws()
+    {
+        SoundScriptEntry entry = Entry("Test.Patch", "loop.wav");
+        SceneSound patch = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: false, scaled: true) with
+        {
+            Volume = 0.5f,
+            Pitch = 100,
+        };
+
+        SceneSound dealt = new ScriptWaveDeck().Deal(patch, Scripts(entry));
+
+        float scriptVolume = Seeded(7).RandomFloat(entry.Volume.Low, entry.Volume.High);
+        (dealt.Volume, dealt.Pitch).ShouldBe((0.5f * scriptVolume, 100));
+    }
+
+    /// <remarks>
+    /// A deal moves its own stream to the sound's position, so dealing the same sound again — the skip of a seek back —
+    /// draws the same numbers against whatever the flags then hold.
     /// </remarks>
     [Test]
     public void Deal_TheSameSoundTwice_DrawsTheSameNumbers()

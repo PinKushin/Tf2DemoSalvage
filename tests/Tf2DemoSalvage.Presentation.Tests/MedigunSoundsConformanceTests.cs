@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
@@ -39,6 +40,22 @@ public sealed class MedigunSoundsConformanceTests
         IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, scripts);
 
         sounds.ShouldAllBe(sound => sound.Pitch == 100);
+    }
+
+    /// <remarks>
+    /// `controller.Play( patch, 1.f, 100.f )` (`tf_weapon_medigun.cpp:2061`, `:2327`): the patch's volume is 1, which
+    /// `GetVolumeForEngine` multiplies by the script volume `CSoundPatch::Init` drew — so each is a SCALED draw, and its
+    /// volume when dealt is the script's, 0.75 here.
+    /// </remarks>
+    [Test]
+    public void For_EachPatch_PlaysVolumeOneTimesTheScriptVolumeItDraws()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, scripts);
+
+        sounds.ShouldAllBe(sound => sound.WaveDraw != null && sound.WaveDraw.Scaled);
+        sounds.Select(static sound => sound.Volume).ShouldBe([1f, 1f, 1f]);
+        new ScriptWaveDeck().Deal(sounds[0], scripts).Volume.ShouldBe(0.75f);
     }
 
     /// <remarks>

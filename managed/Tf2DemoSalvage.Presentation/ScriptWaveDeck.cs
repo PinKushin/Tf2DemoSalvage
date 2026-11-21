@@ -115,12 +115,13 @@ public sealed class ScriptWaveDeck
 
         SceneSound dealt = sound with { Name = wave, SoundLevel = drawn.SoundLevel };
 
-        if (draw.After is null)
+        // A patch, first draw or not: `Play`'s volume times the script volume drawn, at `Play`'s pitch.
+        if (draw.Scaled)
         {
-            return dealt;
+            return dealt with { Volume = sound.Volume * drawn.Volume };
         }
 
-        return draw.Scaled ? dealt with { Volume = sound.Volume * drawn.Volume } : dealt with { Volume = drawn.Volume, Pitch = drawn.Pitch };
+        return draw.After is null ? dealt : dealt with { Volume = drawn.Volume, Pitch = drawn.Pitch };
     }
 
     /// <summary>

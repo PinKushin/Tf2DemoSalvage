@@ -116,9 +116,15 @@ public static class MedigunSounds
     /// <summary>
     /// `SoundCreate` then `controller.Play( patch, 1.f, 100.f )` (`tf_weapon_medigun.cpp:2061`, `:2327`): `CSoundPatch::Init`
     /// (`soundenvelope.cpp:353-381`) keeps the script's wave, volume, soundlevel and channel, and the patch plays at its
-    /// own pitch.
+    /// own pitch and at volume 1 times the script volume it kept — a SCALED draw, whose script volume the deal supplies.
     /// </summary>
-    private static SceneSound? Patch(SceneSound? drawn) => drawn is { } sound ? sound with { Pitch = PatchPitch } : null;
+    private static SceneSound? Patch(SceneSound? drawn) =>
+        drawn is { } sound
+            ? sound with { Pitch = PatchPitch, Volume = PatchVolume, WaveDraw = sound.WaveDraw! with { Scaled = true } }
+            : null;
+
+    /// <summary>The volume both medigun patches are played at.</summary>
+    private const float PatchVolume = 1f;
 
     /// <summary>The pitch both medigun patches are played at.</summary>
     private const int PatchPitch = 100;
