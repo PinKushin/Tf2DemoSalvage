@@ -580,12 +580,17 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     internal int KeptFaces => _faces.Count;
 
     /// <summary>
-    /// Drops what this panel keeps by a model's frames — its CMDLs' mesh faces and the zero-control weights — when a level
-    /// ends (B779 review 3 item 4). A CMDL panel hears no <c>game_newmap</c>; this is not behaviour, only memory: each is
-    /// rebuilt from the next level's frames at the next paint, as it would be on finding the frames changed.
+    /// Drops what this panel keeps by a model's path or frames — its posing entities, its CMDLs' mesh faces and the
+    /// zero-control weights — when a level ends (B779 review 3 item 4, review 6 item 4). A CMDL panel hears no
+    /// <c>game_newmap</c>. The faces and weights are memory only, rebuilt from the next level's frames at the next paint as
+    /// they would be on finding the frames changed; the entities are behaviour too, since each is posed on the skeleton its
+    /// model made, and a path read again from the next map must be posed on its own.
     /// </summary>
     public virtual void ForgetLevel()
     {
+        // The posing entities too, each built from its model's skeleton: the path read again would be posed on the old one
+        // (review 6 item 4).
+        _entities.Clear();
         _zeroControlWeights.Clear();
         _root.MeshFlex.Release();
 
@@ -594,6 +599,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             merge.MeshFlex.Release();
         }
     }
+
+    /// <summary>The posing entity this panel keeps for a model path, or null.</summary>
+    /// <param name="modelPath">The path.</param>
+    /// <returns>The entity.</returns>
+    internal AnimatingEntity? KeptEntity(string modelPath) => _entities.GetValueOrDefault(modelPath);
 
     /// <summary>How many models' zero-control weights this panel keeps.</summary>
     internal int KeptZeroControlWeights => _zeroControlWeights.Count;

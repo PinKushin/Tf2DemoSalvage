@@ -272,7 +272,8 @@ public sealed partial class FramePresenter
 
         // `game_newmap`: each `CModelPanel` sets its models up again from the next level's frames (basemodelpanel.cpp:196-205,
         // B779 review 2). Here, at every level change, rather than at `LevelInit`, which only a load that succeeds reaches
-        // while the model set forgets every model either way (review 4 item 5); a panel stays dirty until its models load.
+        // while the model set forgets every model either way (review 4 item 5); a panel that finds a model missing then keeps
+        // it and sets itself up again once the precache brings it (review 5).
         // The HUD outlives the level; a HUD not built yet has nothing to set up.
         _vguiHud?.Viewport.NewMap();
     }

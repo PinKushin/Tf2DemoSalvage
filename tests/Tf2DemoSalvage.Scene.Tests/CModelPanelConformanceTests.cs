@@ -516,10 +516,12 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **A panel whose model is not loaded yet stays dirty until it is** (B779 review 3 item 2): the engine's `SetupModel`
-    /// loads the model in the call (`basemodelpanel.cpp:387`, `modelinfo` by name), so its `UpdateModel` (:520) clearing the
-    /// flag always follows a set-up model. Ours precaches the panel's models on the frame, so a paint can come first; were
-    /// the flag cleared then, the model would never be set up. First paint: nothing loaded, nothing drawn; second: drawn.
+    /// **A panel whose model is not loaded yet is set up once it is, and then left alone** (B779 reviews 3, 5, 6): the
+    /// engine's `SetupModel` loads the model in the call (`basemodelpanel.cpp:387`, `modelinfo` by name), so its `UpdateModel`
+    /// (:520, the flag cleared at :534) always follows a set-up model. Ours precaches the panel's models on the frame, so a
+    /// paint can come first: the panel clears its flag as the engine does, keeps the model it missed, and sets itself up
+    /// again when that model can be found. First paint: nothing loaded, nothing drawn; second: drawn; third: the same model,
+    /// the panel clean.
     /// </remarks>
     [Test]
     public void Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
@@ -538,6 +540,12 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(surface, viewport.Context!);
 
         surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem();
+        object? setUp = panel.SetUpModel;
+
+        panel.Paint(surface, viewport.Context!);
+
+        panel.SetUpModel.ShouldBeSameAs(setUp, "set up once the model loaded, not again");
+        panel.PanelDirty.ShouldBeFalse();
     }
 
     /// <remarks>
@@ -591,10 +599,40 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **A late attached model is set up once it loads** (B779 review 4 item 4): `SetupModel` skips an attached model it
-    /// cannot find (`continue`), and the engine's never misses one, its load being in the call (:387). Ours precaches on the
-    /// frame, so the panel stays dirty until every model it names is set up. First paint: the root alone; second, once the
-    /// attachment has loaded: both.
+    /// **A CMDL panel poses the next level's model on a skeleton made from it** (B779 review 6 item 4): the panel keeps one
+    /// posing entity per path, built from that model's `NewSkeleton()`; kept across a level, the path read again from the next
+    /// map's files would be posed on the old model's skeleton, and keep the old level's model alive. `ForgetLevel` drops them
+    /// with the faces. The control: within a level, the same path keeps its entity.
+    /// </remarks>
+    [Test]
+    public void NewMap_ThenThePathReadAgain_PosesItOnANewEntity()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        PropModels.ModelFrames current = Frames(eyed: false, mouthed: false);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => current, null)) { Wide = 100, Tall = 100 };
+        const string path = "models/player/demo.mdl";
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        mdl.SetMDL(path);
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        mdl.Paint(surface, viewport.Context);
+        Animation.Animating.AnimatingEntity first = mdl.KeptEntity(path).ShouldNotBeNull();
+        mdl.Paint(surface, viewport.Context);
+        mdl.KeptEntity(path).ShouldBeSameAs(first, "the control: one entity within a level");
+
+        viewport.NewMap();
+        current = Frames(eyed: false, mouthed: false);
+        mdl.Paint(surface, viewport.Context);
+
+        mdl.KeptEntity(path).ShouldNotBeNull().ShouldNotBeSameAs(first);
+    }
+
+    /// <remarks>
+    /// **A late attached model is set up once it loads, and then left alone** (B779 reviews 4-6): `SetupModel` skips an
+    /// attached model it cannot find (`continue`, :473-478), and the engine's load is in the call (:387), so a late one is
+    /// ours alone: the panel keeps the models a set-up missed and sets itself up again when one can be found. First paint:
+    /// the root alone; second, once the attachment has loaded: both; third: the same model, the panel clean — nothing missed
+    /// is left, so nothing is set up again.
     /// </remarks>
     [Test]
     public void Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
@@ -618,12 +656,18 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(surface, viewport.Context!);
 
         surface.Draws[1].Models.Count.ShouldBe(2);
+        object? setUp = panel.SetUpModel;
+
+        panel.Paint(surface, viewport.Context!);
+
+        panel.SetUpModel.ShouldBeSameAs(setUp, "set up once the attachment loaded, not again");
+        panel.PanelDirty.ShouldBeFalse();
     }
 
     /// <remarks>
     /// **An attached model that never loads leaves the panel as the engine leaves it** (B779 review 5 item 1): `SetupModel`
     /// skips a failed attachment (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it
-    /// whatever happened (:531) — the panel clean, the root set up once and animating, the attachment absent. Held dirty, the
+    /// whatever happened (:534) — the panel clean, the root set up once and animating, the attachment absent. Held dirty, the
     /// panel would set its root up again at every paint (its cycle back to zero, its delayed flex weights back to rest). Three
     /// paints, the attachment never there: one model instance throughout, drawn alone, the panel clean. Its frames answer
     /// `Skinned` null, a load that failed rather than one not yet made; an empty `modelname` is a second attachment that

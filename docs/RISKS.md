@@ -42803,7 +42803,9 @@ the HUD through an install of nothing; the call is tested since review 3.
    All three passed first, the wiring being there; each was sabotaged.
 2. *A panel whose model was not loaded at its first paint never set it up* (low): `UpdateModel` cleared the flag after a
    `SetupModel` that found no model. The engine's `SetupModel` loads in the call (:387), so its clear always follows a
-   set-up model; ours precaches on the frame, so the flag now stays until the named model is there.
+   set-up model; ours precaches on the frame, so the flag now stays until the named model is there. *Superseded in
+   review 5*: the flag clears after every set-up as the engine's does (:534), and the panel keeps the models it missed and
+   sets itself up again when one can be found.
    `CModelPanelConformanceTests.Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` (red first: nothing drawn).
 3. *A frame's precache list allocated* (low): each panel adds to a caller's list (`AddModelsToPrecache`), the presenter
    keeps one, and `PrecacheChanged` compares element by element against its kept copy. `PackedVerticesTests.PrecacheChanged_AnUnchangedList_AllocatesNothing`
@@ -42833,7 +42835,8 @@ release row, at the CMDL panel).
 3. *The HUD's list*: `VguiHudPrecacheTests.AddModelsToPrecache_PanelsWithModels_ListsEachPanelsModelsInOrder`, on a HUD with
    no install whose class panel, doors (with an attachment) and round sign are given models by hand.
 4. *A late attached model was never set up*: `SetupModel` skipped it and the flag cleared. The panel now stays dirty until
-   every model it names is set up. `CModelPanelConformanceTests.Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`
+   every model it names is set up (*superseded in review 5*: the flag clears as the engine's does, and the panel sets
+   itself up again when a model it missed can be found). `CModelPanelConformanceTests.Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`
    (red first: the root alone at the second paint). ~~While dirty the panel is set up again each paint, so its animation
    restarts on each such paint until the attachment loads — *interpolated* as a few frames at most; not measured.~~
    **Wrong** (review 5): for an attachment that never loads — a missing file, frames with no skinned model — "until it
@@ -42841,7 +42844,8 @@ release row, at the CMDL panel).
    back at rest, its arrays reallocated. Replaced in review 5 item 1.
 5. *`game_newmap` missed a failed load*: `ViewerPresenter.ClearMap` runs `FramePresenter.ClearMap` and then the level
    shutdown at every level change, while `LevelInit` follows only a load that succeeded. `NewMap` moved to
-   `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here).
+   `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here — *superseded in
+   review 5*: a panel that finds a model missing keeps it and sets itself up again once the precache brings it).
    `FramePresenterHudTests.ClearMap_OnceTheHudExists_MarksItsModelPanelsDirty` replaces the level-init row (red first).
 6. *Test-only wrappers*: `VguiMdlPanel.ModelsToPrecache()` and `VguiModelPanel.ModelsToPrecache()` removed (D180); their
    two tests use `AddModelsToPrecache`.
@@ -42863,7 +42867,7 @@ nothing, and was redone).
 **Review round 5** (one medium, both reviewers; fixed here):
 1. *An attached model that never loads rebuilt the panel every paint* (medium) — round 4 item 4 held the flag until every
    named model loaded, and a failed load never does. The engine: `SetupModel` skips a model that fails to load
-   (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it whatever it found (:531);
+   (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it whatever it found (:534);
    the root animates without its attachment. Ours now does the same, and keeps the models a set-up missed: the panel is
    set up again only when one of them can be found — a late precache (the HUD's list is precached on the frame, so a
    model first named this frame is packed by the next) — and a load that failed stays missing at one lookup a paint. An
@@ -42880,6 +42884,26 @@ nothing, and was redone).
    handling not read), and a `CModelPanelModel`'s `RunFlexDelay` stepping once per `Draw` here (once a paint), where the
    engine steps it once per draw of the entity — the same while a panel draws its model once a paint, which is not
    measured.
+
+**Review round 6** (no high or medium; fixed here):
+1. *The late rows stopped at the loading paint*: removing `_missed.Clear()` would rebuild the root every later paint —
+   round 5's defect for a late model — unseen. `Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` and
+   `Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` now paint a third time: the same model, the panel clean.
+2. *Citation*: `m_bPanelDirty = false` is `basemodelpanel.cpp:534` (:531 is `SetupVCD`), read; corrected here, in
+   `VguiModelPanel` and the failed-attachment row's remark.
+3. *"Stays dirty until its models load"*: superseded notes on round 3 item 2 and round 4 items 4 and 5 above, and the
+   wording in `FramePresenter.ClearMap` and the two late rows' remarks.
+4. *A CMDL panel posed the next level's model on the old one's skeleton*: its posing entities, one per path built from that
+   model's `NewSkeleton()`, outlived the level. `ForgetLevel` clears them. `CModelPanelConformanceTests.NewMap_ThenThePathReadAgain_PosesItOnANewEntity`
+   (red first: the same entity after the level change).
+5. *When a model first named is packed*, read in the code: in one overlay frame `FramePresenter.BuildOverlay` builds the
+   panels' list and precaches it (`FramePresenter.Hud.cs:283-284`) before the HUD paints (`_vguiHud.Frame(`, :300), and
+   `Precache` writes the set's frames in the same call (`EntityModels.Packing.cs:263`). So a model a panel first names
+   during a frame's paint (its `.res` applied, a class change) is missed by that paint, packed at the next frame's :284,
+   and found by that frame's paint — round 5's "packed by the next" holds, for the next frame's paint.
+
+*Sabotage*: `_missed.Clear()` removed (both late rows, at the third paint's instance), `_entities.Clear()` removed (the
+new-entity row).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

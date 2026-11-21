@@ -392,7 +392,7 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
     /// <remarks>
     /// **The engine's flag, and one addition for our precache** (B779 reviews 3-5). `UpdateModel` clears `m_bPanelDirty`
-    /// after `SetupModel` whatever it found (:531), and `SetupModel` skips a model that fails to load (:473-478): the root
+    /// after `SetupModel` whatever it found (:534), and `SetupModel` skips a model that fails to load (:473-478): the root
     /// animates without its missing attachment, set up once. So does ours. The engine's load is in the call
     /// (`modelinfo` by name, :387); ours precaches a panel's models on the frame, so a paint can come before a model is
     /// packed. **The models a set-up missed are kept, and the panel is set up again only when one of them can now be found**
