@@ -408,6 +408,9 @@ public sealed class TfSpectatorGuiConformanceTests
         HudViewport viewport = (HudViewport)gui.Parent!;
         HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
 
+        // A heavy at 350 of 450: numbers above the runtime's cached small-integer strings, so `SetHealth`'s text is
+        // measured, and called every frame as the engine calls it (:771).
+        coach = coach with { Players = [coach.Players![0], coach.Players[1] with { EntityHealth = 350, MaxHealth = 450, MaxHealthForBuffing = 450 }] };
         strings["TF_Coach_Student_Prefix"] = "Student: %s1";
         strings["TF_Coach_Slot1Label"] = "[%slot1%]";
         strings["TF_Coach_Slot2Label"] = "[%slot2%]";
@@ -421,6 +424,7 @@ public sealed class TfSpectatorGuiConformanceTests
         long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
 
         gui.DialogVariable("student_name").ShouldBe("Student: pupil", "the control: the coach path ran");
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("350", "and the health panel was set");
         allocated.ShouldBe(0L);
     }
 
@@ -444,6 +448,29 @@ public sealed class TfSpectatorGuiConformanceTests
         gui.DialogVariable("student_distance").ShouldBe("Distance: 25 (must stay within 30)");
         gui.DialogVariable("student_name").ShouldBe("Student: learner");
         gui.StudentHealth.DialogVariable("Health").ShouldBe("80");
+    }
+
+    [Test]
+    public void Update_ASteadyStudentHealthAcrossASchemeReload_ShowsTheHealthBackgroundAgain()
+    {
+        // The engine calls `m_pStudentHealth->SetHealth` every frame (:771). A scheme reload re-reads the panel's `.res`,
+        // which hides `PlayerStatusHealthImageBG`; the next frame's `SetHealth` shows it again for a living student even
+        // though his health has not changed (tf_hud_playerstatus.cpp `SetHealth`).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeTrue("the control: a living student's background shows");
+
+        gui.StudentHealth.InvalidateLayout(reloadScheme: true);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeFalse("the reload re-read the .res");
+
+        gui.Update(coach);
+        gui.StudentHealth.HealthImageBackground.Visible.ShouldBeTrue();
     }
 
     [Test]
@@ -729,6 +756,14 @@ public sealed class TfSpectatorGuiConformanceTests
                     "CycleTargetRevKeyLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetRevKeyLabel" "labelText" "#TF_Spectator_ClassOrTeamKey" }
                     "CycleTargetRevLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetRevLabel" "labelText" "#TF_Spectator_CycleTargetRev" }
                     "TipLabel" { "ControlName" "CExLabel" "fieldName" "TipLabel" "labelText" "%tip%" }
+                }
+                """),
+            // The student's health panel's own layout: the background hidden until `SetHealth` shows it, as a reload of
+            // the shipped file leaves it.
+            ["resource/UI/SpectatorGUIHealth.res"] = Encoding.UTF8.GetBytes("""
+                "resource/UI/SpectatorGUIHealth.res"
+                {
+                    "PlayerStatusHealthImageBG" { "ControlName" "ImagePanel" "fieldName" "PlayerStatusHealthImageBG" "visible" "0" }
                 }
                 """),
             ["Resource/UI/SpectatorCoach.res"] = Encoding.UTF8.GetBytes("""

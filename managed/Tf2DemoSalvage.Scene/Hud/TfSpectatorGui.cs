@@ -464,7 +464,6 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private string? _studentNameSource;
     private string? _studentNameFormat;
     private bool _studentNameSet;
-    private (int Health, int Max, int MaxBuffed)? _studentHealthShown;
 
     /// <summary>
     /// The "coaching stuff" closing `UpdateKeyLabels` (:714-785), for any layout: with a student, his name under
@@ -518,15 +517,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         int health = student.EntityHealth ?? 0;
         int maxHealth = student.MaxHealth ?? 1;
 
-        (int, int, int) inputs = (health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
-
-        // `SetHealth` with the same three values changes nothing it holds, so it is called only on a change.
-        if (_studentHealthShown != inputs)
-        {
-            _studentHealthShown = inputs;
-            StudentHealth.SetHealth(inputs.Item1, inputs.Item2, inputs.Item3);
-        }
-
+        // Every frame, as the engine calls it (:771): `SetHealth` also restores the panel's tint, backgrounds and bonus
+        // image, which a scheme reload resets while the health holds steady.
+        StudentHealth.SetHealth(health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
         StudentHealth.Visible = true;
     }
 

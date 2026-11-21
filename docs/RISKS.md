@@ -43673,8 +43673,8 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    client, whose `m_bIsCoaching` is never sent (false). Code reworded to read as the engine does and pinned by
    `Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas` (red with the early-out removed).
 5. *The coach path allocated every frame* (Sonnet, Fable). The student name, the two coach commands (`BoundText`, as the
-   hint), the distance (on metres and format) and the student's `SetHealth` (on its three values) are now kept until an
-   input changes; `HudState.Player` and the observer-target walk index instead of `foreach` over an interface, whose
+   hint) and the distance (on metres and format) are now kept until an input changes (the student's `SetHealth` cache
+   added here was wrong and removed in round 2); `HudState.Player` and the observer-target walk index instead of `foreach` over an interface, whose
    enumerator was a heap object per call. A steady coach frame measured 7,072 bytes, now 0
    (`Update_ASteadyCoachFrame_AllocatesNothing`; 1,832 with the distance cache broken).
    `Update_ACoachWhoseStudentMovesRenamesAndIsHurt_*` holds the invalidation — red with the name, and separately the
@@ -43688,6 +43688,15 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    `GetRandomTip` :99 (draws :112, :114 discarded, :119), the chance :105-110, `GetNextClassTip` :143 (out-of-range
    :148, arena :151, wrap :161-164), `GetArenaTip` :176 (its advance :197), `GetTip` :206. The garbled "same first draw,
    21 … 17" comment now reads 17; `Bound`'s summary names `outbuf[0] = 0` (cdll_util.cpp:872).
+
+**Review round 2 (2026-11-20, Sonnet, Fable, Gemini):**
+1. *The student-health cache was not a no-op* (all three). `SetHealth` also restores the cross's tint, both backgrounds,
+   the bonus image and the pulse state, which a scheme reload resets while the health holds; the engine calls it every
+   frame (:771). The cache is gone. `Update_ASteadyStudentHealthAcrossASchemeReload_*` was red with it — on its control
+   already: the first `SetHealth` ran before the layout's first scheme pass, which re-hid the background, and the cache
+   skipped the frame that would have shown it. To keep the frame at 0 bytes, `SetHealth` keeps each number's text by value
+   and `ForceSubPanelsToUpdateWithNewDialogVariables` walks `Children` by index; the allocation test now uses a 350/450
+   student, above the runtime's cached small-integer strings, and was red (64 bytes) with the text rebuilt per call.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
