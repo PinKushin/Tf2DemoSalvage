@@ -366,6 +366,14 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **`+DEMO_TIMESCALE 8` is the playback speed as `+demo_timescale 8` is** (B791 review 11, Fable): the console finds a
+    /// command in any case; before, the upper-case one fell to the generic branch and set no speed.
+    /// </remarks>
+    [Test]
+    public void Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed() =>
+        Read("+DEMO_TIMESCALE", "8", "a.dem").PlaybackSpeed.ShouldBe(8d);
+
+    /// <remarks>
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
     /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
     /// </remarks>

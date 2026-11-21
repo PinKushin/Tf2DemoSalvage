@@ -315,6 +315,23 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **`sv_cheats 0` reverts a wireframe the menu turned on, too** (B791 review 11, Sonnet): the menu records its value for
+    /// the run, so the revert finds `mat_wireframe 1` and announces `0`, which unticks the item and clears the device.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_SvCheatsZeroAfterTheMenuSetWireframe_ClearsTheDevice()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F8\" \"sv_cheats 0\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+        rig.Window.ShowWireframe(true);
+        rig.Device.Wireframe.ShouldBeTrue("the control: the menu's tick reached the device");
+
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// B791: the menu's wireframe is recorded for this run, as its fullbright is (B671 review, D215), so a `toggle
     /// mat_wireframe` after it reads what the menu set and turns it off; without the record it read 0 and set 1.
     /// </remarks>

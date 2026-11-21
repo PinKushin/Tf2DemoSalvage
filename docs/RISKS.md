@@ -42555,7 +42555,7 @@ like the world's brushes. A lead for the read: `studiorender.dll` also names `de
 
 ## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — FIXED (2026-11-21)
 
-Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
+*As found (2026-11-20; the present tense below is the state when filed, fixed in the **Fixed** paragraph).* Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
 `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
 `istudiorender.h:62-69`, the bitfields from bit 0) to `sv_cheats && mat_wireframe` (`0x1800f5855`-`0x1800f5873`; the
 ConVars at `0x180731d30` and `0x1806a0640`), and `bSoftwareSkin` (bit 1) with it. `studiorender.dll`
@@ -42623,7 +42623,7 @@ world's brushwork and brush entities under `mat_wireframe` still draw their own 
 
 ## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
 
-Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
+*As found (2026-11-20; the present tense below is the state when filed, fixed in the **Fixed** paragraph).* Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
 while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `+name value` launch option — and reverted
 when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigConsole.cs:877`, `:927`;
 `LaunchOptions.cs:227`), and `mat_wireframe` is not in `EngineConVars`, so nothing marks it a cheat: a config's
@@ -42665,7 +42665,15 @@ announced under the ConVar's own name as well (`…Load_AMixedCaseLineAfterTheSe
 red with the typed case), and the launch line's refusal names the ConVar as it spells itself. **Not gated, by D253**: the
 viewer's own settings file — a hand-written `mat_wireframe 1` there turns wireframe on at the device's opening with
 `sv_cheats 0`, as `mat_fullbright` there always has, because that file keeps the menus' choices
-(`OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice` pins it). That reverses, for `sv_cheats` alone, the rule that a
+(`OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice` pins it). Review 11: `+DEMO_TIMESCALE 8` is the
+playback speed as the lower-case one is (`Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed`, red with an ordinal match);
+the launch line stores and logs an accepted set under the ConVar's own name; `ViewerSettings.ConVarText`'s clamp finds
+the ConVar in any case; `sv_cheats 0` reverting a menu-set wireframe is pinned
+(`KeyPressed_SvCheatsZeroAfterTheMenuSetWireframe_ClearsTheDevice`, red without the menu's record). Untested and left:
+the launch line's log text (the tests read it through a null logger; only the stored values are asserted);
+`ViewerSettings.ConVarText`'s typed-setting lookup stays ordinal, as every caller passes the engine's own name;
+the no-install branch of `LoadWireframeMaterial` (a test cannot reach the loader without an install), and the opaque
+pass taking a translucent mesh under the swap (the engine's split unread, as above). That reverses, for `sv_cheats` alone, the rule that a
 replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
 default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
