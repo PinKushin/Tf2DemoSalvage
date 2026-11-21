@@ -548,14 +548,22 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11Buffer> _eyeConstants;
 
     /// <summary>
-    /// <c>_rt_eyeglint</c>: 32×32, eight bits a channel, linear (<c>studiorender.dll</c> <c>0x18001dcb0</c>), rewritten for
-    /// each Eyes draw from <see cref="Scene.EyeGlint.Rasterise"/> into <see cref="_glintTexels"/>.
+    /// <c>_rt_eyeglint</c> or <c>proc_eyeglint</c>: 32×32, eight bits a channel, linear (<c>studiorender.dll</c>
+    /// <c>0x18001dcb0</c>), rewritten for each Eyes draw that has a glint into <see cref="_glintTexels"/>.
     /// </summary>
     private ComPtr<ID3D11Texture2D> _glintTexture;
 
     private ComPtr<ID3D11ShaderResourceView> _glintView;
 
+    /// <summary><c>vgui/black</c>, which the engine binds for an eye with no glint (<c>0x18001e0a1</c>, <c>0x18001f55a</c>).</summary>
+    private ComPtr<ID3D11Texture2D> _glintBlackTexture;
+
+    private ComPtr<ID3D11ShaderResourceView> _glintBlack;
+
     private readonly byte[] _glintTexels = new byte[Scene.EyeGlint.Size * Scene.EyeGlint.Size * 4];
+
+    /// <summary><c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> (B725 glint review 1, 2).</summary>
+    internal Scene.GlintSwitches Glint { get; set; }
 
     /// <summary>The face materials whose own cube is 8-bit (<see cref="IsByteCube"/>), so the eye shader reads it through sRGB.</summary>
     private readonly HashSet<int> _eyeByteCubes = [];
@@ -631,6 +639,8 @@ internal sealed unsafe partial class WorldRenderer
         _eyeConstants.Dispose();
         _glintView.Dispose();
         _glintTexture.Dispose();
+        _glintBlack.Dispose();
+        _glintBlackTexture.Dispose();
     }
 
     /// <summary>
@@ -680,8 +690,9 @@ internal sealed unsafe partial class WorldRenderer
 
         // **Eyes renders its glint for this draw first** (B725 item 3): `0x18000f7c1` sets `$glintu`/`$glintv` and binds
         // `$glint` as the mesh's material is set up.
-        ((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) glint =
-            parameters.Shader == Scene.EyeShader.Eyes ? WriteGlint(context, state, sun, locals) : default;
+        (((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) glint,
+            ComPtr<ID3D11ShaderResourceView> glintTexture) =
+            parameters.Shader == Scene.EyeShader.Eyes ? WriteGlint(context, state, sun, locals) : (default, _glintBlack);
 
         MappedSubresource mapped = default;
 
@@ -739,7 +750,7 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(EyeOcclusionSlot, 1, ref eye.Occlusion);
         context.PSSetShaderResources(EyeIrisSlot, 1, ref eye.Iris);
         context.PSSetShaderResources(EyeBumpSlot, 1, ref eye.Bump);
-        context.PSSetShaderResources(EyeGlintSlot, 1, ref _glintView);
+        context.PSSetShaderResources(EyeGlintSlot, 1, ref glintTexture);
 
         return true;
     }
@@ -803,6 +814,14 @@ internal sealed unsafe partial class WorldRenderer
 
         SilkMarshal.ThrowHResult(_device.CreateTexture2D(in glint, null, ref _glintTexture));
         SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_glintTexture, null, ref _glintView));
+
+        // `vgui/black`: one black texel, made once.
+        Texture2DDesc black = glint with { Width = 1, Height = 1, Usage = Usage.Immutable, CPUAccessFlags = 0 };
+        uint opaqueBlack = 0xFF000000u;
+        SubresourceData initial = new() { PSysMem = &opaqueBlack, SysMemPitch = 4 };
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in black, in initial, ref _glintBlackTexture));
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_glintBlackTexture, null, ref _glintBlack));
     }
 
     /// <summary>
@@ -814,35 +833,63 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="eye">The eye's state.</param>
     /// <param name="sun">The draw's sun, the first of its lights where it reaches the model.</param>
     /// <param name="locals">Its lamps, after the sun, four lights in all as the face shaders take them.</param>
-    /// <returns>The projection.</returns>
+    /// <returns>The projection, and the texture <c>$glint</c> takes: the filled target, or <c>vgui/black</c>.</returns>
     /// <remarks>
     /// **Not parity in mechanism: the CPU fills the target** that the engine renders with a quad per glint through
     /// <c>eyeglint_ps2x</c>. <see cref="Scene.EyeGlint.Rasterise"/> evaluates that pixel shader at the texels D3D9's
-    /// rasteriser covers and blends each quad into eight bits before the next, so the target's bytes are the engine's.
+    /// rasteriser covers and blends each quad into eight bits before the next, so the target's bytes are the engine's to
+    /// within one on a rare rounding tie (the normalises, B725). Under <c>r_glint_procedural</c> the engine's own CPU
+    /// regenerator, <see cref="Scene.EyeGlint.RegenerateProcedural"/>, fills it instead.
     /// </remarks>
-    private ((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) WriteGlint(
+    private (((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) Projection,
+        ComPtr<ID3D11ShaderResourceView> Texture) WriteGlint(
         ComPtr<ID3D11DeviceContext> context, Scene.EyeShading eye, SunLight? sun, IReadOnlyList<LocalLight>? locals)
     {
-        uint viewports = 1;
-        Viewport viewport = default;
-
-        context.RSGetViewports(ref viewports, ref viewport);
-
         (float X, float Y, float Z) origin = _eye ?? (0f, 0f, 0f);
-        ((float X, float Y, float Z) right, Core.Scene.ScreenFadeView screen) =
-            Scene.EyeGlint.View(_cameraContents.AsSpan(0, 16), origin, viewport.Height);
-        Span<Scene.EyeGlintPoint> glints = stackalloc Scene.EyeGlintPoint[Scene.EyeGlint.MaxGlints];
-        int count = 0;
+        float viewportHeight = 0f;
 
-        if (Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius))
+        // The viewport only for the level of detail, which `r_glint_alwaysdraw` skips.
+        if (!Glint.AlwaysDraw)
         {
-            Span<Scene.GlintLight> lights = stackalloc Scene.GlintLight[LocalLightSlots];
-            int lit = GlintLights(sun, locals, lights);
+            uint viewports = 1;
+            Viewport viewport = default;
 
-            count = Scene.EyeGlint.Glints(eye.Origin, eye.Forward, eye.Radius, right, screen.Up, origin, lights[..lit], glints);
+            context.RSGetViewports(ref viewports, ref viewport);
+            viewportHeight = viewport.Height;
         }
 
-        Scene.EyeGlint.Rasterise(glints[..count], _glintTexels);
+        ((float X, float Y, float Z) right, Core.Scene.ScreenFadeView screen) =
+            Scene.EyeGlint.View(_cameraContents.AsSpan(0, 16), origin, viewportHeight);
+        ((float X, float Y, float Z, float W) U, (float X, float Y, float Z, float W) V) projection =
+            Scene.EyeGlint.Projection(eye.Origin, eye.Radius, right, screen.Up);
+
+        // **`mat_wireframe` (with `sv_cheats`, engine.dll `0x1800f5855`-`0x1800f5873`) sets the config's `bWireframe`, and
+        // the mesh setup skips the glint under it** (`0x18000f7d1`). The engine then draws the model with studiorender's
+        // own wireframe material (`0x1800041ec`), not this shader at all — B782; here the glint is black.
+        if (Wireframe || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
+        {
+            return (projection, _glintBlack);
+        }
+
+        Span<Scene.EyeGlintPoint> glints = stackalloc Scene.EyeGlintPoint[Scene.EyeGlint.MaxGlints];
+        Span<Scene.GlintLight> lights = stackalloc Scene.GlintLight[LocalLightSlots];
+        int lit = GlintLights(sun, locals, lights);
+        int count = Scene.EyeGlint.Glints(eye.Origin, eye.Forward, eye.Radius, right, screen.Up, origin, lights[..lit], glints);
+
+        if (Glint.Procedural)
+        {
+            // `CGlintTextureRegenerator`: the procedural texture, cleared and drawn even with no glint.
+            Scene.EyeGlint.RegenerateProcedural(glints[..count], _glintTexels);
+        }
+        else if (count == 0)
+        {
+            // `0x18001f55a`: no glint, `vgui/black`, and nothing rendered.
+            return (projection, _glintBlack);
+        }
+        else
+        {
+            Scene.EyeGlint.Rasterise(glints[..count], _glintTexels);
+        }
 
         MappedSubresource mapped = default;
         const int rowBytes = Scene.EyeGlint.Size * 4;
@@ -856,7 +903,7 @@ internal sealed unsafe partial class WorldRenderer
 
         context.Unmap(_glintTexture, 0);
 
-        return Scene.EyeGlint.Projection(eye.Origin, eye.Radius, right, screen.Up);
+        return (projection, _glintView);
     }
 
     /// <summary>

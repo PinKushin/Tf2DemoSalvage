@@ -194,6 +194,35 @@ public sealed class EyeGlintConformanceTests
     }
 
     /// <remarks>
+    /// **`r_glint_procedural 1`: the CPU regenerator** (<c>CGlintTextureRegenerator</c>, <c>0x18001cbf0</c> clearing the
+    /// 32×32 BGRA8888 <c>proc_eyeglint</c> and calling <c>0x18001d090</c> per glint). Its kernel is the pixel shader's,
+    /// summed as <c>(t(−,+) + t(+,+) + t(−,−) + t(+,−)) · 4/9 + t(0) · 20/9</c> with <c>t = d² &gt; 1 ? 0 : exp( −25 d² )</c>
+    /// (<c>0x180080a80</c>, <c>0x180080aa4</c>, <c>0x180080aa8</c>), but at the texel's own coordinate — no quarter
+    /// shift — over <c>trunc(c) − 1 … trunc(c) + 1</c>, and each texel goes through mathlib's gamma tables
+    /// (<c>MathLib_Init( 2.2, 2.2, 0, 2 )</c>): <c>LinearToTexture( TextureToLinear( old ) + I · colour )</c>, where
+    /// <c>TextureToLinear( i ) = (i/255)^2.2</c> and <c>LinearToTexture( f ) = (int)( ((int)(f·1023)/1023)^(1/2.2) · 255 )</c>
+    /// (<c>color_conversion.cpp:201-217</c>, <c>:410-433</c>).
+    /// - (0, 0), colour 0.1: I = 2.3003, so 0.23003 → index 235 → 130; the neighbours' 1.5e-5 → 0.
+    /// - (0.1, −0.2), white: centre (19.2, 9.6), texels 18-20 by 8-10; (19, 10) index 260 → 136, (19, 9) index 20 → 42.
+    /// - Two at (0, 0) of 0.05: 95, then <c>(95/255)^2.2 + 0.115</c> → index 234 → 130.
+    /// </remarks>
+    [TestCase(0f, 0f, 0.1f, 1, 16, 16, 130, 17, 16, 0)]
+    [TestCase(0.1f, -0.2f, 1f, 1, 19, 10, 136, 19, 9, 42)]
+    [TestCase(0f, 0f, 0.05f, 2, 16, 16, 130, 16, 15, 0)]
+    public void RegenerateProcedural_Glints_AreTheKernelThroughTheGammaTables(
+        float x, float y, float colour, int count, int i, int j, int value, int i2, int j2, int value2)
+    {
+        byte[] texels = new byte[EyeGlint.Size * EyeGlint.Size * 4];
+        EyeGlintPoint glint = new(x, y, colour, colour, colour);
+        EyeGlintPoint[] glints = count == 1 ? [glint] : [glint, glint];
+
+        EyeGlint.RegenerateProcedural(glints, texels);
+
+        Texel(texels, i, j).ShouldBe((value, value, value));
+        Texel(texels, i2, j2).ShouldBe((value2, value2, value2));
+    }
+
+    /// <remarks>
     /// <c>0x18001e020</c>: <c>vgui/black</c> where <c>ComputePixelWidthOfSphere( origin, radius )</c> is under the config's
     /// threshold, <c>r_eyeglintlodpixels</c> 20 (<c>comiss</c>, <c>jae</c>). A unit sphere 6 units ahead through a 64-pixel
     /// view of <c>[1][1]</c> 1 is 128/6 = 21.3 pixels wide; 7 units, 18.3.

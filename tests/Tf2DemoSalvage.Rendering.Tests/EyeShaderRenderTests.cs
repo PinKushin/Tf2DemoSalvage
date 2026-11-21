@@ -339,6 +339,73 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **The glint's switches** (`studiorender.dll` `0x18001e020`; the eye and lamp of the test above, pixel (34, 30) on
+    /// texel (16, 16)):
+    /// - `r_glint_alwaysdraw 1` skips the level of detail (`0x18001e071`-`0x18001e07c`): the eye 1e5 away, 1.5 pixels wide,
+    ///   still draws 139, 195.
+    /// - `r_glint_procedural` with a lamp of 0.1: the GPU pass gives `0.1 · 0.5438 · 255` = 14 (66 encoded); the CPU
+    ///   regenerator (`0x18001e0ad`) gives 130 through mathlib's gamma tables (189) — `EyeGlintConformanceTests`.
+    /// - `mat_wireframe` (with `sv_cheats`, `engine.dll` `0x1800f5855`) sets `bWireframe`, and the mesh setup skips the
+    ///   glint (`0x18000f7d1`): the pixel, on the quad's diagonal edge, is the lit iris alone, 0 — 195 without it.
+    /// </remarks>
+    [TestCase(true, false, false, Far, 1f, 139f / 255f)]
+    [TestCase(false, false, false, 1200f, 0.1f, 14f / 255f)]
+    [TestCase(false, true, false, 1200f, 0.1f, 130f / 255f)]
+    [TestCase(false, false, true, 1200f, 1f, 0f)]
+    public void DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses(
+        bool alwaysDraw, bool procedural, bool wireframe, float depth, float lamp, float expected)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+
+        target.Glint = new GlintSwitches(alwaysDraw, procedural);
+        target.Wireframe = wireframe;
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [new LocalLight(0f, -300f, 0f, lamp, lamp, lamp, 1f, 0f, 0f, 0f)]);
+
+        (int R, int G, int B) texel = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine(
+            $"eyes glint, alwaysdraw {alwaysDraw}, procedural {procedural}, wireframe {wireframe}: {texel}, predicted {Encode(expected)}");
+        Near(texel, Encode(expected), "the glint the switches choose");
+    }
+
+    /// <remarks>
+    /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
+    /// drawn with a lamp at the camera (195), then again without one, is 0 — the target, left as the first draw filled it,
+    /// is not bound.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_EyesWithoutAGlintAfterOneWith_TakeBlack()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading eye = new(
+            (0f, 1200f, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: [Lamp(0f, -300f, 0f)]);
+        (int R, int G, int B) first = target.PixelAt(34, 30);
+
+        Draw(target, Eyes(irisAlpha: 0), eye, locals: []);
+        (int R, int G, int B) second = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"eyes glint then none: {first}, then {second}");
+        Math.Abs(first.R - 195).ShouldBeLessThanOrEqualTo(1, "the control: the first draw has its glint");
+        second.ShouldBe((0, 0, 0), "vgui/black");
+    }
+
+    /// <remarks>
     /// **The damping is `lum · SimpleSpline( lum / 0.01 )` below 0.01 and 1 above** (`eyes_dx8_dx9_helper.cpp:445-453`).
     /// Two lamps at the camera put two glints on texel (16, 16), 139 + 139, saturated to 255, so the pixel is the damping
     /// itself (linear, encoded):

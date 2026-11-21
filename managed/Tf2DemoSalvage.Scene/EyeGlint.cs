@@ -25,6 +25,13 @@ public readonly record struct GlintLight(
     float Attenuation1,
     float Attenuation2);
 
+/// <summary>The two user-settable cvars that change how an eye's glint is made (<c>studiorender.dll</c> <c>0x18001e020</c>).</summary>
+/// <param name="AlwaysDraw"><c>r_glint_alwaysdraw</c>, default 0: nonzero skips the level of detail
+/// (<c>0x18001e071</c>-<c>0x18001e07c</c>).</param>
+/// <param name="Procedural"><c>r_glint_procedural</c>, default 0: nonzero takes the CPU regenerator,
+/// <see cref="EyeGlint.RegenerateProcedural"/>, instead of the GPU pass (<c>0x18001e0ad</c>-<c>0x18001e0b8</c>).</param>
+public readonly record struct GlintSwitches(bool AlwaysDraw, bool Procedural);
+
 /// <summary>One glint, the 20-byte record <c>0x18001d600</c> writes: where on the eye, in world units, and its colour.</summary>
 /// <param name="X">Along the view's right from the eye's centre.</param>
 /// <param name="Y">Along the view's up.</param>
@@ -56,7 +63,10 @@ public static class EyeGlint
     /// <summary>The most glints <c>0x18001f510</c> asks for.</summary>
     public const int MaxGlints = 16;
 
-    /// <summary><c>r_eyeglintlodpixels</c>'s default: narrower than this the eye takes <c>vgui/black</c>.</summary>
+    /// <summary>
+    /// <c>r_eyeglintlodpixels</c>'s default, "20.0": narrower than this the eye takes <c>vgui/black</c>. A constant because the
+    /// cvar is <c>FCVAR_CHEAT</c> (<c>engine.dll</c> <c>0x180006c1b</c>; <c>mdlpanel.cpp:279</c>), so no user config sets it.
+    /// </summary>
     public const float LodPixels = 20f;
 
     /// <summary><c>FLT_EPSILON</c>, which the attenuations without a constant term add (<c>0x180021680</c>'s table).</summary>
@@ -231,6 +241,127 @@ public static class EyeGlint
                     texels[at + 3] = byte.MaxValue;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// <c>r_glint_procedural 1</c>'s path: <c>CGlintTextureRegenerator</c> (<c>0x18001cbf0</c>) clears the 32×32
+    /// <c>proc_eyeglint</c> and draws each glint with <c>0x18001d090</c> on the CPU.
+    /// </summary>
+    /// <param name="glints">The glints, in order.</param>
+    /// <param name="texels">32×32 RGBA, rows top first, written whole.</param>
+    /// <remarks>
+    /// Not the GPU pass on the CPU: the centre is truncated, not floored; texels <c>trunc(c) − 1 … trunc(c) + 1</c> are
+    /// evaluated at their own coordinate, with no quarter shift; the kernel is summed as
+    /// <c>(t(−,+) + t(+,+) + t(−,−) + t(+,−)) · 4/9 + t(0) · 20/9</c>, <c>t = d² &gt; 1 ? 0 : exp( −25 d² )</c>; and each texel
+    /// is <c>LinearToTexture( TextureToLinear( old ) + I · colour )</c> through mathlib's tables.
+    /// </remarks>
+    public static void RegenerateProcedural(ReadOnlySpan<EyeGlintPoint> glints, Span<byte> texels)
+    {
+        if (texels.Length < Size * Size * 4)
+        {
+            throw new ArgumentException("The glint target is 32 by 32 by 4 bytes.", nameof(texels));
+        }
+
+        texels[..(Size * Size * 4)].Clear();
+
+        foreach (EyeGlintPoint glint in glints)
+        {
+            float centreX = (glint.X + 0.5f) * Size;
+            float centreY = (glint.Y + 0.5f) * Size;
+            int across = (int)centreX;
+            int down = (int)centreY;
+            int left = (int)(across - 1f);
+            int right = (int)(across + 1f);
+            int top = (int)(down - 1f);
+            int bottom = (int)(down + 1f);
+
+            if (left >= Size || right < 0 || top >= Size || bottom < 0)
+            {
+                continue;
+            }
+
+            for (int row = Math.Max(top, 0); row <= Math.Min(bottom, Size - 1); row++)
+            {
+                for (int column = Math.Max(left, 0); column <= Math.Min(right, Size - 1); column++)
+                {
+                    float intensity = ProceduralSpot(column - centreX, row - centreY);
+                    int at = ((row * Size) + column) * 4;
+
+                    texels[at] = GammaTables.Accumulate(texels[at], intensity * glint.Red);
+                    texels[at + 1] = GammaTables.Accumulate(texels[at + 1], intensity * glint.Green);
+                    texels[at + 2] = GammaTables.Accumulate(texels[at + 2], intensity * glint.Blue);
+                    texels[at + 3] = byte.MaxValue;
+                }
+            }
+        }
+    }
+
+    /// <summary><c>0x18001d090</c>'s kernel, in its order of summing.</summary>
+    private static float ProceduralSpot(float u, float v)
+    {
+        float left = (u - 0.25f) * (u - 0.25f);
+        float right = (u + 0.25f) * (u + 0.25f);
+        float above = (v - 0.25f) * (v - 0.25f);
+        float below = (v + 0.25f) * (v + 0.25f);
+        float sides = (Tap(left + below) + Tap(right + below)) + (Tap(left + above) + Tap(right + above));
+
+        return (sides * ProceduralSideWeight) + (Tap((u * u) + (v * v)) * ProceduralCentreWeight);
+    }
+
+    /// <summary>One tap: none past a squared distance of 1, else <c>exp( −25 d² )</c>.</summary>
+    private static float Tap(float distanceSquared) =>
+        distanceSquared > 1f ? 0f : MathF.Exp(distanceSquared * -25f);
+
+    /// <summary><c>0x180080a80</c>, 4/9 as a float.</summary>
+    private const float ProceduralSideWeight = 0.444444448f;
+
+    /// <summary><c>0x180080aa4</c>, 20/9 as a float.</summary>
+    private const float ProceduralCentreWeight = 2.22222233f;
+
+    /// <summary>
+    /// Mathlib's <c>texturetolinear</c> and <c>lineartotexture</c> as the studio render builds them,
+    /// <c>BuildGammaTable( 2.2, 2.2, 0, 2 )</c> (<c>0x18005a760</c> from <c>MathLib_Init</c> at <c>0x180057b91</c>;
+    /// <c>color_conversion.cpp:201-217</c>).
+    /// </summary>
+    private static class GammaTables
+    {
+        private const float TextureGamma = 2.2f;
+
+        private static readonly float[] TextureToLinear = BuildTextureToLinear();
+
+        private static readonly byte[] LinearToTexture = BuildLinearToTexture();
+
+        /// <summary><c>LinearToTexture( TextureToLinear( stored ) + add )</c> (<c>color_conversion.cpp:410-433</c>).</summary>
+        public static byte Accumulate(byte stored, float add)
+        {
+            int index = Math.Clamp((int)((TextureToLinear[stored] + add) * 1023f), 0, 1023);
+
+            return LinearToTexture[index];
+        }
+
+        private static float[] BuildTextureToLinear()
+        {
+            float[] table = new float[256];
+
+            for (int i = 0; i < table.Length; i++)
+            {
+                table[i] = MathF.Pow(i / 255f, TextureGamma);
+            }
+
+            return table;
+        }
+
+        private static byte[] BuildLinearToTexture()
+        {
+            byte[] table = new byte[1024];
+
+            for (int i = 0; i < table.Length; i++)
+            {
+                table[i] = (byte)(int)(Math.Pow(i / 1023.0, 1.0 / TextureGamma) * 255);
+            }
+
+            return table;
         }
     }
 

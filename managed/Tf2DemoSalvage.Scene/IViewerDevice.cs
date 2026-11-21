@@ -29,6 +29,9 @@ public interface IViewerDevice
     /// <summary>Valve's <c>r_lightmap_bicubic</c>: bicubic lightmap reads (B679).</summary>
     public bool BicubicLightmap { get; set; }
 
+    /// <summary>Valve's <c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c>: how an eye's glint is made (B725).</summary>
+    public GlintSwitches EyeGlint { get; set; }
+
     /// <summary>Valve's <c>mat_bumpmap</c>: whether bump maps are read at all (B720).</summary>
     public bool BumpMap { get; set; }
 

@@ -472,6 +472,9 @@ public sealed class SettingsPresenter
         // `r_lightmap_bicubic` from the config (B679): the owner's TF2 config sets 1, Valve's default is 0.
         device.BicubicLightmap = _settings.BicubicLightmap;
 
+        // `r_glint_alwaysdraw` and `r_glint_procedural` from the config (B725): both user-settable in TF2.
+        device.EyeGlint = _settings.EyeGlint;
+
         // `mat_bumpmap` from the config (B720): TF2's own `low.cfg` sets 0.
         device.BumpMap = _settings.BumpMap;
         device.ForceToneMapScale = _settings.ForceToneMapScale;

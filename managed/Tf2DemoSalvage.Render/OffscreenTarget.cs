@@ -965,6 +965,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.Seconds = Seconds;
         _world.DrawBumped = bumpMap;
         _world.ModelVertexCap = ModelVertexCap;
+        _world.Glint = Glint;
+        _world.Wireframe = Wireframe;
 
         // **Not again for the world's own assets**: an upload releases the world's material classes and
         // its translucent sort, so a DrawTranslucentWorld after this model would draw nothing (B426).
@@ -1096,6 +1098,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>
     internal int? ModelVertexCap { get; set; }
+
+    /// <summary><c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> for <see cref="DrawModelPose"/> (B725).</summary>
+    internal Scene.GlintSwitches Glint { get; set; }
+
+    /// <summary><c>mat_wireframe</c> for <see cref="DrawModelPose"/>.</summary>
+    internal bool Wireframe { get; set; }
 
     /// <summary>Draws decals on the model the last <see cref="DrawModelPose"/> drew, as <c>Device3D</c> does after it.</summary>
     /// <param name="vertices">The decal's corners.</param>

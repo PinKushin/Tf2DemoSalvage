@@ -963,6 +963,27 @@ public sealed record ViewerSettings
     public const string BicubicLightmapCommand = "r_lightmap_bicubic";
 
     /// <summary>
+    /// <c>r_glint_alwaysdraw</c>, default 0, flags 0 (<c>studiorender.dll</c>'s ConVar at <c>0x180001060</c>): an eye's
+    /// glint is drawn however few pixels wide it is (<c>0x18001e071</c>, B725).
+    /// </summary>
+    public bool GlintAlwaysDraw { get; init; }
+
+    /// <summary>Command name for <see cref="GlintAlwaysDraw"/>.</summary>
+    public const string GlintAlwaysDrawCommand = "r_glint_alwaysdraw";
+
+    /// <summary>
+    /// <c>r_glint_procedural</c>, default 0, flags 0: an eye's glint is made by the CPU regenerator rather than the GPU pass
+    /// (<c>0x18001e0ad</c>, B725).
+    /// </summary>
+    public bool GlintProcedural { get; init; }
+
+    /// <summary>Command name for <see cref="GlintProcedural"/>.</summary>
+    public const string GlintProceduralCommand = "r_glint_procedural";
+
+    /// <summary>The two glint cvars, as the device takes them.</summary>
+    public GlintSwitches EyeGlint => new(GlintAlwaysDraw, GlintProcedural);
+
+    /// <summary>
     /// <c>mat_bumpmap</c>, default 1 (TF2's <c>cvarlist.log</c>; its shipped <c>low.cfg</c> sets 0): off, no material reads
     /// its bump map and a skin-shader model takes the generic path (`vertexlitgeneric_dx9_helper.cpp:1515`, B720).
     /// </summary>
@@ -1363,6 +1384,16 @@ public sealed record ViewerSettings
             settings = settings with { BicubicLightmap = bicubic != 0 };
         }
 
+        if (Read(values, GlintAlwaysDrawCommand) is { } alwaysDraw)
+        {
+            settings = settings with { GlintAlwaysDraw = alwaysDraw != 0 };
+        }
+
+        if (Read(values, GlintProceduralCommand) is { } procedural)
+        {
+            settings = settings with { GlintProcedural = procedural != 0 };
+        }
+
         if (Read(values, BumpMapCommand) is { } bumpMap)
         {
             settings = settings with { BumpMap = bumpMap != 0 };
@@ -1724,6 +1755,8 @@ public sealed record ViewerSettings
         (AutoDirectorCommand, s => Switch(s.AutoDirector)),
         (DisableBloomCommand, s => Switch(s.DisableBloom)),
         (BicubicLightmapCommand, s => Switch(s.BicubicLightmap)),
+        (GlintAlwaysDrawCommand, s => Switch(s.GlintAlwaysDraw)),
+        (GlintProceduralCommand, s => Switch(s.GlintProcedural)),
         (BumpMapCommand, s => Switch(s.BumpMap)),
         (ForceToneMapScaleCommand, s => EngineFloat(s.ForceToneMapScale)),
         (ShaderSrgbCommand, s => Int(s.ShaderSrgb)),
