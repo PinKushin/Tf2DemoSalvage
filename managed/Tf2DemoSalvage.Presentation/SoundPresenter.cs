@@ -890,9 +890,11 @@ public sealed partial class SoundPresenter(
     {
         if (audio.IsEnabled(LogLevel.Debug))
         {
+            string kind = Deals(sound) ? "a start" : "a change";
+
             audio.LogDebug(
                 "{Message}",
-                $"'{sound.WaveDraw?.Script}' is not in the catalog: nothing plays (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
+                $"'{sound.WaveDraw?.Script}' is not in the catalog: dropped, {(sound.IsStop ? "a stop" : kind)} (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
         }
     }
 
@@ -906,7 +908,9 @@ public sealed partial class SoundPresenter(
         {
             // A change or stop of a patch whose script the catalog lacks: its start played nothing (B789), so a change must
             // not fall through to a start of its own, and a stop, which would name the producer's wave, must not stop
-            // another voice playing it.
+            // another voice playing it. The engine's patch keeps the script name (`soundenvelope.cpp:374-383`), and its
+            // `Shutdown` stops by that name (`:480-487`), which `StopSound` cannot resolve and so stops nothing
+            // (`SoundEmitterSystem.cpp:894-907`, `:882-888`).
             if (Scripts is { } catalog && sound.WaveDraw is { } draw && !ScriptWaveDeck.Declares(draw, catalog.Entries, out _))
             {
                 return null;

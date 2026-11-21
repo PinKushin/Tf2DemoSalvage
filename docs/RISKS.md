@@ -42411,6 +42411,16 @@ bound to a cheat ConVar is refused like any other bind (D253, B718). **The quest
 parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
 `ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
 
+## B798 — a stop of a patch the deck does not hold names the producer's wave, which can stop another voice (2026-11-21) — OPEN
+
+Found in B789's review (round 3, Fable). `ScriptWaveDeck.Named` (`ScriptWaveDeck.cs`, ~:182-185) returns a stop
+unchanged when its patch is not held — a start never dealt, or a patch `ForgetPlaying` forgot on a reload or on a swap
+to a catalog that still declares the script — so the stop carries the wave its producer drew, and `Start`'s stop branch
+silences the first voice on that entity and channel playing that wave. In the engine a patch that was shut down
+(`CSoundControllerImp::SystemReset`, `soundenvelope.cpp:862-878`) is not playing, so a later `Shutdown` is a no-op
+(`:480`), and no stop is issued at all. B789 closed the undeclared-script case; this is the declared one. *Read from
+published source; not measured.*
+
 ## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — FIXED 2026-11-21
 
 **Fixed:** `ScriptWaveDeck.Deal` returns nothing for a script sound whose script the catalog does not declare (still
