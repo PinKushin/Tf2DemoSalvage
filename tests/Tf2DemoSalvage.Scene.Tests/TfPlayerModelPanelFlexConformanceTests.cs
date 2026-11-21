@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -31,7 +33,7 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
 
         for (int paint = 0; paint < paints; paint++)
         {
-            source = TfPlayerModelPanel.StepFlexControls(flexWeight, controllers);
+            source = Step(flexWeight, controllers);
         }
 
         source[0].ShouldBe(control, 1e-6f);
@@ -49,8 +51,8 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
         float[] flexWeight = new float[TfPlayerModelPanel.MaxStudioFlexCtrl];
         StudioFlexController[] controllers = [new("default", "jaw", min, max)];
 
-        TfPlayerModelPanel.StepFlexControls(flexWeight, controllers);
-        float[] source = TfPlayerModelPanel.StepFlexControls(flexWeight, controllers);
+        Step(flexWeight, controllers);
+        float[] source = Step(flexWeight, controllers);
 
         source[0].ShouldBe(control, 1e-6f);
     }
@@ -65,9 +67,44 @@ public sealed class TfPlayerModelPanelFlexConformanceTests
         float[] flexWeight = new float[TfPlayerModelPanel.MaxStudioFlexCtrl];
         StudioFlexController[] controllers = [new("default", "jaw", 0f, 1f), new("default", "JAW", -1f, 1f)];
 
-        float[] source = TfPlayerModelPanel.StepFlexControls(flexWeight, controllers);
+        float[] source = Step(flexWeight, controllers);
 
         source[0].ShouldBe(-0.95f, 1e-6f);
         source[1].ShouldBe(-0.95f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **A paint's flex step allocates nothing once its buffers exist** (review 1 item 4): the decay is in place, the shared
+    /// slots are computed once per model, and the controls are written into a kept buffer. The thread's allocation counter
+    /// also counts the runtime, so the least over several steps is taken (memory: a thread allocation counter counts the
+    /// runtime).
+    /// </remarks>
+    [Test]
+    public void StepFlexControls_AfterTheFirstStep_AllocatesNothing()
+    {
+        float[] flexWeight = new float[TfPlayerModelPanel.MaxStudioFlexCtrl];
+        StudioFlexController[] controllers = [new("default", "jaw", 0f, 1f), new("default", "lip", -1f, 1f), new("default", "JAW", -1f, 1f)];
+        int[] slots = TfPlayerModelPanel.SharedSlots(controllers);
+        float[] source = new float[controllers.Length];
+        long least = long.MaxValue;
+
+        for (int run = 0; run < 8; run++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            TfPlayerModelPanel.DecayFlexWeights(flexWeight, controllers);
+            TfPlayerModelPanel.FlexControls(flexWeight, controllers, slots, source);
+            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        least.ShouldBe(0L);
+    }
+
+    private static float[] Step(float[] flexWeight, StudioFlexController[] controllers)
+    {
+        float[] source = new float[controllers.Length];
+
+        TfPlayerModelPanel.DecayFlexWeights(flexWeight, controllers);
+        TfPlayerModelPanel.FlexControls(flexWeight, controllers, TfPlayerModelPanel.SharedSlots(controllers), source);
+        return source;
     }
 }
