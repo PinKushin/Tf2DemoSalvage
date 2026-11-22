@@ -1,22 +1,22 @@
-using System;
 using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.Hud;
+using Tf2DemoSalvage.Scene.Tests;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
-/// The HUD's panel models as a frame hands them to the model set's precache (B779 review 4) [no engine counterpart: the engine
-/// loads a panel's model in its <c>SetupModel</c>; precaching them on the frame is this viewer's].
+/// The HUD's model panels loading their models through the presenter's model set in the call (B779 review 15 follow-up),
+/// which replaced the frame's precache of them that this file used to hold.
 /// </summary>
 /// <remarks>
-/// A HUD with no install behind it, its panels given models by hand: the class panel's root, the match doors with an attached
-/// model, and the round sign — the panels <c>VguiHud.AddModelsToPrecache</c> walks, in its order.
+/// A HUD with no install behind it, its panels given models by hand: the class panel's root (a CMDL panel), the match doors
+/// with an attached model and the round sign (CModelPanels). Nothing is packed before each panel asks.
 /// </remarks>
-public sealed class VguiHudPrecacheTests
+public sealed class VguiHudModelLoadTests
 {
     private const string Scout = "models/player/scout.mdl";
     private const string Doors = "models/vgui/match_doors.mdl";
@@ -24,58 +24,48 @@ public sealed class VguiHudPrecacheTests
     private const string Sign = "models/vgui/round_sign.mdl";
 
     /// <remarks>
-    /// **The HUD lists every model each panel names, in the walk's order** (review 4 item 3): the class panel's, the doors'
-    /// and its attachment, the round sign's. The item panels make none here — a `.res` file makes them, and none is read.
+    /// **Each panel kind packs its own models into the HUD's set when it reads them**: `SetMDL` takes a handle from
+    /// `FindMDL` and reads the header (mdlpanel.cpp:185; imdlcache.h:116-126) — here through the pose parameters' defaults,
+    /// which read the model at once (:172) — and a CModelPanel's set-up loads its model and its attached model
+    /// (`InitializeAsClientEntity`, basemodelpanel.cpp:407, :472). The control: nothing was packed before.
     /// </remarks>
     [Test]
-    public void AddModelsToPrecache_PanelsWithModels_ListsEachPanelsModelsInOrder()
-    {
-        (VguiHud hud, _) = Dressed();
-        List<string> precache = [];
-
-        hud.AddModelsToPrecache(precache);
-
-        precache.ShouldBe([Scout, Doors, DoorsLock, Sign]);
-    }
-
-    /// <remarks>
-    /// **An unchanged frame's whole precache route allocates nothing** (review 4 item 1): the HUD filling the presenter's kept
-    /// list, an attached-model panel among its panels, then the model set comparing it. Least over eight frames after a first
-    /// that packs. The control: the list is not empty, so every panel's walk ran.
-    /// </remarks>
-    [Test]
-    public void AddModelsToPrecacheThenPrecacheChanged_AnUnchangedFrame_AllocatesNothing()
+    public void EachPanelKind_ReadingItsModelsWithNothingPacked_PacksThemIntoTheHudsModelSet()
     {
         (VguiHud hud, EntityModelSet models) = Dressed();
-        List<string> kept = [];
-        long least = long.MaxValue;
 
-        Frame(hud, models, kept);
-        kept.Count.ShouldBe(4, "the control");
-
-        for (int run = 0; run < 8; run++)
+        foreach (string path in (string[])[Scout, Doors, DoorsLock, Sign])
         {
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            Frame(hud, models, kept);
-            least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
+            models.FindMdl(path).ShouldBeNull("the control: " + path);
         }
 
-        least.ShouldBe(0L);
+        hud.PlayerStatus.PlayerClass.PlayerModelPanel.SetMDL(Scout);
+        hud.MatchStatus.MatchStartModelPanel.UpdateModel();
+        hud.MatchStatus.RoundSignModel.UpdateModel();
+
+        foreach (string path in (string[])[Scout, Doors, DoorsLock, Sign])
+        {
+            models.FindMdl(path).ShouldNotBeNull(path);
+        }
     }
 
-    /// <summary>One frame's precache, as `FramePresenter.BuildOverlay` runs it.</summary>
-    private static void Frame(VguiHud hud, EntityModelSet models, List<string> kept)
-    {
-        kept.Clear();
-        hud.AddModelsToPrecache(kept);
-        models.PrecacheChanged(kept);
-    }
-
-    /// <summary>A HUD on an empty scheme whose class panel, match doors and round sign each name a model.</summary>
+    /// <summary>A HUD on an empty scheme whose match doors and round sign each name a model; every path loads, none is packed.</summary>
     private static (VguiHud Hud, EntityModelSet Models) Dressed()
     {
         VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
-        EntityModelSet models = new();
+        PropModels.ModelFrames frames = new(
+            [
+                new PropVertex[]
+                {
+                    new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithOneBone());
+        EntityModelSet models = new() { Geometry = _ => frames };
 
         host.BeginFrame(640, 480);
 
@@ -84,7 +74,6 @@ public sealed class VguiHudPrecacheTests
         hud.Frame(new HudState(true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1, Players: []));
         VguiContext context = hud.Viewport.Context.ShouldNotBeNull();
 
-        hud.PlayerStatus.PlayerClass.PlayerModelPanel.SetMDL(Scout);
         hud.MatchStatus.MatchStartModelPanel.ApplySettings(Block(Doors, DoorsLock), context);
         hud.MatchStatus.RoundSignModel.ApplySettings(Block(Sign, null), context);
 

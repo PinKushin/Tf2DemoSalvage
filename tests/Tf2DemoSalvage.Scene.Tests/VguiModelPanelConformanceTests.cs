@@ -309,6 +309,27 @@ public sealed class VguiModelPanelConformanceTests
         panel.Locals.Count.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// **A CMDL panel loads its models in the call** (B779 review 15 follow-up): `CMDLPanel::SetMDL` and `SetMergeMDL` take
+    /// their handle from `vgui::MDLCache()->FindMDL( pMDLName )` (mdlpanel.cpp:185, :868), the merge reads its header
+    /// through it at once (`GetStudioHdr`, :857), and the draw reads the header again (imdlcache.h:116-126). Here nothing
+    /// is loaded until the panel asks: the paint draws the root and the merge. The control: nothing was loaded before.
+    /// </remarks>
+    [Test]
+    public void Paint_ARootAndAMergeNothingLoaded_LoadsAndDrawsBoth()
+    {
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root"));
+        VguiMdlPanel panel = new(null, "model", cache) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        cache.Loaded.ShouldBeEmpty("the control");
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_stickybomb_launcher.mdl");
+        panel.Paint(surface, Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
+    }
+
     [Test]
     public void Paint_WithLocalLights_CarriesThemOnEveryModelInstance()
     {
@@ -569,14 +590,15 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **A model only a panel draws is flexed through the production cache** (B779): no world prop wears it, so the set
-    /// packs it only because the HUD precaches what its panels draw (`VguiHud.AddModelsToPrecache` into
-    /// `EntityModelSet.PrecacheChanged`, `FramePresenter.Hud.cs`), and the panel's face is spread over that packing. The set packs
-    /// the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts it in slot 0:
-    /// the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0). The control: the set packed it.
+    /// **A model only a panel draws is flexed through the production cache on its first paint** (B779; review 15 follow-up):
+    /// no world prop wears it and nothing precaches it, so the set packs it when the panel reads it (`FindMDL`/`GetStudioHdr`,
+    /// mdlpanel.cpp:185, imdlcache.h:116-126) — with its packed order, before the same paint's draw spreads the face over it.
+    /// The set packs the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts
+    /// it in slot 0: the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0), on the first
+    /// paint — never once unflexed. The control: nothing packed it before the panel.
     /// </remarks>
     [Test]
-    public void Paint_APanelOnlyModelPrecachedIntoTheSet_DrawsItsMeshFlexed()
+    public void Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint()
     {
         const string path = "models/vgui/panel_only.mdl";
         PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
@@ -600,8 +622,7 @@ public sealed class VguiModelPanelConformanceTests
         });
 
         EntityModelSet models = new() { Geometry = requested => requested == path ? frames : null };
-        models.Precache([path]);
-        models.PackedOrder(path).ShouldBe([0, 1], "the control: the set packed it");
+        models.PackedOrder(path).ShouldBeNull("the control: nothing packed it before the panel");
 
         VguiMdlPanel panel = new(null, "model", models) { Wide = 100, Tall = 100 };
         panel.SetMDL(path);
@@ -609,7 +630,8 @@ public sealed class VguiModelPanelConformanceTests
         RecordingModelSurface surface = new();
         panel.Paint(surface, Context());
 
-        ModelInstance drawn = surface.Draws[0].Models[0];
+        models.PackedOrder(path).ShouldBe([0, 1], "packed by the panel's own load, with its order");
+        ModelInstance drawn = surface.Draws.ShouldHaveSingleItem().Models[0];
         float[] face = drawn.Flex.ShouldNotBeNull("CMDL::Draw flexes a model with flex descriptors");
         face.ShouldBe([0f, 0f, 0f, 0f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0f, 0.25f], 1e-5f);
         drawn.FlexRange.ShouldBe(new FlexSlots(1, 1));
@@ -1068,18 +1090,6 @@ public sealed class VguiModelPanelConformanceTests
         panel.MergeMdls.ShouldBeEmpty();
     }
 
-    [Test]
-    public void AddModelsToPrecache_ARootAndMergeModels_AddsRootFirst()
-    {
-        VguiMdlPanel panel = new(null, "model", Cache.None);
-        List<string> precache = [];
-
-        panel.SetMDL("models/player/scout.mdl");
-        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl");
-        panel.AddModelsToPrecache(precache);
-
-        precache.ShouldBe(["models/player/scout.mdl", "models/weapons/c_models/c_scattergun.mdl"]);
-    }
 
     [Test]
     public void ParseModelResInfo_AModelBlock_ReadsNameSkinAnglesAndOrigin()
@@ -1535,6 +1545,26 @@ public sealed class VguiModelPanelConformanceTests
 
         public PropModels.ModelFrames? FindMdl(string path) =>
             find(path) is { } model ? new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
+    /// <summary>One model for every path, found only once <see cref="LoadMdl"/> has loaded that path.</summary>
+    private sealed class LoadOnAskCache(PropModels.SkinnedModel model) : IMdlCache
+    {
+        public HashSet<string> Loaded { get; } = new(StringComparer.Ordinal);
+
+        public PropModels.ModelFrames? FindMdl(string path) =>
+            Loaded.Contains(path) ? new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            Loaded.Add(path);
+
+            return FindMdl(path);
+        }
 
         public int FindBodygroup(string modelPath, string group) => -1;
 

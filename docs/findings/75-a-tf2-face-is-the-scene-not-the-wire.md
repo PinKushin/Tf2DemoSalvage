@@ -244,10 +244,14 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   models die with — a guard that remembered "this list is already packed" across a level change left the same list
   unpacked on the next map, drawing nothing (B779 review 2).
 - **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
-  it; the HUD precaches every panel's models into the world's model set each frame the list changes
-  (`VguiHud.AddModelsToPrecache`, `FramePresenter.Hud`), and the precache packs them — so the panel's face has the buffer
-  order it needs. *Read* for the HUD's route; the pack and the face through the production set *measured* on a synthetic
-  model, and the frame's ask counted through the presenter since B779 review 3. The filing was a deduction never checked.
+  it. Until B779 review 15 the HUD precached every panel's models into the world's model set each frame the list changed;
+  since then each panel packs its own when it reads it, as the engine loads in the call — a CMDL panel through
+  `FindMDL`/`GetStudioHdr` (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126), a `CModelPanel` through
+  `InitializeAsClientEntity` (basemodelpanel.cpp:407), an item's model when its load callback is asked
+  (tf_playermodelpanel.cpp:1134-1166). The load packs the model with its order, so the same paint's face has the buffer
+  order it needs and the model is never drawn unflexed (*measured* through the production set on a synthetic model,
+  `VguiModelPanelConformanceTests.Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint`). The filing
+  was a deduction never checked.
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

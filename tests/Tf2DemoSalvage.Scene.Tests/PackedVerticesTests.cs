@@ -130,70 +130,49 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
-    /// **The HUD's panel models are packed again on the next level, even when its list is the same** (B779 review 2 item 1).
-    /// The frame presenter outlives a level (`ViewerPresenter.ClearMap` calls its `ClearMap`, then `LevelSystems.Shutdown`
-    /// reaches <see cref="EntityModelSet.LevelShutdown"/>), and it precached only a CHANGED list, so the same class panel on
-    /// the next map was never packed: no frames, no order, a panel model drawn not at all. The guard lives with the set
-    /// that forgets. The controls: the first level packed it, and the shutdown forgot it.
+    /// **A panel's model is packed again on the next level** (B779 review 2 item 1, now through the load in the call): the
+    /// HUD outlives a level (`ViewerPresenter.ClearMap` reaches <see cref="EntityModelSet.LevelShutdown"/>), and a panel
+    /// that keeps its path asks again at its next paint, so the next map packs it again with its order. The controls: the
+    /// first level packed it, and the shutdown forgot it.
     /// </remarks>
     [Test]
-    public void PrecacheChanged_TheSameListAfterALevelShutdown_PacksItAgain()
+    public void LoadMdl_AfterALevelShutdown_PacksTheModelAgain()
     {
         EntityModelSet models = new() { Geometry = Skinned };
 
-        models.PrecacheChanged([Path]);
+        models.LoadMdl(Path);
         models.PackedOrder(Path).ShouldNotBeNull("the control: the first level packed it");
 
         models.LevelShutdown();
         models.PackedOrder(Path).ShouldBeNull("the control: the shutdown forgot it");
 
-        models.PrecacheChanged([Path]);
+        models.LoadMdl(Path).ShouldNotBeNull();
         models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
     }
 
-    /// <remarks>**Within a level an unchanged list is not precached again** (`FramePresenter.Hud`'s reason: `Precache`
-    /// re-reads a model that failed to load, which must not happen sixty times a second). Counted by the loader's calls.</remarks>
-    [Test]
-    public void PrecacheChanged_TheSameListTwiceInALevel_ReadsOnce()
-    {
-        int reads = 0;
-        EntityModelSet models = new() { Geometry = path => { reads++; return null; } };
-
-        models.PrecacheChanged([Path]);
-        int first = reads;
-        models.PrecacheChanged([Path]);
-
-        first.ShouldBeGreaterThan(0, "the control: the first call read it");
-        reads.ShouldBe(first);
-    }
-
     /// <remarks>
-    /// **An unchanged list costs nothing per frame** (B779 review 3 item 3): the HUD hands its panel models every frame, so
-    /// the comparison is element by element against a kept copy, not a joined string. Least over eight calls after the first.
-    /// The control: a changed list is precached (the asks counted where the set takes them).
+    /// **A panel's ask costs nothing per paint once answered** (B779 review 3 item 3, now through the load in the call): a
+    /// CMDL panel reads its model on every paint, so a packed model and a remembered failure each answer without allocating.
+    /// Least over eight asks after the first. The controls: the first asks packed one and failed the other.
     /// </remarks>
     [Test]
-    public void PrecacheChanged_AnUnchangedList_AllocatesNothing()
+    public void LoadMdl_APackedModelAndARememberedFailure_AllocateNothing()
     {
-        EntityModelSet models = new() { Geometry = Skinned };
-        List<string> paths = [Path, "models/other.mdl"];
+        const string missing = "models/missing.mdl";
+        EntityModelSet models = new() { Geometry = path => path == Path ? Skinned(path) : null };
         long least = long.MaxValue;
 
-        models.PrecacheChanged(paths);
+        models.LoadMdl(Path).ShouldNotBeNull("the control: packed");
+        models.LoadMdl(missing).ShouldBeNull("the control: failed");
 
         for (int run = 0; run < 8; run++)
         {
             long before = GC.GetAllocatedBytesForCurrentThread();
-            models.PrecacheChanged(paths);
+            models.LoadMdl(Path);
+            models.LoadMdl(missing);
             least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
         }
 
         least.ShouldBe(0L);
-        models.PrecacheAsks.ShouldBe(9);
-        models.PrecachesRun.ShouldBe(1, "the control: one list, packed once");
-
-        paths.RemoveAt(1);
-        models.PrecacheChanged(paths);
-        models.PrecachesRun.ShouldBe(2, "the control: a changed list is packed");
     }
 }

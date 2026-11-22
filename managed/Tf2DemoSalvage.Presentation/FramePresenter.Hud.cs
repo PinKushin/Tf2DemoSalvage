@@ -110,9 +110,6 @@ public sealed partial class FramePresenter
     /// <summary>The HUD, once built, for the tests of what the frame hands it.</summary>
     internal VguiHud? Hud => _vguiHud;
 
-    /// <summary>The HUD's panel models this frame, refilled each frame for the model set's precache.</summary>
-    private readonly List<string> _panelModels = [];
-
     // The HUD's stock view of the install, and the install it was made from.
     private GameArchives? _hudArchives;
     private GameContent? _hudArchivesOf;
@@ -157,26 +154,6 @@ public sealed partial class FramePresenter
             reset,
             messages,
             paint: false);
-    }
-
-    /// <summary>What the HUD's model panels will draw, precached on the drawn frame before they paint.</summary>
-    /// <remarks>
-    /// Checked every drawn frame, so a model first needed mid-demo reaches the GPU (`MomentScene.Pack` uploads whatever
-    /// `Grown` says was added). Only a changed set is precached, and the set keeps that guard so a level shutdown resets it
-    /// with the models (B779 review 2 item 1). Into a kept list, compared in place, so an unchanged frame allocates nothing
-    /// (review 3 item 3). **Not what a `CModelPanel`'s set-up relies on** (review 15): that loads its model in the call
-    /// (`IMdlCache.LoadMdl`, as `InitializeAsClientEntity` does, basemodelpanel.cpp:407), since a skip's batch or the HUD's
-    /// first frame (whose layout loads inside `Think`, after this) can set one up first; round 14's precache on the skip's
-    /// frame was the second of those patches and is gone. What still needs this are the `CMDL` panels (the class panel, the
-    /// item panels), which look their models up on each paint and do not load (`VguiMdlPanel`). The engine's `CMDL` takes a
-    /// handle by path from the GAME search path and reads the header through it (`FindMDL`, `GetStudioHdr`,
-    /// imdlcache.h:116-126); that load is not ported, so this precache stands in for it.
-    /// </remarks>
-    private void PrecachePanelModels(VguiHud hud)
-    {
-        _panelModels.Clear();
-        hud.AddModelsToPrecache(_panelModels);
-        _models.PrecacheChanged(_panelModels);
     }
 
     /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
@@ -295,7 +272,9 @@ public sealed partial class FramePresenter
         _vguiHud.Viewport.ParticleSystems = _overlay.Loaded?.Assets?.ParticleSystemsByName;
         _vguiHud.Viewport.ParticleMaterials = _overlay.Loaded?.Assets?.ParticleMaterials;
 
-        PrecachePanelModels(_vguiHud);
+        // No precache of the panels' models: each panel loads its own in the call, as the engine's do (`IMdlCache.LoadMdl`;
+        // basemodelpanel.cpp:407, mdlpanel.cpp:185; B779 review 15), and a model packed in a paint reaches the device at this
+        // frame's `MomentScene.Pack`, which runs after the overlay.
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;

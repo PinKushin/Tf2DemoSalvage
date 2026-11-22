@@ -181,8 +181,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_placements|Private readonly|System.Co
 Tf2DemoSalvage.Scene.EntityModelSet|field|_posedSize|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_prePoseOne|Private|System.Action`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_prePoseSeconds|Private|System.Double
-Tf2DemoSalvage.Scene.EntityModelSet|field|_precachedList|Private readonly|System.Collections.Generic.List`1[System.String]
-Tf2DemoSalvage.Scene.EntityModelSet|field|_precachedValid|Private|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|field|_propByHandle|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_propsByEntity|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_props|Private readonly|Microsoft.Extensions.Logging.ILogger
@@ -369,7 +367,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PosedHitboxes|Public|(System.Int32)|S
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosesNothing|Private|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseOne|Private|(System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseRoots|Private|(System.Double)|System.Void
-Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheChanged|Public|(System.Collections.Generic.IReadOnlyList`1[System.String])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheStaticLighting|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32
@@ -393,7 +390,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|ReusedIkErrors|Assembly static|(Tf2De
 Tf2DemoSalvage.Scene.EntityModelSet|method|RewriteFrame|Public|(System.Func`2[Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|RootBone|Public|(System.Int32)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|SameActivity|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Int32,System.String)|System.Boolean
-Tf2DemoSalvage.Scene.EntityModelSet|method|SameList|Private static|(System.Collections.Generic.IReadOnlyList`1[System.String],System.Collections.Generic.List`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|SampledCycle|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Double,System.Collections.Generic.IReadOnlyList`1[System.Single])|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|Scaled|Private static|(Tf2DemoSalvage.Content.Assets.StudioBox,System.Single)|Tf2DemoSalvage.Content.Assets.StudioBox
 Tf2DemoSalvage.Scene.EntityModelSet|method|Scan|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.String,System.Int64)|System.ValueTuple`2[System.Int64,System.Boolean]
@@ -561,9 +557,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|PosesUndrawn|()|System.Boolean|get=
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePoseBlendTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePoseTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePosed|()|System.Int32|get=True|set=True
-Tf2DemoSalvage.Scene.EntityModelSet|property|PrecacheAsks|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrecacheTicks|()|System.Int64|get=True|set=True
-Tf2DemoSalvage.Scene.EntityModelSet|property|PrecachesRun|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpBones|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpFurthestMove|()|System.Single|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|QueuesClearedByADiscontinuity|()|System.Int32|get=True|set=True

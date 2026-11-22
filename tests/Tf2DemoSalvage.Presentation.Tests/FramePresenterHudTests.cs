@@ -135,23 +135,6 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **Every overlay hands the HUD's panel models to the model set's precache** (B779 review 3 item 1b): what the class
-    /// panel, the match doors, the round sign and the item panels will draw must be packed before they paint, and a model
-    /// first needed mid-demo reaches the device only this way. Counted by the asks the set takes; the set decides whether
-    /// the list changed.
-    /// </remarks>
-    [Test]
-    public void BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels()
-    {
-        Window window = new();
-
-        window.Overlay(100);
-        window.Overlay(101);
-
-        window.Models.PrecacheAsks.ShouldBe(2);
-    }
-
-    /// <remarks>
     /// **The HUD's model panels load through the presenter's model set in the call** (B779 review 15): after a load the set
     /// has forgotten every model, and a skip's batch or the HUD's first frame can set a panel up before any precache lists
     /// it. The engine's `SetupModel` loads the model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so

@@ -175,22 +175,59 @@ public sealed class TfPlayerModelPanelConformanceTests
         TfPlayerModelPanel.AdjustSkinIndexForZombie(8, 1).ShouldBe(23, "the spy's mask skins, +22");
     }
 
+    /// <remarks>
+    /// **An item's model is loaded when its callback is answered** (B779 review 15 follow-up): `LoadAndAttachAdditionalModel`
+    /// registers the model (`RegisterDynamicModel`, or `GetModelIndex`, tf_playermodelpanel.cpp:1131-1144), "The auto-addref
+    /// of vecDynamicAssetsLoaded will actually trigger the load", and `RegisterModelLoadCallback` answers once it is loaded
+    /// (:1165-1166, "callback triggers immediately if not dynamic"). Ours loads it when the callback is asked, at the
+    /// registration and at each paint after, and merges it then. A model not yet on disk (`Available` names those that
+    /// are) waits, and is merged at the first paint after it can load. The control: the model was not loaded before.
+    /// </remarks>
     [Test]
-    public void OnModelLoadComplete_AModelNotYetLoaded_MergesTheFrameItLoads()
+    public void OnModelLoadComplete_AModelNotYetLoaded_LoadsAndMergesItAtTheRegistration()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+
+        cache.Available.Add(Scattergun);
+        cache.FindMdl(Scattergun).ShouldBeNull("the control");
+        panel.SetToPlayerClass(1);
+
+        panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
+    }
+
+    /// <remarks>The waiting half (B779 review 15 follow-up): a model that cannot load yet is merged at the first paint after
+    /// it can. The control: it waits while it cannot.</remarks>
+    [Test]
+    public void OnModelLoadComplete_AModelThatCannotLoadYet_IsMergedAtThePaintAfterItCan()
     {
         (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
 
         panel.SetToPlayerClass(1);
+        panel.MergeMdls.ShouldBeEmpty("the control: the callback waits for the model");
 
-        panel.MergeMdls.ShouldBeEmpty("the callback waits for the model");
-        List<string> precache = [];
-        panel.AddModelsToPrecache(precache);
-        precache.ShouldBe([ScoutModel, Scattergun], "the waiting model is asked for, or it never loads");
-
-        cache.Load(Scattergun);
+        cache.Available.Add(Scattergun);
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
 
         panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
+    }
+
+    /// <remarks>
+    /// **The class model too, with nothing loaded** (B779 review 15 follow-up): `SetMDL` takes its handle from `FindMDL`
+    /// (mdlpanel.cpp:185) and the draw reads the header through it (imdlcache.h:116-126), so the first paint draws the class
+    /// model and its weapon with nothing having loaded either. The control: nothing was loaded.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassAndItsWeaponNothingLoaded_DrawsBoth()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel();
+
+        cache.Available.UnionWith([ScoutModel, Scattergun]);
+        cache.FindMdl(ScoutModel).ShouldBeNull("the control");
+        panel.SetToPlayerClass(1);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Select(model => model.ModelPath).ShouldBe([ScoutModel, Scattergun]);
     }
 
     /// <summary>A system that emits every step, drawn as sprites, with no material key — the materials' "" entry.</summary>
@@ -501,7 +538,18 @@ public sealed class TfPlayerModelPanelConformanceTests
     {
         private readonly HashSet<string> _loaded = new(loaded, StringComparer.Ordinal);
 
-        public void Load(string path) => _loaded.Add(path);
+        /// <summary>Paths on disk but not loaded: <see cref="LoadMdl"/> loads them; any other path does not load.</summary>
+        public HashSet<string> Available { get; } = new(StringComparer.Ordinal);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            if (Available.Contains(path))
+            {
+                _loaded.Add(path);
+            }
+
+            return FindMdl(path);
+        }
 
         /// <summary>
         /// The class model's face: teeth, a mouth on its bone reading descriptor 0, and one controller ranged −1..1 that the rule

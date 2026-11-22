@@ -62,8 +62,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>CMDLPanel( parent, name )</c> (<c>mdlpanel.h:46</c>).</summary>
     /// <param name="parent">The parent, or null.</param>
     /// <param name="name">The panel's name, or null.</param>
-    /// <param name="mdlCache"><c>vgui::MDLCache()</c>. Asked again on every paint, so a model precached after the
-    /// panel was built is drawn from the next frame.</param>
+    /// <param name="mdlCache"><c>vgui::MDLCache()</c>. Every read of a model loads it in the call (<see cref="IMdlCache.LoadMdl"/>;
+    /// B779 review 15 follow-up): <c>SetMDL</c> and <c>SetMergeMDL</c> take a handle from <c>FindMDL( pMDLName )</c>
+    /// (mdlpanel.cpp:185, :868), the merge reads its header through it at once (<c>GetStudioHdr</c>, :857), and every draw
+    /// reads the header again (imdlcache.h:116-126). Ours holds a path, not a handle, and the model set forgets its models at
+    /// a level's end, so the load is at each read: a dictionary hit once packed, a failed load remembered.</param>
     public VguiMdlPanel(VguiPanel? parent, string? name, IMdlCache mdlCache)
         : base(parent, name)
     {
@@ -114,7 +117,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>A row-major 3x4, or null without a model or attachment.</returns>
     protected float[]? RootAttachmentToWorld(int attachment)
     {
-        if (_root.Path is not { } rootPath || MdlCache.FindMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
+        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
             || rootFrames.Attachments is not { } attachments || attachment < 0 || attachment >= attachments.Count)
         {
             return null;
@@ -220,29 +223,6 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
     /// <summary><c>m_flTime = GetAutoPlayTime() - m_flCycleStartTime</c> (<c>mdlpanel.cpp:638</c>).</summary>
     public double CycleTime => RealTimeSeconds - CycleStartTime;
-
-    /// <summary>
-    /// The model paths this panel needs precached — the root's, then each merge model's — added to a list the caller keeps,
-    /// which a frame's precache reuses (B779 review 3 item 3).
-    /// </summary>
-    /// <param name="into">The list.</param>
-    public virtual void AddModelsToPrecache(ICollection<string> into)
-    {
-        ArgumentNullException.ThrowIfNull(into);
-
-        if (_root.Path is { Length: > 0 } root)
-        {
-            into.Add(root);
-        }
-
-        foreach (VguiMdl merge in _merges)
-        {
-            if (merge.Path is { Length: > 0 } path)
-            {
-                into.Add(path);
-            }
-        }
-    }
 
     /// <summary>
     /// <c>CMDLPanel::SetMDL( pMDLName )</c> (<c>mdlpanel.cpp:153-198</c>): the root model by path — an unloaded or
@@ -396,7 +376,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>m_RootMDL.m_MDL.GetStudioHdr()</c>: the root model, or null for <c>MDLHANDLE_INVALID</c>.</summary>
     /// <returns>The skinned model.</returns>
     protected PropModels.SkinnedModel? RootStudioHdr() =>
-        _root.Path is { } path ? MdlCache.FindMdl(path)?.Skinned : null;
+        _root.Path is { } path ? MdlCache.LoadMdl(path)?.Skinned : null;
 
     /// <summary>
     /// <c>CMDLPanel::OnPaint3D</c> (<c>mdlpanel.cpp:415-520</c>): <see cref="PrePaint3D"/>, root <c>SetUpBones</c> with
@@ -408,7 +388,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(renderContext);
 
         // `if ( m_RootMDL.m_MDL.GetMDL() == MDLHANDLE_INVALID ) return;` (:417).
-        if (_root.Path is not { } rootPath || MdlCache.FindMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
+        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
         {
             return;
         }
@@ -435,7 +415,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         foreach (VguiMdl merge in _merges)
         {
             if (merge.Disabled || merge.Path is not { } mergePath
-                || MdlCache.FindMdl(mergePath) is not { Skinned: { } mergeModel } mergeFrames)
+                || MdlCache.LoadMdl(mergePath) is not { Skinned: { } mergeModel } mergeFrames)
             {
                 continue;
             }
@@ -475,7 +455,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(renderContext);
         ArgumentNullException.ThrowIfNull(mdl);
 
-        if (mdl.Path is not { } path || MdlCache.FindMdl(path) is not { Skinned: { } model } frames
+        if (mdl.Path is not { } path || MdlCache.LoadMdl(path) is not { Skinned: { } model } frames
             || !_entities.TryGetValue(parentPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) parentEntry))
         {
             return false;

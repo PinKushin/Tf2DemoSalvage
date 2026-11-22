@@ -464,6 +464,13 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
             return frames;
         }
 
+        // A load that failed is remembered empty (`Add`), and a panel asks again on every paint: answered here, allocating
+        // nothing (B779 review 15 follow-up).
+        if (_byModel.ContainsKey(path))
+        {
+            return null;
+        }
+
         _loadOne[0] = new SceneProp(0, path, ScenePropTrack.Classify(path), default);
         Add(_loadOne);
 

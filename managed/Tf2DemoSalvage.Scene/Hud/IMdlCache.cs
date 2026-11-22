@@ -15,9 +15,11 @@ public interface IMdlCache : IModelBodygroups
     public PropModels.ModelFrames? FindMdl(string path);
 
     /// <summary>
-    /// The model a `CModelPanel`'s set-up asks for, loaded in the call when nothing has loaded it yet: `SetupModel` makes its
-    /// entity with `InitializeAsClientEntity( pszModelName )` (basemodelpanel.cpp:407), so the `SetBodyGroup` that follows
-    /// always finds the model (:367-382; B779 review 15). A cache that cannot load answers what <see cref="FindMdl"/> does.
+    /// A model a panel reads, loaded in the call when nothing has loaded it yet (B779 review 15). A `CModelPanel`'s
+    /// `SetupModel` makes its entity with `InitializeAsClientEntity( pszModelName )` (basemodelpanel.cpp:407), so the
+    /// `SetBodyGroup` that follows always finds the model (:367-382); a `CMDLPanel` takes its handle from `FindMDL` and reads
+    /// the header through it (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126). A cache that cannot load answers what
+    /// <see cref="FindMdl"/> does.
     /// </summary>
     /// <param name="path">The model's path.</param>
     /// <returns>The model's frames, or null when it does not load.</returns>

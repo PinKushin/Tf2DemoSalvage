@@ -169,6 +169,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         SetMDL(model);
 
+        // `SetMDL` above loaded it, as `FindMDL` does (mdlpanel.cpp:185; B779 review 15 follow-up).
         if (MdlCache.FindMdl(model) is { } frames)
         {
             // No pedestal: the camera at `icon_camera` (:376-380), then the style's bodygroup (:383-391).
@@ -575,16 +576,5 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     {
         base.ForgetLevel();
         StatTrack.MeshFlex.Release();
-    }
-
-    /// <inheritdoc/>
-    public override void AddModelsToPrecache(ICollection<string> into)
-    {
-        base.AddModelsToPrecache(into);
-
-        if (!StatTrack.Disabled && StatTrack.Path is { } module)
-        {
-            into.Add(module);
-        }
     }
 }

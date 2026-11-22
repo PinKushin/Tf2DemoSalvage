@@ -143,35 +143,6 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`gpGlobals->frametime`, set by whoever drives the frame.</summary>
     public float FrameTime { get; set; }
 
-    /// <summary>
-    /// The paths this panel draws, for precaching — the model, then each attached model — added to a list the caller keeps,
-    /// which a frame's precache reuses (B779 review 3 item 3).
-    /// </summary>
-    /// <param name="into">The list.</param>
-    public void AddModelsToPrecache(ICollection<string> into)
-    {
-        ArgumentNullException.ThrowIfNull(into);
-
-        if (ModelInfo is not { } info)
-        {
-            return;
-        }
-
-        if (info.ModelName is { Length: > 0 } model)
-        {
-            into.Add(model);
-        }
-
-        // By index: a `foreach` over the `Collection<T>` boxes its enumerator, once per panel per frame (review 4 item 1).
-        for (int index = 0; index < info.AttachedModels.Count; index++)
-        {
-            if (info.AttachedModels[index].ModelName is { Length: > 0 } attached)
-            {
-                into.Add(attached);
-            }
-        }
-    }
-
     /// <inheritdoc/>
     /// <remarks>`CModelPanel::ApplySettings` (:77).</remarks>
     public override void ApplySettings(KeyValuesTree block, VguiContext context)
@@ -505,7 +476,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         foreach ((string? attachedPath, int skin) in info.AttachedModels)
         {
-            // An empty name names nothing: neither precached (`AddModelsToPrecache`) nor looked for (review 5 item 1).
+            // An empty name names nothing: not looked for (review 5 item 1).
             if (attachedPath is not { Length: > 0 })
             {
                 continue;

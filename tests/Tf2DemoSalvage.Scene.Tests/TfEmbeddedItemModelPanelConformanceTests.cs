@@ -150,7 +150,19 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
     /// `jaw + 0.25` over 0.5..1 is 0.25. A synthetic schema names the module (`weapon_uses_stattrak_module`); no install.
     /// </remarks>
     [Test]
-    public void Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed()
+    public void Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed() => PaintStrangeWeapon(loadOnAsk: false);
+
+    /// <remarks>
+    /// **The same with nothing loaded** (B779 review 15 follow-up): the item panel is a `CMDLPanel`, whose `SetMDL` takes
+    /// its handle from `FindMDL` (mdlpanel.cpp:185) and whose draw reads the header through it (imdlcache.h:116-126); the
+    /// module is `FindMDL`'d too (`item_model_panel.cpp`, as the player panel's, tf_playermodelpanel.cpp:588). So the
+    /// first paint draws the weapon and the module, and the module flexed: loaded in the call, it is packed with its flex
+    /// order before the draw reads it. The control: nothing was loaded before the item was set.
+    /// </remarks>
+    [Test]
+    public void Paint_AStrangePaintkittedWeaponNothingLoaded_LoadsAndDrawsItsStatTrakModuleFlexed() => PaintStrangeWeapon(loadOnAsk: true);
+
+    private static void PaintStrangeWeapon(bool loadOnAsk)
     {
         const string weapon = "models/weapons/w_scattergun.mdl";
         const string module = "models/weapons/c_models/stattrack.mdl";
@@ -177,8 +189,12 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
                 []),
         });
         Dictionary<string, PropModels.ModelFrames> models = new() { [module] = flexed, [weapon] = plain };
+        HashSet<string> loaded = new(StringComparer.Ordinal);
+        IMdlCache cache = loadOnAsk
+            ? new FramesCache(path => loaded.Contains(path) ? models.GetValueOrDefault(path) : null, path => loaded.Add(path))
+            : new FramesCache(models.GetValueOrDefault);
         HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema };
-        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel", new FramesCache(models.GetValueOrDefault))
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel", cache)
         {
             Wide = 140,
             Tall = 100,
@@ -189,18 +205,27 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
             new Dictionary<int, EconAttributeValue> { [834] = new(834, 350), [214] = new(214, 12) }) with { IteratesDefinition = true };
         VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
 
+        loaded.ShouldBeEmpty("the control: nothing loaded before the item");
         panel.SetItem(item);
-        panel.StatTrack.Disabled.ShouldBeFalse("the control: the module is loaded");
+        panel.StatTrack.Disabled.ShouldBeFalse("the control: the module is shown");
         panel.Paint(surface, VguiModelPanelConformanceTests.Context());
 
-        PanelMeshFlexFixture.ShouldBeFlexedBy(
-            System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == module), 0.25f);
+        IReadOnlyList<ModelInstance> drawn = surface.Draws.ShouldHaveSingleItem().Models;
+        System.Linq.Enumerable.Select(drawn, model => model.ModelPath).ShouldBe([weapon, module]);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(System.Linq.Enumerable.Single(drawn, model => model.ModelPath == module), 0.25f);
     }
 
-    /// <summary>A cache answering models by path, with the fixture's packed order.</summary>
-    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
+    /// <summary>A cache answering models by path, with the fixture's packed order; <paramref name="load"/> runs on a load.</summary>
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find, Action<string>? load = null) : IMdlCache
     {
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            load?.Invoke(path);
+
+            return find(path);
+        }
 
         public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 

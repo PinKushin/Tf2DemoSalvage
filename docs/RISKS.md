@@ -43121,6 +43121,7 @@ deleted (all four rows).
    the skip's frame is deleted. `BuildOverlay`'s stays, for the `CMDL` panels (class panel, item panels), which look their
    models up on each paint and do not load; the engine's `CMDL` reads its model through `FindMDL`/`GetStudioHdr`
    (imdlcache.h:116-126), whose load is not ported — filed below. The doors and sign stay on that list, harmlessly.
+   *Superseded by the follow-up below*: the CMDL panels load in the call too, and `BuildOverlay`'s precache is gone.
 2. *Round 14's test could not fail for order* (low): replaced. *Tests*:
    `CModelPanelConformanceTests.HandleCountdown_TenSecondsWithTheDoorsModelNotLoaded_SetsUpTheDoorsWithTheLogo` and
    `RoundStart_ALadderMatchWithTheSignModelNotLoaded_DropsTheSignWithTheLogo` (a cache with nothing loaded; the event,
@@ -43138,9 +43139,49 @@ deleted (all four rows).
 which re-reads a failed model (the reads-once row alone), the root's set-up back to `FindMdl` (both logo rows and the
 presenter row), the attached model's back to `FindMdl` (the attached row alone).
 
-*Follow-up, not done*: the `CMDL` panels' load in the call (`VguiMdlPanel`, `TfPlayerModelPanel`), which would let
-`BuildOverlay`'s precache, `VguiHud.AddModelsToPrecache` and its overrides, `EntityModelSet.PrecacheChanged` and
-`VguiHudPrecacheTests.cs` go.
+*Follow-up*: the `CMDL` panels' load in the call — done below, on this branch (D261).
+
+**Review 15 follow-up — the CMDL panels load in the call too; the HUD's precache is gone.**
+1. *Engine*: `CMDLPanel::SetMDL( pMDLName )` takes its handle from `vgui::MDLCache()->FindMDL( pMDLName )`
+   (mdlpanel.cpp:185) and drops it if `IsErrorModel` (:187-190); `SetMergeMDL( pMDLName )` the same (:868-870), then
+   reads the header through the handle at once (`GetStudioHdr`, :857); `FindMDL` resolves a path from the GAME search
+   path, and the header is read on demand (imdlcache.h:116-126). The player panel's items: `LoadAndAttachAdditionalModel`
+   registers the model, "The auto-addref of vecDynamicAssetsLoaded will actually trigger the load", and the callback
+   answers once loaded, "immediately if not dynamic" (tf_playermodelpanel.cpp:1131-1166); the StatTrak module is
+   `FindMDL`'d (:588).
+2. *Ours*: `VguiMdlPanel` reads every model through `IMdlCache.LoadMdl` (root, merges, bone-merged children, the root's
+   header for the pose defaults). It holds a path, not a handle, and the set forgets its models at a level's end, so the
+   load is at each read — a dictionary hit once packed, a remembered failure answered without allocating.
+   `TfPlayerModelPanel.AnswerLoadedCallbacks` loads a waiting item's model when the callback is asked, at the
+   registration and at each paint after. *Interpolated*: a streamed item's load is asynchronous in the engine and may
+   answer frames later; ours answers at once. `TfEmbeddedItemModelPanel` needed no change of its own: its `SetMDL` and
+   merges are the base's (its icon-camera read after `SetMDL` finds what `SetMDL` loaded).
+3. *Removed, proved unused by the compiler*: `FramePresenter.PrecachePanelModels` and its call and list,
+   `VguiHud.AddModelsToPrecache`, `VguiModelPanel`/`VguiMdlPanel`/`TfPlayerModelPanel`/`TfEmbeddedItemModelPanel`
+   `.AddModelsToPrecache`, `EntityModelSet.PrecacheChanged` with its guard (`_precachedList`, `_precachedValid`,
+   `SameList`, the `LevelShutdown` reset) and counters (`PrecacheAsks`, `PrecachesRun`). The solution builds with 0
+   warnings and 0 errors without them (the LSP was not running, and starting it is the coordinator's). Tests of them
+   removed or rewritten: `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels`,
+   `AddModelsToPrecache_ARootAndMergeModels_AddsRootFirst`, the three `PrecacheChanged_*` rows (now `LoadMdl_*`), the
+   player panel's callback row; `VguiHudPrecacheTests.cs` now holds `VguiHudModelLoadTests` (its old tests could not
+   compile) — a `git mv` to a matching name is the coordinator's.
+4. *Flex*: `PanelMeshFlex` reads `PackedOrder`, and a model loaded in the call is packed with its order by the same
+   `Add`, before the same paint's draw: `Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint` (the
+   production set, nothing precached; flexed on the first paint, never unflexed).
+5. *Tests, red first*: `Paint_ARootAndAMergeNothingLoaded_LoadsAndDrawsBoth` (CMDL),
+   `Paint_AClassAndItsWeaponNothingLoaded_DrawsBoth` and `OnModelLoadComplete_AModelNotYetLoaded_LoadsAndMergesItAtTheRegistration`
+   (player panel), `Paint_AStrangePaintkittedWeaponNothingLoaded_LoadsAndDrawsItsStatTrakModuleFlexed` (item panel),
+   `LoadMdl_APackedModelAndARememberedFailure_AllocateNothing`; and, written after the change so not red first,
+   `OnModelLoadComplete_AModelThatCannotLoadYet_IsMergedAtThePaintAfterItCan`, `LoadMdl_AfterALevelShutdown_PacksTheModelAgain`,
+   `VguiHudModelLoadTests.EachPanelKind_ReadingItsModelsWithNothingPacked_PacksThemIntoTheHudsModelSet` (the HUD over the
+   production set) — each reddened by a sabotage below.
+6. *Not covered*: a model remembered empty is never re-read by a panel's load (`Precache` drops empties, B363; `LoadMdl`
+   does not). Within a level the loader does not change after the map's load, and `LevelShutdown` forgets the empties.
+
+*Sabotage*, run apart: `VguiMdlPanel`'s reads back to `FindMdl` (the CMDL, class-panel and item-panel rows, and the HUD
+row); the player panel's callback back to `FindMdl` (both callback rows and the class-panel row); `LoadMdl` without its
+remembered-failure answer (the allocation row alone); `LoadMdl` returning the loader's frames without packing (the four
+`LoadMdl` rows and the first-paint flex row).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

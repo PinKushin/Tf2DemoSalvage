@@ -184,9 +184,9 @@ Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOld
   unbuffered (a handful of models, not hundreds a frame), `EntityModelSet` keeps its per-entity reused buffer.
 - **Precache reuses the existing upload path with no change needed.** `EntityModelSet.Precache` sets `Grown`, and
   `MomentScene.Pack` already checks `_models.Grown` every frame regardless of what added to it (`MomentScene.cs:633`,
-  written for B363) — so the panels' models, added by `VguiHud.AddModelsToPrecache` to a list the presenter keeps and
-  handed to `EntityModelSet.PrecacheChanged` (which precaches a changed list and keeps its own guard, reset at a level's
-  end — B779 reviews 2 and 3), are enough; a model panel's model reaches the GPU the next frame with no `MainForm`/`Device3D` change.
+  written for B363) — so a panel's model, packed when the panel reads it (`IMdlCache.LoadMdl`, `EntityModelSet` packing
+  in the call as the engine's `FindMDL`/`InitializeAsClientEntity` load; B779 review 15, which replaced the HUD's
+  per-frame precache), reaches the GPU at that frame's `Pack`, after the overlay, with no `MainForm`/`Device3D` change.
 - **Frame stepping is wired** (fixed after coordinator review, 2026-09-27): `FrameAt` feeds `CycleTime` through
   `SkinnedModel.BlendedCyclesPerSecond` and `StudioSequences.ClampCycle`/`FrameAt` — the same closed-form path
   `EntityModelSet.Simulate` already uses for every drawn prop (`EntityModels.cs:763-788`), just fed by a continuous

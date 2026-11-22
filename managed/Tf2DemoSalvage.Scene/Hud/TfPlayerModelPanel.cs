@@ -844,13 +844,20 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     }
 
     /// <summary>`modelinfo`'s load callbacks: each model now loaded reaches <see cref="OnModelLoadComplete"/>, in order.</summary>
+    /// <remarks>
+    /// **The registration loads the model** (B779 review 15 follow-up): "The auto-addref of vecDynamicAssetsLoaded will
+    /// actually trigger the load" (tf_playermodelpanel.cpp:1134-1136), and the callback answers once it is loaded
+    /// (:1165-1166, "callback triggers immediately if not dynamic"). Ours loads it here, at the registration and at each
+    /// paint after, so a model that loads is answered at once and one that cannot yet waits. *Interpolated*: a streamed
+    /// item's load is asynchronous in the engine and may answer some frames later.
+    /// </remarks>
     private void AnswerLoadedCallbacks()
     {
         for (int index = 0; index < _pendingLoads.Count;)
         {
             string path = _pendingLoads[index];
 
-            if (MdlCache.FindMdl(path) is null)
+            if (MdlCache.LoadMdl(path) is null)
             {
                 index++;
                 continue;
@@ -1504,23 +1511,6 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         _flexSlots = [];
         _flexSource = [];
         _flexRuleWeights = [];
-    }
-
-    /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>
-    /// <param name="into">The list.</param>
-    public override void AddModelsToPrecache(ICollection<string> into)
-    {
-        base.AddModelsToPrecache(into);
-
-        foreach (string path in _pendingLoads)
-        {
-            into.Add(path);
-        }
-
-        if (!StatTrackModel.Disabled && StatTrackModel.Path is { } module)
-        {
-            into.Add(module);
-        }
     }
 
     /// <summary>`CBaseModelPanel::OnTick`'s place: each frame, before drawing, answer the load callbacks now due.</summary>

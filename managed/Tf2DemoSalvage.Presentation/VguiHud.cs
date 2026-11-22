@@ -109,18 +109,6 @@ public sealed class VguiHud
         ],
         StringComparer.Ordinal);
 
-    /// <summary>Every model a HUD model panel will draw, for precaching, added to a list the caller keeps.</summary>
-    /// <param name="into">The list: the class panel's, the match doors' and the round sign's, then the freeze panel's and the
-    /// spectator GUI's items. Filled without allocating, as it is every frame (B779 review 3 item 3).</param>
-    public void AddModelsToPrecache(ICollection<string> into)
-    {
-        PlayerStatus.PlayerClass.PlayerModelPanel.AddModelsToPrecache(into);
-        MatchStatus.MatchStartModelPanel.AddModelsToPrecache(into);
-        MatchStatus.RoundSignModel.AddModelsToPrecache(into);
-        FreezePanel.ItemPanel.ModelPanel?.AddModelsToPrecache(into);
-        SpectatorGui.ItemPanel.ModelPanel?.AddModelsToPrecache(into);
-    }
-
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
 

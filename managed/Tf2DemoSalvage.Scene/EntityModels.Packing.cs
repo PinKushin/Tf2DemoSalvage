@@ -91,9 +91,6 @@ public sealed partial class EntityModelSet
         _packedOrder.Clear();
         _bakedByEntity.Clear();
 
-        // The models a precache list packed are gone, so the next level's same list must pack again (B779 review 2).
-        _precachedValid = false;
-
         _entities.Clear();
         _pendingBlends.Clear();
         _entityModels.Clear();
@@ -478,64 +475,6 @@ public sealed partial class EntityModelSet
 
         return added;
     }
-
-    /// <summary><see cref="Precache"/> only when the list differs from the last one this level was handed.</summary>
-    /// <param name="paths">The models, in a stable order.</param>
-    /// <remarks>
-    /// **For a caller that asks every frame** — the HUD's panel models (`FramePresenter.Hud`): <see cref="Precache"/>
-    /// re-reads a model that failed to load, which must not happen sixty times a second. **The guard lives here, with what it
-    /// guards** (B779 review 2 item 1): the frame presenter outlives a level, and a guard of its own kept the old level's list
-    /// after <see cref="LevelShutdown"/> forgot the models, so the same list on the next level was never packed.
-    /// </remarks>
-    public void PrecacheChanged(IReadOnlyList<string> paths)
-    {
-        ArgumentNullException.ThrowIfNull(paths);
-
-        PrecacheAsks++;
-
-        // Element by element against the kept copy, so an unchanged list — every frame but a change — allocates nothing
-        // (B779 review 3 item 3).
-        if (_precachedValid && SameList(paths, _precachedList))
-        {
-            return;
-        }
-
-        _precachedList.Clear();
-        _precachedList.AddRange(paths);
-        _precachedValid = true;
-        PrecachesRun++;
-        Precache(paths);
-    }
-
-    private static bool SameList(IReadOnlyList<string> paths, List<string> kept)
-    {
-        if (paths.Count != kept.Count)
-        {
-            return false;
-        }
-
-        for (int index = 0; index < kept.Count; index++)
-        {
-            if (!string.Equals(paths[index], kept[index], StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>How many lists <see cref="PrecacheChanged"/> was handed, counted where it takes them.</summary>
-    internal int PrecacheAsks { get; private set; }
-
-    /// <summary>How many of those it precached, counted where it does.</summary>
-    internal int PrecachesRun { get; private set; }
-
-    /// <summary>The list <see cref="PrecacheChanged"/> last precached this level, kept to compare against.</summary>
-    private readonly List<string> _precachedList = [];
-
-    /// <summary>Whether <see cref="_precachedList"/> is this level's: false until a precache, and again at a level's end.</summary>
-    private bool _precachedValid;
 
     /// <summary>Packs a whole set of model paths ahead of playback.</summary>
     /// <param name="paths">Every model the demo will ever show.</param>
