@@ -195,6 +195,32 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
     }
 
+    /// <remarks>
+    /// **A root that failed on one level is decided again on the next** (B779 review 18 item 1). The engine's `FindMDL`
+    /// reads from the install whatever the level (mdlpanel.cpp:185-190), so a root that fails at `SetMDL` failed for good.
+    /// Ours loads from the level's preloaded set (`MapAssets.Geometry`), which a mapless demo leaves empty — so the class
+    /// model fails there and loads on the next mapped level, where the HUD's `SetToPlayerClass` for the same class returns
+    /// early (tf_playermodelpanel.cpp:198; ours :317) and never calls `SetMDL` again. The panel decides its root once per
+    /// level: here a mapless level (nothing loads), its shutdown, a mapped level (the class and weapon load), the same
+    /// class again, a paint. The control: the root was invalid on the mapless level.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AClassThatFailedOnAMaplessLevel_DrawsOnTheNextLevelWithNoNewSetMdl()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel();
+
+        panel.SetToPlayerClass(1);
+        panel.ModelName.ShouldBeNull("the control: invalid on the mapless level");
+
+        panel.ForgetLevel();
+        cache.Available.UnionWith([ScoutModel, Scattergun]);
+        panel.SetToPlayerClass(1);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Select(model => model.ModelPath).ShouldBe([ScoutModel, Scattergun]);
+    }
+
     /// <remarks>The waiting half (B779 review 15 follow-up): a model that cannot load yet is merged at the first paint after
     /// it can. The control: it waits while it cannot.</remarks>
     [Test]

@@ -43249,8 +43249,59 @@ load-at-once row alone).
    (red first). *Sabotage*: `SetMDL` back to keeping any name reddens it and the error-root row. Two item-panel rows that
    ask which model is chosen (`TfItemModelPanelConformanceTests.SetItem_AnItemForOneClass_ShowsThatClasssModel`,
    `SetItem_ABlueWatcher_StillShowsTheStylesRedModel`) now give their viewport a cache in which every model loads.
+   *Caveat, review 18*: not parity as written — our load reads the level's preload, not the install, so "once" is once a
+   level (review 18 item 1).
 5. *Citations*: the root check is :836-837 (the comment is :835) in the review-16 row's remark, `VguiMdlPanel.SetMergeMDL`
    and above.
+
+**Review 18** (Gemini OK; Fable one medium; Sonnet and Fable lows):
+1. *A root that failed on a mapless demo stayed invalid on the next mapped one* (medium). The engine's `FindMDL` reads
+   the install whatever the level (mdlpanel.cpp:185-190); ours reads the level's preloaded models — `EntityModelSet.Geometry`
+   is `MapAssets.Geometry`, a lookup over what the map load read from `DemoModels.Needed` (MapAssets.cs:988,
+   LoadedMap.cs:361-365), and `NoGeometry` for a mapless demo or a map with no assets (LevelSystems.cs:313-315;
+   ViewerPresenter.cs:690-694 returns before `LevelSystems.Load`). Route: a mapless POV demo, `SetToPlayerClass`
+   (TfHudPlayerClass.cs:477) fails the class model; a mapped demo with the same class returns early
+   (TfPlayerModelPanel.cs:317) and never calls `SetMDL` — no portrait and every merge refused until the class changed.
+   **Why not "a loader whenever game content exists"**: the loader is a dictionary on purpose — every model is read WITH
+   the map so its materials join the map's one texture table and upload once (MapAssets.cs:1742-1751; `DemoModels`'
+   class remark); a mapless demo has no table to draw a model's materials from, and draws no entity model at all (D224:
+   possible, not supported). Loading on demand from the install means growing that table mid-play, a separate change.
+   **The fix in this branch's scope**: the panel's verdict is the level's, as our load's failure is — `VguiMdlPanel`
+   keeps the asked name and decides validity at `SetMDL` and again at the first read after each level's end
+   (`RootPath`; `ForgetLevel` marks it undecided). Round 17's validity-once holds within a level. *Test*:
+   `TfPlayerModelPanelConformanceTests.ForgetLevel_AClassThatFailedOnAMaplessLevel_DrawsOnTheNextLevelWithNoNewSetMdl`
+   (a mapless level, its shutdown, a mapped level, the same class, a paint: the class model and its weapon drawn; red
+   first: nothing drawn). *Sabotage*: `ForgetLevel` no longer marking the root undecided reddens it alone. *Not
+   testable*: "a mapless level alone loads the panel model" — with `NoGeometry` nothing loads, by design (D224). **World
+   models on a mapless demo**: lost too, for the same reason — every entity model comes from the same preload — and that
+   is D224's accepted state, not a new defect; the models no preload names are B812.
+2. *`FrameStarted` named as a test seam*, with its precedent (`ViewerPresenter.Posed`, `EffectEntities.ViewBuilt`) and
+   why a synthetic scheme does not fit (the presenter builds its HUD host from the install's archives).
+3. *"Through Add"* corrected to `PackCounted` (`PackedVerticesTests`, `EntityModelSet.LoadMdl`).
+4. *The `SetMDL` row's positive control*: after the fresh `SetMDL`, the paint draws (`Draws.ShouldHaveSingleItem`).
+5. *`AnswerLoadedCallbacks`' remark*: a failing item stays registered — never answered within the level, a lookup a paint
+   — and is answered on a later level whose preload holds it. Not dropped: the engine does not give up on a
+   registration either ("Dynamic models never fail to register", tf_playermodelpanel.cpp:1138; the callback waits),
+   only its hard-load branch drops a model `FindMDL` cannot find (:1147-1157); dropping ours would repeat item 1 for items.
+6. *A refused path counted as a model*: kept apart (`_refusedLoads`, cleared at `LevelShutdown`), out of `Count` and
+   `Paths`. `PackedVerticesTests.LoadMdl_ARefusedPath_IsNotCountedAsAModel` (red first). *Sabotage*: the refused path back
+   in `_byModel` reddens it alone.
+7. *`DeferredMdlCache` with no viewport*: documented as unreachable — the `.res` factory makes the item panel unparented
+   and the layout parents it before any setting, and the only named `SetMDL` is `SetItem`'s, from the HUD's frame on a
+   panel already in the viewport's tree. Were it reached, the next level would decide the root again (item 1).
+
+## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — OPEN
+
+Found in B779 review 18. `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
+(MapAssets.cs:988), and the map load reads `DemoModels.Needed` (LoadedMap.cs:361-365): the class models
+(`GameContent.ModelPaths`), every track's models, viewmodels, held weapons, attached models, and the level-load models
+(DemoModels.cs:154-230). A model named only by a HUD `.res` file — the match doors and the round sign in
+`HudMatchStatus.res` — is in none of those, so `LoadMdl` answers null for it on every level, and B779's doors/sign work
+(the set-up's load in the call, the logo bodygroup) cannot be seen in production. *Read from our code*; not measured on a
+real install. Not checked: whether the StatTrak modules and the item panels' models are always in the list. The engine
+reads them from the install on demand (`InitializeAsClientEntity`, basemodelpanel.cpp:407). Fix shape: add the HUD's
+panel model names to the preload (the layout's model blocks are known at HUD load), or load on demand from the install
+with the texture table grown — the larger change D86 avoided.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

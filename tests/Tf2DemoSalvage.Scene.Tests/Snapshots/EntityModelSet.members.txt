@@ -186,6 +186,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_propsByEntity|Private readonly|System
 Tf2DemoSalvage.Scene.EntityModelSet|field|_props|Private readonly|Microsoft.Extensions.Logging.ILogger
 Tf2DemoSalvage.Scene.EntityModelSet|field|_queriedSkinning|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Single[][]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_raw|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.PropVertex]]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_refusedLoads|Private readonly|System.Collections.Generic.HashSet`1[System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_releaseOnUpload|Private|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|field|_render|Private readonly|Microsoft.Extensions.Logging.ILogger
 Tf2DemoSalvage.Scene.EntityModelSet|field|_reportedFrames|Private readonly|System.Collections.Generic.HashSet`1[System.String]

@@ -117,7 +117,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>A row-major 3x4, or null without a model or attachment.</returns>
     protected float[]? RootAttachmentToWorld(int attachment)
     {
-        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
+        if (RootPath() is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
             || rootFrames.Attachments is not { } attachments || attachment < 0 || attachment >= attachments.Count)
         {
             return null;
@@ -198,7 +198,37 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     public VguiMdl RootMdl => _root;
 
     /// <summary>The root model's path, or null for <c>MDLHANDLE_INVALID</c>.</summary>
-    public string? ModelName => _root.Path;
+    public string? ModelName => RootPath();
+
+    /// <summary>The name <see cref="SetMDL"/> was last given, valid or not.</summary>
+    private string? _rootAsked;
+
+    /// <summary>Whether a level's end left the root's validity to be decided again by the next read.</summary>
+    private bool _rootUndecided;
+
+    /// <summary>The valid root's path, or null for <c>MDLHANDLE_INVALID</c>: decided at <see cref="SetMDL"/>, and again once
+    /// after each level's end.</summary>
+    /// <remarks>
+    /// **Once a level, not once for good** (B779 review 18 item 1): the engine's `FindMDL` reads the install whatever the
+    /// level (mdlpanel.cpp:185-190), so its verdict is the file's. Ours loads from the level's preloaded models
+    /// (`EntityModelSet.LoadMdl` over `MapAssets.Geometry`), so a root that failed on a mapless demo's level is asked again
+    /// by the first read on the next level — not by a new `SetMDL`, which the HUD skips for the same class. Within a level
+    /// it stays decided (review 17).
+    /// </remarks>
+    private string? RootPath()
+    {
+        if (_rootUndecided)
+        {
+            _rootUndecided = false;
+            _root.Path = Valid(_rootAsked);
+        }
+
+        return _root.Path;
+    }
+
+    /// <summary>`FindMDL( pMDLName )` then `IsErrorModel` (:185-190): the name if it loads, else null.</summary>
+    private string? Valid(string? modelName) =>
+        !string.IsNullOrEmpty(modelName) && MdlCache.LoadMdl(modelName) is not null ? modelName : null;
 
     /// <summary><c>m_RootMDL.m_MDL.m_nSequence</c>.</summary>
     public int Sequence => _root.Sequence;
@@ -232,11 +262,13 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <param name="modelName">The model's path, or null.</param>
     public virtual void SetMDL(string? modelName)
     {
-        // **Decided once, here** (B779 review 17 item 4): `FindMDL( pMDLName )`, and an error model is `MDLHANDLE_INVALID`
+        // **Decided here** (B779 review 17 item 4): `FindMDL( pMDLName )`, and an error model is `MDLHANDLE_INVALID`
         // (:185-190), which the draw (:417), the merge (:836-837) and the header read without asking the name again. Ours
         // keeps no handle, so an invalid root is no root path; a valid one is loaded again by name after a level's end,
-        // as the engine's MDL cache still holds it.
-        _root.Path = !string.IsNullOrEmpty(modelName) && MdlCache.LoadMdl(modelName) is not null ? modelName : null;
+        // as the engine's MDL cache still holds it — and an invalid one is decided again then (`RootPath`, review 18).
+        _rootAsked = modelName;
+        _rootUndecided = false;
+        _root.Path = Valid(modelName);
 
         // `m_RootMDL.m_flCycleStartTime = 0.f;` (:169), then `SetPoseParameters( NULL, 0 )` (:172).
         CycleStartTime = 0d;
@@ -327,7 +359,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     {
         // "Verify that we have a root model to merge to" (the check :836-837): `SetMDL` made an error model
         // `MDLHANDLE_INVALID` (:187-190), which ours records as no root path (B779 reviews 16-17).
-        if (_root.Path is null)
+        if (RootPath() is null)
         {
             return null;
         }
@@ -388,7 +420,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>m_RootMDL.m_MDL.GetStudioHdr()</c>: the root model, or null for <c>MDLHANDLE_INVALID</c>.</summary>
     /// <returns>The skinned model.</returns>
     protected PropModels.SkinnedModel? RootStudioHdr() =>
-        _root.Path is { } path ? MdlCache.LoadMdl(path)?.Skinned : null;
+        RootPath() is { } path ? MdlCache.LoadMdl(path)?.Skinned : null;
 
     /// <summary>
     /// <c>CMDLPanel::OnPaint3D</c> (<c>mdlpanel.cpp:415-520</c>): <see cref="PrePaint3D"/>, root <c>SetUpBones</c> with
@@ -400,7 +432,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(renderContext);
 
         // `if ( m_RootMDL.m_MDL.GetMDL() == MDLHANDLE_INVALID ) return;` (:417).
-        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
+        if (RootPath() is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
         {
             return;
         }
@@ -588,6 +620,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         _entities.Clear();
         _zeroControlWeights.Clear();
         _root.MeshFlex.Release();
+
+        // The root's validity was this level's verdict (`RootPath`, review 18 item 1).
+        _rootUndecided = _rootAsked is not null;
 
         foreach (VguiMdl merge in _merges)
         {

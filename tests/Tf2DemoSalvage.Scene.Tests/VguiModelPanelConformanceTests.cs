@@ -374,6 +374,8 @@ public sealed class VguiModelPanelConformanceTests
 
         panel.SetMDL(root);
         panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldNotBeNull("the control: a fresh SetMDL takes it");
+        panel.Paint(surface, Context());
+        surface.Draws.ShouldHaveSingleItem("the control: and draws it");
     }
 
     /// <remarks>

@@ -90,6 +90,7 @@ public sealed partial class EntityModelSet
         _packedRebuilt.Clear();
         _packedOrder.Clear();
         _bakedByEntity.Clear();
+        _refusedLoads.Clear();
 
         _entities.Clear();
         _pendingBlends.Clear();

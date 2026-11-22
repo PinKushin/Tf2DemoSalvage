@@ -141,8 +141,9 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
-    /// **A model that fails to load is read once** (B779 review 15): `LoadMdl` packs through `Add`, which remembers the
-    /// failure, so a panel asking every paint does not reach the loader again. The control: the first ask read it.
+    /// **A model that fails to load is read once a level** (B779 review 15): `LoadMdl` packs through `PackCounted` (review
+    /// 17), which remembers the failure until the level's end, so a panel asking every paint does not reach the loader again.
+    /// The control: the first ask read it.
     /// </remarks>
     [Test]
     public void LoadMdl_AModelThatFailsToLoad_ReadsItOnce()
@@ -207,5 +208,23 @@ public sealed class PackedVerticesTests
         }
 
         least.ShouldBe(0L);
+    }
+
+    /// <remarks>
+    /// **A refused path is not a model** (B779 review 18 item 6): remembered apart from the packed set, so `Count` and
+    /// `Paths` — the "entity models: N packed" line and the device's upload — see the models alone. The control: the
+    /// refused path is answered null.
+    /// </remarks>
+    [Test]
+    public void LoadMdl_ARefusedPath_IsNotCountedAsAModel()
+    {
+        const string sprite = "sprites/glow01.vmt";
+        EntityModelSet models = new() { Geometry = Skinned };
+
+        models.LoadMdl(Path);
+        int count = models.Count;
+        models.LoadMdl(sprite).ShouldBeNull("the control");
+
+        (models.Count, models.Paths.Contains(sprite)).ShouldBe((count, false));
     }
 }

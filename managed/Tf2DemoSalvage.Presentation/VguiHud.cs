@@ -178,8 +178,11 @@ public sealed class VguiHud
     }
 
     /// <summary>
-    /// Run as <see cref="Frame"/> starts: a test's stand-in for a panel's work inside the HUD's frame, where a harness with no
-    /// install has no scheme to think or paint with (B779 review 17 item 1). Null in production.
+    /// **A test seam**, run as <see cref="Frame"/> starts: a test's stand-in for a panel's work inside the HUD's frame, where a
+    /// harness with no install has no scheme to think or paint with (B779 review 17 item 1). Null in production. The same
+    /// kind as `ViewerPresenter.Posed` and `EffectEntities.ViewBuilt`: a hook production fires and only a test sets. A
+    /// synthetic scheme with a real panel would replace it, but the presenter builds its HUD host from the install's archives,
+    /// and the harness has none.
     /// </summary>
     internal Action? FrameStarted { get; set; }
 

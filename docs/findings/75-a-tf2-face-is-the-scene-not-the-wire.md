@@ -248,7 +248,7 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   since then each panel packs its own when it reads it, as the engine loads in the call — a CMDL panel through
   `FindMDL`/`GetStudioHdr` (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126), a `CModelPanel` through
   `InitializeAsClientEntity` (basemodelpanel.cpp:407), an item's model when its load callback is asked
-  (tf_playermodelpanel.cpp:1134-1166). The load packs the model with its order, so the same paint's face has the buffer
+  (tf_playermodelpanel.cpp:1129-1166). The load packs the model with its order, so the same paint's face has the buffer
   order it needs (*measured* through the production set on a synthetic model,
   `VguiModelPanelConformanceTests.Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`). The filing
   was a deduction never checked. **A wrong turn, the same day** (review 16): packed is not on the device. The scene's
@@ -260,7 +260,14 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   device. Two more of the engine's load-in-the-call shapes (review 17, *source*): it brings in that one model — so ours
   packs the one path, not the level's static props that the moment's first pack takes (finding 83 item 1) — and a
   `CMDLPanel` decides its root's validity once, at `SetMDL` (`FindMDL`, an error model `MDLHANDLE_INVALID`,
-  mdlpanel.cpp:185-190), so a root that failed is not drawn even if it could load later.
+  mdlpanel.cpp:185-190), so a root that failed is not drawn even if it could load later. **Not quite ours, and the
+  difference is not parity** (review 18, *read from our code*): the engine's `FindMDL` reads the install whatever the
+  level, but our load reads the LEVEL's preloaded models — `MapAssets.Geometry` is a lookup over what the map load read
+  from `DemoModels.Needed` (MapAssets.cs:988, LoadedMap.cs:361-365), and a mapless demo has `NoGeometry`
+  (LevelSystems.cs:313-315; ViewerPresenter.cs:690-694 returns before the level loads). So our failure can be the
+  level's, not the file's: decided once was a class portrait lost for good after one mapless demo. Ours decides once
+  a LEVEL — again at the first read after each level's end — which is the engine's verdict wherever our load can answer
+  as its can. What no preload names never loads at all, map or not (B812).
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

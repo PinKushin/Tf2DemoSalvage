@@ -72,6 +72,13 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// `vgui::MDLCache()` for a panel a `.res` file makes, which no constructor can hand one: the viewport's, asked on each
     /// use. Its owner is set after the base constructor, which needs a cache first.
     /// </summary>
+    /// <remarks>
+    /// **Answers nothing until the panel reaches a viewport** (B779 review 18 item 7), so a `SetMDL` before then would decide
+    /// the root invalid until the next `SetMDL` or level (`VguiMdlPanel.RootPath`). It cannot happen today: the `.res`
+    /// factory makes the panel unparented (`VguiEditablePanel`'s control table) and the layout parents it before any
+    /// setting is applied, and the only `SetMDL` with a name is the item's (`SetItem`'s model update), which its owner runs
+    /// from the HUD's frame on a panel already in the viewport's tree. `SetMDL(null)` decides nothing.
+    /// </remarks>
     private sealed class DeferredMdlCache : IMdlCache
     {
         public VguiPanel? Owner { get; set; }

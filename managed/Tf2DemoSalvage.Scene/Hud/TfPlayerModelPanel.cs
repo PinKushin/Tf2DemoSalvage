@@ -846,10 +846,14 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <summary>`modelinfo`'s load callbacks: each model now loaded reaches <see cref="OnModelLoadComplete"/>, in order.</summary>
     /// <remarks>
     /// **The registration loads the model** (B779 review 15 follow-up): "The auto-addref of vecDynamicAssetsLoaded will
-    /// actually trigger the load" (tf_playermodelpanel.cpp:1134-1136), and the callback answers once it is loaded
+    /// actually trigger the load" (tf_playermodelpanel.cpp:1135-1136), and the callback answers once it is loaded
     /// (:1165-1166, "callback triggers immediately if not dynamic"). Ours loads it here, at the registration and at each
-    /// paint after, so a model that loads is answered at once and one that cannot yet waits. *Interpolated*: a streamed
-    /// item's load is asynchronous in the engine and may answer some frames later.
+    /// paint after, so a model that loads is answered at once. **One that does not stays registered** (review 18 item 5):
+    /// within the level it is never answered — the failure is remembered until the level's end, and each paint costs one
+    /// lookup for it — and on a later level, whose preload may hold it, the first paint answers it. The engine does not
+    /// give up on a registration either: "Dynamic models never fail to register" (:1138), and the callback waits for
+    /// the load; only the hard-load branch, for a model with no index, drops a model `FindMDL` cannot find (:1147-1157).
+    /// *Interpolated*: a streamed item's load is asynchronous in the engine and may answer some frames later.
     /// </remarks>
     private void AnswerLoadedCallbacks()
     {
