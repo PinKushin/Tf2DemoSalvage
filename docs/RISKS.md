@@ -43163,8 +43163,8 @@ presenter row), the attached model's back to `FindMdl` (the attached row alone).
    warnings and 0 errors without them (the LSP was not running, and starting it is the coordinator's). Tests of them
    removed or rewritten: `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels`,
    `AddModelsToPrecache_ARootAndMergeModels_AddsRootFirst`, the three `PrecacheChanged_*` rows (now `LoadMdl_*`), the
-   player panel's callback row; `VguiHudPrecacheTests.cs` now holds `VguiHudModelLoadTests` (its old tests could not
-   compile) — a `git mv` to a matching name is the coordinator's.
+   player panel's callback row; `VguiHudPrecacheTests.cs` was rewritten as `VguiHudModelLoadTests` (its old tests could not
+   compile) and renamed to `VguiHudModelLoadTests.cs`.
 4. *Flex*: `PanelMeshFlex` reads `PackedOrder`, and a model loaded in the call is packed with its order by the same
    `Add`, before the same paint's draw: `Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint` (the
    production set, nothing precached; flexed on the first paint, never unflexed).
