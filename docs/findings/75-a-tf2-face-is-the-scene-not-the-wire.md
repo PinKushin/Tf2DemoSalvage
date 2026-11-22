@@ -231,8 +231,13 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   bodygroup is never dropped** (*source*, review 14): `SetupModel` loads the model (`InitializeAsClientEntity`, :407),
   and `SetBodyGroup` records into `m_mapBodygroupValues` only with a model held (:367-382), for every later set-up to
   apply (:425-428). Ours precached the panels' models only in the drawn frame, after a skip's batches, so the opening
-  skip of a load that crossed the match doors or a round sign set it up with the default logo. The skip's HUD frame now
-  precaches them first. **A wrong turn,
+  skip of a load that crossed the match doors or a round sign set it up with the default logo. Review 14 added a precache
+  on the skip's frame; review 15 found the HUD's first frame had the same gap (its layout loads inside `Think`, after the
+  precache), the third route a "precache before the caller" missed (*wrong turn*, the shape of reviews 9-11's flag).
+  **Ours now loads in the call too**: the set-up asks the model set to pack the model (`IMdlCache.LoadMdl`), as
+  `InitializeAsClientEntity` asks `modelinfo->GetModelIndex` (c_baseentity.cpp:1130-1153). *Interpolated*: that the
+  client's `GetModelIndex` loads an unprecached name, as a client-only model, is not in the SDK; nothing there precaches
+  the HUD's model names, which only its `.res` files carry. **A wrong turn,
   kept** (review 7): reading the event handler alone — dirty, and `DeleteModelData` only at the next `SetupModel`
   (:395) — the port kept the model until the set-up. True for the event, wrong for the level change our viewport's walk
   is called at, where the shutdown has released it already. And the HUD's precache of the panels' models must not survive the level its

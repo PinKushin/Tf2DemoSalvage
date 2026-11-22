@@ -147,8 +147,6 @@ public sealed partial class FramePresenter
 
         (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
 
-        // Before the batch's events, which set the match doors and the round sign up (B779 review 14).
-        PrecachePanelModels(hud);
         hud.Frame(
 
             // **No callouts in a skip**: the corpses' physics and the view are the last drawn frame's, not this tick's, and the
@@ -161,15 +159,18 @@ public sealed partial class FramePresenter
             paint: false);
     }
 
-    /// <summary>What the HUD's model panels will set up, precached before any of its events or paints can ask for it.</summary>
+    /// <summary>What the HUD's model panels will draw, precached on the drawn frame before they paint.</summary>
     /// <remarks>
-    /// Checked every HUD frame, drawn or skipped, so a model first needed mid-demo reaches the GPU (`MomentScene.Pack` uploads
-    /// whatever `Grown` says was added). Only a changed set is precached, and the set keeps that guard so a level shutdown
-    /// resets it with the models (B779 review 2 item 1). Into a kept list, compared in place, so an unchanged frame allocates
-    /// nothing (review 3 item 3). **A skip's frame too** (review 14): the engine's `CModelPanel::SetupModel` loads its model
-    /// in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so the `SetBodyGroup` that follows always finds it
-    /// (:367-382); a skip's batch after a load runs its events before the first drawn frame's precache, and the doors or
-    /// the sign would set up with the skin and the default logo.
+    /// Checked every drawn frame, so a model first needed mid-demo reaches the GPU (`MomentScene.Pack` uploads whatever
+    /// `Grown` says was added). Only a changed set is precached, and the set keeps that guard so a level shutdown resets it
+    /// with the models (B779 review 2 item 1). Into a kept list, compared in place, so an unchanged frame allocates nothing
+    /// (review 3 item 3). **Not what a `CModelPanel`'s set-up relies on** (review 15): that loads its model in the call
+    /// (`IMdlCache.LoadMdl`, as `InitializeAsClientEntity` does, basemodelpanel.cpp:407), since a skip's batch or the HUD's
+    /// first frame (whose layout loads inside `Think`, after this) can set one up first; round 14's precache on the skip's
+    /// frame was the second of those patches and is gone. What still needs this are the `CMDL` panels (the class panel, the
+    /// item panels), which look their models up on each paint and do not load (`VguiMdlPanel`). The engine's `CMDL` takes a
+    /// handle by path from the GAME search path and reads the header through it (`FindMDL`, `GetStudioHdr`,
+    /// imdlcache.h:116-126); that load is not ported, so this precache stands in for it.
     /// </remarks>
     private void PrecachePanelModels(VguiHud hud)
     {

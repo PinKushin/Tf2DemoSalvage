@@ -96,6 +96,40 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
+    /// **A panel's set-up loads its model in the call** (B779 review 15; `InitializeAsClientEntity`, basemodelpanel.cpp:407):
+    /// a model nothing packed is packed by the ask, with its order. The control: the lookup alone found nothing.
+    /// </remarks>
+    [Test]
+    public void LoadMdl_AModelNothingPacked_PacksItInTheCall()
+    {
+        EntityModelSet models = new() { Geometry = Skinned };
+        models.FindMdl(Path).ShouldBeNull("the control: nothing packed it");
+
+        models.LoadMdl(Path).ShouldNotBeNull();
+
+        models.FindMdl(Path).ShouldNotBeNull();
+        models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
+    }
+
+    /// <remarks>
+    /// **A model that fails to load is read once** (B779 review 15): `LoadMdl` packs through `Add`, which remembers the
+    /// failure, so a panel asking every paint does not reach the loader again. The control: the first ask read it.
+    /// </remarks>
+    [Test]
+    public void LoadMdl_AModelThatFailsToLoad_ReadsItOnce()
+    {
+        int reads = 0;
+        EntityModelSet models = new() { Geometry = path => { reads++; return null; } };
+
+        models.LoadMdl(Path).ShouldBeNull();
+        int first = reads;
+        models.LoadMdl(Path).ShouldBeNull();
+
+        first.ShouldBe(1, "the control: the first ask read it");
+        reads.ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **The HUD's panel models are packed again on the next level, even when its list is the same** (B779 review 2 item 1).
     /// The frame presenter outlives a level (`ViewerPresenter.ClearMap` calls its `ClearMap`, then `LevelSystems.Shutdown`
     /// reaches <see cref="EntityModelSet.LevelShutdown"/>), and it precached only a CHANGED list, so the same class panel on

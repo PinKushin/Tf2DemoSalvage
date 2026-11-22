@@ -152,30 +152,26 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **A skip's HUD frame finds the panels' models, as the engine's synchronous load does** (B779 review 14 item 1). After
-    /// a load the model set has forgotten every model, and the opening skip's batches run their HUD events before the first
-    /// drawn frame's precache (`FrameSequence.Run`: `Simulate` steps the skip before `BuildOverlay`). `SetDoors` and
-    /// `ShowRoundSign` call `UpdateModel` and then `SetBodyGroup`, which needs the model (`basemodelpanel.cpp:367-382`); the
-    /// engine's `SetupModel` loads it in the call (`InitializeAsClientEntity`, :407), so the bodygroup is always recorded,
-    /// and kept in `m_mapBodygroupValues` for every later set-up (:425-428). Ours precaches the panels' models at the skip's
-    /// HUD frame too. Observed as the set-up a skip event's `UpdateModel` gets with no drawn frame between. The control: the
-    /// same `UpdateModel` before the skip finds nothing.
+    /// **The HUD's model panels load through the presenter's model set in the call** (B779 review 15): after a load the set
+    /// has forgotten every model, and a skip's batch or the HUD's first frame can set a panel up before any precache lists
+    /// it. The engine's `SetupModel` loads the model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so
+    /// ours asks the set to (`EntityModelSet.LoadMdl`), and the model is packed for the device with it. The control: the
+    /// load forgot the model.
     /// </remarks>
     [Test]
-    public void ShowMoment_ASkipAfterALoad_PrecachesThePanelModelsBeforeItsHudEvents()
+    public void UpdateModel_AfterALoadWithNothingPacked_LoadsThePanelsModelThroughTheModelSet()
     {
         Window window = new();
         VguiModelPanel sign = SignWithAModel(window);
 
         window.Models.LevelShutdown();
         window.Frames.ClearMap();
-        sign.UpdateModel();
-        sign.SetUpModel.ShouldBeNull("the control: the load forgot the model, and nothing has precached it since");
+        window.Models.FindMdl("models/vgui/round_sign.mdl").ShouldBeNull("the control: the load forgot the model");
 
-        window.Seek(500d);
         sign.UpdateModel();
 
         sign.SetUpModel.ShouldNotBeNull();
+        window.Models.FindMdl("models/vgui/round_sign.mdl").ShouldNotBeNull("packed by the set-up");
     }
 
     /// <remarks>

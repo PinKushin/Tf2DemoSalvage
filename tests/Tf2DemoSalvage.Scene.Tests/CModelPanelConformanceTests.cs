@@ -97,6 +97,40 @@ public sealed class CModelPanelConformanceTests
         ((HudViewport)status.Parent!).Animations.ActiveAnimationCount.ShouldBe(1, "HudMatchStatus_ShowMatchStartDoors");
     }
 
+    /// <remarks>
+    /// **The doors' logo survives a model nothing has packed yet** (B779 review 15). Both routes that reach `SetDoors` with
+    /// the model unpacked — a skip's batch after a load (the set forgot every model) and the HUD's first frame (its layout
+    /// loads inside that frame's `Think`, after any precache could have listed the doors) — come down to this cache. The
+    /// engine's `SetupModel` loads the model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so the
+    /// `SetBodyGroup` that follows records the logo (:367-382) and the set-up applies it (:425-428).
+    /// </remarks>
+    [Test]
+    public void HandleCountdown_TenSecondsWithTheDoorsModelNotLoaded_SetsUpTheDoorsWithTheLogo()
+    {
+        TfHudMatchStatus status = Built(new UnloadedCache(Labelled()));
+        VguiModelPanel doors = status.MatchStartModelPanel;
+
+        status.HandleGameEvent(Event("restart_timer_time", new SceneGameRules(false, 0, false) { MatchGroup = 7 }, ("time", 10)));
+        doors.UpdateModel();
+
+        doors.ModelInfo.ShouldNotBeNull().BodygroupValues.ShouldBe(new SortedDictionary<int, int> { [3] = 1 });
+        (doors.ModelSkin, doors.ModelBody).ShouldBe((3, 10), "casual: skin 3, logos 1 (tf_match_description_casual.cpp:73-78)");
+    }
+
+    /// <remarks>The round sign's half of the same (B779 review 15): `ShowRoundSign` (tf_hud_match_status.cpp:726).</remarks>
+    [Test]
+    public void RoundStart_ALadderMatchWithTheSignModelNotLoaded_DropsTheSignWithTheLogo()
+    {
+        TfHudMatchStatus status = Built(new UnloadedCache(Labelled()));
+        VguiModelPanel sign = status.RoundSignModel;
+
+        status.HandleGameEvent(Event("teamplay_round_start", new SceneGameRules(false, 0, false) { MatchGroup = 2, RoundsPlayed = 2 }));
+        sign.UpdateModel();
+
+        sign.ModelInfo.ShouldNotBeNull().BodygroupValues.ShouldBe(new SortedDictionary<int, int> { [3] = 1 });
+        (sign.ModelSkin, sign.ModelBody).ShouldBe((10, 10), "\"The comp skins start at skin 8\", logos 1 (tf_match_description_comp.cpp:94-100)");
+    }
+
     [Test]
     public void HandleCountdown_MannVsMachine_ShowsNoDoors()
     {
@@ -695,6 +729,33 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **An attached model is loaded in the set-up's call too** (B779 review 15): `new C_BaseAnimating` then
+    /// `InitializeAsClientEntity( pInfo->m_pszModelName )` (basemodelpanel.cpp:468-478), so the first paint draws it with
+    /// nothing having loaded it before. The control: before the paint, the cache had not loaded it.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModelNothingLoaded_LoadsItInTheSetUp()
+    {
+        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
+        bool attachedLoaded = false;
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        VguiModelPanel panel = Framed(
+            startFramed: false,
+            attached: attachedFrames,
+            rootNow: () => root,
+            attachedNow: () => attachedLoaded ? attachedFrames : null,
+            onLoad: path => attachedLoaded |= path == AttachedPath);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        attachedLoaded.ShouldBeFalse("the control");
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
     /// **A late attached model is set up once it loads, and then left alone** (B779 reviews 4-6): `SetupModel` skips an
     /// attached model it cannot find (`continue`, :473-478), and the engine's load is in the call (:387), so a late one is
     /// ours alone: the panel keeps the models a set-up missed and sets itself up again when one can be found. First paint:
@@ -874,7 +935,8 @@ public sealed class CModelPanelConformanceTests
         PropModels.ModelFrames? root = null,
         Func<PropModels.ModelFrames?>? rootNow = null,
         Func<PropModels.ModelFrames?>? attachedNow = null,
-        bool emptyAttachment = false)
+        bool emptyAttachment = false,
+        Action<string>? onLoad = null)
     {
         PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
         Func<PropModels.ModelFrames?> rootFrames = rootNow ?? (() => frames);
@@ -883,7 +945,8 @@ public sealed class CModelPanelConformanceTests
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
             path => attached is not null && path == AttachedPath ? attachedFrames() : rootFrames(),
-            sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
+            sharedTarget ? viewTarget ?? new StudioViewTarget() : null,
+            onLoad);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";
 
@@ -934,11 +997,19 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>
-    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find, StudioViewTarget? viewTarget) : IMdlCache
+    private sealed class FramesCache(
+        Func<string, PropModels.ModelFrames?> find, StudioViewTarget? viewTarget, Action<string>? onLoad = null) : IMdlCache
     {
         public StudioViewTarget? ViewTarget { get; } = viewTarget;
 
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            onLoad?.Invoke(path);
+
+            return find(path);
+        }
 
         public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
@@ -959,13 +1030,41 @@ public sealed class CModelPanelConformanceTests
         return new HudGameEvent(new SceneGameEvent(0, name, fields, new Dictionary<int, Core.Net.PlayerInfo>()), 10f, [], 1, rules, "cp_test", 0);
     }
 
-    private static TfHudMatchStatus Built()
+    private static PropModels.SkinnedModel Labelled()
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref", "open", "close", "intro", "outro");
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+
+        return SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+    }
+
+    /// <summary>
+    /// The model set as an event finds it after a load or on the HUD's first frame: nothing packed yet. <see cref="FindMdl"/>
+    /// answers only what <see cref="LoadMdl"/> has loaded; "logos" is bodygroup 3, written as <c>body + value * 10</c>.
+    /// </summary>
+    private sealed class UnloadedCache(PropModels.SkinnedModel model) : IMdlCache
+    {
+        private readonly HashSet<string> _loaded = new(StringComparer.Ordinal);
+
+        public PropModels.ModelFrames? FindMdl(string path) =>
+            _loaded.Contains(path) ? new([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            _loaded.Add(path);
+
+            return FindMdl(path);
+        }
+
+        public int FindBodygroup(string modelPath, string group) => FindMdl(modelPath) is not null && group == "logos" ? 3 : -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body + (value * 10);
+    }
+
+    private static TfHudMatchStatus Built(IMdlCache? cache = null)
+    {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport, new Cache(model));
+        TfHudMatchStatus status = new(viewport, cache ?? new Cache(Labelled()));
 
         viewport.Think((new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f)).WithMatchHud(true));
         status.PerformApplySchemeSettings(context);

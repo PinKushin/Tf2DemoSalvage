@@ -446,6 +446,33 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     public PropModels.ModelFrames? FindMdl(string path) =>
         _frames.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **Packed in the call, through <see cref="Add(IReadOnlyList{SceneProp})"/>**, so a model that fails to load is remembered
+    /// empty and never read again, and one that loads reaches the device at the next `MomentScene.Pack` with every other
+    /// model this frame grew. Called from the HUD's frame, drawn or skipped, which runs where the world's packing may: after
+    /// the camera's wait for the frame in flight, or under a skip's queue lock. The engine's side: `InitializeAsClientEntity`
+    /// asks `modelinfo->GetModelIndex( pszModelName )` (c_baseentity.cpp:1130-1153). *Interpolated*: that the client's
+    /// `GetModelIndex` registers an unprecached name as a client-only model (`IsClientOnlyModelIndex`, ivmodelinfo.h:95-99)
+    /// is not in the SDK, whose interface comment says "precached or known dynamic models" (:109-111); nothing in the SDK
+    /// precaches the HUD's model names, which only its `.res` files carry, and the doors and sign draw in TF2.
+    /// </remarks>
+    public PropModels.ModelFrames? LoadMdl(string path)
+    {
+        if (FindMdl(path) is { } frames)
+        {
+            return frames;
+        }
+
+        _loadOne[0] = new SceneProp(0, path, ScenePropTrack.Classify(path), default);
+        Add(_loadOne);
+
+        return FindMdl(path);
+    }
+
+    /// <summary>The one prop <see cref="LoadMdl"/> packs, kept so a load allocates no list.</summary>
+    private readonly SceneProp[] _loadOne = new SceneProp[1];
+
     /// <summary>The studio render context's one view target, which the HUD's model panels reach through this cache (B725 5d).</summary>
     public StudioViewTarget ViewTarget { get; } = new();
 

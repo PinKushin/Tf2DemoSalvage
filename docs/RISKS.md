@@ -43089,7 +43089,10 @@ deleted (all four rows).
    `SetSequence` (an animation command) and `TfPlayerModelPanel`'s bodygroups (`FindBodygroup`) run inside a HUD frame,
    now always after the precache; the engine's `SetSequence` also does nothing with no model (:728). *Test*:
    `FramePresenterHudTests.ShowMoment_ASkipAfterALoad_PrecachesThePanelModelsBeforeItsHudEvents` (red first: the
-   set-up after the skip found nothing). *Sabotage*: the skip's precache deleted reddens it alone.
+   set-up after the skip found nothing). *Sabotage*: the skip's precache deleted reddens it alone. *Superseded by review
+   15*: "now always after the precache" was false — the HUD's first frame loads its layout inside `Think`, after the
+   precache, and a precache placed before the caller was itself the patch, not the engine's mechanism. The skip's precache
+   and its test are gone; the set-up loads in the call.
 2. *The pre-load set-up was unreachable, not invisible*: with no demo there is no timeline, so `HudStates.For` returns
    `default` (`HudStates.cs:39-42`). `CModelPanel.Paint` returns before `UpdateModel` (`VguiModelPanel.cs:628`), no
    event reaches the doors or the sign, the elements are hidden (`HudViewport.IsHidden`, :376), and the class panel's
@@ -43098,6 +43101,46 @@ deleted (all four rows).
    `FramePresenter.ClearMap` and the presenter row's remark now say so; the row sets its panel up by hand.
 3. *Round 13's name map* corrected above.
 4. *Round 12 item 1's engine claim* marked interpolated inline.
+
+**Review 15** (Fable, Sonnet; Gemini OK): **the third precache gap, fixed by porting the load instead**.
+1. *The HUD's first frame drops the logo too* (medium): `BuildOverlay`'s precache runs before the HUD's layout exists —
+   `VguiHud.Think` loads it (`LoadControlSettings`, then `SolveTraverse`) — so the doors and the sign have no
+   `ModelInfo` and the list omits them; the same `Think` then delivers the frame's events (`HudEventFeed.Advance` with no
+   last tick returns the whole window), and a `restart_timer_time`, `teamplay_round_start` or `show_match_summary` reaches
+   `SetDoors` or `ShowRoundSign` with the model missing. Reachable when the HUD's first frame already has a timeline (the
+   opening skip ran with no HUD). The third route where "precache before the caller" had a gap — the shape of reviews
+   9-11's flag. **The engine**: `SetupModel` makes its entity with `InitializeAsClientEntity( pszModelName )`
+   (basemodelpanel.cpp:407), which asks `modelinfo->GetModelIndex( pszModelName )` (c_baseentity.cpp:1130-1153); an
+   attached model the same way (basemodelpanel.cpp:468-478). The HUD precaches none of these: their names are only in the
+   `.res` files, and nothing in the SDK precaches them. *Interpolated*: that the client's `GetModelIndex` registers an
+   unprecached name as a client-only model is not in the SDK (ivmodelinfo.h:95-99 has the client-only index; its comment,
+   :109-111, says "precached or known dynamic models"). **Fix**: `IMdlCache.LoadMdl`, which `EntityModelSet` answers by
+   packing the model in the call through `Add` (a failed load remembered, never re-read), and `VguiModelPanel.SetupModel`
+   uses for its root and attached models. The HUD's frame runs where packing may (after the camera's wait, or under a
+   skip's lock), and a model packed in the call reaches the device at the frame's `Pack`. **The precaches**: round 14's on
+   the skip's frame is deleted. `BuildOverlay`'s stays, for the `CMDL` panels (class panel, item panels), which look their
+   models up on each paint and do not load; the engine's `CMDL` reads its model through `FindMDL`/`GetStudioHdr`
+   (imdlcache.h:116-126), whose load is not ported — filed below. The doors and sign stay on that list, harmlessly.
+2. *Round 14's test could not fail for order* (low): replaced. *Tests*:
+   `CModelPanelConformanceTests.HandleCountdown_TenSecondsWithTheDoorsModelNotLoaded_SetsUpTheDoorsWithTheLogo` and
+   `RoundStart_ALadderMatchWithTheSignModelNotLoaded_DropsTheSignWithTheLogo` (a cache with nothing loaded; the event,
+   then `ModelInfo.BodygroupValues` `{3: 1}` and the model's skin and body; red first: no bodygroup),
+   `Paint_AnAttachedModelNothingLoaded_LoadsItInTheSetUp`, `PackedVerticesTests.LoadMdl_AModelNothingPacked_PacksItInTheCall`
+   and `LoadMdl_AModelThatFailsToLoad_ReadsItOnce`, and
+   `FramePresenterHudTests.UpdateModel_AfterALoadWithNothingPacked_LoadsThePanelsModelThroughTheModelSet` (the presenter's
+   real set after a load; red first). **Routes, stated**: both — a skip's batch after a load, and the HUD's first frame —
+   reach `SetDoors`/`ShowRoundSign` with the model unpacked, which is the condition the two conformance rows build. Neither
+   route is driven end to end: the presenter's harness has no install (`GameContent.Open(null)`), so the HUD's
+   `HudMatchStatus.res` never loads and no match-group rules reach `ShouldUseMatchHud`.
+3. *Docs*: review 14 item 1 corrected above, finding 75, `FramePresenter.PrecachePanelModels`, `VguiModelPanel.UpdateModel`.
+
+*Sabotage*, run apart: `LoadMdl` not packing (both `LoadMdl` rows and the presenter row), `LoadMdl` through `Precache`,
+which re-reads a failed model (the reads-once row alone), the root's set-up back to `FindMdl` (both logo rows and the
+presenter row), the attached model's back to `FindMdl` (the attached row alone).
+
+*Follow-up, not done*: the `CMDL` panels' load in the call (`VguiMdlPanel`, `TfPlayerModelPanel`), which would let
+`BuildOverlay`'s precache, `VguiHud.AddModelsToPrecache` and its overrides, `EntityModelSet.PrecacheChanged` and
+`VguiHudPrecacheTests.cs` go.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

@@ -15,6 +15,15 @@ public interface IMdlCache : IModelBodygroups
     public PropModels.ModelFrames? FindMdl(string path);
 
     /// <summary>
+    /// The model a `CModelPanel`'s set-up asks for, loaded in the call when nothing has loaded it yet: `SetupModel` makes its
+    /// entity with `InitializeAsClientEntity( pszModelName )` (basemodelpanel.cpp:407), so the `SetBodyGroup` that follows
+    /// always finds the model (:367-382; B779 review 15). A cache that cannot load answers what <see cref="FindMdl"/> does.
+    /// </summary>
+    /// <param name="path">The model's path.</param>
+    /// <returns>The model's frames, or null when it does not load.</returns>
+    public PropModels.ModelFrames? LoadMdl(string path) => FindMdl(path);
+
+    /// <summary>
     /// The studio render context's one view target the panels' draws share with the world's models (B725 5d), or null for a
     /// cache with no render context behind it (a panel then keeps its own).
     /// </summary>

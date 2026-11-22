@@ -80,6 +80,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         public PropModels.ModelFrames? FindMdl(string path) => Cache?.FindMdl(path);
 
+        public PropModels.ModelFrames? LoadMdl(string path) => Cache?.LoadMdl(path);
+
         public IReadOnlyList<int>? PackedOrder(string path) => Cache?.PackedOrder(path);
 
         public int FindBodygroup(string modelPath, string group) => Cache?.FindBodygroup(modelPath, group) ?? -1;
