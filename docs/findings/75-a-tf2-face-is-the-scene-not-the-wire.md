@@ -249,9 +249,15 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   `FindMDL`/`GetStudioHdr` (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126), a `CModelPanel` through
   `InitializeAsClientEntity` (basemodelpanel.cpp:407), an item's model when its load callback is asked
   (tf_playermodelpanel.cpp:1134-1166). The load packs the model with its order, so the same paint's face has the buffer
-  order it needs and the model is never drawn unflexed (*measured* through the production set on a synthetic model,
-  `VguiModelPanelConformanceTests.Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint`). The filing
-  was a deduction never checked.
+  order it needs (*measured* through the production set on a synthetic model,
+  `VguiModelPanelConformanceTests.Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`). The filing
+  was a deduction never checked. **A wrong turn, the same day** (review 16): packed is not on the device. The scene's
+  upload (`MomentScene.Pack`) runs from the moment's show, before the overlay whose paint packed the model, and not at
+  all on a paused frame with a still camera — so the first draw had the instance and no geometry ("posed before its
+  geometry was uploaded"), and a paused `--shot` kept it missing. The engine loads and draws in one frame
+  (basemodelpanel.cpp:407, mdlpanel.cpp:185); the overlay's end now uploads what its paint grew, before the draw
+  (`MomentScene.UploadGrown`). Review 15's claim "never drawn unflexed" was read off a draw list, which cannot see the
+  device.
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

@@ -43166,7 +43166,8 @@ presenter row), the attached model's back to `FindMdl` (the attached row alone).
    player panel's callback row; `VguiHudPrecacheTests.cs` was rewritten as `VguiHudModelLoadTests` (its old tests could not
    compile) and renamed to `VguiHudModelLoadTests.cs`.
 4. *Flex*: `PanelMeshFlex` reads `PackedOrder`, and a model loaded in the call is packed with its order by the same
-   `Add`, before the same paint's draw: `Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint` (the
+   `Add`, before the same paint's draw: `Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`
+   (*renamed in review 16*: it sees the draw list, not the device; see review 16 item 1) (the
    production set, nothing precached; flexed on the first paint, never unflexed).
 5. *Tests, red first*: `Paint_ARootAndAMergeNothingLoaded_LoadsAndDrawsBoth` (CMDL),
    `Paint_AClassAndItsWeaponNothingLoaded_DrawsBoth` and `OnModelLoadComplete_AModelNotYetLoaded_LoadsAndMergesItAtTheRegistration`
@@ -43182,6 +43183,46 @@ presenter row), the attached model's back to `FindMdl` (the attached row alone).
 row); the player panel's callback back to `FindMdl` (both callback rows and the class-panel row); `LoadMdl` without its
 remembered-failure answer (the allocation row alone); `LoadMdl` returning the loader's frames without packing (the four
 `LoadMdl` rows and the first-paint flex row).
+
+**Review 16** (Fable, Sonnet, Gemini; one defect found by all three):
+1. *A model the HUD's paint packed was not on the device for that frame's draw* (medium/high). `MomentScene.Pack` — the
+   only reader of `Grown` that uploads — runs from the moment's show, in `Simulate` or the camera stage, both before
+   `BuildOverlay` (`FrameSequence.Run`). So the first paint after a load submitted an instance with no batches (the
+   renderer's "posed before its geometry was uploaded", `WorldRenderer.cs:8350-8356`), and a paused frame with a still
+   camera shows no moment (`ViewerSession.Frame.cs:903`), so the panel stayed missing and a paused `--shot` captured it
+   so. The engine loads and draws in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185). **Fix**: the overlay's end
+   calls `MomentScene.UploadGrown` — `Grown` and a device, then the same `Device3D.UploadModels` through `IModelUpload`,
+   its timing and stall report shared with `Pack` (`UploadNow`). On the UI thread with nothing in flight: the camera stage
+   waited for the last draw (`FinishDrawBeforeEffects`, `ViewerPresenter.Device.cs:272`) and `Device3D.UploadModels`
+   takes the queue's lock itself (`Lock`, `Device3D.cs:80`); a skip's loads happen under the skip's queue lock and reach
+   the device at the next drawn frame's overlay or show. *Test*:
+   `FramePresenterHudTests.BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns` (a recording upload: the
+   set as the paint left it, handed over before the overlay returns, `Grown` cleared; red first: nothing uploaded). The
+   load is made where the paint would make it (the harness's HUD has no local player, so no panel paints). *Not seen*:
+   the device's batches themselves — the harness has no device. Comments corrected: `FramePresenter.Hud`,
+   `EntityModelSet.LoadMdl`, `docs/HANDOFF-hud.md` (whose `MomentScene` line was wrong too); review 15's flex row renamed
+   `Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`, its claim narrowed to the draw list.
+2. *A path the packer refuses was asked again every paint* (low): `LoadMdl` on a non-studio path never reached
+   `_byModel` through `Add` (`CanDraw`), so each ask built a prop and ran `Add`. Remembered empty now.
+   `PackedVerticesTests.LoadMdl_APackedModelARememberedFailureAndARefusedPath_AllocateNothing` (red first: 816 bytes).
+3. *`SetMergeMDL` loaded nothing at once and merged onto an error root* (low): ported — the merge is loaded in the call
+   (`FindMDL`, mdlpanel.cpp:868; header at once, :857), and a root that does not load refuses the merge (:836-837, the
+   root made `MDLHANDLE_INVALID` by `SetMDL`, :187-190). `VguiModelPanelConformanceTests.SetMergeMDL_AModelNothingLoaded_LoadsItAtOnce`
+   and `SetMergeMDL_ARootThatDoesNotLoad_IsRefused` (both red first).
+4. *Leftovers*: the `hud precache` timing part is `hud wiring` (what it times now), and a `hud upload` part closes the
+   overlay. **`VguiModelPanel`'s missed-model route is deleted (D180)**: with the load in the call, a missed model is one
+   that did not load, remembered empty until `LevelShutdown`; the set re-reads a remembered failure only through
+   `Precache` (B363), whose callers (`DemoModels.Precache`, the map's detail models) run at a load, after `ClearMap`
+   cleared the panels and before any frame (the async route holds the render loop off, `_readingMap`). So
+   `AMissedModelIsFoundNow` could never answer true. Gone: `_missed`, `AMissedModelIsFoundNow`, and three rows —
+   `Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`, `Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`,
+   `ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames` — whose late loads only a fake cache could
+   make. "Ours precaches" wording removed with the first; `VguiModelPanel.UpdateModel`'s and `TfPlayerModelPanel`'s
+   remarks reworded.
+
+*Sabotage*, run apart: the overlay's `UploadGrown` deleted (the presenter row alone); the refused-path memory deleted (the
+allocation row alone); the root's load check removed (the error-root row alone); the merge's load deleted (the
+load-at-once row alone).
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

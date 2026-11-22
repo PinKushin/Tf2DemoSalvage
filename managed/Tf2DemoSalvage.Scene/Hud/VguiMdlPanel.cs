@@ -321,12 +321,20 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>The merge model, or null when there is no root to merge onto.</returns>
     public VguiMdl? SetMergeMDL(string? modelName, int skin = -1)
     {
-        if (_root.Path is null)
+        // "Verify that we have a root model to merge to" (:835-837): `SetMDL` made an error model `MDLHANDLE_INVALID`
+        // (:187-190), so a root that does not load refuses too (B779 review 16 item 3).
+        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is null)
         {
             return null;
         }
 
         VguiMdl merge = new() { Path = string.IsNullOrEmpty(modelName) ? null : modelName };
+
+        // `FindMDL( pMDLName )` (:868), then the header read at once (`GetStudioHdr`, :857).
+        if (merge.Path is { } mergePath)
+        {
+            MdlCache.LoadMdl(mergePath);
+        }
 
         if (skin != -1)
         {

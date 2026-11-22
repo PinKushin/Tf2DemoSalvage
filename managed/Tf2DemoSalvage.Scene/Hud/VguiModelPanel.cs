@@ -287,14 +287,7 @@ public class VguiModelPanel : VguiEditablePanel
     /// the client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel` — and a panel
     /// that does not paint on the next level holds no old frames, skeleton or face (B779 review 8).
     /// </summary>
-    public void ForgetLevel()
-    {
-        _model = null;
-
-        // The old level's missed names too: kept, the first of them to turn up would set the panel up with no new map's
-        // event to ask for it (review 9 item 3).
-        _missed.Clear();
-    }
+    public void ForgetLevel() => _model = null;
 
     /// <summary>`SetSkin` (:747).</summary>
     /// <param name="skin">The skin.</param>
@@ -371,47 +364,26 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
     /// <remarks>
-    /// **The engine's flag, and one addition for our precache** (B779 reviews 3-5). `UpdateModel` clears `m_bPanelDirty`
-    /// after `SetupModel` whatever it found (:534), and `SetupModel` skips a model that fails to load (:473-478): the root
-    /// animates without its missing attachment, set up once. So does ours. The engine's load is in the call
-    /// (`InitializeAsClientEntity`, :407), and so is ours since review 15 (<see cref="IMdlCache.LoadMdl"/>), so a set-up
-    /// misses only a model that does not load. **The models a set-up missed are kept, and the panel is set up again only
-    /// when one of them can now be found** — a model packed later by the set (a map's geometry loader arriving after the
-    /// demo's): a load that failed stays missing, and costs one cache lookup per missing model a paint
-    /// (`EntityModelSet.FindMdl`, a dictionary) and nothing else, the root never rebuilt for it.
+    /// **The engine's flag** (B779 reviews 3-5, 16). `UpdateModel` clears `m_bPanelDirty` after `SetupModel` whatever it
+    /// found (:534), and `SetupModel` skips a model that fails to load (:473-478): the root animates without its missing
+    /// attachment, set up once. So does ours, whose load is in the call too (`InitializeAsClientEntity`, :407;
+    /// <see cref="IMdlCache.LoadMdl"/>). Reviews 3-5 kept a set-up's missed models and set the panel up again when one was
+    /// found, for the per-frame precache that review 15 removed; with the load in the call, a missed model is one that does
+    /// not load, remembered so until the level's end, so that route was dead and is gone (review 16).
     /// </remarks>
     public void UpdateModel()
     {
-        if (_panelDirty || AMissedModelIsFoundNow())
+        if (_panelDirty)
         {
             SetupModel();
             _panelDirty = false;
         }
     }
 
-    /// <summary>Whether a model the last set-up could not find can be found now: precached since.</summary>
-    private bool AMissedModelIsFoundNow()
-    {
-        for (int index = 0; index < _missed.Count; index++)
-        {
-            if (_mdlCache.FindMdl(_missed[index]) is { Skinned: not null })
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>The models the last <see cref="SetupModel"/> named and could not find.</summary>
-    private readonly List<string> _missed = [];
-
     /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
-    /// <remarks>A model it names and cannot find is skipped, as the engine skips it, and kept in <see cref="_missed"/>.</remarks>
+    /// <remarks>A model it names and cannot load is skipped, as the engine skips it (:398-412, :473-478).</remarks>
     private void SetupModel()
     {
-        _missed.Clear();
-
         if (ModelInfo is not { } info)
         {
             return;
@@ -425,10 +397,9 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         // Loaded in the call, as `InitializeAsClientEntity` loads it (:407; B779 review 15): an event's `SetBodyGroup` right
-        // after this finds the model whatever has or has not precached it.
+        // after this finds the model.
         if (_mdlCache.LoadMdl(path) is not { Skinned: { } skinned } frames)
         {
-            _missed.Add(path);
             return;
         }
 
@@ -482,11 +453,9 @@ public class VguiModelPanel : VguiEditablePanel
                 continue;
             }
 
-            // Loaded in the call too (:472); skipped, as the engine skips a model that fails to load (:473-478); kept, in case
-            // the model set packs it later.
+            // Loaded in the call too (:472); skipped, as the engine skips a model that fails to load (:473-478).
             if (_mdlCache.LoadMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
             {
-                _missed.Add(attachedPath);
                 continue;
             }
 

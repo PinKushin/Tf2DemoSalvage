@@ -182,11 +182,13 @@ Tests: `ParseLightsFromKV_NoDirectionalEntry_ClearsTheSunRatherThanKeepingTheOld
   `AnimatingEntity.Follows`; skinning (bone-to-world folded with bind pose) is `BoneSkinning.Fill`, extracted from
   `EntityModelSet.Skinning` (`EntityModels.cs:3478`) so both share one implementation — the model panel calls it
   unbuffered (a handful of models, not hundreds a frame), `EntityModelSet` keeps its per-entity reused buffer.
-- **Precache reuses the existing upload path with no change needed.** `EntityModelSet.Precache` sets `Grown`, and
-  `MomentScene.Pack` already checks `_models.Grown` every frame regardless of what added to it (`MomentScene.cs:633`,
-  written for B363) — so a panel's model, packed when the panel reads it (`IMdlCache.LoadMdl`, `EntityModelSet` packing
-  in the call as the engine's `FindMDL`/`InitializeAsClientEntity` load; B779 review 15, which replaced the HUD's
-  per-frame precache), reaches the GPU at that frame's `Pack`, after the overlay, with no `MainForm`/`Device3D` change.
+- **A panel's model reaches the GPU in the frame that loads it, through the existing upload.** A panel packs its model
+  when it reads it (`IMdlCache.LoadMdl`, as the engine's `FindMDL`/`InitializeAsClientEntity` load in the call; B779
+  review 15, which replaced the HUD's per-frame precache), which sets `EntityModelSet.Grown`. `MomentScene.Pack` checks
+  `Grown` (`MomentScene.cs:1463`, written for B363), but it runs from the moment's show, BEFORE the overlay — and not at
+  all on a paused frame with a still camera — so the overlay's end calls `MomentScene.UploadGrown`, the same
+  `Device3D.UploadModels`, before the draw (B779 review 16). The first wording here said the model reached the GPU "at
+  that frame's `Pack`, after the overlay": `Pack` is before the overlay, and the panel was drawn missing for a frame.
 - **Frame stepping is wired** (fixed after coordinator review, 2026-09-27): `FrameAt` feeds `CycleTime` through
   `SkinnedModel.BlendedCyclesPerSecond` and `StudioSequences.ClampCycle`/`FrameAt` — the same closed-form path
   `EntityModelSet.Simulate` already uses for every drawn prop (`EntityModels.cs:763-788`), just fed by a continuous

@@ -152,24 +152,28 @@ public sealed class PackedVerticesTests
 
     /// <remarks>
     /// **A panel's ask costs nothing per paint once answered** (B779 review 3 item 3, now through the load in the call): a
-    /// CMDL panel reads its model on every paint, so a packed model and a remembered failure each answer without allocating.
-    /// Least over eight asks after the first. The controls: the first asks packed one and failed the other.
+    /// CMDL panel reads its model on every paint, so a packed model, a remembered failure and a path the packer refuses (no
+    /// studio model: `CanDraw`, review 16 item 2) each answer without allocating. Least over eight asks after the first.
+    /// The controls: the first asks packed one and failed the other two.
     /// </remarks>
     [Test]
-    public void LoadMdl_APackedModelAndARememberedFailure_AllocateNothing()
+    public void LoadMdl_APackedModelARememberedFailureAndARefusedPath_AllocateNothing()
     {
         const string missing = "models/missing.mdl";
+        const string sprite = "sprites/glow01.vmt";
         EntityModelSet models = new() { Geometry = path => path == Path ? Skinned(path) : null };
         long least = long.MaxValue;
 
         models.LoadMdl(Path).ShouldNotBeNull("the control: packed");
         models.LoadMdl(missing).ShouldBeNull("the control: failed");
+        models.LoadMdl(sprite).ShouldBeNull("the control: refused");
 
         for (int run = 0; run < 8; run++)
         {
             long before = GC.GetAllocatedBytesForCurrentThread();
             models.LoadMdl(Path);
             models.LoadMdl(missing);
+            models.LoadMdl(sprite);
             least = Math.Min(least, GC.GetAllocatedBytesForCurrentThread() - before);
         }
 

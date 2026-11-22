@@ -449,8 +449,9 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <inheritdoc/>
     /// <remarks>
     /// **Packed in the call, through <see cref="Add(IReadOnlyList{SceneProp})"/>**, so a model that fails to load is remembered
-    /// empty and never read again, and one that loads reaches the device at the next `MomentScene.Pack` with every other
-    /// model this frame grew. Called from the HUD's frame, drawn or skipped, which runs where the world's packing may: after
+    /// empty and never read again, and one that loads sets <see cref="Grown"/>: the frame uploads it after the overlay and
+    /// before its draw (`MomentScene.UploadGrown`, B779 review 16), or a skip's at the next drawn frame. Called from the
+    /// HUD's frame, drawn or skipped, which runs where the world's packing may: after
     /// the camera's wait for the frame in flight, or under a skip's queue lock. The engine's side: `InitializeAsClientEntity`
     /// asks `modelinfo->GetModelIndex( pszModelName )` (c_baseentity.cpp:1130-1153). *Interpolated*: that the client's
     /// `GetModelIndex` registers an unprecached name as a client-only model (`IsClientOnlyModelIndex`, ivmodelinfo.h:95-99)
@@ -472,6 +473,16 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         }
 
         _loadOne[0] = new SceneProp(0, path, ScenePropTrack.Classify(path), default);
+
+        // A path the packer refuses (no studio model, `CanDraw`) never reaches `_byModel` through `Add`: remembered empty
+        // here, so the next paint's ask is answered above (B779 review 16 item 2).
+        if (!CanDraw(_loadOne[0]))
+        {
+            _byModel[path] = [];
+
+            return null;
+        }
+
         Add(_loadOne);
 
         return FindMdl(path);

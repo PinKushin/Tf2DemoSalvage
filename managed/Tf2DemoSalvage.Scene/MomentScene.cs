@@ -1399,6 +1399,53 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The counters as the last load report read them, so the next reports only its own level's.</summary>
     private (int States, long StateTicks, int Baked, int Lists) _loadReported;
 
+    /// <summary>Hands the set to the device if anything grew it since the last upload — for a writer after the moment's show.</summary>
+    /// <remarks>
+    /// **The HUD's paint packs models in the call** (B779 reviews 15-16: `EntityModelSet.LoadMdl`, as the engine's panels
+    /// load and draw in one frame, basemodelpanel.cpp:407, mdlpanel.cpp:185), and it runs in the overlay, after
+    /// <see cref="Pack"/> — which runs from the moment's show, and not at all on a paused frame with a still camera. So the
+    /// frame calls this after the overlay and before the draw. Nothing grown, nothing done: an unchanged frame costs a bool.
+    /// </remarks>
+    public void UploadGrown()
+    {
+        if (!_models.Grown || Upload is not { } upload)
+        {
+            return;
+        }
+
+        UploadNow(upload);
+    }
+
+    /// <summary>Uploads the whole set and marks it uploaded, reporting a stall.</summary>
+    private void UploadNow(IModelUpload upload)
+    {
+        long uploadedAt = Stopwatch.GetTimestamp();
+
+        upload.UploadModels(_models);
+
+        _models.Uploaded();
+
+        double uploadSeconds = (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
+
+        if (uploadSeconds > StallSeconds)
+        {
+            // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off cost
+            // at load: it is paid again every time a model nobody has seen yet comes into view, and
+            // it gets more expensive as the set gets bigger.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
+            _render.LogWarning(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"STALL uploading {_models.Vertices.Count} vertices took " +
+                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
+
+            // Stryker restore all
+        }
+    }
+
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
     /// <remarks>
     /// **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an MDL
@@ -1492,31 +1539,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        long uploadedAt = Stopwatch.GetTimestamp();
-
-        upload.UploadModels(_models);
-
-        _models.Uploaded();
-
-        double uploadSeconds = (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
-
-        if (uploadSeconds > StallSeconds)
-        {
-            // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off cost
-            // at load: it is paid again every time a model nobody has seen yet comes into view, and
-            // it gets more expensive as the set gets bigger.
-            // Stryker disable all : the String mutator wraps the interpolated literal in a
-            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
-            // and Safe Mode then drops every mutation in this method — B410.
-            _render.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL uploading {_models.Vertices.Count} vertices took " +
-                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
-
-            // Stryker restore all
-        }
+        UploadNow(upload);
 
         // **Logged because a model that draws nothing looks exactly like one that was never
         // uploaded.** The counts separate the two: no vertices means the packing failed, and

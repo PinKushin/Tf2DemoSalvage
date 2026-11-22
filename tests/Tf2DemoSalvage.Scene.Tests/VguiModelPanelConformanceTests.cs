@@ -330,6 +330,46 @@ public sealed class VguiModelPanelConformanceTests
         surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
     }
 
+    /// <remarks>
+    /// **A merge model is loaded at once** (B779 review 16 item 3): `SetMergeMDL( pMDLName )` takes the handle from
+    /// `FindMDL` (mdlpanel.cpp:868) and the handle overload reads its header at once
+    /// (`new CStudioHdr( m_MDL.GetStudioHdr(), … )`, :857). The control: before the call the merge was not loaded.
+    /// </remarks>
+    [Test]
+    public void SetMergeMDL_AModelNothingLoaded_LoadsItAtOnce()
+    {
+        const string merge = "models/weapons/c_models/c_stickybomb_launcher.mdl";
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root"));
+        VguiMdlPanel panel = new(null, "model", cache);
+
+        panel.SetMDL("models/player/demo.mdl");
+        cache.Loaded.ShouldNotContain(merge, "the control");
+
+        panel.SetMergeMDL(merge).ShouldNotBeNull();
+
+        cache.Loaded.ShouldContain(merge);
+    }
+
+    /// <remarks>
+    /// **A merge onto a root that is an error model is refused** (B779 review 16 item 3): `SetMDL( pMDLName )` makes an
+    /// error model `MDLHANDLE_INVALID` (mdlpanel.cpp:187-190), and `SetMergeMDL` refuses with no valid root (:837-838). The
+    /// root here names a model that does not load. The control: a root that loads takes the same merge.
+    /// </remarks>
+    [Test]
+    public void SetMergeMDL_ARootThatDoesNotLoad_IsRefused()
+    {
+        VguiMdlPanel failed = new(null, "model", Cache.None);
+        VguiMdlPanel loaded = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")));
+
+        loaded.SetMDL("models/player/demo.mdl");
+        loaded.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldNotBeNull("the control");
+
+        failed.SetMDL("models/player/missing.mdl");
+
+        failed.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldBeNull();
+        failed.MergeMdls.ShouldBeEmpty();
+    }
+
     [Test]
     public void Paint_WithLocalLights_CarriesThemOnEveryModelInstance()
     {
@@ -594,11 +634,13 @@ public sealed class VguiModelPanelConformanceTests
     /// no world prop wears it and nothing precaches it, so the set packs it when the panel reads it (`FindMDL`/`GetStudioHdr`,
     /// mdlpanel.cpp:185, imdlcache.h:116-126) — with its packed order, before the same paint's draw spreads the face over it.
     /// The set packs the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts
-    /// it in slot 0: the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0), on the first
-    /// paint — never once unflexed. The control: nothing packed it before the panel.
+    /// it in slot 0: the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0) in the first
+    /// paint's draw list. *Not seen here*: the device — that the frame uploads what the paint packed before it draws is
+    /// `FramePresenterHudTests.BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns` (review 16). The
+    /// control: nothing packed it before the panel.
     /// </remarks>
     [Test]
-    public void Paint_APanelOnlyModelNothingPacked_DrawsItsMeshFlexedOnTheFirstPaint()
+    public void Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder()
     {
         const string path = "models/vgui/panel_only.mdl";
         PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(

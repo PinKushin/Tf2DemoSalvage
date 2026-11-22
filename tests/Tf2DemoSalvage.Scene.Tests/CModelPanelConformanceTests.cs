@@ -550,39 +550,6 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
-    /// **A panel whose model is not loaded yet is set up once it is, and then left alone** (B779 reviews 3, 5, 6): the
-    /// engine's `SetupModel` loads the model in the call (`basemodelpanel.cpp:387`, `modelinfo` by name), so its `UpdateModel`
-    /// (:520, the flag cleared at :534) always follows a set-up model. Ours precaches the panel's models on the frame, so a
-    /// paint can come first: the panel clears its flag as the engine does, keeps the model it missed, and sets itself up
-    /// again when that model can be found. First paint: nothing loaded, nothing drawn; second: drawn; third: the same model,
-    /// the panel clean.
-    /// </remarks>
-    [Test]
-    public void Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
-    {
-        PropModels.ModelFrames frames = Frames(eyed: false, mouthed: false);
-        PropModels.ModelFrames? current = null;
-        VguiModelPanel panel = Framed(startFramed: false, rootNow: () => current);
-        HudViewport viewport = (HudViewport)panel.Parent!;
-        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
-
-        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
-        panel.Paint(surface, viewport.Context!);
-        surface.Draws.ShouldBeEmpty("the control: nothing loaded, nothing drawn");
-
-        current = frames;
-        panel.Paint(surface, viewport.Context!);
-
-        surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem();
-        object? setUp = panel.SetUpModel;
-
-        panel.Paint(surface, viewport.Context!);
-
-        panel.SetUpModel.ShouldBeSameAs(setUp, "set up once the model loaded, not again");
-        panel.PanelDirty.ShouldBeFalse();
-    }
-
-    /// <remarks>
     /// **A level's shutdown releases the panel's model; the next paint sets it up again** (B779 reviews 3, 7, 8, 9). A level
     /// change is two halves: `HudViewport.LevelShutdown`, the engine's `CHLClient::LevelShutdown` releasing every client
     /// entity (`cl_entitylist->Release()`, `cdll_client_int.cpp:1735`; `CClientEntityList::Release`,
@@ -618,38 +585,6 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(surface, viewport.Context!);
 
         panel.SetUpModel.ShouldNotBeNull().ShouldNotBeSameAs(old);
-    }
-
-    /// <remarks>
-    /// **A level's shutdown forgets the models a set-up missed, too** (B779 review 9 item 3): the shutdown releases the panel's
-    /// model and no set-up follows until the panel is dirty (`m_hModel` null, `basemodelpanel.cpp:534` clears the flag only in
-    /// `UpdateModel`). Kept, the old level's missed names would set the panel up the moment one of them turned up. Here the
-    /// attachment is missed, the level shuts down with no new map's event, and the attachment then loads: nothing is set up.
-    /// The control: before the shutdown the panel had its root.
-    /// </remarks>
-    [Test]
-    public void ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames()
-    {
-        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
-        bool attachedLoaded = false;
-        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
-        VguiModelPanel panel = Framed(
-            startFramed: false,
-            attached: attachedFrames,
-            rootNow: () => root,
-            attachedNow: () => attachedLoaded ? attachedFrames : null);
-        HudViewport viewport = (HudViewport)panel.Parent!;
-        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
-
-        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
-        panel.Paint(surface, viewport.Context!);
-        panel.SetUpModel.ShouldNotBeNull("the control");
-
-        panel.ForgetLevel();
-        attachedLoaded = true;
-        panel.Paint(surface, viewport.Context!);
-
-        panel.SetUpModel.ShouldBeNull();
     }
 
     /// <remarks>
@@ -753,43 +688,6 @@ public sealed class CModelPanelConformanceTests
         panel.Paint(surface, viewport.Context!);
 
         surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
-    }
-
-    /// <remarks>
-    /// **A late attached model is set up once it loads, and then left alone** (B779 reviews 4-6): `SetupModel` skips an
-    /// attached model it cannot find (`continue`, :473-478), and the engine's load is in the call (:387), so a late one is
-    /// ours alone: the panel keeps the models a set-up missed and sets itself up again when one can be found. First paint:
-    /// the root alone; second, once the attachment has loaded: both; third: the same model, the panel clean — nothing missed
-    /// is left, so nothing is set up again.
-    /// </remarks>
-    [Test]
-    public void Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs()
-    {
-        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
-        bool attachedLoaded = false;
-        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
-        VguiModelPanel panel = Framed(
-            startFramed: false,
-            attached: attachedFrames,
-            rootNow: () => root,
-            attachedNow: () => attachedLoaded ? attachedFrames : null);
-        HudViewport viewport = (HudViewport)panel.Parent!;
-        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
-
-        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
-        panel.Paint(surface, viewport.Context!);
-        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(1, "the control: the root alone");
-
-        attachedLoaded = true;
-        panel.Paint(surface, viewport.Context!);
-
-        surface.Draws[1].Models.Count.ShouldBe(2);
-        object? setUp = panel.SetUpModel;
-
-        panel.Paint(surface, viewport.Context!);
-
-        panel.SetUpModel.ShouldBeSameAs(setUp, "set up once the attachment loaded, not again");
-        panel.PanelDirty.ShouldBeFalse();
     }
 
     /// <remarks>

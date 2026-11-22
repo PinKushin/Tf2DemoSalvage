@@ -550,8 +550,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// `weapon_stattrak_module_scale`, in `ACT_IDLE`'s place (sequence 1).
     /// </summary>
     /// <remarks>
-    /// `IsErrorModel` (:589) is the module failing to load; here an unloaded module simply draws nothing until the cache
-    /// has it, and it is precached with the rest.
+    /// `IsErrorModel` (:589) is the module failing to load; here a module that does not load simply draws nothing — it is
+    /// loaded when the draw reads it (`IMdlCache.LoadMdl`, B779 review 15).
     /// </remarks>
     private void UpdateStatTrack(ItemSchema schema, TfItemView held)
     {

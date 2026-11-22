@@ -273,8 +273,8 @@ public sealed partial class FramePresenter
         _vguiHud.Viewport.ParticleMaterials = _overlay.Loaded?.Assets?.ParticleMaterials;
 
         // No precache of the panels' models: each panel loads its own in the call, as the engine's do (`IMdlCache.LoadMdl`;
-        // basemodelpanel.cpp:407, mdlpanel.cpp:185; B779 review 15), and a model packed in a paint reaches the device at this
-        // frame's `MomentScene.Pack`, which runs after the overlay.
+        // basemodelpanel.cpp:407, mdlpanel.cpp:185; B779 review 15), and what the paint packs is uploaded at the overlay's
+        // end, before the draw (`MomentScene.UploadGrown`, below; review 16).
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
@@ -282,7 +282,7 @@ public sealed partial class FramePresenter
         _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
         _vguiHud.Viewport.SoundEmitter ??= PlayHudSound;
 
-        partAt = Part("hud precache", partAt);
+        partAt = Part("hud wiring", partAt);
         HudState hudState = HudStateAt(hudTick);
         partAt = Part("hud state", partAt);
 
@@ -310,7 +310,15 @@ public sealed partial class FramePresenter
             window.Position(),
             _overlay.MapName);
 
-        _overlayEndedAt = Part("hud tools", partAt);
+        partAt = Part("hud tools", partAt);
+
+        // **What the paint packed reaches the device before this frame draws** (B779 review 16): a panel loads its model in
+        // the call (`IMdlCache.LoadMdl`), as the engine's load and draw in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185),
+        // but the moment's upload (`MomentScene.Pack`) ran from the show, before this overlay, or not at all on a paused
+        // still frame. On the UI thread with nothing in flight: the camera stage waited for the last frame's draw
+        // (`FinishDrawBeforeEffects`), and `Device3D.UploadModels` takes the queue's lock itself.
+        _moment.UploadGrown();
+        _overlayEndedAt = Part("hud upload", partAt);
         _forkableLast = _vguiHud.ForkableTicks + _vguiTools.PaintTicks;
         Parts?.Add("hud forkable", _forkableLast);
 

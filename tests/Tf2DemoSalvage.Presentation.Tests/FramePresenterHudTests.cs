@@ -62,6 +62,7 @@ public sealed class FramePresenterHudTests
 
             Game = GameContent.Open(null, NullLoggerFactory.Instance);
             Models = models;
+            Moment = moment;
             Frames = new FramePresenter(
                 models, moment, new MomentPresenter(moment, new FrameLedger(), NullLogger.Instance), sound, NullLogger.Instance, NullLogger.Instance, Audio);
             Frames.AttachHud(new HudWindow(
@@ -93,6 +94,9 @@ public sealed class FramePresenterHudTests
 
         /// <summary>The model set the presenter and its HUD share.</summary>
         public EntityModelSet Models { get; }
+
+        /// <summary>The scene whose upload the device takes.</summary>
+        public MomentScene Moment { get; }
 
         public FramePresenter Frames { get; }
 
@@ -132,6 +136,43 @@ public sealed class FramePresenterHudTests
         window.Asked.ShouldBe([100, 101]);
         window.Positions.ShouldBe(2, "cl_showpos is read when the tools panel is framed, once an overlay");
         window.Clocks.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A model the HUD's paint packed is on the device before the frame draws** (B779 review 16): the engine loads and
+    /// draws in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185), but the scene's upload (`MomentScene.Pack`) runs
+    /// from the moment's show, before the overlay (`FrameSequence.Run`), and a paused still camera shows no moment at all.
+    /// So the overlay uploads what its paint grew before it returns, and `Draw` follows it. A panel's load is made here
+    /// where its paint would make it (the harness's HUD has no local player, so no panel paints); the overlay then hands
+    /// the set to the device. The control: nothing was uploaded before the overlay.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+        RecordingUpload upload = new();
+
+        window.Overlay(100);
+        window.Moment.Upload = upload;
+        window.Models.Geometry = SignGeometry(path);
+        window.Models.LoadMdl(path).ShouldNotBeNull("the control: the set packed it");
+        upload.Uploaded.ShouldBeEmpty("the control: nothing uploaded before the overlay");
+
+        window.Overlay(101);
+
+        upload.Uploaded.ShouldHaveSingleItem().ShouldContain(path);
+        window.Models.Grown.ShouldBeFalse("the set was told its contents reached the device");
+    }
+
+    /// <summary>An upload that records the paths it was handed, each call.</summary>
+    private sealed class RecordingUpload : IModelUpload
+    {
+        public List<List<string>> Uploaded { get; } = [];
+
+        public bool HasModels => Uploaded.Count > 0;
+
+        public void UploadModels(EntityModelSet models) => Uploaded.Add([.. models.Paths]);
     }
 
     /// <remarks>
@@ -281,10 +322,9 @@ public sealed class FramePresenterHudTests
             MasterPose: []);
     }
 
-    /// <summary>The HUD built, its round sign given a model the presenter's set has packed, and set up.</summary>
-    private static VguiModelPanel SignWithAModel(Window window)
+    /// <summary>A loader answering a one-bone, two-corner model for <paramref name="path"/> alone.</summary>
+    private static Func<string, PropModels.ModelFrames?> SignGeometry(string path)
     {
-        const string path = "models/vgui/round_sign.mdl";
         PropModels.ModelFrames frames = new(
             [
                 new PropVertex[]
@@ -298,7 +338,15 @@ public sealed class FramePresenterHudTests
             [true],
             Skinned: OneBone());
 
-        window.Models.Geometry = requested => requested == path ? frames : null;
+        return requested => requested == path ? frames : null;
+    }
+
+    /// <summary>The HUD built, its round sign given a model the presenter's set has packed, and set up.</summary>
+    private static VguiModelPanel SignWithAModel(Window window)
+    {
+        const string path = "models/vgui/round_sign.mdl";
+
+        window.Models.Geometry = SignGeometry(path);
         window.Models.Precache([path]);
         window.Overlay(100);
 
