@@ -43224,6 +43224,34 @@ remembered-failure answer (the allocation row alone); `LoadMdl` returning the lo
 allocation row alone); the root's load check removed (the error-root row alone); the merge's load deleted (the
 load-at-once row alone).
 
+**Review 17** (Fable, Sonnet, Gemini; no production defect — test gaps and two structural items):
+1. *The upload row could not fail for order* (medium): it made the load before the overlay, so `UploadGrown` moved above
+   the HUD's frame stayed green. The load now runs INSIDE `VguiHud.Frame`, through `VguiHud.FrameStarted` — an internal
+   hook, null in production, standing in for a model panel's paint, since the harness has no install and so no scheme to
+   paint with. *Sabotage*: `UploadGrown` moved above `_vguiHud.Frame` reddens it (and the next row's control).
+2. *`UploadGrown`'s guards were unpinned* (medium): `FramePresenterHudTests.BuildOverlay_ThreeOverlaysAfterOneLoad_UploadOnce`
+   (one load, three overlays, one upload; *sabotage*: the `Grown` guard deleted reddens it alone) and
+   `BuildOverlay_WithNoDevice_LeavesTheSetGrown` (no `Upload`: the set stays grown for the first device; *sabotage*: the
+   no-device branch marking the set uploaded reddens it alone). Kept at the presenter, where the frame order is.
+3. *A panel's load could pack the level's static props* (low): `LoadMdl` called `Add`, whose first call of a level packs
+   the static props after the moment's own and builds their lighting (`TimedPrecache`) — the order finding 83 item 1
+   chose. A HUD event's load in a skip could run that first, ahead of the moment. The engine's load brings one model in
+   (basemodelpanel.cpp:407, mdlpanel.cpp:185), so `LoadMdl` now packs the one path (`PackCounted`, the counted half of
+   `Add`, which `Add` itself now calls for both lists). What depends on the order: the statics' packing after the
+   moment's props and their lighting at the level's load (B607) — both still `Add`'s first call.
+   `PackedVerticesTests.LoadMdl_ALevelWithStaticProps_PacksOnlyTheAskedModel` (red first: the static prop packed and lit
+   by the load). *Sabotage*: `LoadMdl` back to `Add` reddens it alone.
+4. *`SetMDL` kept a failed root's name* (low): the engine decides once — `FindMDL`, and an error model is
+   `MDLHANDLE_INVALID` (mdlpanel.cpp:185-190) — and the draw (:417), the merge (:836-837) and the header read the handle,
+   never the name. Ours now loads at `SetMDL` and keeps the path only if it loaded; `SetMergeMDL` reads that (no path,
+   no merge), and the draw and `RootStudioHdr` load by the kept path (after a level's end the set forgets what the engine's
+   MDL cache would still hold). `VguiModelPanelConformanceTests.SetMDL_ARootThatFailsToLoad_StaysInvalidWhenItLaterCould`
+   (red first). *Sabotage*: `SetMDL` back to keeping any name reddens it and the error-root row. Two item-panel rows that
+   ask which model is chosen (`TfItemModelPanelConformanceTests.SetItem_AnItemForOneClass_ShowsThatClasssModel`,
+   `SetItem_ABlueWatcher_StillShowsTheStylesRedModel`) now give their viewport a cache in which every model loads.
+5. *Citations*: the root check is :836-837 (the comment is :835) in the review-16 row's remark, `VguiMdlPanel.SetMergeMDL`
+   and above.
+
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
 Found in B725 5g. `CTFPlayerModelPanel::RenderStatTrack` draws its second-level merge with

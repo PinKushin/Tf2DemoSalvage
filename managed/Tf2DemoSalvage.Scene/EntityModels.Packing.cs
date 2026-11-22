@@ -174,10 +174,7 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(load);
 
-        long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
-        int before = Count;
-
-        bool added = PackModels(props, load);
+        bool added = PackCounted(props, load);
 
         // **The static props once a level, after the moment's own** — the order they were packed in when they rode the
         // draw list behind the entities every frame (finding 83 item 1).
@@ -186,14 +183,7 @@ public sealed partial class EntityModelSet
         if (staticsNow)
         {
             _staticsPacked = true;
-            added |= PackModels(_staticProps, load);
-        }
-
-        if (added)
-        {
-            // Models, not the shadow LODs packed beside them.
-            ModelsPacked += Count - before;
-            PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
+            added |= PackCounted(_staticProps, load);
         }
 
         // Their lighting with them, as the level loads (B607), not on each one's first draw — on its own clock, after the
@@ -202,6 +192,28 @@ public sealed partial class EntityModelSet
         if (staticsNow)
         {
             TimedPrecache();
+        }
+
+        return added;
+    }
+
+    /// <summary><see cref="PackModels"/>, counted into <see cref="ModelsPacked"/> and <see cref="PackTicks"/>.</summary>
+    /// <remarks>
+    /// The static props' once-a-level branch is <see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>'s
+    /// alone: a panel's load (<see cref="LoadMdl"/>) packs only its own model, as the engine's load brings one model in
+    /// (B779 review 17 item 3).
+    /// </remarks>
+    private bool PackCounted(IReadOnlyList<SceneProp> props, Func<string, PropModels.ModelFrames?> load)
+    {
+        long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int before = Count;
+        bool added = PackModels(props, load);
+
+        if (added)
+        {
+            // Models, not the shadow LODs packed beside them.
+            ModelsPacked += Count - before;
+            PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
         return added;

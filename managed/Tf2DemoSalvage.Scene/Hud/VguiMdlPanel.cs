@@ -232,7 +232,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <param name="modelName">The model's path, or null.</param>
     public virtual void SetMDL(string? modelName)
     {
-        _root.Path = string.IsNullOrEmpty(modelName) ? null : modelName;
+        // **Decided once, here** (B779 review 17 item 4): `FindMDL( pMDLName )`, and an error model is `MDLHANDLE_INVALID`
+        // (:185-190), which the draw (:417), the merge (:836-837) and the header read without asking the name again. Ours
+        // keeps no handle, so an invalid root is no root path; a valid one is loaded again by name after a level's end,
+        // as the engine's MDL cache still holds it.
+        _root.Path = !string.IsNullOrEmpty(modelName) && MdlCache.LoadMdl(modelName) is not null ? modelName : null;
 
         // `m_RootMDL.m_flCycleStartTime = 0.f;` (:169), then `SetPoseParameters( NULL, 0 )` (:172).
         CycleStartTime = 0d;
@@ -321,9 +325,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>The merge model, or null when there is no root to merge onto.</returns>
     public VguiMdl? SetMergeMDL(string? modelName, int skin = -1)
     {
-        // "Verify that we have a root model to merge to" (:835-837): `SetMDL` made an error model `MDLHANDLE_INVALID`
-        // (:187-190), so a root that does not load refuses too (B779 review 16 item 3).
-        if (_root.Path is not { } rootPath || MdlCache.LoadMdl(rootPath) is null)
+        // "Verify that we have a root model to merge to" (the check :836-837): `SetMDL` made an error model
+        // `MDLHANDLE_INVALID` (:187-190), which ours records as no root path (B779 reviews 16-17).
+        if (_root.Path is null)
         {
             return null;
         }

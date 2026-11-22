@@ -169,11 +169,19 @@ public sealed class VguiHud
         bool showScoreboard = false,
         bool paint = true)
     {
+        FrameStarted?.Invoke();
+
         if (Think(state, events, reset, userMessages, showScoreboard, paint))
         {
             Paint(state, reset);
         }
     }
+
+    /// <summary>
+    /// Run as <see cref="Frame"/> starts: a test's stand-in for a panel's work inside the HUD's frame, where a harness with no
+    /// install has no scheme to think or paint with (B779 review 17 item 1). Null in production.
+    /// </summary>
+    internal Action? FrameStarted { get; set; }
 
     /// <summary>The serial half of <see cref="Frame"/>: scheme, think, events, lifecycle, updates — every side effect (finding 105 B4).</summary>
     /// <returns>Whether <see cref="Paint"/> should follow: false with no scheme, or for a frame that is not painted.</returns>

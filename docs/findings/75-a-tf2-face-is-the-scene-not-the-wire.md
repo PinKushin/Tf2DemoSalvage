@@ -257,7 +257,10 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   geometry was uploaded"), and a paused `--shot` kept it missing. The engine loads and draws in one frame
   (basemodelpanel.cpp:407, mdlpanel.cpp:185); the overlay's end now uploads what its paint grew, before the draw
   (`MomentScene.UploadGrown`). Review 15's claim "never drawn unflexed" was read off a draw list, which cannot see the
-  device.
+  device. Two more of the engine's load-in-the-call shapes (review 17, *source*): it brings in that one model — so ours
+  packs the one path, not the level's static props that the moment's first pack takes (finding 83 item 1) — and a
+  `CMDLPanel` decides its root's validity once, at `SetMDL` (`FindMDL`, an error model `MDLHANDLE_INVALID`,
+  mdlpanel.cpp:185-190), so a root that failed is not drawn even if it could load later.
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

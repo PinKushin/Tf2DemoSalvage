@@ -345,6 +345,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|MonitorEntriesOf|Public|(System.Colle
 Tf2DemoSalvage.Scene.EntityModelSet|method|Named|Assembly static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|Occupy|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|OneLeaf|Private static|()|Tf2DemoSalvage.Scene.ClientLeafSystem
+Tf2DemoSalvage.Scene.EntityModelSet|method|PackCounted|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PackModels|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PackedOrder|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PackedVertices|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldVertex]

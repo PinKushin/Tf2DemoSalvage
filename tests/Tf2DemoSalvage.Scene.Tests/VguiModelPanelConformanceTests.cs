@@ -351,8 +351,34 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A root that fails at `SetMDL` stays invalid** (B779 review 17 item 4): `SetMDL( pMDLName )` decides once —
+    /// `FindMDL`, then an error model is `MDLHANDLE_INVALID` (mdlpanel.cpp:185-190) — and the draw (:417), the merge
+    /// (:836-837) and the header read the handle, never the name again. So a model that becomes loadable later is not drawn
+    /// and takes no merge until the next `SetMDL`. The controls: the model does load now, and a fresh `SetMDL` takes it.
+    /// </remarks>
+    [Test]
+    public void SetMDL_ARootThatFailsToLoad_StaysInvalidWhenItLaterCould()
+    {
+        const string root = "models/player/demo.mdl";
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root")) { Available = false };
+        VguiMdlPanel panel = new(null, "model", cache) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        panel.SetMDL(root);
+        cache.Available = true;
+        cache.LoadMdl(root).ShouldNotBeNull("the control: the model loads now");
+
+        panel.Paint(surface, Context());
+        surface.Draws.ShouldBeEmpty();
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldBeNull();
+
+        panel.SetMDL(root);
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldNotBeNull("the control: a fresh SetMDL takes it");
+    }
+
+    /// <remarks>
     /// **A merge onto a root that is an error model is refused** (B779 review 16 item 3): `SetMDL( pMDLName )` makes an
-    /// error model `MDLHANDLE_INVALID` (mdlpanel.cpp:187-190), and `SetMergeMDL` refuses with no valid root (:837-838). The
+    /// error model `MDLHANDLE_INVALID` (mdlpanel.cpp:187-190), and `SetMergeMDL` refuses with no valid root (:836-837). The
     /// root here names a model that does not load. The control: a root that loads takes the same merge.
     /// </remarks>
     [Test]
@@ -1593,17 +1619,22 @@ public sealed class VguiModelPanelConformanceTests
         public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
-    /// <summary>One model for every path, found only once <see cref="LoadMdl"/> has loaded that path.</summary>
+    /// <summary>One model for every path, found only once <see cref="LoadMdl"/> has loaded that path — and loadable only once <see cref="Available"/>.</summary>
     private sealed class LoadOnAskCache(PropModels.SkinnedModel model) : IMdlCache
     {
         public HashSet<string> Loaded { get; } = new(StringComparer.Ordinal);
+
+        public bool Available { get; set; } = true;
 
         public PropModels.ModelFrames? FindMdl(string path) =>
             Loaded.Contains(path) ? new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
 
         public PropModels.ModelFrames? LoadMdl(string path)
         {
-            Loaded.Add(path);
+            if (Available)
+            {
+                Loaded.Add(path);
+            }
 
             return FindMdl(path);
         }

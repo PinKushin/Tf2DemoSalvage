@@ -606,6 +606,18 @@ public sealed class TfItemModelPanelConformanceTests
             Wide = wide,
             Tall = tall,
             Context = context,
+
+            // Every model loads: `SetMDL` keeps only a root that loads (mdlpanel.cpp:185-190; B779 review 17 item 4), and
+            // these rows ask which model was chosen.
+            MdlCache = new EntityModelSet
+            {
+                Geometry = _ => new PropModels.ModelFrames(
+                    [[new PropVertex(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) }]],
+                    new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                    [0],
+                    [true],
+                    Skinned: SyntheticSkinnedModel.WithBones("root")),
+            },
             Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
                 "items_game"
                 {

@@ -448,7 +448,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     /// <inheritdoc/>
     /// <remarks>
-    /// **Packed in the call, through <see cref="Add(IReadOnlyList{SceneProp})"/>**, so a model that fails to load is remembered
+    /// **Packed in the call, the one model alone** (review 17: not <see cref="Add(IReadOnlyList{SceneProp})"/>, whose first call
+    /// of a level packs the static props after the moment's own), so a model that fails to load is remembered
     /// empty and never read again, and one that loads sets <see cref="Grown"/>: the frame uploads it after the overlay and
     /// before its draw (`MomentScene.UploadGrown`, B779 review 16), or a skip's at the next drawn frame. Called from the
     /// HUD's frame, drawn or skipped, which runs where the world's packing may: after
@@ -483,7 +484,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
             return null;
         }
 
-        Add(_loadOne);
+        // That model alone, not `Add`'s once-a-level static props (review 17 item 3; finding 83 item 1).
+        PackCounted(_loadOne, Geometry);
 
         return FindMdl(path);
     }

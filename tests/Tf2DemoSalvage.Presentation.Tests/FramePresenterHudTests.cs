@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -142,9 +143,10 @@ public sealed class FramePresenterHudTests
     /// **A model the HUD's paint packed is on the device before the frame draws** (B779 review 16): the engine loads and
     /// draws in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185), but the scene's upload (`MomentScene.Pack`) runs
     /// from the moment's show, before the overlay (`FrameSequence.Run`), and a paused still camera shows no moment at all.
-    /// So the overlay uploads what its paint grew before it returns, and `Draw` follows it. A panel's load is made here
-    /// where its paint would make it (the harness's HUD has no local player, so no panel paints); the overlay then hands
-    /// the set to the device. The control: nothing was uploaded before the overlay.
+    /// So the overlay uploads what its paint grew before it returns, and `Draw` follows it. The load is made INSIDE the
+    /// HUD's frame (review 17 item 1), as a model panel's paint makes it — through `VguiHud.FrameStarted`, since the harness
+    /// has no install and so no scheme to paint with. Uploading before the HUD's frame would hand over a set without it.
+    /// The controls: the frame did load it, and nothing was packed before the overlay.
     /// </remarks>
     [Test]
     public void BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns()
@@ -156,13 +158,78 @@ public sealed class FramePresenterHudTests
         window.Overlay(100);
         window.Moment.Upload = upload;
         window.Models.Geometry = SignGeometry(path);
-        window.Models.LoadMdl(path).ShouldNotBeNull("the control: the set packed it");
-        upload.Uploaded.ShouldBeEmpty("the control: nothing uploaded before the overlay");
+        StrongBox<int> loads = LoadInTheHudFrame(window, path);
+        window.Models.FindMdl(path).ShouldBeNull("the control: nothing packed before the overlay");
 
         window.Overlay(101);
 
+        loads.Value.ShouldBe(1, "the control: the HUD's frame ran the load");
         upload.Uploaded.ShouldHaveSingleItem().ShouldContain(path);
         window.Models.Grown.ShouldBeFalse("the set was told its contents reached the device");
+    }
+
+    /// <remarks>
+    /// **An overlay with nothing grown uploads nothing** (review 17 item 2): the upload rebuilds the whole set, so the
+    /// overlay's `UploadGrown` hands it over only when the set grew. One load, then three overlays: one upload. The
+    /// control: the first overlay uploaded the load.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_ThreeOverlaysAfterOneLoad_UploadOnce()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+        RecordingUpload upload = new();
+
+        window.Overlay(100);
+        window.Moment.Upload = upload;
+        window.Models.Geometry = SignGeometry(path);
+        _ = LoadInTheHudFrame(window, path);
+
+        window.Overlay(101);
+        upload.Uploaded.Count.ShouldBe(1, "the control");
+        window.Overlay(102);
+        window.Overlay(103);
+
+        upload.Uploaded.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **With no device the growth waits for one** (review 17 item 2): the overlay has nothing to hand the set to, and the
+    /// set stays grown, so the first upload after a device is set takes it. The control: the paint did grow the set.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_WithNoDevice_LeavesTheSetGrown()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+
+        window.Overlay(100);
+        window.Models.Uploaded();
+        window.Models.Geometry = SignGeometry(path);
+        _ = LoadInTheHudFrame(window, path);
+        window.Moment.Upload.ShouldBeNull("the control: no device");
+
+        window.Overlay(101);
+
+        window.Models.FindMdl(path).ShouldNotBeNull("the control: the paint grew the set");
+        window.Models.Grown.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A model loaded inside the HUD's frame, as a model panel's paint loads one: through `VguiHud.FrameStarted`, since the
+    /// harness has no install and so no scheme to paint with. Counts its runs.
+    /// </summary>
+    private static StrongBox<int> LoadInTheHudFrame(Window window, string path)
+    {
+        StrongBox<int> loads = new(0);
+
+        window.Frames.Hud.ShouldNotBeNull().FrameStarted = () =>
+        {
+            loads.Value++;
+            window.Models.LoadMdl(path);
+        };
+
+        return loads;
     }
 
     /// <summary>An upload that records the paths it was handed, each call.</summary>

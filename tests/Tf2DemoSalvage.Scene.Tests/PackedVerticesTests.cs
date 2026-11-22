@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>A packed model's vertices rebuilt from what the set keeps, for a decal on a skinned model (finding 80).</summary>
@@ -109,6 +111,33 @@ public sealed class PackedVerticesTests
 
         models.FindMdl(Path).ShouldNotBeNull();
         models.PackedOrder(Path).ShouldBe([0, 2, 1, 3]);
+    }
+
+    /// <remarks>
+    /// **A panel's load packs that model alone** (B779 review 17 item 3): the engine's load brings one model in
+    /// (`InitializeAsClientEntity`, basemodelpanel.cpp:407; `FindMDL`, mdlpanel.cpp:185). The static props pack once a level,
+    /// after the moment's own props, at the first `Add` (finding 83 item 1) — a HUD event's load in a skip must not run
+    /// that first, ahead of the moment. Here a level with one static prop: the panel's load packs its model and neither
+    /// the static prop nor its lighting. The control: the moment's `Add` after it packs the static prop and lights it.
+    /// </remarks>
+    [Test]
+    public void LoadMdl_ALevelWithStaticProps_PacksOnlyTheAskedModel()
+    {
+        const string still = "models/props/still.mdl";
+        int lit = 0;
+        EntityModelSet models = new()
+        {
+            Geometry = Skinned,
+            StaticProps = [new SceneProp(7, still, ScenePropTrack.Classify(still), default)],
+            StaticLightingPrecached = _ => lit++,
+        };
+
+        models.LoadMdl(Path).ShouldNotBeNull();
+
+        (models.FindMdl(still), lit).ShouldBe((null, 0));
+
+        models.Add([]);
+        (models.FindMdl(still) is not null, lit).ShouldBe((true, 1), "the control: the moment's first Add packs the statics");
     }
 
     /// <remarks>
