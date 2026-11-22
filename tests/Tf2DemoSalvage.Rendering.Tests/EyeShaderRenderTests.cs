@@ -377,6 +377,309 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **Under `mat_wireframe` every mesh draws with the studio render's wireframe material** (B788; `studiorender.dll`
+    /// `R_StudioSetupSkinAndLighting` `0x1800041ec`-`0x18000420e`, `MapAssets.Wireframe`), an eye's and a plain
+    /// VertexLitGeneric's alike. `debugmrmwireframe` is the `Wireframe` shader, VertexLitGeneric's helper with
+    /// `bVertexLitGeneric` false and no `$basetexture` (`wireframe_dx9.cpp:33`, `:43`, `:49`), so UNLIT white times
+    /// `$color [0 1 1]`: (0, 255, 255) on the quad's diagonal edge (34, 30), whatever the cube's light (review 1, Fable: the
+    /// first port lit it, (0, 89, 89)). Before, the model kept its own material: red 89 or the eye's black iris. The
+    /// control is the same draw without wireframe, which is the material's own.
+    /// </remarks>
+    [TestCase("VertexLitGeneric")]
+    [TestCase("Eyes")]
+    public void DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial(string shader)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        EyeShading? eye = shader == "Eyes" ? Below : null;
+        MapAssets assets = Wireframed(shader, ignoresZ: true);
+
+        Draw(target, assets, eye);
+        (int R, int G, int B) own = target.PixelAt(34, 30);
+        target.Wireframe = true;
+        Draw(target, assets, eye);
+        (int R, int G, int B) wire = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"{shader} under wireframe: own {own}, wireframe {wire}, predicted (0, 255, 255)");
+        own.G.ShouldBe(0, "the control: the material's own, which has no green");
+        wire.ShouldBe((0, 255, 255), "unlit white times [0 1 1]");
+        target.PixelAt(20, 20).ShouldBe((0, 0, 0), "edges only: the wireframe fill mode draws no interior");
+    }
+
+    /// <remarks>
+    /// **A brush entity keeps its own material under `mat_wireframe`** (B788 review 1, Fable): the swap is the studio
+    /// render's (`R_StudioSetupSkinAndLighting`), which never draws a brush model — `R_DrawBrushModel` binds each batch's
+    /// own material (B659). The studio model of the same mesh is the control, which swaps.
+    /// </remarks>
+    [TestCase("offscreen/posed.mdl", 0, 255, 255)]
+    [TestCase("*1", 89, 0, 0)]
+    public void DrawModelPose_UnderWireframe_SwapsAStudioModelAndNotABrushEntity(string modelPath, int red, int green, int blue)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = true;
+        Draw(target, Wireframed("VertexLitGeneric", ignoresZ: true), null, modelPath: modelPath);
+
+        target.PixelAt(34, 30).ShouldBe((red, green, blue), "the brush entity's own red, lit, is drawn: not swapped, not absent");
+    }
+
+    /// <remarks>
+    /// **Only the wireframe material skips the depth test** (B788 review 4, Fable): with it loaded and `mat_wireframe` off,
+    /// a second, different material drawn over the first at the same depth is refused by the strict test, so the first's
+    /// red stays, (89, 0, 0), inside the quad. Every material taking `$ignorez` would let the blue through.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_WithTheWireframeMaterialLoaded_OtherMaterialsStillTestDepth()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
+
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+        target.PixelAt(20, 20).ShouldBe((0, 0, 89), "the control: the forced draw on its own is blue");
+
+        Draw(target, assets, null);
+        Draw(target, assets, null, clear: false, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(20, 20).ShouldBe((89, 0, 0));
+    }
+
+    /// <remarks>
+    /// **Without the wireframe material (no TF2 install), a model keeps its own under `mat_wireframe`** (B788 review 3,
+    /// Sonnet): its red, lit, on the edge, (89, 0, 0).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = true;
+        Draw(target, MapAssets.ForMaterials([Uniform4(255, 0, 0, 255)], ["VertexLitGeneric"]), null);
+
+        target.PixelAt(34, 30).ShouldBe((89, 0, 0));
+    }
+
+    /// <remarks>
+    /// **The wireframe material takes no fog** (B788 review 2): `Wireframe_DX9` sets `MATERIAL_VAR_NOFOG`
+    /// (`wireframe_dx9.cpp:36`; what the flag does at draw is the closed shaderlib's, *interpolated* as no fog). Fog ending
+    /// at 1 unit, blue, full density, with the quad 300 away: the model's own red is all fog, (0, 0, 255), the control; its
+    /// wireframe edge is still (0, 255, 255). Reads the frame, so it covers the constant's upload and the shader's mode 2,
+    /// not only `FogModeOf`.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeInFullFog_DrawsTheEdgeUnfogged()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ: true);
+        Tf2DemoSalvage.Core.Scene.SceneFog fog = new(0f, 1f, 0f, 0f, 1f, 1f);
+
+        Draw(target, assets, null, fog: fog);
+        (int R, int G, int B) own = target.PixelAt(34, 30);
+        target.Wireframe = true;
+        Draw(target, assets, null, fog: fog);
+        (int R, int G, int B) wire = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"full blue fog: own {own}, wireframe {wire}");
+        own.ShouldBe((0, 0, 255), "the control: the model's own material is all fog");
+        wire.ShouldBe((0, 255, 255));
+    }
+
+    /// <remarks>
+    /// **A model's frame is read after its material's proxy chain runs** (B788 review 3, Sonnet; B343): `$frame` is what the
+    /// chain writes, so reading it before the chain gives the previous draw's. Material 0 animates `$basetexture` at one
+    /// frame a second over red then green frames; at 1.5 seconds the chain writes frame 1, green, lit (0, 89, 0). Read before
+    /// the chain, the frame is the earlier value, 0, red.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_AnAnimatedMaterial_BindsTheFrameItsProxyChainWrote()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<MaterialProxy> animated = VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes("""
+            "VertexLitGeneric" { "Proxies" { "AnimatedTexture" { "animatedtexturevar" "$basetexture" "animatedtextureframenumvar" "$frame" "animatedtextureframerate" 1 } } }
+            """)).Proxies;
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255)],
+            ["VertexLitGeneric"],
+            proxies: [animated],
+            animationFrames: [[Uniform4(255, 0, 0, 255), Uniform4(0, 255, 0, 255)]]);
+
+        target.Seconds = 1.5;
+        Draw(target, assets, null);
+
+        target.PixelAt(20, 20).ShouldBe((0, Encode(Cube), 0));
+    }
+
+    /// <remarks>
+    /// **A forced material binds its OWN animation frame** (B788 review 2): the frame is the drawn material's, so a gold
+    /// corpse's animated override animates. Material 2, forced, animates green frames over a blue still; the batch's own
+    /// material 0 animates nothing. Lit green (0, 89, 0) on the quad; the batch's index would bind the blue still.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_WithAForcedAnimatedMaterial_BindsTheForcedMaterialsFrame()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "VertexLitGeneric"],
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 1 },
+            animationFrames: [null, [Uniform4(0, 255, 0, 255), Uniform4(0, 255, 0, 255)]]);
+
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(20, 20).ShouldBe((0, Encode(Cube), 0));
+    }
+
+    /// <remarks>
+    /// **`debugmrmwireframe` is `$ignorez 1`**, so its edges draw over what is in front of them (B788). The quad drawn solid
+    /// first, then its wireframe at the same depth without clearing: with no depth test the edge is the wireframe's
+    /// (0, 255, 255); with one, the strict test (`ComparisonFunc.Less`) refuses the equal depth and the solid red stays. Not
+    /// `$decal` here, whose `LessEqual` test would pass the equal depth and hide the difference.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 89)]
+    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ(bool ignoresZ, int red)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ, decal: false);
+
+        Draw(target, assets, null);
+        target.Wireframe = true;
+        Draw(target, assets, null, clear: false);
+        (int R, int G, int B) edge = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"wireframe over the solid, ignorez {ignoresZ}: {edge}");
+        edge.R.ShouldBe(red);
+    }
+
+    /// <remarks>
+    /// **A forced material wins over the wireframe one**: the swap needs `m_pForcedMaterial` (`+0x250`) null
+    /// (`studiorender.dll` `0x1800041f2`), so a gold corpse's `ForcedMaterialOverride` draws gold, here a blue material 2:
+    /// (0, 0, 89) on the edge, not the wireframe's (0, 255, 255).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
+        int lit = Encode(Cube);
+
+        target.Wireframe = true;
+        Draw(target, assets, null, overrideMaterial: "forced.vmt");
+
+        target.PixelAt(34, 30).ShouldBe((0, 0, lit));
+    }
+
+    /// <remarks>
+    /// **The wireframe material binds its own texture, not the swapped-out material's animation frame** (B788 review 1,
+    /// Sonnet): `R_StudioSetupSkinAndLighting` replaces the material before any proxy or bind, so the frame the model's
+    /// own `$basetexture` would animate to is never read. Material 0 animates red frames; the wireframe's white times
+    /// `[0 1 1]` is (0, 255, 255) on the edge, and red times it would be black.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_UnderWireframeOnAnAnimatedMaterial_BindsTheWireframesTexture()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = true }],
+            ["VertexLitGeneric", "Wireframe"],
+            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            animationFrames: [[Uniform4(255, 0, 0, 255), Uniform4(255, 0, 0, 255)], null]);
+
+        target.Wireframe = true;
+        Draw(target, assets, null);
+
+        target.PixelAt(34, 30).ShouldBe((0, 255, 255));
+    }
+
+    /// <remarks>The `Wireframe` shader sets `MATERIAL_VAR_NOFOG` (`wireframe_dx9.cpp:36`): fog mode 2, none (B788).</remarks>
+    [Test]
+    public void FogModeOf_TheWireframeShader_IsNone()
+    {
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "Wireframe").ShouldBe(2f);
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "Wireframe_DX9").ShouldBe(2f, "a fallback suffix, as ModelMaterialShading reads it");
+        WorldRenderer.FogModeOf(Uniform4(255, 255, 255, 255), "VertexLitGeneric").ShouldBe(0f, "the control");
+    }
+
+    /// <summary>
+    /// Material 0 red (or an eye with a black iris), material 1 `debugmrmwireframe` as the VMT has it: white, `$color [0 1 1]`,
+    /// `$decal 1`.
+    /// </summary>
+    private static MapAssets Wireframed(string shader, bool ignoresZ, bool decal = true) =>
+        MapAssets.ForMaterials(
+            [
+                shader == "Eyes"
+                    ? Uniform4(0, 0, 0, 255) with { Eye = new EyeMaterial(EyeShader.Eyes, HalfLambert: false, Iris: Iris(alpha: 0)) }
+                    : Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = decal },
+            ],
+            [shader, "Wireframe"],
+            wireframe: new ModelWireframe(1, ignoresZ));
+
+    /// <remarks>
     /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
     /// drawn with a lamp at the camera (195), then again without one, is 0 — the target, left as the first draw filled it,
     /// is not bound.
@@ -801,7 +1104,11 @@ public sealed class EyeShaderRenderTests
         float[]? baked = null,
         VolumeFog? heightFog = null,
         AmbientCube? cube = null,
-        float tangentW = 1f)
+        float tangentW = 1f,
+        bool clear = true,
+        string? overrideMaterial = null,
+        string modelPath = "offscreen/posed.mdl",
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -841,7 +1148,11 @@ public sealed class EyeShaderRenderTests
             NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f),
         }.ToMatrix();
 
-        target.Clear(0f, 0f, 0f);
+        if (clear)
+        {
+            target.Clear(0f, 0f, 0f);
+        }
+
         target.DrawModelPose(
             vertices,
             [new WorldBatch(0, 0, vertices.Count, Eyeball: eye is null ? -1 : 0)],
@@ -855,7 +1166,11 @@ public sealed class EyeShaderRenderTests
             mouth: mouth,
             bakedColours: baked,
             toneMapScale: 1f,
-            heightFog: heightFog);
+            heightFog: heightFog,
+            clearDepth: clear,
+            overrideMaterial: overrideMaterial,
+            modelPath: modelPath,
+            fog: fog);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)

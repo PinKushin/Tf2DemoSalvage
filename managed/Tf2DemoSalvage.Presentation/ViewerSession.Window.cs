@@ -503,6 +503,16 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // logged as set and drew nothing, so a `--shot` with either was its control's picture.
             attach(_device, () => _window.ShowSpecular(false), mode => SetFullbright((Fullbright)mode));
 
+            // `mat_wireframe` from the launch line (with `+sv_cheats 1`) or the config, through the menu's tick as a set at
+            // run time goes (B791): nothing else at startup reads it.
+            // The device is told directly as well: a menu item already ticked (a device opened again) reports no change.
+            // The settings first, then a watcher config's own line, which the console keeps (B791 review 9, Fable).
+            if (Wireframes(ClientConVar(WireframeCommand) ?? "0"))
+            {
+                _window.ShowWireframe(true);
+                SetWireframe(true);
+            }
+
             _renderLog.LogInformation(
                 "{Message}",
                 _settingsOwner.FrameRateLine);

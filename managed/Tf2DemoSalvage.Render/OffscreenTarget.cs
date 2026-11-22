@@ -913,6 +913,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="mouth">The teeth shader's values, or null for the material's own (B725).</param>
     /// <param name="weaponSkin">The war paint a <c>WeaponSkin</c> material binds as its base, or null (B754).</param>
     /// <param name="heightFog">A water volume's height fog, as a refraction view sets it before its models draw, or null; cleared after.</param>
+    /// <param name="modelPath">The model's name: a studio model's path, or a brush entity's <c>*N</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -951,15 +952,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<EyeShading>? eyes = null,
         MouthShading? mouth = null,
         WeaponSkin? weaponSkin = null,
-        VolumeFog? heightFog = null)
+        VolumeFog? heightFog = null,
+        string modelPath = "offscreen/posed.mdl")
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
         ArgumentNullException.ThrowIfNull(camera);
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(assets);
+        ArgumentNullException.ThrowIfNull(modelPath);
 
-        const string Posed = "offscreen/posed.mdl";
+        // The model's name — a studio model's path, or a brush entity's `*N` for a test that asks (B788).
+        string Posed = modelPath;
 
         EnsureWorld();
         _world.Seconds = Seconds;

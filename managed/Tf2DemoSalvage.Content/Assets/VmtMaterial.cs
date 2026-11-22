@@ -1005,6 +1005,10 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsDecal => Flag("$decal");
 
+    /// <summary><c>$ignorez</c>, <c>MATERIAL_VAR_IGNOREZ</c>: drawn with no depth test and no depth write.</summary>
+    /// <remarks>Read today only for the studio render's wireframe material (B788).</remarks>
+    public bool IgnoresZ => Flag("$ignorez");
+
     /// <summary>Whether the material carries a rim light along its silhouette.</summary>
     /// <remarks>
     /// <c>SHADER_PARAM( RIMLIGHT, SHADER_PARAM_TYPE_BOOL, "0", "enables rim lighting" )</c>.

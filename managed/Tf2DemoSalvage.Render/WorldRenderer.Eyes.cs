@@ -865,9 +865,10 @@ internal sealed unsafe partial class WorldRenderer
 
         // **`mat_wireframe` (with `sv_cheats`, engine.dll `0x1800f5855`-`0x1800f5873`) sets the config's `bWireframe`, and
         // the mesh setup skips the glint under it** (`0x18000f7d1`). The engine then draws the model with studiorender's
-        // own wireframe material (`R_StudioSetupSkinAndLighting`, `0x1800041c0`), not this shader at all — B788; here the
-        // glint is black. The menu and the viewer's default keys are ungated by `sv_cheats` (D253 as
-        // `ConfigConsole.KeyDown` applies it, D246); a config's, a bind's or a launch option's set is B791.
+        // own wireframe material (`R_StudioSetupSkinAndLighting`, `0x1800041c0`), not this shader at all, which `DrawModel`
+        // does (B788) — so an eye reaches here under it only when that material did not load, and its glint is black. The
+        // menu and the viewer's default keys are ungated by `sv_cheats` (D253, D246; B792); a config's, a bind's or a launch
+        // option's set is refused without it (B791).
         if (Wireframe || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
         {
             return (projection, _glintBlack);

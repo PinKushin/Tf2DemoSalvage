@@ -1053,7 +1053,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // tone-map scale under integer HDR UNLESS the shader disabled fog gamma correction, which only DecalModulate does.
         // Mode 3 is Modulate (scaled), mode 4 DecalModulate (unscaled, and its factor first takes
         // `pow( saturate( fogFactor ), 0.4f )`, decalmodulate_ps2x.fxc:42). The output is a gamma value (B641), so the lerp
-        // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
+        // is in gamma as Valve's is. Mode 2, none, is the `Wireframe` shader's `MATERIAL_VAR_NOFOG` (B788).
         static const float StoredGrey = 128.0f / 255.0f;
 
         // Under height fog the grey is 128/255 through the height-fog branch's conversion, which follows `r_shader_srgb`
@@ -2421,6 +2421,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private IReadOnlyDictionary<string, int> _overrideMaterials =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The studio render's wireframe material, which every model mesh draws with under <c>mat_wireframe</c>, or null (B788).</summary>
+    private ModelWireframe? _modelWireframe;
+
+    /// <summary>No depth test and no depth write: <c>MATERIAL_VAR_IGNOREZ</c>, for the wireframe material (B788).</summary>
+    private ComPtr<ID3D11DepthStencilState> _depthIgnored;
+
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
     /// <remarks>
     /// **Drawn in a second pass with additive blending, which is what the engine does.** Source
@@ -2632,6 +2638,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>Model paths whose drawn material indices have been reported (B170).</summary>
     private readonly HashSet<string> _reportedBatchMaterials =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The same, drawn under <c>mat_wireframe</c>, whose bound material differs (B788).</summary>
+    private readonly HashSet<string> _reportedWireframeBatchMaterials =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -3285,9 +3295,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalPolyOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in polyOffset, ref decalPolyOffset));
 
-        // **A wireframe twin of every state, because `mat_wireframe` changes the FILL and nothing
-        // else.** Valve's is `MATERIAL_FILLMODE_WIREFRAME`, applied to whatever is being drawn, so
-        // each pass keeps its own culling and its own depth bias and differs only in fill. Building
+        // **A wireframe twin of every state, for the fill.** Under `mat_wireframe` a studio model also swaps to the
+        // studio render's wireframe material (no depth test, no fog, unlit; B788); this twin is the FILL, which ours applies
+        // to every pass while the SDK sets the fill as the drawn material's `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`;
+        // whether anything closed also forces it is B808)
+        // — a forced material without it, and the world's brushes, are open questions (B808, B803). Each pass keeps its own
+        // culling and its own depth bias and differs only in fill. Building
         // one shared wireframe state instead would quietly answer a different question — "what is
         // in the vertex buffer" rather than "what is being drawn" — and the difference between
         // those two is exactly what a missing-geometry hunt turns on.
@@ -3539,9 +3552,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// reached the rasteriser, whatever the material then did with it.
     ///
     /// `FCVAR_CHEAT` in the engine, gated behind `sv_cheats` by `WireFrameMode()`
-    /// (<c>game/client/view.h:68</c>). Not gated here: there is no server to protect and no player
-    /// to gain an advantage over, so the gate would be ceremony. That is a deliberate divergence
-    /// rather than an oversight.
+    /// (<c>game/client/view.h:68</c>). The gate is the console's, not this property's: a config's, a bind's or a
+    /// launch option's <c>mat_wireframe</c> is refused without <c>sv_cheats</c> (D253, B791), the menu's is not.
     /// </remarks>
     public bool Wireframe { get; set; }
 
@@ -3715,6 +3727,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 device.CreateDepthStencilState(in overlayDepth, ref overlayState));
 
             _decalDepth = overlayState;
+        }
+
+        if (_depthIgnored.Handle is null)
+        {
+            DepthStencilDesc ignored = default;
+
+            ignored.DepthEnable = 0;
+            ignored.DepthWriteMask = DepthWriteMask.Zero;
+            ignored.DepthFunc = ComparisonFunc.Always;
+
+            ComPtr<ID3D11DepthStencilState> ignoredState = default;
+
+            SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in ignored, ref ignoredState));
+
+            _depthIgnored = ignoredState;
         }
 
         // **The engine's own convention: what is missing looks wrong on purpose.** Source draws an
@@ -3997,6 +4024,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // above and below have already uploaded them. This is only the path-to-index map a draw
         // needs, since a corpse asks for gold by name and knows no index.
         _overrideMaterials = assets.OverrideMaterials;
+        _modelWireframe = assets.Wireframe;
 
         // Which materials run `WeaponSkin`, at what size, and what their composites read (B754).
         UploadWeaponSkins(assets);
@@ -6277,6 +6305,41 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private const int DetailBlendFactor = 1;
 
+    /// <summary>The material a model batch draws with: its skin's, then a forced override, then the wireframe (B788).</summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="skin">The skin family's swaps by SKINREF slot, or null for family zero.</param>
+    /// <param name="overrideMaterial">The whole-model override's VMT path, or null.</param>
+    /// <param name="modelPath">The model's name, a brush entity's <c>*N</c> included.</param>
+    /// <returns>The material index the draw binds.</returns>
+    /// <remarks>
+    /// **One route for the draw and its diagnostic lines**, so a log names the material bound rather than recomputing it
+    /// (B243; B788 review 3, Fable: the logs ignored the override and the wireframe).
+    ///
+    /// **A whole-model override replaces the resolved material outright, which is what makes it different from a skin**
+    /// (B325). A skin picks another entry from the model's own table, and this ignores the table:
+    /// `modelrender->ForcedMaterialOverride( pOverrideMaterial )` (`c_baseanimating.cpp:3438`) binds ONE material for the
+    /// whole draw, so a gold corpse's hands, coat and boots all paint from it. Substituted before anything reads the
+    /// material, so the override is a material rather than a texture: gold's look is mostly `$envmap
+    /// cubemaps/cubemap_gold001` with `$envmaptint [1.5 1.2 .2]` and a rim term, and ice adds a bump, a phong warp and a
+    /// light warp. **An override that did not resolve leaves the model's own**, rather than falling to the white chequer —
+    /// what the engine shows when `m_MaterialOverride.Init` fails.
+    ///
+    /// **Under `mat_wireframe` the studio render draws every mesh with its own wireframe material** (B788):
+    /// `R_StudioSetupSkinAndLighting` (`studiorender.dll` `0x1800041ec`) takes it when `bWireframe` is set and no material is
+    /// forced (`+0x250`), so a forced one, tested first, wins. Every mesh, a face's too: the eye shaders never see their
+    /// material. Not loaded (no TF2 install), the model keeps its own. A STUDIO model only: a brush entity (a `*N` model)
+    /// is the world renderer's, which the studio render never draws (B803).
+    /// </remarks>
+    private int DrawnMaterial(WorldBatch batch, IReadOnlyDictionary<int, int>? skin, string? overrideMaterial, string modelPath)
+    {
+        // The skin's swap and the forced override are `Resolved`'s, which the war-paint composite also asks: TF2 builds a
+        // composite when the item is set up (`c_tf_player.cpp:3488`), drawn or not, so it does not ask the wireframe swap.
+        int material = Resolved(batch, skin, overrideMaterial);
+        bool forced = overrideMaterial is not null && _overrideMaterials.ContainsKey(overrideMaterial);
+
+        return !forced && Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
+    }
+
     /// <summary>The animation frame a material shows now, or a null handle (B341).</summary>
     /// <param name="materialIndex">Which material.</param>
     /// <param name="still">What to bind when the material animates nothing.</param>
@@ -6642,7 +6705,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _additive.Contains(materialIndex),
             _modulate.ContainsKey(materialIndex));
 
+        // `$ignorez`, which the wireframe material declares (B788): no test, no write.
         ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
+
+        if (_modelWireframe is { IgnoresZ: true } wire && wire.Material == materialIndex)
+        {
+            depth = _depthIgnored;
+        }
 
         if (depth.Handle is not null)
         {
@@ -7073,7 +7142,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The diffuse an unlit material is drawn with, the shader's <c>combine.w</c>; zero for a lit one.</summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>1 for Modulate, DecalModulate, UnlitGeneric and UnlitTwoTexture; 0 otherwise.</returns>
+    /// <returns>1 for Modulate, DecalModulate, UnlitGeneric, UnlitTwoTexture and Wireframe (B788); 0 otherwise.</returns>
     /// <remarks>
     /// Modulating shaders read no light (B639, B638): `Modulate` draws through `unlitgeneric_vs20` (modulate_dx9.cpp:186)
     /// and `DecalModulate` sets every light combo to zero (DecalModulate_dx9.cpp:184-191). **One, and no compensation**
@@ -7263,6 +7332,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <returns>True for either modulating shader, whatever else the material declares (B635).</returns>
     private static bool Modulates(MapTexture? surface) => surface is { IsModulate: true } or { IsModulateTwice: true };
 
+    /// <summary>Fog mode 2: no fog, <c>MATERIAL_VAR_NOFOG</c> (the <c>Wireframe</c> shader, B788).</summary>
+    internal const float FogModeNone = 2f;
+
     /// <summary>Fog mode 3: toward the grey times the tone-map scale, the factor as it is (`Modulate`, B637).</summary>
     internal const float FogModeGrey = 3f;
 
@@ -7276,7 +7348,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="surface">The material's base texture and flags, or null.</param>
     /// <param name="shader">The material's shader name, which tells `DecalModulate` from `Modulate`.</param>
     /// <returns><see cref="FogModeDecalGrey"/> for DecalModulate, <see cref="FogModeGrey"/> for any other modulating
-    /// material whatever it declares, 1 for an additive one, else 0.</returns>
+    /// material whatever it declares, <see cref="FogModeNone"/> for the <c>Wireframe</c> shader, 1 for an additive one, else 0.</returns>
     /// <remarks>
     /// **Both fog branches take a modulating material now**, the water's height fog included, and each scales by
     /// <see cref="ToneMapScaleNoneOf"/>, not by the mode: <c>ModulateFogConformanceTests</c> holds the height branch unscaled.
@@ -7284,6 +7356,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     internal static float FogModeOf(MapTexture? surface, string? shader) => surface switch
     {
         _ when Modulates(surface) => VmtMaterial.IsDecalModulateShader(shader) ? FogModeDecalGrey : FogModeGrey,
+
+        // The `Wireframe` shader sets `MATERIAL_VAR_NOFOG` (`wireframe_dx9.cpp:36`, B788).
+        _ when shader?.StartsWith("Wireframe", StringComparison.OrdinalIgnoreCase) == true => FogModeNone,
         { IsAdditive: true } => 1f,
         _ => 0f,
     };
@@ -7851,6 +7926,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _alphaBlend.Dispose();
         _depthReadOnly.Dispose();
         _decalDepth.Dispose();
+        _depthIgnored.Dispose();
         _depthWrite.Dispose();
         ReleaseMap();
         _material.Dispose();
@@ -8485,33 +8561,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // material becomes in another, which has two answers as soon as two meshes share it and
             // no answer at all when family zero's texture is the one the map does not ship. The
             // engine indexes by the mesh's own reference, which is what `MaterialSlot` carries.
-            int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
-                ? swapped
-                : batch.MaterialIndex;
-
-            // **A whole-model override replaces the resolved material outright, which is what makes
-            // it different from a skin** (B325). A skin picks another entry from the model's own
-            // table — the lookup directly above — and this ignores the table:
-            // `modelrender->ForcedMaterialOverride( pOverrideMaterial )` (`c_baseanimating.cpp:3438`)
-            // binds ONE material for the whole draw, so a gold corpse's hands, coat and boots all
-            // paint from it.
-            //
-            // **Substituted here, before anything reads `material`, so the override is a material
-            // rather than a texture.** Gold's look is mostly `$envmap cubemaps/cubemap_gold001` with
-            // `$envmaptint [1.5 1.2 .2]` and a rim term, and ice adds a bump, a phong warp and a
-            // light warp — swapping slot 0 alone would have kept the PLAYER material's cubemap,
-            // phong, detail and blend state under a flat swatch, which draws something and is not
-            // the engine's answer.
-            //
-            // **An override that did not resolve leaves the model's own**, rather than falling to
-            // the white chequer. A machine without TF2 has neither material, and a corpse in its own
-            // skin is far closer to right than a magenta one — and is what the engine shows when
-            // `m_MaterialOverride.Init` fails.
-            if (overrideMaterial is not null &&
-                _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
-            {
-                material = forced;
-            }
+            int material = DrawnMaterial(batch, skin, overrideMaterial, modelPath);
 
             // **Culling per material, because that is where the engine keeps it.** $nocull sets
             // MATERIAL_VAR_NOCULL and shaders test it per material (imaterial.h:369,
@@ -8725,7 +8775,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // `c_shotgun` carries a tint of 0.05 — and the screenshots show the weapon changing by
             // far more than that tint can produce. The gap between those two facts is which
             // material index the draw resolves to, after the skin swap, which nothing has reported.
-            if (_reportedBatchMaterials.Add(modelPath))
+            // Once per model AND wireframe state, so the line names what is bound after `mat_wireframe` toggles (B788 review 4).
+            if ((Wireframe ? _reportedWireframeBatchMaterials : _reportedBatchMaterials).Add(modelPath))
             {
                 // **The matrix this draw actually uses, said once per model** (B241). The line
                 // above it — `<model> at (x, y, z) reflects cubemap N` — is the ILLUMINATION point,
@@ -8768,10 +8819,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                         batches
                             .Select(each =>
                             {
-                                int drawn = skin is not null &&
-                                    skin.TryGetValue(each.MaterialSlot, out int swap)
-                                    ? swap
-                                    : each.MaterialIndex;
+                                int drawn = DrawnMaterial(each, skin, overrideMaterial, modelPath);
 
                                 // **The classification, because its absence made an ASSUMPTION
                                 // load-bearing.** This line named the material indices and nothing
@@ -8786,8 +8834,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                             })
                             .Distinct()));
             }
-
-            texture = AnimationFrame(batch.MaterialIndex, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
@@ -8833,6 +8879,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // material did not resolve. A brush entity adds its class colour on top (B219).
             SubmitSpans.Lap(SubmitSpan.BatchState);
             SetMaterial(context, material, batch.Category, tint, paint, burn, urine);
+
+            // **The frame after the chain has run, because the chain is what writes `$frame`** (B343; B788 review 3: read
+            // before it, the frame was the previous draw's). The frame of the material DRAWN — a skin's swap, a forced one or
+            // the wireframe — not the batch's own (B788).
+            texture = AnimationFrame(material, texture);
+            context.PSSetShaderResources(0, 1, ref texture);
 
             if (refracting)
             {
@@ -8959,8 +9011,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 $"in the {pass} pass, body {body}, " +
                 $"skin {(skin is null ? "own" : $"{skin.Count} swaps")}, " +
                 $"materials [{string.Join(", ", batches.Select(each =>
-                    skin is not null && skin.TryGetValue(each.MaterialSlot, out int swap)
-                        ? $"{swap}<-{each.MaterialIndex}:{DescribeMaterial(swap)}"
+                    DrawnMaterial(each, skin, overrideMaterial, modelPath) is var bound && bound != each.MaterialIndex
+                        ? $"{bound}<-{each.MaterialIndex}:{DescribeMaterial(bound)}"
                         : $"{each.MaterialIndex}:{DescribeMaterial(each.MaterialIndex)}").Distinct())}]");
         }
 

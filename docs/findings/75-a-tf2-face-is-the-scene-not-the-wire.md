@@ -205,3 +205,38 @@ The `Eyes` shader adds a 32×32 render target the studio render draws for every 
 - **`mat_wireframe` reaches the glint through `sv_cheats`.** The engine's `bWireframe` is `sv_cheats && mat_wireframe`
   (`0x1800f5855`), and under it the studio render skips the glint and draws the model with its own wireframe material
   — the second half is B788 (*read*).
+
+## The studio render's wireframe material (B788)
+
+What was believed: B788 was filed knowing the swap's shape — `R_StudioSetupSkinAndLighting` binds `+0x8a8` or `+0x8b0` in
+place of the mesh's material — and not what those two fields hold, so the first guess was "edges in the material's own
+shading", which is what ours drew. Three reads settled it.
+
+- **The binary names both materials, side by side.** `studiorender.dll` carries
+  `//platform/materials/debug/debugmrmwireframe` at `0x180080b18` and `…debugmrmwireframezbuffer` at `0x180080b48`
+  (*read*, a byte search). The first write-up said "nothing else with wireframe in it"; that was wrong — review 1 (Fable)
+  found `debug/debugworldwireframe` at `0x180080ce8`, held at `+0x8e8`, and the load at `0x1800527eb` that puts
+  `debugmrmwireframe` in `+0x8a8`, which makes the field *read* rather than interpolated from the names (the review's
+  read, not re-read by the lead). The world one is B803's lead.
+- **The engine never asks for the z-buffered one.** `UpdateStudioRenderConfig` (`engine.dll` `0x1800f56c0`) zeroes the
+  config (`0x1800f5703`-`0x1800f571d`) and then writes bits 0, 3, 4 and 5 of byte `+0x25`, never bit 2,
+  `bDrawZBufferedWireframe` (*read*, the whole function disassembled). So a demo's `mat_wireframe` with cheats on draws
+  every model with `debugmrmwireframe`; another writer of the config was not searched for.
+- **The material is the game's shipped data, the fifth source.** `debugmrmwireframe.vmt` is in both `platform_misc` and
+  `hl2_misc`: shader `Wireframe`, `$color [0 1 1]`, `$ignorez 1`, `$decal 1`, `$model 1`, no `$basetexture` (*read*, the
+  VPKs). `Wireframe_DX9` is VertexLitGeneric's init and draw plus three flags — `NO_DEBUG_OVERRIDE`, `NOFOG`, `WIREFRAME`
+  (`wireframe_dx9.cpp:30-50`, *read*) — and it passes `bVertexLitGeneric` false at init, setup and draw (`:33`, `:43`,
+  `:49`), UnlitGeneric's path. The first port read "VertexLitGeneric's init and draw" as lit and drew (0, 89, 89) on a
+  test edge; review 1 (Fable) caught it. It also passes a default-constructed `VertexLitGeneric_DX9_Vars_t` (`:32`, `:42`, `:48`), every index -1
+  (`vertexlitgeneric_dx9_helper.h:28`; review 4, Fable), so white is unconditional: the shader reads no `$basetexture`,
+  `$envmap`, `$bumpmap` or `$phong` whatever its VMT says (ours still reads them, B807; no difference for the shipped one,
+  which names none). So TF2's wireframe model is white, UNLIT, times cyan — (0, 255, 255) at tone-map scale 1 — unfogged (`NOFOG` is *read*; that it means no fog at draw is the closed shaderlib's, *interpolated*),
+  and drawn through everything in front of it. Ours drew the model's textures, fogged and depth-tested — a wireframe that
+  looked plausible and answered a different question (what is in front) from the engine's (where are all the edges).
+- **A forced material beats it.** The swap's first test is `+0x250`, `m_pForcedMaterial`, null (`0x1800041f2`): a gold
+  corpse under `mat_wireframe` stays gold (*read*). Whether it is drawn as edges or solid is not: in the SDK the line
+  fill is the `Wireframe` shader's own `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), which gold lacks; whether
+  anything closed also forces it is not read, and ours fills every pass as edges (B808, open).
+
+Ported in `WorldRenderer.DrawModel` with the material loaded at map load (`MapAssets.Wireframe`); the `$ignorez` depth
+state is *interpolated* (the flag's render state is the closed shaderlib's), the skybox's depth state being the precedent (its shader sets `MATERIAL_VAR_IGNOREZ` itself; this one reads the VMT's).
