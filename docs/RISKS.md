@@ -43351,8 +43351,19 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
     | `f12.dem` | 106,219 | 662 ms | 390 ms | 262 ms (303 paths) |
     | `auto-20260817-1720-cp_process_f12.dem` | 2,400 | 72 ms | 20 ms | 3 ms (18 paths) |
 
-    About half a second of a long demo's level load is the walk, twice. Not changed here: sharing one walk between the two
-    lists is a follow-up, measured.
+    About half a second of a long demo's level load is the walk, twice. **Fixed in review 21** (coordinator: "a
+    regression this branch adds… fix it here"): `DemoModels.CarriedPanelModels` walks once per timeline and schema and
+    both lists take that one result. That makes B195's agreement structural for the carried items, not two calls that
+    happen to match. The walk also skips an item list already seen by reference.
+    On f12 it is now one walk of 157 ms (median of 3) instead of two of 262 ms (measurements/2026-11-22-b779-panel-preload.md).
+    `ToPack` at load fell from 390 ms to 149 ms, path counts unchanged (measurements/2026-11-22-b779-panel-preload.md). *Test*:
+    `DemoModelsTests.NeededThenToPack_OneTimeline_ShareOneCarriedWalk`. *Sabotage*: both reddened it alone.
+    - `AddPanelModels` walking directly instead of through the shared walk.
+    - The held walk never returned.
+
+    *Not tested*: the list skip, which changes cost and not output; the probe's path counts are its control. *Not cut
+    further*: the rest of the walk is reading every frame's players. Skipping a shared player detail needs a Core
+    accessor that the timeline does not expose today.
 12. *`versus_doors_lock.mdl`* is marked synthetic in the layout row's remark.
 13. *The cut-off duplicate sentence in B812* removed.
 

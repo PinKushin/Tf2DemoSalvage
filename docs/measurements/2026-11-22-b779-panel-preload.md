@@ -64,3 +64,64 @@ No prediction was written before the run.
 - The timings come from one run each, not a mean. Use them to judge size, not to compare builds.
 - The walk runs once in `Needed` and once in `ToPack`, so a long demo's level load spends about twice the
   last column on it.
+
+# Review 21: one walk per load, and a cheaper walk (2026-11-22)
+
+## Question
+
+Review 20 added a carried-item walk to both lists. On f12 that is two walks of 262 ms each, about 0.5 s of level load.
+After two changes, what does the load spend on it?
+
+- **Change 1:** `DemoModels.CarriedPanelModels` walks once per timeline and schema, under a lock, and both lists take
+  that result.
+- **Change 2:** the walk skips an item list it has already seen, compared by reference. B433 hands most frames the
+  previous frame's list.
+
+## Prediction
+
+The second list no longer pays for a walk. The walk alone drops by the share it spent checking each item of a repeated
+list. That share was not estimated in advance.
+
+## Method
+
+The same probe and demos as above, on the review-21 build. The probe runs the lists in production order:
+
+1. The first `Needed` walks and holds the result.
+2. `ToPack` reuses the held result.
+
+Then each of `Needed` (walk held), `ToPack` (walk held) and the walk alone is run once as a discarded warm-up, then 3
+more times. The median of those 3 is reported.
+
+## Control
+
+The walk's path counts must equal review 20's: 303, 342, 243 and 18. A cheaper walk that lists fewer models would be a
+defect, not a saving. The probe's four controls still pass on every demo.
+
+## Result
+
+Each row is one probe run. The first two time columns are single calls in production order; the last three are warm
+medians of 3.
+
+| demo | first `Needed` (walks) | then `ToPack` (reuses) | `Needed` | `ToPack` | walk alone | walk paths |
+|---|---|---|---|---|---|---|
+| `f12.dem` | 705.6 ms | 148.7 ms | 310.4 ms | 139.2 ms | 156.8 ms | 303 |
+| `tf2-2026-pub-pov-clean.dem` | 410.7 ms | 223.1 ms | 221.6 ms | 121.8 ms | 73.4 ms | 342 |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` | 566.3 ms | 141.9 ms | 243.0 ms | 70.3 ms | 130.6 ms | 243 |
+| `auto-20260817-1720-cp_process_f12.dem` | 62.6 ms | 14.5 ms | 14.4 ms | 12.8 ms | 2.6 ms | 18 |
+
+The path counts match review 20 on all four demos. On all four, 0 paths asked were not listed, 0 layouts were outside
+`Layouts`, and every control passed.
+
+## Verdict
+
+The prediction is confirmed.
+
+- **On f12:** `ToPack` at load fell from 389.8 ms to 148.7 ms. The walk alone fell from 262.4 ms (a single warm run)
+  to 156.8 ms (a median of 3). The load now walks once, so its carried-item cost is about 157 ms, down from about
+  525 ms.
+- **Not cut further:** what remains is reading every frame's players. A frame shares each player's detail with the
+  frame before (B433), but `ScenePlayer.Detail` is internal to Core and the timeline exposes nothing equivalent to
+  Scene. Skipping by detail needs a Core accessor, which is a separate change.
+- **The first `Needed` is cold and not comparable:** it includes JIT, which is why it is 705.6 ms against the warm
+  310.4 ms. The review-20 figures were also first calls, so they compare with the first two columns, not with the
+  medians.

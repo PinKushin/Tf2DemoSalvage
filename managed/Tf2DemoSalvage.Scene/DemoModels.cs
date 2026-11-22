@@ -60,14 +60,20 @@ public static class DemoModels
         // by reference most frames add nothing. **Each model-deciding item resolved once**, keyed only after the item view
         // is made (review 19 item 4: a rejected row must not stand for its definition), on what decides the panels' models:
         // the definition, its style, whether it is a paint kit and whether its strings come from the definition.
+        // **Each item list read once**, too: the same sharing hands most frames the last frame's list itself, so a list seen
+        // before is skipped whole (review 21: the per-item check over every frame was most of the walk's cost).
         HashSet<SceneItem> visited = new(ReferenceEqualityComparer.Instance);
+        HashSet<IReadOnlyList<SceneItem>> lists = new(ReferenceEqualityComparer.Instance);
         HashSet<(int Definition, int? Style, bool PaintKit, bool Iterates)> resolved = [];
 
         foreach (ScenePlayer player in players)
         {
-            foreach (SceneItem item in player.Items ?? [])
+            if (player.Items is { } items && lists.Add(items))
             {
-                AddCarried(item, schema, visited, resolved, paths);
+                foreach (SceneItem item in items)
+                {
+                    AddCarried(item, schema, visited, resolved, paths);
+                }
             }
 
             if (player.DisguiseWeaponItem is { } disguise)
@@ -168,9 +174,53 @@ public static class DemoModels
 
         if (demo is not null)
         {
-            AddCarriedItemModels(demo.Frames.SelectMany(static frame => frame.Players), schema, paths);
+            paths.UnionWith(CarriedPanelModels(demo, schema));
         }
     }
+
+    /// <summary>
+    /// Every carried item's panel models over a demo, walked once per timeline and schema and handed to both of B195's lists
+    /// (review 21: `Needed` at the map read and `ToPack` at the precache each walked every frame — about 0.5 s of f12's load).
+    /// </summary>
+    /// <param name="demo">The decoded demo.</param>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The paths; the same set for every ask with this timeline and schema.</returns>
+    internal static IReadOnlySet<string> CarriedPanelModels(DemoTimeline demo, ItemSchema schema)
+    {
+        // A lock, so the map read and the precache never both walk: the second waits for the first's result.
+        lock (CarriedLock)
+        {
+            if (CarriedByTimeline.TryGetValue(demo, out CarriedWalk? known) && ReferenceEquals(known.Schema, schema))
+            {
+                return known.Paths;
+            }
+
+            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+            AddCarriedItemModels(demo.Frames.SelectMany(static frame => frame.Players), schema, paths);
+            CarriedByTimeline.AddOrUpdate(demo, new CarriedWalk(schema, paths));
+
+            return paths;
+        }
+    }
+
+    /// <summary>The walk held for a timeline, or null when none was made — what a test reads to see one walk serve both lists.</summary>
+    /// <param name="demo">The decoded demo.</param>
+    /// <returns>The held paths, or null.</returns>
+    internal static IReadOnlySet<string>? CarriedWalked(DemoTimeline demo)
+    {
+        lock (CarriedLock)
+        {
+            return CarriedByTimeline.TryGetValue(demo, out CarriedWalk? known) ? known.Paths : null;
+        }
+    }
+
+    /// <summary>One timeline's walk, and the schema it was walked with.</summary>
+    private sealed record CarriedWalk(ItemSchema Schema, IReadOnlySet<string> Paths);
+
+    /// <summary>The walks, held as long as their timeline is.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DemoTimeline, CarriedWalk> CarriedByTimeline = new();
+
+    private static readonly System.Threading.Lock CarriedLock = new();
 
     /// <summary>No team (the item panels' `GetPlayerDisplayModel( class, 0 )`), RED and BLU.</summary>
     private static readonly int[] CarriedTeams = [0, 2, 3];

@@ -414,6 +414,42 @@ public sealed class DemoModelsTests
     }
 
     /// <remarks>
+    /// **One carried-item walk serves both of B195's lists** (B779 review 21): `Needed` at the map read and `ToPack` at the
+    /// precache each walked every frame, about 0.5 s of f12's load. Here one timeline and an install with a schema: the
+    /// map read's list walks and holds its result, and the precache's list gets that same result. The controls: nothing
+    /// is held before the first list, and another schema walks again.
+    /// </remarks>
+    [Test]
+    public void NeededThenToPack_OneTimeline_ShareOneCarriedWalk()
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-onewalk-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            File.WriteAllText(Path.Combine(scripts, "scout.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/scout.mdl\"\n}\n");
+            string items = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "items")).FullName;
+            File.WriteAllText(Path.Combine(items, "items_game.txt"), """
+                "items_game" { "items" { "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/c_scattergun.mdl" } } }
+                """);
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+            Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.ForTracks([]);
+            DemoModels.CarriedWalked(timeline).ShouldBeNull("the control: nothing walked yet");
+
+            DemoModels.Needed(timeline, game);
+            IReadOnlySet<string> walked = DemoModels.CarriedWalked(timeline).ShouldNotBeNull();
+            DemoModels.ToPack(timeline, game);
+
+            DemoModels.CarriedWalked(timeline).ShouldBeSameAs(walked);
+            DemoModels.CarriedPanelModels(timeline, CarriedSchema()).ShouldNotBeSameAs(walked, "the control: another schema walks again");
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <remarks>
     /// **The preload reads the HUD the viewer draws** (B779 review 20 item 1): the chosen HUD over the stock files
     /// (`GameContent.HudArchives`), the view the HUD's own frame reads — not every `custom/` folder at once. An install with
     /// a stock layout and two custom HUDs, each naming its own doors: chosen, the first HUD's doors and not the other's;

@@ -36,7 +36,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Layout census**: every `.res` the HUD read during the run is walked for model blocks, and any file with one outside
 /// `HudPanelModels.Layouts` fails the run — the list of layouts is measured each run rather than trusted. It also times the
-/// level's two lists, and the carried-item walk alone (`DemoModels.AddCarriedItemModels`, which each list runs once).
+/// level's two lists in production order (the first walks, the second reuses the walk held for the timeline), then warm
+/// medians of three of each list and of the carried-item walk alone (`DemoModels.AddCarriedItemModels`).
 /// <code>
 ///   hud-model-loads "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/tf2-2026-pub-pov-clean.dem" [stride]
 /// </code>
@@ -68,26 +69,47 @@ public sealed class HudModelLoadsProbe : IProbe
         GameArchives archives = game.HudArchives;
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
 
-        // The level's lists, timed: `Needed` without the demo leaves out only the carried-item walk (review 20 item 11).
+        // The level's lists, timed in the production order (review 21): the first `Needed` walks the carried items and holds the
+        // walk for this timeline, and `ToPack` reuses it. Then, warm, the median of three of each list (the walk held) and of
+        // the walk alone (`AddCarriedItemModels`, unheld), after one discarded warm-up run of each.
         System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         HashSet<string> needed = DemoModels.Needed(timeline, game);
         double neededMs = clock.Elapsed.TotalMilliseconds;
         clock.Restart();
         HashSet<string> toPack = DemoModels.ToPack(timeline, game);
         double toPackMs = clock.Elapsed.TotalMilliseconds;
-        clock.Restart();
         HashSet<string> carried = new(StringComparer.OrdinalIgnoreCase);
 
-        if (game.Weapons.Items is { } walkSchema)
+        double Median(Action run)
         {
-            DemoModels.AddCarriedItemModels(timeline.Frames.SelectMany(static frame => frame.Players), walkSchema, carried);
+            run();
+            double[] runs = new double[3];
+
+            for (int at = 0; at < runs.Length; at++)
+            {
+                clock.Restart();
+                run();
+                runs[at] = clock.Elapsed.TotalMilliseconds;
+            }
+
+            Array.Sort(runs);
+            return runs[1];
         }
 
-        double carriedMs = clock.Elapsed.TotalMilliseconds;
+        double neededWarm = Median(() => DemoModels.Needed(timeline, game));
+        double toPackWarm = Median(() => DemoModels.ToPack(timeline, game));
+        double carriedMs = game.Weapons.Items is { } walkSchema
+            ? Median(() =>
+            {
+                carried.Clear();
+                DemoModels.AddCarriedItemModels(timeline.Frames.SelectMany(static frame => frame.Players), walkSchema, carried);
+            })
+            : 0d;
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"Needed {neededMs:F1} ms ({needed.Count} models); ToPack {toPackMs:F1} ms ({toPack.Count}); the carried-item walk alone " +
-            $"{carriedMs:F1} ms ({carried.Count} paths), run once in each list; {timeline.Frames.Count} frames"));
+            $"first Needed {neededMs:F1} ms ({needed.Count} models, walks), then ToPack {toPackMs:F1} ms ({toPack.Count}, reuses the walk); " +
+            $"warm medians of 3: Needed {neededWarm:F1} ms, ToPack {toPackWarm:F1} ms, the carried-item walk alone {carriedMs:F1} ms " +
+            $"({carried.Count} paths); {timeline.Frames.Count} frames"));
 
         AskedCache cache = new(needed);
         ItemSchema? items = game.Weapons.Items;
