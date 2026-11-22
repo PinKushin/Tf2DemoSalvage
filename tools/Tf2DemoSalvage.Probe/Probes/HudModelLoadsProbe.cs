@@ -243,8 +243,10 @@ public sealed class HudModelLoadsProbe : IProbe
             failed.Add($"asked paths ToPack lists and Needed does not (B195): {string.Join(", ", packedNotHeld)}");
         }
 
+        // The models that passed, not every one the classes name: the check is "any", so say which did (review 22 item 6).
+        List<string> heldClassModels = [.. classModels.Where(model => cache.Asked.ContainsKey(model) && needed.Contains(model))];
         string classControl = withClass > 0
-            ? $"{string.Join(", ", classModels)} asked and held"
+            ? $"{string.Join(", ", heldClassModels)} asked and held, of {string.Join(", ", classModels)}"
             : "NOT APPLICABLE (no frame's local player has a class)";
         output.WriteLine(failed.Count == 0
             ? $"controls: class model {classControl}, unlisted path missing, every asked path listed, both lists agree on every ask, " +

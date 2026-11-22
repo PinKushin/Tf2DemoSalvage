@@ -753,6 +753,9 @@ public sealed partial class ViewerPresenter : IDisposable
             {
                 _game = installed;
                 installed.ChosenHud = _chosenHud;
+
+                // The HUD this level's two model lists read, fixed here for the whole load (review 22 item 4).
+                installed.BeginLevelLoad();
             }
 
             _world.TexturesAreCurrent = false;
@@ -939,77 +942,34 @@ public sealed partial class ViewerPresenter : IDisposable
                 return _view.OnUi(() => Superseded(_demoLog, path));
             }
 
-            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
-            // old map touches the device and stays here; finding and reading the new one touches
-            // nothing but files and arithmetic, and goes to a worker.
-            //
-            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
-            // goes, and the render loop reads them, so between the two the world is half replaced.
-            // The flag holds the loop off until the marshal back, which is also the barrier that
-            // publishes the writes.
-            _view.OnUi(() =>
+            // **One map read at a time** (B779 review 22 item 1), as the engine loads one level at a time. A read cannot be
+            // interrupted, so a newer load waits here for the one in flight to finish — its read, its precache and its
+            // `Apply` — before it clears the map or touches the entity set; two workers never share `_models`, and the one
+            // flag is never cleared under another read.
+            TaskCompletionSource mine = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task before;
+
+            lock (_mapReadsGate)
             {
-                _readingMap = true;
-
-                // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
-                _effects.DropSkip();
-                ClearMap();
-                return 0;
-            });
-
-            (bool Drawn, IReadOnlyList<string> Said) read;
+                before = _lastMapRead;
+                _lastMapRead = mine.Task;
+            }
 
             try
             {
-                read = await Task.Run(() =>
+                if (!before.IsCompleted)
                 {
-                    // **The read comes first because it is what opens the install**, and both
-                    // precaches return silently without one (B208). That order used to be three
-                    // statements anyone could reorder into a silent no-op; it is now carried by
-                    // `game`, which does not exist until the read has produced it.
-                    (bool drawn, GameContent? game, IReadOnlyList<string> said) =
-                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
+                    Interlocked.Increment(ref _mapReadsQueued);
+                }
 
-                    _view.OnUi(() =>
-                    {
-                        _view.ReportLoading(LoadingAssets, fraction: null);
-                        return 0;
-                    });
+                await before.WaitAsync(_shutdown).ConfigureAwait(false);
 
-                    // **Packed here rather than when a prop first appears, which is what Valve
-                    // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
-                    // and warns on an out-of-order precache: the engine loads models at level load,
-                    // deliberately, so nothing is decoded mid-game.
-                    //
-                    // Ours was packing on sight, and it cost 385 ms in a single frame the first time
-                    // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
-                    // and before `_readingMap` is cleared, so it runs on the worker behind the
-                    // barrier that already holds the render loop off during a map read (B146).
-                    DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
-
-                    // Same timing, same reason, and the audio path is where the cost actually
-                    // landed once the model stalls were gone. **No emitted sounds yet**: those join
-                    // the schedule in `Apply`, which precaches them itself. **The scripts ARE here**:
-                    // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
-                    // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
-                    // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
-
-                    return (drawn, said);
-                }, _shutdown).ConfigureAwait(false);
+                return await ReadAndApply(ticket, path, decoded, prepared).ConfigureAwait(false);
             }
             finally
             {
-                _view.OnUi(() =>
-                {
-                    _readingMap = false;
-                    return 0;
-                });
+                mine.SetResult();
             }
-
-            return _view.OnUi(() => _loads.IsCurrent(ticket)
-                ? Apply(decoded, read)
-                : Superseded(_demoLog, path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -1031,6 +991,110 @@ public sealed partial class ViewerPresenter : IDisposable
                 return 0;
             });
         }
+    }
+
+    /// <summary>
+    /// The last map read queued: each read waits for the one before it to finish — from before it clears the map until
+    /// its `Apply` — so one runs at a time, in the order asked (review 22 item 1).
+    /// </summary>
+    private Task _lastMapRead = Task.CompletedTask;
+
+    private readonly System.Threading.Lock _mapReadsGate = new();
+
+    /// <summary>How many map reads have waited for one before them: what a test reads to see a load queued.</summary>
+    internal int MapReadsQueued => Volatile.Read(ref _mapReadsQueued);
+
+    private int _mapReadsQueued;
+
+    /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
+    private async Task<DemoLoadResult> ReadAndApply(int ticket, string path, DecodedDemo decoded, MapFetch prepared)
+    {
+        // Superseded while it waited for the read before it: the newer load reads its own map.
+        if (!_loads.IsCurrent(ticket))
+        {
+            return _view.OnUi(() => Superseded(_demoLog, path));
+        }
+
+        // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
+        // old map touches the device and stays here; finding and reading the new one touches
+        // nothing but files and arithmetic, and goes to a worker.
+        //
+        // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
+        // goes, and the render loop reads them, so between the two the world is half replaced.
+        // The flag holds the loop off until the marshal back, which is also the barrier that
+        // publishes the writes.
+        _view.OnUi(() =>
+        {
+            _readingMap = true;
+
+            // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
+            _effects.DropSkip();
+            ClearMap();
+            return 0;
+        });
+
+        (bool Drawn, IReadOnlyList<string> Said) read;
+
+        try
+        {
+            read = await Task.Run(() =>
+            {
+                // **The read comes first because it is what opens the install**, and both
+                // precaches return silently without one (B208). That order used to be three
+                // statements anyone could reorder into a silent no-op; it is now carried by
+                // `game`, which does not exist until the read has produced it.
+                (bool drawn, GameContent? game, IReadOnlyList<string> said) =
+                    ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
+
+                _view.OnUi(() =>
+                {
+                    _view.ReportLoading(LoadingAssets, fraction: null);
+                    return 0;
+                });
+
+                // **Packed here rather than when a prop first appears, which is what Valve
+                // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
+                // and warns on an out-of-order precache: the engine loads models at level load,
+                // deliberately, so nothing is decoded mid-game.
+                //
+                // Ours was packing on sight, and it cost 385 ms in a single frame the first time
+                // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
+                // and before `_readingMap` is cleared, so it runs on the worker behind the
+                // barrier that already holds the render loop off during a map read (B146).
+                DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
+
+                // Same timing, same reason, and the audio path is where the cost actually
+                // landed once the model stalls were gone. **No emitted sounds yet**: those join
+                // the schedule in `Apply`, which precaches them itself. **The scripts ARE here**:
+                // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
+                // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
+                // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
+                DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
+
+                return (drawn, said);
+            }, _shutdown).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A read that throws lowers the barrier on its way out; the caller says why.
+            _view.OnUi(() =>
+            {
+                _readingMap = false;
+                return 0;
+            });
+            throw;
+        }
+
+        // **Lowered in the marshal that shows the demo** (review 22 item 3): a separate marshal before `Apply` left a
+        // gap in which a scrub built the old demo's moment against the new level's set.
+        return _view.OnUi(() =>
+        {
+            _readingMap = false;
+
+            return _loads.IsCurrent(ticket)
+                ? Apply(decoded, read)
+                : Superseded(_demoLog, path);
+        });
     }
 
     /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>

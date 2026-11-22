@@ -147,14 +147,17 @@ public static class DemoModels
 
     /// <summary>
     /// Every model a HUD panel can ask for, in both of B195's lists alike (B779 reviews 19-20): the HUD layouts' models, each
-    /// class's stock weapon, and every carried item's panel models. One method, so the two lists cannot disagree on it.
+    /// class's stock weapon, and every carried item's panel models. One method, called the same way by both lists; within one
+    /// level's load they read the same HUD view (<see cref="GameContent.LevelHudArchives"/>, fixed when the load begins) and
+    /// the same carried walk, so they agree on it. Two calls outside a load (no <c>BeginLevelLoad</c>) read the HUD as it
+    /// is at each call.
     /// </summary>
     private static void AddPanelModels(DemoTimeline? demo, GameContent game, HashSet<string> paths)
     {
         // **The HUD's own models, which no track names** (B812): the engine's panels load them from the install on demand
         // (basemodelpanel.cpp:407, mdlpanel.cpp:185); ours read this preload. Read from the HUD the viewer draws — the chosen
-        // one over the stock files (`GameContent.HudArchives`, review 20 item 1).
-        paths.UnionWith(Hud.HudPanelModels.Named(game.HudArchives.Read));
+        // one over the stock files, as fixed for this level's load (`GameContent.LevelHudArchives`, reviews 20 and 22).
+        paths.UnionWith(Hud.HudPanelModels.Named(game.LevelHudArchives.Read));
 
         if (game.Weapons.Items is not { } schema)
         {
@@ -453,8 +456,9 @@ public static class DemoModels
     /// Kept as it was rather than unified here, because merging them changes which models are packed
     /// and that wants its own measurement rather than riding along with a move. **One part IS shared**
     /// (B779 reviews 19-21): every HUD panel's model comes from <see cref="AddPanelModels"/>, which both
-    /// lists call the same way, and its carried-item walk is one result for both
-    /// (<see cref="CarriedPanelModels"/>), so the two cannot disagree on those.
+    /// lists call the same way, with one carried-item walk for both (<see cref="CarriedPanelModels"/>)
+    /// and, within a level's load, one HUD view (<see cref="GameContent.LevelHudArchives"/>, review 22
+    /// item 4) — so within a load they agree on those.
     ///
     /// **The class models are added because a player's model is chosen at runtime.** Nothing on the
     /// wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class script — so

@@ -519,6 +519,55 @@ public sealed class DemoModelsTests
     }
 
     /// <remarks>
+    /// **One level's two lists read one HUD view** (B779 review 22 item 4; B195): the load fixes the HUD as it begins
+    /// (`GameContent.BeginLevelLoad`), so a HUD changed between `Needed` at the map read and `ToPack` at the precache does
+    /// not split them. Here a custom HUD chosen as the load begins and stock chosen before either list: both list the
+    /// custom HUD's doors and not the stock ones. The control: with no load begun, the lists read the HUD as it is now.
+    /// </remarks>
+    [Test]
+    public void NeededAndToPack_AHudChangedDuringALoad_ReadTheHudTheLoadBeganWith()
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-hudsnapshot-");
+
+        try
+        {
+            const string stockDoors = "models/vgui/versus_doors.mdl";
+            const string customDoors = "models/custom/chosen_doors.mdl";
+            string chosen = Path.Combine(tf.FullName, "custom", "chosen_hud");
+            WriteDoors(Path.Combine(tf.FullName, "resource", "UI"), stockDoors);
+            WriteDoors(Path.Combine(chosen, "resource", "UI"), customDoors);
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            game.ChosenHud = null;
+            DemoModels.Needed(null, game).Contains(stockDoors).ShouldBeTrue("the control: no load begun reads the HUD now");
+
+            game.ChosenHud = chosen;
+            game.BeginLevelLoad();
+            game.ChosenHud = null;
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
+            {
+                (set.Contains(customDoors), set.Contains(stockDoors)).ShouldBe((true, false));
+            }
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>A `HudMatchStatus.res` in that `resource/UI` folder whose doors are this model.</summary>
+    private static void WriteDoors(string ui, string doors)
+    {
+        Directory.CreateDirectory(ui);
+        File.WriteAllText(
+            Path.Combine(ui, "HudMatchStatus.res"),
+            $$"""
+            "Resource/UI/HudMatchStatus.res" { "MatchDoors" { "model" { "modelname" "{{doors}}" } } }
+            """);
+    }
+
+    /// <remarks>
     /// **The preload reads the HUD the viewer draws** (B779 review 20 item 1): the chosen HUD over the stock files
     /// (`GameContent.HudArchives`), the view the HUD's own frame reads — not every `custom/` folder at once. An install with
     /// a stock layout and two custom HUDs, each naming its own doors: chosen, the first HUD's doors and not the other's;
@@ -533,10 +582,10 @@ public sealed class DemoModelsTests
         {
             string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
             File.WriteAllText(Path.Combine(scripts, "spy.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/spy.mdl\"\n}\n");
-            Layout(Path.Combine(tf.FullName, "resource", "UI"), "models/vgui/versus_doors.mdl");
+            WriteDoors(Path.Combine(tf.FullName, "resource", "UI"), "models/vgui/versus_doors.mdl");
             string chosen = Path.Combine(tf.FullName, "custom", "chosen_hud");
-            Layout(Path.Combine(chosen, "resource", "UI"), "models/custom/chosen_doors.mdl");
-            Layout(Path.Combine(tf.FullName, "custom", "other_hud", "resource", "UI"), "models/custom/other_doors.mdl");
+            WriteDoors(Path.Combine(chosen, "resource", "UI"), "models/custom/chosen_doors.mdl");
+            WriteDoors(Path.Combine(tf.FullName, "custom", "other_hud", "resource", "UI"), "models/custom/other_doors.mdl");
             GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
 
             game.ChosenHud = chosen;
@@ -552,16 +601,6 @@ public sealed class DemoModelsTests
         finally
         {
             tf.Delete(recursive: true);
-        }
-
-        static void Layout(string ui, string doors)
-        {
-            Directory.CreateDirectory(ui);
-            File.WriteAllText(
-                Path.Combine(ui, "HudMatchStatus.res"),
-                $$"""
-                "Resource/UI/HudMatchStatus.res" { "MatchDoors" { "model" { "modelname" "{{doors}}" } } }
-                """);
         }
     }
 

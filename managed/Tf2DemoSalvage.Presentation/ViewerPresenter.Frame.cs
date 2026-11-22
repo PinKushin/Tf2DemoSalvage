@@ -146,9 +146,10 @@ public sealed partial class ViewerPresenter
     public void ShowMoment(double tick)
     {
         // **Nothing of the level is shown while a map reads** (B779 review 21 item 1), as `RenderFrame` already holds: the
-        // engine's client draws no world during a level load. A scrub (`MomentChanged`), a camera move (`ReprojectScene`)
-        // and the measure seek all reach here on the UI thread, and a moment built now would pack models and paint HUD
-        // panels into the entity set while the worker binds its loader and precaches into it.
+        // engine's client draws no world during a level load. A scrub (`MomentChanged`) reaches here on the UI thread outside
+        // the frame (the camera's `ReprojectScene` and the measure seek run only inside `RenderFrame`, which already returns
+        // during a read — review 22 item 5), and a moment built now would pack models into the entity set while the worker
+        // binds its loader and precaches into it.
         if (_timeline is null || _readingMap)
         {
             return;

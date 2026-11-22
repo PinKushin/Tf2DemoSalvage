@@ -310,6 +310,62 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
+    /// **One map read at a time** (B779 review 22 item 1): a second load asked while the first is reading its map — the
+    /// user opening demo B mid-read — waits for the first's read, precache and `Apply` before it clears the map or touches
+    /// the entity set, as the engine loads one level at a time. Here demo B is started from inside A's read (its `MapRead`),
+    /// and A's read holds until B has either queued behind it or cleared the world. Then the window's barrier calls come in
+    /// two whole runs, A's then B's, each behind the barrier. The controls: B did start a read of its own (two clears), and
+    /// A was superseded by B.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_ASecondLoadDuringAMapRead_WaitsForTheFirstRead()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        string first = WriteDemo("first");
+        string second = WriteDemo("second");
+        view.Loads = 2;
+        Task<DemoLoadResult>? secondLoad = null;
+        int clearsWhenQueued = -1;
+
+        using (loader)
+        {
+            view.Asked = name =>
+            {
+                if (name != nameof(ILoadView.MapRead) || secondLoad is not null)
+                {
+                    return;
+                }
+
+                secondLoad = loader.LoadDemoAsync(second);
+                SpinWait.SpinUntil(
+                    () => loader.MapReadsQueued > 0 || view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)) > 1,
+                    TimeSpan.FromSeconds(30))
+                    .ShouldBeTrue("B queued behind A's read, or cleared the world beside it");
+                clearsWhenQueued = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            };
+
+            DemoLoadResult firstResult = await loader.LoadDemoAsync(first).ConfigureAwait(false);
+            DemoLoadResult secondResult = await secondLoad.ShouldNotBeNull().ConfigureAwait(false);
+            view.Asked = null;
+
+            clearsWhenQueued.ShouldBe(1, "B did not clear the world while A read");
+            List<(string Name, bool OnUi, bool Reading)> barrier =
+            [
+                .. view.Calls.Where(static call => call.Name is nameof(ILoadView.ClearWorld) or nameof(ILoadView.MapRead)
+                    || call.Name == "Report: Loading models and sounds"),
+            ];
+            barrier.Select(static call => call.Name).ShouldBe(
+            [
+                nameof(ILoadView.ClearWorld), nameof(ILoadView.MapRead), "Report: Loading models and sounds",
+                nameof(ILoadView.ClearWorld), nameof(ILoadView.MapRead), "Report: Loading models and sounds",
+            ]);
+            barrier.ShouldAllBe(static call => call.Reading, "every barrier call behind the barrier");
+            (firstResult.Loaded, secondResult.Loaded).ShouldBe((false, true), "the control: A was superseded by B");
+        }
+    }
+
+    /// <remarks>
     /// **The launch line's `--hud` wins over the remembered choice, which wins over stock** (D193; B779 review 21 item 10):
     /// `ReadLaunch` hands the winner to the install the HUD and the preload read. Two presenters with the same remembered
     /// HUD: one launched with `--hud`, one without. The control: the remembered one reaches the install when no flag is given.
@@ -335,8 +391,8 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **No moment is shown while a map reads** (B779 review 21 item 1): a scrub, a camera move or the measure seek reach
-    /// `ShowMoment` from the UI thread, and a moment built then would pack models and paint HUD panels into the entity set
+    /// **No moment is shown while a map reads** (B779 review 21 item 1): a scrub reaches `ShowMoment` from the UI thread
+    /// outside the frame (review 22 item 5), and a moment built then would pack models into the entity set
     /// while the worker binds its loader and precaches into it. The engine's client draws no world during a level load.
     /// Here a demo already open, a second load, and a `ShowMoment` asked when the map read reports itself (behind the
     /// barrier). The controls: the barrier was up at that moment, and the same ask after the load shows the tick.

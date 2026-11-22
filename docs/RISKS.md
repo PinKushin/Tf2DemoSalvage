@@ -43322,7 +43322,7 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
    because the first sabotage survived); the style and paint kit both left out redden the paint-kit assertion. Keying
    before `TfItemView.From` is not observable today: `From` rejects only a null definition, which the walk skips first.
 5. *A verdict made between a level's end and the next loader*: reachable as written then — the render loop is held while a
-   map reads, but a scrub, a camera move and the measure seek reached `ShowMoment`, which also raced the worker's writes
+   map reads, but a scrub reached `ShowMoment` (review 22 item 5: only the scrub), which also raced the worker's writes
    to the entity set. **Review 21 item 1 closes that route** (no moment is shown while a map reads), so what this item
    still covers is a loader bound after a panel asked: a mapless level (`NoGeometry` for the whole level), then a mapped
    one. Two parts: binding a `Geometry` loader forgets the empty entries made under the last
@@ -43388,12 +43388,11 @@ names one. *Not measured*: a custom HUD's layouts (the owner's install was left 
 **Review 21** (Fable, Sonnet, Grok; Gemini still out). Item numbers are the coordinator's.
 
 1. *The HUD and the map read raced*: **true**, and Sonnet's "no race" is false.
-   - `_readingMap` held only `RenderFrame`. Three routes reached `ViewerPresenter.ShowMoment` from the UI thread during a
-     map read, with no guard:
-     - a scrub, through `MomentChanged` (ViewerSession.Window.cs:227-239);
-     - a camera move, through `ReprojectScene` (ViewerSession.Frame.cs:962);
-     - the measure seek (:767).
-   - Each built a moment into the entity set while the worker bound its loader (`LevelSystems.Load`) and precached into
+   - `_readingMap` held only `RenderFrame`. A scrub, through `MomentChanged` (ViewerSession.Window.cs:227-239), reached
+     `ViewerPresenter.ShowMoment` from the UI thread during a map read with no guard. *Corrected in review 22 item 5*:
+     this account first named a camera move (`ReprojectScene`) and the measure seek too, but both run only inside
+     `RenderFrame` (`ProjectWorld`, ViewerSession.Frame.cs:910; the seek at :767), which already returned during a read.
+   - It built a moment into the entity set while the worker bound its loader (`LevelSystems.Load`) and precached into
      the same set. That race existed before B779, through the precache.
    - **Fixed the engine's way:** the client draws no world during a level load. `ShowMoment` now returns while
      `_readingMap` is set, as `RenderFrame` already did, so no moment and no HUD paint run during the read.
@@ -43415,7 +43414,7 @@ names one. *Not measured*: a custom HUD's layouts (the owner's install was left 
 4. *The `CModelPanel` family has no loader re-decide*: **mooted**.
    - Item 1 closes the route by which a set-up could run during the read.
    - From one level to the next, `game_newmap` marks every `CModelPanel` dirty (`VguiModelPanel.OnGameEvent`,
-     modelpanel.cpp:196-205), so the next level sets the model up again under its own loader.
+     basemodelpanel.cpp:196-205), so the next level sets the model up again under its own loader.
    - Within a mapless level nothing loads, by design (D224).
    - No new code.
 5. *The `ChosenHud` hand-off on the worker*: **true**. The worker read `_chosenHud`, and a UI choice made before its
@@ -43442,6 +43441,51 @@ names one. *Not measured*: a custom HUD's layouts (the owner's install was left 
     - Review 20's citation is item_model_panel.cpp:330-343 (`nClass`, then `GetPlayerDisplayModel( nClass, 0 )`, read
       from the SDK).
     - `DemoModels.ToPack`'s remark names the shared part.
+
+**Review 22** (Fable, Sonnet, Grok; Gemini still out). Item numbers are the coordinator's. Items 1, 3 and 7 are the
+viewer's own threading, so they are not engine parity. The engine's one stated fact here is that it loads one level at a
+time and draws no world while it does.
+
+1. *Overlapping loads defeated the barrier*: **true**.
+   - Demo B opened mid-read set the one flag, cleared the map and read into the same `_models` beside A's worker, and A's
+     `finally` lowered the flag under B's read.
+   - Map reads are now serialized. Each read waits for the one before it to finish its read, its precache and its `Apply`
+     (`ViewerPresenter._lastMapRead`, a task chain). So two workers never share the entity set, and one flag is enough.
+   - A load superseded while it waited reads nothing.
+   - *Test*: `ViewerPresenterTests.LoadDemoAsync_ASecondLoadDuringAMapRead_WaitsForTheFirstRead`. Demo B is started inside
+     A's read, and A holds until B has queued or cleared the world. The barrier calls come in two whole runs, every one
+     behind the barrier, and A is superseded.
+   - *Sabotage*: no wait reddens it (B cleared the world mid-read).
+   - *Not covered*: the synchronous `LoadDemo` / `LoadMap` path does not take the chain. It is the command line's,
+     `--shot`'s and the tests', on the UI thread, and is never beside an async load.
+2. *A scrub during the read is lost*: **harmless**, so Grok's high is false.
+   - The scrub moves the old demo's playback position.
+   - `Apply` then opens the new demo's own transport and clock (`_demoSystems.Open(_timeline, _demo.LastTick, ...)`),
+     so the position is replaced either way.
+   - A read that fails goes to `CouldNotOpen`, which closes the demo.
+   - Grok's test claim is also **false**. Putting `ToPack`'s panel models back under its guard reddens
+     `NeededAndToPack_AnInstallWithNoClassScripts_StillListThePanelModels` (rerun this round). The row asserts the
+     carried item's model and the stock weapon, both panel models listed only by `AddPanelModels`.
+3. *The gap between lowering the flag and `Apply`*: **true**. The flag now lowers inside the marshal that runs `Apply`.
+   - *Not tested*: the test window marshals inline, so the gap cannot be reached without a seam inside the load.
+4. *A HUD change between the two lists*: **true**.
+   - `GameContent.BeginLevelLoad`, called when the map read publishes the install, fixes the HUD view for the load.
+   - Both lists read `LevelHudArchives`. The "cannot disagree" remarks now say "within a load".
+   - *Test*: `NeededAndToPack_AHudChangedDuringALoad_ReadTheHudTheLoadBeganWith`.
+   - *Sabotage*: reading the live `HudArchives` reddens it.
+5. *Stale route claim*: **true**.
+   - Only the scrub reached `ShowMoment` during a read. `ReprojectScene` (from `ProjectWorld`) and the measure seek run
+     only inside `RenderFrame`.
+   - Corrected in review 21 item 1, review 20 item 5, the `ShowMoment` comment and its test.
+   - Review 21 item 4's file is basemodelpanel.cpp.
+6. *The probe's class line*: **true**. It now prints the class models that passed, out of those the classes name. On the
+   2015 demo: soldier and spy, of soldier and spy.
+7. *`CarriedLock` held across the walk*: **mooted by item 1**.
+   - Both lists of one load run on its worker, and loads no longer overlap, so no other load's walk can wait on it.
+   - Noted, not changed: `Apply` runs `DemoModels.Precache` again on the UI thread, so `ToPack` runs there on every load.
+     It takes the held walk, but its own work, 124 ms on f12 (measurements/2026-11-22-b779-panel-preload.md), is
+     UI-thread time. That cost predates B779, apart from the panel part; it is filed here as a follow-up, not fixed.
+8. *No interleaving test for the `ReadMap` lock*: **left as disclosed**. No cheap seam exists (review 21 item 5).
 
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on

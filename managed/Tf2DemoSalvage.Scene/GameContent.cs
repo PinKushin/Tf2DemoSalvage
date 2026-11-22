@@ -98,6 +98,40 @@ public sealed class GameContent
         }
     }
 
+    /// <summary>
+    /// Fixes the HUD view the level's preload reads (<see cref="LevelHudArchives"/>) for one level's load: called once as the
+    /// load begins, so `DemoModels.Needed` at the map read and `ToPack` at the precache read the same layouts even if the
+    /// HUD changes between them (B779 review 22 item 4; B195).
+    /// </summary>
+    public void BeginLevelLoad()
+    {
+        GameArchives now = HudArchives;
+
+        lock (_hudLock)
+        {
+            _levelHudArchives = now;
+        }
+    }
+
+    /// <summary>The HUD view fixed by the last <see cref="BeginLevelLoad"/>, or the current one when no load began.</summary>
+    public GameArchives LevelHudArchives
+    {
+        get
+        {
+            lock (_hudLock)
+            {
+                if (_levelHudArchives is { } fixedForLevel)
+                {
+                    return fixedForLevel;
+                }
+            }
+
+            return HudArchives;
+        }
+    }
+
+    private GameArchives? _levelHudArchives;
+
     private readonly System.Threading.Lock _hudLock = new();
     private string? _chosenHud;
     private GameArchives? _hudArchives;
