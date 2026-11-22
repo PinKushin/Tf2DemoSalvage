@@ -20,8 +20,11 @@ namespace Tf2DemoSalvage.Scene;
 /// </code>
 ///
 /// So each becomes a <see cref="ShotImpact"/> ending at `vecOrigin`, carrying that decal trace's surface and normal and
-/// the dispatch's own surfaceprop. *Not built:* an impact on an entity (a player's blood decal, a building's), and a
-/// static prop's (the world with a hitbox).
+/// the dispatch's own surfaceprop. The world with a hitbox is a static prop (`physics.cpp:1314-1316`), which `Impact`
+/// decals by `AddDecalToStaticProp( …, iHitbox − 1, … )` (`fx_impact.cpp:149-152`), so its impact carries
+/// <see cref="ShotImpact.StaticProp"/> and takes the client bullet's prop path (B797); *interpolated:* the world trace's
+/// first hit stands in for `AddDecalToStaticProp`'s trace against that one prop. An impact on an entity is
+/// <see cref="OnEntities"/>'s.
 /// </remarks>
 public static class ServerImpacts
 {
@@ -63,6 +66,62 @@ public static class ServerImpacts
         return length > 0f ? (start, shot / length * (length + 8f) * 1.1f) : null;
     }
 
+    /// <summary>`ImpactCallback`'s gate: whether an `"Impact"` on an entity does anything at all (B796).</summary>
+    /// <param name="damageType">The dispatch's `m_nDamageType` — for a bullet, the damage BITS, not a team.</param>
+    /// <param name="team">The struck entity's `GetTeamNumber()`, null read as 0.</param>
+    /// <param name="disguiseTeam">A disguised player's `GetDisguiseTeam()`; null for anyone else.</param>
+    /// <returns>False where the callback plays no `Impact`, no ricochet and no impact sound.</returns>
+    /// <remarks>
+    /// <code>
+    /// bImpact = ( m_nDamageType != GetTeamNumber() || GetTeamNumber() &lt; FIRST_GAME_TEAM )
+    /// if ( m_nDamageType != GetTeamNumber() &amp;&amp; IsPlayer() &amp;&amp; InCond( TF_COND_DISGUISED ) &amp;&amp; GetDisguiseTeam() == m_nDamageType )
+    ///     bImpact = false
+    /// </code>
+    /// (`tf_fx_impacts.cpp:35-49`). `DMG_BULLET` is 2, `TF_TEAM_RED`: exactly-`DMG_BULLET` bits on a RED entity are silent.
+    /// </remarks>
+    public static bool Impacts(int damageType, int? team, int? disguiseTeam)
+    {
+        int number = team ?? 0;
+
+        return damageType == number ? number < FirstGameTeam : disguiseTeam != damageType;
+    }
+
+    /// <summary>The same for a struck player, his disguise asked only while he is disguised.</summary>
+    /// <param name="damageType">The dispatch's `m_nDamageType`.</param>
+    /// <param name="struck">The player as he stood at the impact.</param>
+    /// <returns>Whether the impact does anything.</returns>
+    public static bool Impacts(int damageType, ScenePlayer struck) =>
+        Impacts(damageType, struck.Team, struck.Conditions.Has(PlayerConditions.Disguised) ? struck.DisguiseTeam : null);
+
+    /// <summary>The same for a server impact on an entity, its team and disguise read at the impact's tick.</summary>
+    /// <param name="impact">The dispatch.</param>
+    /// <param name="timeline">The loaded demo.</param>
+    /// <returns>Whether the impact does anything.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
+    /// <remarks>
+    /// A player from the frame at the tick; anything else from its track alive then, whose team is the last it stated —
+    /// *interpolated*: a non-player entity is taken never to change team mid-life.
+    /// </remarks>
+    public static bool Impacts(SceneEffectDispatch impact, DemoTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(impact.Tick);
+
+        for (int at = 0; at < players.Count; at++)
+        {
+            if (players[at].EntityIndex == impact.Entity)
+            {
+                return Impacts(impact.DamageType, players[at]);
+            }
+        }
+
+        return Impacts(impact.DamageType, timeline.TrackFor(impact.Entity, impact.Tick)?.TeamNumber, null);
+    }
+
+    /// <summary>`FIRST_GAME_TEAM`: unassigned and spectator are below it.</summary>
+    private const int FirstGameTeam = 2;
+
     /// <summary>The effect name `CBaseEntity::ImpactTrace` dispatches.</summary>
     public const string ImpactEffect = "Impact";
 
@@ -87,8 +146,8 @@ public static class ServerImpacts
         {
             SceneEffectDispatch dispatch = dispatches[index];
 
-            if (dispatch.Entity != 0 || dispatch.HitBox != 0 ||
-                !string.Equals(name(dispatch.Name), ImpactEffect, StringComparison.Ordinal))
+            // The world with a hitbox is a static prop, the hitbox its index plus one (B797).
+            if (dispatch.Entity != 0 || !string.Equals(name(dispatch.Name), ImpactEffect, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -114,7 +173,13 @@ public static class ServerImpacts
 
             into.Add(new ShotImpact(
                 -1 - index, 0, dispatch.Tick, -1, 0, dispatch.Start, dispatch.Origin, (end.X, end.Y, end.Z), hit.Texinfo,
-                hit.Normal, dispatch.SurfaceProp, dispatch.DamageType));
+                hit.Normal, dispatch.SurfaceProp, dispatch.DamageType)
+            {
+                StaticProp = dispatch.HitBox - 1,
+
+                // The trace's own surface, which `PlayImpactSound` takes when the server named none (B797 review 1).
+                StudioSurfaceProp = hit.StudioSurfaceProp,
+            });
         }
     }
 }

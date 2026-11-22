@@ -460,8 +460,9 @@ public sealed class DecalEffects
                 continue;
             }
 
+            // `FireBullet`'s teammate rule, then `ImpactCallback`'s gate on what `UTIL_ImpactTrace` dispatched (B796).
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (Holder(players, who) is not { } victim || victim.Team == bullet.Team)
+            if (Holder(players, who) is not { } victim || victim.Team == bullet.Team || !ServerImpacts.Impacts(bullet.DamageType, victim))
             {
                 continue;
             }
@@ -554,7 +555,8 @@ public sealed class DecalEffects
     private (ModelDecalShot? Shot, string Refused) ModelDecalFor(
         Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, DecalAssets assets)
     {
-        if (impact.DamageType == struck.Team)
+        // `ImpactCallback`'s gate, the one its sound takes (B796).
+        if (!ServerImpacts.Impacts(impact.DamageType, struck))
         {
             return (null, "same team");
         }
@@ -657,6 +659,12 @@ public sealed class DecalEffects
 
         foreach ((int _, SceneEffectDispatch hit) in ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name))
         {
+            // `ImpactCallback`'s team gate: nothing at all follows a refused one (B796).
+            if (!ServerImpacts.Impacts(hit, timeline))
+            {
+                continue;
+            }
+
             landings.Add(new BulletLanding(
                 hit.Tick, hit.Origin, surfaces.GetSurfaceData(hit.SurfaceProp)?.BulletImpactSound, hit.DamageType == Bullet)
             {
@@ -684,7 +692,7 @@ public sealed class DecalEffects
         return new BulletLanding(
             impact.Tick,
             impact.End,
-            surfaces.GetSurfaceData(decals.SurfacePropOf(impact))?.BulletImpactSound,
+            surfaces.GetSurfaceData(decals.SoundSurfacePropOf(impact))?.BulletImpactSound,
             impact.DamageType == Bullet);
     }
 
