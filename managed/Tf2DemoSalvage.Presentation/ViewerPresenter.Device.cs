@@ -95,6 +95,7 @@ public sealed partial class ViewerPresenter
         _moment.Upload = null;
         _device = null;
         _handingDevice = null;
+        _settingsOwner.ForgetDevice();
     }
 
     /// <summary>The device whose hand-offs pick the pose half (B581 rung 3): the one attached, then the one the frame last

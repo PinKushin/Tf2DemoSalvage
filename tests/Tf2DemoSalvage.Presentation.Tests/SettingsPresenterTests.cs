@@ -281,6 +281,24 @@ public sealed class SettingsPresenterTests
         ]);
     }
 
+    /// <summary>
+    /// B790: a live ConVar reaches the device the hand-over configured, and nothing once it is let go; a ConVar the table
+    /// does not hold is not taken. The live set before the forget is the control.
+    /// </summary>
+    [Test]
+    public void ApplyLive_ToTheHandedDeviceAndAfterItIsForgotten_SetsItOnlyWhileHeld()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        FakeViewerDevice device = new();
+        settings.ApplyOver(device, static () => { }, static _ => { });
+        int handed = device.Set.Count;
+
+        (settings.ApplyLive("r_3dsky"), device.Set.Count - handed).ShouldBe((true, 1));
+        settings.ForgetDevice();
+
+        (settings.ApplyLive("r_3dsky"), settings.ApplyLive("mat_phong"), device.Set.Count - handed).ShouldBe((true, false, 1));
+    }
+
     [Test]
     public void ApplyTo_WithReflectionsOnAndNormalLighting_LeavesTheMenuAlone()
     {
