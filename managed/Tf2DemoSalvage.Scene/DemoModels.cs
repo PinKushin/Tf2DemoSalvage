@@ -194,7 +194,6 @@ public static class DemoModels
             {
                 return known.Paths;
             }
-
             HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
             AddCarriedItemModels(demo.Frames.SelectMany(static frame => frame.Players), schema, paths);
             CarriedByTimeline.AddOrUpdate(demo, new CarriedWalk(schema, paths));
@@ -228,12 +227,11 @@ public static class DemoModels
     /// <summary>The highest player class index; zero is "no class".</summary>
     private const int LastClass = 9;
 
-    /// <summary><see cref="LevelLoadModels"/>, the dispenser's break pieces, and every HUD panel's model, into one of the two sets.</summary>
-    private static void AddLevelLoadModels(DemoTimeline? demo, GameContent game, HashSet<string> paths)
+    /// <summary><see cref="LevelLoadModels"/> and the dispenser's break pieces, into one of the two sets.</summary>
+    private static void AddLevelLoadModels(GameContent game, HashSet<string> paths)
     {
         paths.UnionWith(LevelLoadModels);
         paths.UnionWith(GibsOf(Disguise.DispenserModel, game));
-        AddPanelModels(demo, game, paths);
     }
 
     /// <summary>Pack every model a demo will show, before anything is drawn.</summary>
@@ -362,8 +360,12 @@ public static class DemoModels
 
         if (paths.Count > 0)
         {
-            AddLevelLoadModels(timeline, game, paths);
+            AddLevelLoadModels(game, paths);
         }
+
+        // **Not under that guard** (B779 review 21 item 3): the engine's panels have no such condition, and this reads only
+        // the install's HUD files and schema, so it adds nothing without them. In both lists alike, the same way.
+        AddPanelModels(timeline, game, paths);
 
         if (timeline is not { } demo)
         {
@@ -449,7 +451,10 @@ public static class DemoModels
     /// and not the other either packs to nothing or hitches on first sight. Neither fails loudly.
     ///
     /// Kept as it was rather than unified here, because merging them changes which models are packed
-    /// and that wants its own measurement rather than riding along with a move.
+    /// and that wants its own measurement rather than riding along with a move. **One part IS shared**
+    /// (B779 reviews 19-21): every HUD panel's model comes from <see cref="AddPanelModels"/>, which both
+    /// lists call the same way, and its carried-item walk is one result for both
+    /// (<see cref="CarriedPanelModels"/>), so the two cannot disagree on those.
     ///
     /// **The class models are added because a player's model is chosen at runtime.** Nothing on the
     /// wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class script — so
@@ -483,8 +488,11 @@ public static class DemoModels
 
         if (game.ModelPaths().Any())
         {
-            AddLevelLoadModels(timeline, game, paths);
+            AddLevelLoadModels(game, paths);
         }
+
+        // Not under that guard, as in `Needed` (review 21 item 3).
+        AddPanelModels(timeline, game, paths);
 
         // **The extra models items hang on themselves**, which appear in no track and in no string
         // table: `attached_models` names them in the item schema, and the entity that carries them

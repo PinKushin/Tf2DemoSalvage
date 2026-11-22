@@ -309,6 +309,74 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    /// <remarks>
+    /// **The launch line's `--hud` wins over the remembered choice, which wins over stock** (D193; B779 review 21 item 10):
+    /// `ReadLaunch` hands the winner to the install the HUD and the preload read. Two presenters with the same remembered
+    /// HUD: one launched with `--hud`, one without. The control: the remembered one reaches the install when no flag is given.
+    /// </remarks>
+    [Test]
+    public void ReadLaunch_AHudFlagAndARememberedHud_TheFlagReachesTheInstall()
+    {
+        WriteMap();
+
+        foreach ((string[] arguments, string expected) in (ValueTuple<string[], string>[])
+            [(["a.dem", "--hud", "custom/flag"], "custom/flag"), (["a.dem"], "custom/remembered")])
+        {
+            (ViewerPresenter loader, _, _) = Loader(settings: new ViewerSettings { ChosenHud = "custom/remembered" });
+
+            using (loader)
+            {
+                loader.ReadLaunch(arguments);
+                loader.LoadDemo(WriteDemo("launch")).Loaded.ShouldBeTrue();
+
+                loader.Game.ShouldNotBeNull().ChosenHud.ShouldBe(expected, string.Join(' ', arguments));
+            }
+        }
+    }
+
+    /// <remarks>
+    /// **No moment is shown while a map reads** (B779 review 21 item 1): a scrub, a camera move or the measure seek reach
+    /// `ShowMoment` from the UI thread, and a moment built then would pack models and paint HUD panels into the entity set
+    /// while the worker binds its loader and precaches into it. The engine's client draws no world during a level load.
+    /// Here a demo already open, a second load, and a `ShowMoment` asked when the map read reports itself (behind the
+    /// barrier). The controls: the barrier was up at that moment, and the same ask after the load shows the tick.
+    /// </remarks>
+    [Test]
+    public async Task ShowMoment_WhileAMapReads_ShowsNothing()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        Questions asked = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            view.Loads = 2;
+            (await loader.LoadDemoAsync(WriteDemo("first")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            int? shownDuringRead = null;
+            bool? barrierUp = null;
+            view.Asked = name =>
+            {
+                if (name == nameof(ILoadView.MapRead))
+                {
+                    barrierUp = loader.ReadingMap;
+                    int before = asked.Shown.Count;
+                    loader.ShowMoment(12d);
+                    shownDuringRead = asked.Shown.Count - before;
+                }
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("second")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+
+            barrierUp.ShouldBe(true, "the control: the ask came behind the barrier");
+            shownDuringRead.ShouldBe(0);
+            int after = asked.Shown.Count;
+            loader.ShowMoment(12d);
+            asked.Shown.Count.ShouldBeGreaterThan(after, "the control: after the load the same ask shows");
+        }
+    }
+
     [Test]
     public async Task LoadDemoAsync_ANewerLoad_SupersedesTheOlderAndTakesTheProgressDownOnce()
     {

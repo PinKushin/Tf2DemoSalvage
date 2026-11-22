@@ -125,3 +125,63 @@ The prediction is confirmed.
 - **The first `Needed` is cold and not comparable:** it includes JIT, which is why it is 705.6 ms against the warm
   310.4 ms. The review-20 figures were also first calls, so they compare with the first two columns, not with the
   medians.
+
+# Review 21 findings: the load's two lists, measured by one method (2026-11-22)
+
+## Question
+
+The review-21 account compared review 20's single first calls against warm medians, and then inferred the 157 ms
+figure (coordinator's review-21 item 6). Measured by one method, what do the level's two lists cost as a load runs
+them?
+
+## Prediction
+
+`ToPack` costs about what it did before the carried items, because it takes the held walk. `Needed` costs its own work
+plus one walk.
+
+## Method
+
+The probe on the review-21 fixes build, against the same four demos.
+
+- Each of four runs builds a fresh timeline from the demo's bytes, so `Needed` walks as a load's does.
+- It then times `Needed`, then `ToPack`, then the walk alone (`AddCarriedItemModels`).
+- The first run is a discarded warm-up. Each figure is the median of the other three.
+
+## Control
+
+The probe's checks pass on every demo:
+
+- When the local player had a class, a class model (`PlayerClassModels.Model`) was asked for and held.
+- A path that no list names is answered missing.
+- Every path the HUD asked for is listed.
+- `Needed` and `ToPack` agree, in both directions, on every path the HUD asked for.
+- No layout outside `Layouts` names a model.
+
+Sensitivity check on the pub demo: with `banner.mdl` removed from `Needed` and the class model looked up for the wrong
+class, the run failed for all three reasons:
+
+- no class model was asked for and held;
+- an asked path was not listed;
+- `ToPack` listed a path that `Needed` did not.
+
+## Result
+
+| demo | `Needed` (walks) | `ToPack` (held walk) | both | walk alone | walk paths |
+|---|---|---|---|---|---|
+| `f12.dem` | 440.6 ms | 124.4 ms | 565.0 ms | 164.8 ms | 303 |
+| `tf2-2026-pub-pov-clean.dem` | 248.1 ms | 173.2 ms | 422.4 ms | 47.1 ms | 342 |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` | 308.0 ms | 68.0 ms | 377.3 ms | 127.6 ms | 243 |
+| `auto-20260817-1720-cp_process_f12.dem` | 21.0 ms | 13.2 ms | 34.2 ms | 2.5 ms | 18 |
+
+The class control was held on both POV demos. On the 2015 demo the local player was two classes, soldier and spy. The
+two f12 demos had no class. On all four demos, 0 asked paths were missing.
+
+## Verdict
+
+The prediction is confirmed.
+
+- **Measured:** on f12 the two lists together cost 565 ms, warm. The walk alone costs 165 ms.
+- **Inferred, not measured:** that without the shared result `ToPack` would add a second walk of about 165 ms. This
+  build cannot run the unshared form.
+- **Not comparable:** the review-20 figures (662 ms and 390 ms, single first calls) were measured by a different method,
+  so the saving over them is not stated as a measurement.

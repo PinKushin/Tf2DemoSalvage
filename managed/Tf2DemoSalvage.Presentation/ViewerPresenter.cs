@@ -470,13 +470,22 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Records the chosen HUD and hands it to the open install (`GameContent.ChosenHud`, B779 review 20 item 1).</summary>
     private void ChooseHud(string? hud)
     {
-        _chosenHud = hud;
-
-        if (_game is { } game)
+        lock (_hudChoice)
         {
-            game.ChosenHud = hud;
+            _chosenHud = hud;
+
+            if (_game is { } game)
+            {
+                game.ChosenHud = hud;
+            }
         }
     }
+
+    /// <summary>
+    /// Held while the choice and the install are read and written together: `ChooseHud` on the UI thread, the map read's
+    /// publish of the install on its worker. Whichever runs second writes the latest choice.
+    /// </summary>
+    private readonly System.Threading.Lock _hudChoice = new();
 
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;
@@ -736,8 +745,15 @@ public sealed partial class ViewerPresenter : IDisposable
             // It is deferred because the folder is not knowable until the user points at it, NOT
             // because it is slow — which is what the comment here used to say, and is the difference
             // between "this could be made eager" and "there is nothing to hurry".
-            _game = _levels.Install(_maps.GameFolder);
-            _game.ChosenHud = _chosenHud;
+            GameContent installed = _levels.Install(_maps.GameFolder);
+
+            // Published with the HUD choice under the lock `ChooseHud` takes (B779 review 21 item 5): this runs on the worker,
+            // and a choice made on the UI thread between reading `_chosenHud` and writing it here would be overwritten.
+            lock (_hudChoice)
+            {
+                _game = installed;
+                installed.ChosenHud = _chosenHud;
+            }
 
             _world.TexturesAreCurrent = false;
 

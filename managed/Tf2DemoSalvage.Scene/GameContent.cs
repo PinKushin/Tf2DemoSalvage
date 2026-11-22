@@ -55,8 +55,9 @@ public sealed class GameContent
     /// <summary>The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193).</summary>
     /// <remarks>
     /// **Read by the HUD and by the level's preload alike** (B779 review 20 item 1), through <see cref="HudArchives"/>: the
-    /// preload lists the models the HUD's layouts name, and must read the layouts the HUD draws. Set on the UI thread; a
-    /// change reaches the HUD at its next frame and the preload at the next level's load — the preload is read with the map
+    /// preload lists the models the HUD's layouts name, and must read the layouts the HUD draws. Set by the viewer's
+    /// presenter from either thread — the UI's choice, or the map read's worker when it publishes the install — under the
+    /// presenter's one lock for both (`ViewerPresenter.ChooseHud`, review 21 item 5); locked here too. A change reaches the HUD at its next frame and the preload at the next level's load — the preload is read with the map
     /// (D86), so a HUD chosen mid-level whose layouts name a model no other layout does draws it from the next load.
     /// </remarks>
     public string? ChosenHud

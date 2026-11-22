@@ -413,35 +413,104 @@ public sealed class DemoModelsTests
         }
     }
 
-    /// <remarks>
-    /// **One carried-item walk serves both of B195's lists** (B779 review 21): `Needed` at the map read and `ToPack` at the
-    /// precache each walked every frame, about 0.5 s of f12's load. Here one timeline and an install with a schema: the
-    /// map read's list walks and holds its result, and the precache's list gets that same result. The controls: nothing
-    /// is held before the first list, and another schema walks again.
-    /// </remarks>
-    [Test]
-    public void NeededThenToPack_OneTimeline_ShareOneCarriedWalk()
-    {
-        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-onewalk-");
+    /// <summary>A carried, non-base item's model: in no list but by the carried-item walk.</summary>
+    private const string CarriedModel = "models/weapons/c_carried.mdl";
 
-        try
+    /// <summary>An install with a schema naming a base scattergun and a non-base carried item (30), and optionally a class script.</summary>
+    private static DirectoryInfo CarryingInstall(bool classScripts)
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-carried-");
+
+        if (classScripts)
         {
             string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
             File.WriteAllText(Path.Combine(scripts, "scout.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/scout.mdl\"\n}\n");
-            string items = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "items")).FullName;
-            File.WriteAllText(Path.Combine(items, "items_game.txt"), """
-                "items_game" { "items" { "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/c_scattergun.mdl" } } }
-                """);
+        }
+
+        string items = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "items")).FullName;
+        File.WriteAllText(Path.Combine(items, "items_game.txt"), $$"""
+            "items_game"
+            {
+                "items"
+                {
+                    "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/c_scattergun.mdl" }
+                    "30" { "item_slot" "secondary" "used_by_classes" { "scout" "1" } "model_player" "{{CarriedModel}}" }
+                }
+            }
+            """);
+        return tf;
+    }
+
+    /// <summary>A timeline whose one frame has a scout carrying item 30.</summary>
+    private static Core.Scene.DemoTimeline Carrying() =>
+        Core.Scene.DemoTimeline.ForTracks(
+            [],
+            [
+                new Core.Scene.TimelineFrame(
+                    0,
+                    [
+                        new Core.Scene.ScenePlayer(1, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 1)
+                        {
+                            Items = [new(40, "CTFPistol", 30, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true)],
+                        },
+                    ]),
+            ]);
+
+    /// <remarks>
+    /// **One carried-item walk serves both of B195's lists** (B779 review 21): `Needed` at the map read and `ToPack` at the
+    /// precache each walked every frame, about 0.5 s of f12's load. Here a timeline whose scout carries a non-base item —
+    /// its model is in no list but by the walk — and an install with its schema: both lists hold the carried model, the map
+    /// read's list walks and holds its result, and the precache's list gets that same result. The controls: nothing is held
+    /// before the first list; another timeline under the same schema, and another schema, each walk again (review 21 item 9).
+    /// </remarks>
+    [Test]
+    public void NeededThenToPack_OneTimelineWithACarriedItem_ShareOneCarriedWalk()
+    {
+        DirectoryInfo tf = CarryingInstall(classScripts: true);
+
+        try
+        {
             GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
-            Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.ForTracks([]);
+            Core.Scene.DemoTimeline timeline = Carrying();
             DemoModels.CarriedWalked(timeline).ShouldBeNull("the control: nothing walked yet");
 
-            DemoModels.Needed(timeline, game);
+            HashSet<string> needed = DemoModels.Needed(timeline, game);
             IReadOnlySet<string> walked = DemoModels.CarriedWalked(timeline).ShouldNotBeNull();
-            DemoModels.ToPack(timeline, game);
+            HashSet<string> toPack = DemoModels.ToPack(timeline, game);
 
+            (needed.Contains(CarriedModel), toPack.Contains(CarriedModel), walked.Contains(CarriedModel)).ShouldBe((true, true, true));
             DemoModels.CarriedWalked(timeline).ShouldBeSameAs(walked);
+            DemoModels.CarriedPanelModels(Carrying(), game.Weapons.Items.ShouldNotBeNull())
+                .ShouldNotBeSameAs(walked, "the control: another timeline under the same schema walks again");
             DemoModels.CarriedPanelModels(timeline, CarriedSchema()).ShouldNotBeSameAs(walked, "the control: another schema walks again");
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// **The panel models are not under the level-load guard** (B779 review 21 item 3): `Needed` and `ToPack` add the
+    /// arrows and the dispenser only when the install names class models, and the panel models used to ride inside that
+    /// guard. The engine's panels have no such condition. Here an install with a schema and no class scripts: both lists
+    /// still hold the carried item's model and the class's stock weapon. The control: neither lists a class model.
+    /// </remarks>
+    [Test]
+    public void NeededAndToPack_AnInstallWithNoClassScripts_StillListThePanelModels()
+    {
+        DirectoryInfo tf = CarryingInstall(classScripts: false);
+
+        try
+        {
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+            Core.Scene.DemoTimeline timeline = Carrying();
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
+            {
+                (set.Contains(CarriedModel), set.Contains("models/weapons/c_scattergun.mdl"), set.Contains("models/player/scout.mdl"))
+                    .ShouldBe((true, true, false));
+            }
         }
         finally
         {
@@ -537,7 +606,7 @@ public sealed class DemoModelsTests
     /// <remarks>
     /// **Every model a panel can ask for one item** (B779 review 20 items 2 and 7): the class panel's `EquipItem` model, which is
     /// the world model when the item has one, and the item panel's `GetPlayerDisplayModel( first class, 0 )`
-    /// (item_model_panel.cpp:329-342) — two different paths for the Hot Hand's shape; the extra wearable
+    /// (item_model_panel.cpp:330-343) — two different paths for the Hot Hand's shape; the extra wearable
     /// (tf_playermodelpanel.cpp, `EquipAllWearables`); a festive-only world attachment, which `AttachedModelsFor` adds to the
     /// plain list under `is_festivized` (econ_entity.cpp:1107-1131), so asking with it lists both; each class's
     /// per-class model; a paint-kit weapon's StatTrak module.

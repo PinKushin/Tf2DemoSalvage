@@ -43305,7 +43305,7 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
    *Sabotage*: the preload reading `game.Archives` reddens the first; the install-time hand-off dropped, and the
    after-open hand-off dropped, each redden the second.
 2. *The item panel's model rule was a copy*: `TfEmbeddedItemModelPanel.PanelModel` (`GetPlayerDisplayModel( first
-   class, 0 )`, item_model_panel.cpp:329-342) is used by the panel and the preload; `extra_wearable` is listed through
+   class, 0 )`, item_model_panel.cpp:330-343) is used by the panel and the preload; `extra_wearable` is listed through
    `ItemSchema.ExtraWearableModel`. One method, `DemoModels.AddItemModels`, lists what a panel can ask for one item, for
    the carried items and the stock weapons alike. *Test*: `DemoModelsTests.AddItemModels_ItemsOfEachShape_ListEveryPanelModel`.
    *Sabotage*: `PanelModel` not added, the extra wearable not added, the StatTrak module not added — each reddens it.
@@ -43321,8 +43321,11 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
    out of the key reddens the new styled-row assertion (a plain and a style-0 rocket launcher; the style row was added
    because the first sabotage survived); the style and paint kit both left out redden the paint-kit assertion. Keying
    before `TfItemView.From` is not observable today: `From` rejects only a null definition, which the walk skips first.
-5. *A verdict made between a level's end and the next loader*: reachable (the render loop is held while a map reads, but a
-   UI scrub can reach `ShowMoment`). Two parts: binding a `Geometry` loader forgets the empty entries made under the last
+5. *A verdict made between a level's end and the next loader*: reachable as written then — the render loop is held while a
+   map reads, but a scrub, a camera move and the measure seek reached `ShowMoment`, which also raced the worker's writes
+   to the entity set. **Review 21 item 1 closes that route** (no moment is shown while a map reads), so what this item
+   still covers is a loader bound after a panel asked: a mapless level (`NoGeometry` for the whole level), then a mapped
+   one. Two parts: binding a `Geometry` loader forgets the empty entries made under the last
    one and counts a `LoaderGeneration`; `VguiMdlPanel.RootPath` decides again when the generation moved.
    *Tests*: `PackedVerticesTests.LoadMdl_AFailureBeforeTheLoaderIsBound_LoadsOnceItIs`,
    `VguiModelPanelConformanceTests.ModelName_ReadBetweenALevelsEndAndTheNextLoader_IsDecidedAgainByTheBoundLoader`.
@@ -43355,9 +43358,10 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
     regression this branch adds… fix it here"): `DemoModels.CarriedPanelModels` walks once per timeline and schema and
     both lists take that one result. That makes B195's agreement structural for the carried items, not two calls that
     happen to match. The walk also skips an item list already seen by reference.
-    On f12 it is now one walk of 157 ms (median of 3) instead of two of 262 ms (measurements/2026-11-22-b779-panel-preload.md).
-    `ToPack` at load fell from 390 ms to 149 ms, path counts unchanged (measurements/2026-11-22-b779-panel-preload.md). *Test*:
-    `DemoModelsTests.NeededThenToPack_OneTimeline_ShareOneCarriedWalk`. *Sabotage*: both reddened it alone.
+    The figures for this fix are in review 21 below, measured by one method; the first account of it compared a
+    median against a single run and inferred the saving (review 21 item 6). Path counts unchanged
+    (measurements/2026-11-22-b779-panel-preload.md). *Test*: now
+    `DemoModelsTests.NeededThenToPack_OneTimelineWithACarriedItem_ShareOneCarriedWalk`. *Sabotage*: both reddened it alone.
     - `AddPanelModels` walking directly instead of through the shared walk.
     - The held walk never returned.
 
@@ -43380,6 +43384,68 @@ named as a sabotage that reddens it; the item numbers are the coordinator's.
 `HudPlayerClass.res` and `ItemModelPanel.res` hold model panels whose models are set in code, so they name none — the
 addendum's "three layouts with model panels" is right about panels and not about paths. No other `.res` the HUD read
 names one. *Not measured*: a custom HUD's layouts (the owner's install was left out on purpose, as for every reference).
+
+**Review 21** (Fable, Sonnet, Grok; Gemini still out). Item numbers are the coordinator's.
+
+1. *The HUD and the map read raced*: **true**, and Sonnet's "no race" is false.
+   - `_readingMap` held only `RenderFrame`. Three routes reached `ViewerPresenter.ShowMoment` from the UI thread during a
+     map read, with no guard:
+     - a scrub, through `MomentChanged` (ViewerSession.Window.cs:227-239);
+     - a camera move, through `ReprojectScene` (ViewerSession.Frame.cs:962);
+     - the measure seek (:767).
+   - Each built a moment into the entity set while the worker bound its loader (`LevelSystems.Load`) and precached into
+     the same set. That race existed before B779, through the precache.
+   - **Fixed the engine's way:** the client draws no world during a level load. `ShowMoment` now returns while
+     `_readingMap` is set, as `RenderFrame` already did, so no moment and no HUD paint run during the read.
+   - *Test*: `ViewerPresenterTests.ShowMoment_WhileAMapReads_ShowsNothing`. A `ShowMoment` asked behind the barrier
+     (control: `ReadingMap` is true then) shows nothing; the same ask after the load shows. *Sabotage*: removing the
+     check reddens it.
+   - Review 20's item 5 is corrected above.
+2. *Nothing asserted the carried walk reaching the lists*: **true**. The shared-walk test now uses a timeline whose scout
+   carries a non-base item, whose model no other list names. Both lists hold it.
+   - *Test*: `DemoModelsTests.NeededThenToPack_OneTimelineWithACarriedItem_ShareOneCarriedWalk`.
+   - *Sabotage*: computing the walk without adding it reddens it and the item-3 row.
+3. *The guards differed*: **false as a defect**, and fixed anyway.
+   - When `Needed` tests it, its set holds only `ModelPaths` and their gibs, so `paths.Count > 0` exactly when
+     `ModelPaths().Any()`. The two guards are equivalent.
+   - The guard is still not the engine's: no panel waits on class scripts. The panel models now sit outside both guards,
+     called the same way in both lists, and they read only the install's HUD files and schema.
+   - *Test*: `NeededAndToPack_AnInstallWithNoClassScripts_StillListThePanelModels`.
+   - *Sabotage*: `ToPack`'s call put back under its guard reddens it.
+4. *The `CModelPanel` family has no loader re-decide*: **mooted**.
+   - Item 1 closes the route by which a set-up could run during the read.
+   - From one level to the next, `game_newmap` marks every `CModelPanel` dirty (`VguiModelPanel.OnGameEvent`,
+     modelpanel.cpp:196-205), so the next level sets the model up again under its own loader.
+   - Within a mapless level nothing loads, by design (D224).
+   - No new code.
+5. *The `ChosenHud` hand-off on the worker*: **true**. The worker read `_chosenHud`, and a UI choice made before its
+   write was overwritten.
+   - The map read now publishes the install and its choice under the same lock `ChooseHud` takes, so whichever runs
+     second writes the latest choice. The `GameContent` remark is corrected.
+   - *Not tested*: the interleaving needs a seam inside `ReadMap`. The existing rows still hold the hand-off, and
+     dropping it reddens `SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice` and the item-10 row.
+6. *The earlier walk figure was inferred*: **true**. Re-measured by one method: a fresh timeline per run, warm, median of 3.
+   - Measured on f12 (measurements/2026-11-22-b779-panel-preload.md): `Needed` 441 ms, `ToPack` 124 ms, both 565 ms, walk alone 165 ms.
+   - Inferred, not measured: the second walk the shared result saves.
+   - Not comparable: review 20's single first calls.
+7. *The class control accepted any `models/player/` path*: **true**. It now compares against `PlayerClassModels.Model`
+   for each class the local player had. *Sabotage*: a wrong class fails the run.
+8. *MISSING did not fail the run*: **true**. An asked path the preload does not list now fails the run, and so does a
+   disagreement in either B195 direction. *Sabotage*: removing the banner from `Needed` fails both checks.
+9. *The cache's timeline key was untested*: **true**. Another timeline under the same schema must walk again. *Sabotage*:
+   a held walk keyed on the schema alone reddens it.
+10. *The launch route was untested*: **true**.
+    - *Test*: `ReadLaunch_AHudFlagAndARememberedHud_TheFlagReachesTheInstall`.
+    - *Sabotage*: the remembered choice winning over `--hud` reddens it.
+11. *Stale text*: **true** for all three.
+    - LevelSystems.cs's "stays empty for ever" now names the forget.
+    - Review 20's citation is item_model_panel.cpp:330-343 (`nClass`, then `GetPlayerDisplayModel( nClass, 0 )`, read
+      from the SDK).
+    - `DemoModels.ToPack`'s remark names the shared part.
+
+**Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
+layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
+the two f12 demos.
 
 ## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — FIXED (on B779's branch, review 19)
 

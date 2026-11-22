@@ -28,16 +28,18 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// **Controls, asserted (the run throws when one fails)**:
 /// <list type="bullet">
-/// <item>the class panel's model is asked and held on any demo whose local player has a class — else the HUD never painted
-/// a model panel and the census measured nothing;</item>
+/// <item>a class model (`PlayerClassModels.Model` of a class the local player had — not any `models/player/` path, which
+/// a worn item's is too) is asked and held on any demo whose local player has a class — else the HUD never painted the
+/// class panel's model and the census measured nothing;</item>
 /// <item>a path no list names is answered missing — else the cache answers everything and "held" means nothing;</item>
-/// <item>`DemoModels.ToPack` holds every path `Needed` holds that the HUD asked — B195's two lists agree on the panels.</item>
+/// <item>every path the HUD asked is listed — a MISSING path is the defect itself;</item>
+/// <item>`Needed` and `ToPack` agree on every path the HUD asked, in both directions (B195).</item>
 /// </list>
 ///
 /// **Layout census**: every `.res` the HUD read during the run is walked for model blocks, and any file with one outside
 /// `HudPanelModels.Layouts` fails the run — the list of layouts is measured each run rather than trusted. It also times the
-/// level's two lists in production order (the first walks, the second reuses the walk held for the timeline), then warm
-/// medians of three of each list and of the carried-item walk alone (`DemoModels.AddCarriedItemModels`).
+/// level's two lists as a load runs them — a fresh timeline each run, `Needed` walking and `ToPack` taking the held walk —
+/// and the carried-item walk alone, each a warm median of three.
 /// <code>
 ///   hud-model-loads "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/tf2-2026-pub-pov-clean.dem" [stride]
 /// </code>
@@ -69,46 +71,48 @@ public sealed class HudModelLoadsProbe : IProbe
         GameArchives archives = game.HudArchives;
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
 
-        // The level's lists, timed in the production order (review 21): the first `Needed` walks the carried items and holds the
-        // walk for this timeline, and `ToPack` reuses it. Then, warm, the median of three of each list (the walk held) and of
-        // the walk alone (`AddCarriedItemModels`, unheld), after one discarded warm-up run of each.
-        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        // The level's two lists as a load runs them (review 21 item 6, one method): a FRESH timeline each run, so `Needed`
+        // walks the carried items as a load's does and `ToPack` takes the held walk; one discarded warm-up, then the median
+        // of three of `Needed`, of `ToPack`, and of the two together. The walk alone is timed the same way.
         HashSet<string> needed = DemoModels.Needed(timeline, game);
-        double neededMs = clock.Elapsed.TotalMilliseconds;
-        clock.Restart();
         HashSet<string> toPack = DemoModels.ToPack(timeline, game);
-        double toPackMs = clock.Elapsed.TotalMilliseconds;
+        System.Diagnostics.Stopwatch clock = new();
+        List<(double Needed, double ToPack, double Walk)> runs = [];
         HashSet<string> carried = new(StringComparer.OrdinalIgnoreCase);
+        byte[] demoBytes = File.ReadAllBytes(arguments[0]);
 
-        double Median(Action run)
+        for (int run = 0; run < 4; run++)
         {
-            run();
-            double[] runs = new double[3];
+            DemoTimeline fresh = DemoTimeline.Build(demoBytes);
+            clock.Restart();
+            DemoModels.Needed(fresh, game);
+            double neededRun = clock.Elapsed.TotalMilliseconds;
+            clock.Restart();
+            DemoModels.ToPack(fresh, game);
+            double toPackRun = clock.Elapsed.TotalMilliseconds;
+            carried.Clear();
+            clock.Restart();
 
-            for (int at = 0; at < runs.Length; at++)
+            if (game.Weapons.Items is { } walkSchema)
             {
-                clock.Restart();
-                run();
-                runs[at] = clock.Elapsed.TotalMilliseconds;
+                DemoModels.AddCarriedItemModels(fresh.Frames.SelectMany(static frame => frame.Players), walkSchema, carried);
             }
 
-            Array.Sort(runs);
-            return runs[1];
+            double walkRun = clock.Elapsed.TotalMilliseconds;
+
+            if (run > 0)
+            {
+                runs.Add((neededRun, toPackRun, walkRun));
+            }
         }
 
-        double neededWarm = Median(() => DemoModels.Needed(timeline, game));
-        double toPackWarm = Median(() => DemoModels.ToPack(timeline, game));
-        double carriedMs = game.Weapons.Items is { } walkSchema
-            ? Median(() =>
-            {
-                carried.Clear();
-                DemoModels.AddCarriedItemModels(timeline.Frames.SelectMany(static frame => frame.Players), walkSchema, carried);
-            })
-            : 0d;
+        static double Median(IEnumerable<double> values) => values.Order().ElementAt(1);
+
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"first Needed {neededMs:F1} ms ({needed.Count} models, walks), then ToPack {toPackMs:F1} ms ({toPack.Count}, reuses the walk); " +
-            $"warm medians of 3: Needed {neededWarm:F1} ms, ToPack {toPackWarm:F1} ms, the carried-item walk alone {carriedMs:F1} ms " +
+            $"warm medians of 3, fresh timeline each: Needed {Median(runs.Select(r => r.Needed)):F1} ms ({needed.Count} models, walks), " +
+            $"ToPack {Median(runs.Select(r => r.ToPack)):F1} ms ({toPack.Count}, takes the held walk), both " +
+            $"{Median(runs.Select(r => r.Needed + r.ToPack)):F1} ms; the carried-item walk alone {Median(runs.Select(r => r.Walk)):F1} ms " +
             $"({carried.Count} paths); {timeline.Frames.Count} frames"));
 
         AskedCache cache = new(needed);
@@ -146,6 +150,7 @@ public sealed class HudModelLoadsProbe : IProbe
         int frames = 0;
         int local = 0;
         int withClass = 0;
+        HashSet<int> classesSeen = [];
 
         for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += stride)
         {
@@ -160,7 +165,11 @@ public sealed class HudModelLoadsProbe : IProbe
             hud.Frame(state, HudEventFeed.Resolve(timeline, crossed, map, hooks), reset, messages);
             frames++;
             local += state.HasLocalPlayer ? 1 : 0;
-            withClass += state.HasLocalPlayer && state.Player(state.LocalIndex) is { PlayerClass: > 0 } ? 1 : 0;
+            if (state.HasLocalPlayer && state.Player(state.LocalIndex) is { PlayerClass: > 0 and var playerClass })
+            {
+                withClass++;
+                classesSeen.Add(playerClass);
+            }
         }
 
         TfPlayerModelPanel classPanel = hud.PlayerStatus.PlayerClass.PlayerModelPanel;
@@ -190,9 +199,23 @@ public sealed class HudModelLoadsProbe : IProbe
             failed.Add($"layouts with model blocks outside HudPanelModels.Layouts: {string.Join(", ", outside)}");
         }
 
-        if (withClass > 0 && !cache.Asked.Keys.Any(path => path.StartsWith("models/player/", StringComparison.OrdinalIgnoreCase) && needed.Contains(path)))
+        // The class model itself, from the class script (`PlayerClassModels.Model`) — not any `models/player/` path, which a
+        // worn item's model also is (review 21 item 7).
+        List<string> classModels = [.. classesSeen.Select(seen => game.Classes?.Model(seen)).OfType<string>()];
+
+        if (withClass > 0 && !classModels.Any(model => cache.Asked.ContainsKey(model) && needed.Contains(model)))
         {
-            failed.Add("the local player had a class, and no class model was asked and held: the HUD painted no model panel");
+            failed.Add($"the local player had a class ({string.Join(", ", classesSeen)}), and none of its class models " +
+                $"({string.Join(", ", classModels)}) was asked and held: the HUD painted no class model panel");
+        }
+
+        // **A path the HUD asked and the preload does not list fails the run** (review 21 item 8): it is the defect this
+        // probe exists to find, not a line to read past.
+        List<string> unlisted = [.. cache.Asked.Keys.Where(path => !needed.Contains(path))];
+
+        if (unlisted.Count > 0)
+        {
+            failed.Add($"asked paths the preload does not list: {string.Join(", ", unlisted)}");
         }
 
         const string Unlisted = "models/probe/never_listed.mdl";
@@ -212,9 +235,20 @@ public sealed class HudModelLoadsProbe : IProbe
             failed.Add($"asked paths Needed lists and ToPack does not (B195): {string.Join(", ", heldNotPacked)}");
         }
 
-        string classControl = withClass > 0 ? "asked and held" : "NOT APPLICABLE (no frame's local player has a class)";
+        // And the other direction: a path packed and not loaded draws nothing (B195).
+        List<string> packedNotHeld = [.. cache.Asked.Keys.Where(path => toPack.Contains(path) && !needed.Contains(path))];
+
+        if (packedNotHeld.Count > 0)
+        {
+            failed.Add($"asked paths ToPack lists and Needed does not (B195): {string.Join(", ", packedNotHeld)}");
+        }
+
+        string classControl = withClass > 0
+            ? $"{string.Join(", ", classModels)} asked and held"
+            : "NOT APPLICABLE (no frame's local player has a class)";
         output.WriteLine(failed.Count == 0
-            ? $"controls: class model {classControl}, unlisted path missing, ToPack holds every listed ask, no layout outside Layouts"
+            ? $"controls: class model {classControl}, unlisted path missing, every asked path listed, both lists agree on every ask, " +
+              "no layout outside Layouts"
             : "CONTROLS FAILED: " + string.Join("; ", failed));
 
         foreach ((string path, int asks) in cache.Asked)
