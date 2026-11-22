@@ -482,6 +482,30 @@ public sealed partial class ViewerPresenter : IDisposable
     }
 
     /// <summary>
+    /// Fixes the HUD this load's two model lists read (`GameContent.BeginLevelLoad`, B779 reviews 22-23): at the start of
+    /// every map read — found, missing or failing — with the choice handed over first, and outside <see cref="_hudChoice"/>
+    /// so opening the HUD never holds a choice up (review 23 item 10). <see cref="EndLevelHud"/> lets it go.
+    /// </summary>
+    private void BeginLevelHud()
+    {
+        GameContent installed = _levels.Install(_maps.GameFolder);
+
+        lock (_hudChoice)
+        {
+            installed.ChosenHud = _chosenHud;
+        }
+
+        installed.BeginLevelLoad();
+        _levelHud = installed;
+    }
+
+    /// <summary>Ends what <see cref="BeginLevelHud"/> fixed: once the load's `Apply` has run, or it failed.</summary>
+    private void EndLevelHud() => Interlocked.Exchange(ref _levelHud, null)?.EndLevelLoad();
+
+    /// <summary>The install whose HUD a load in progress fixed, or null outside a load.</summary>
+    private GameContent? _levelHud;
+
+    /// <summary>
     /// Held while the choice and the install are read and written together: `ChooseHud` on the UI thread, the map read's
     /// publish of the install on its worker. Whichever runs second writes the latest choice.
     /// </summary>
@@ -569,11 +593,33 @@ public sealed partial class ViewerPresenter : IDisposable
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
     /// </remarks>
-    public bool LoadMap(string mapName) => ReadDemoMap(mapName).Drawn;
+    public bool LoadMap(string mapName)
+    {
+        try
+        {
+            return ReadDemoMap(mapName).Drawn;
+        }
+        finally
+        {
+            EndLevelHud();
+        }
+    }
 
     /// <summary><see cref="LoadMap"/>, with every reason the read gave about its map.</summary>
+    /// <exception cref="InvalidOperationException">An asynchronous map read is in flight (review 23 item 8).</exception>
     private (bool Drawn, IReadOnlyList<string> Said) ReadDemoMap(string mapName)
     {
+        // **The synchronous read refuses to run beside the queued one** (B779 review 23 item 8): it is the command line's,
+        // `--shot`'s and the tests' route, on the UI thread, and it does not queue — beside an async read it would clear the
+        // map and read into the same entity set as that read's worker.
+        lock (_mapReadsGate)
+        {
+            if (!_lastMapRead.IsCompleted)
+            {
+                throw new InvalidOperationException("a synchronous map read was asked for while an asynchronous one is in flight");
+            }
+        }
+
         ClearMap();
         (bool drawn, _, IReadOnlyList<string> said) = ReadMapNamed(mapName, _timeline);
         return (drawn, said);
@@ -674,11 +720,13 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </param>
     /// <returns>
     /// Whether the map drew, the install, and every reason this read said about its map, the map's own first (B556): the
-    /// load's last status names them. Returned rather than kept, because a superseded load's read can run beside a newer one.
+    /// load's last status names them. Returned rather than kept: the caller hands them to its own `Apply`.
     /// </returns>
     private (bool Drawn, GameContent? Game, IReadOnlyList<string> Said) ReadMapNamed(
         string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
     {
+        BeginLevelHud();
+
         List<string> said = [];
         MapSearch found = _maps.Find(mapName);
 
@@ -753,9 +801,6 @@ public sealed partial class ViewerPresenter : IDisposable
             {
                 _game = installed;
                 installed.ChosenHud = _chosenHud;
-
-                // The HUD this level's two model lists read, fixed here for the whole load (review 22 item 4).
-                installed.BeginLevelLoad();
             }
 
             _world.TexturesAreCurrent = false;
@@ -846,6 +891,10 @@ public sealed partial class ViewerPresenter : IDisposable
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
             return CouldNotOpen(path, failure);
+        }
+        finally
+        {
+            EndLevelHud();
         }
     }
 
@@ -957,18 +1006,15 @@ public sealed partial class ViewerPresenter : IDisposable
 
             try
             {
-                if (!before.IsCompleted)
-                {
-                    Interlocked.Increment(ref _mapReadsQueued);
-                }
-
+                Volatile.Write(ref _awaited, before);
                 await before.WaitAsync(_shutdown).ConfigureAwait(false);
 
-                return await ReadAndApply(ticket, path, decoded, prepared).ConfigureAwait(false);
+                return await ReadAndApply(ticket, path, decoded, prepared, mine).ConfigureAwait(false);
             }
             finally
             {
-                mine.SetResult();
+                // Released in `ReadAndApply`'s last marshal on every path that reaches it; here for one that did not.
+                mine.TrySetResult();
             }
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -1001,13 +1047,23 @@ public sealed partial class ViewerPresenter : IDisposable
 
     private readonly System.Threading.Lock _mapReadsGate = new();
 
-    /// <summary>How many map reads have waited for one before them: what a test reads to see a load queued.</summary>
-    internal int MapReadsQueued => Volatile.Read(ref _mapReadsQueued);
+    /// <summary>
+    /// The read the newest load waits on before its own. Whether that read is still in flight is what a test reads to see
+    /// a load queued behind another (review 23 items 5 and 9: the one test-facing fact kept, as a test cannot otherwise tell
+    /// "waiting" from "about to clear the world").
+    /// </summary>
+    internal bool MapReadWaiting => Volatile.Read(ref _awaited) is { IsCompleted: false };
 
-    private int _mapReadsQueued;
+    private Task? _awaited;
 
     /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
-    private async Task<DemoLoadResult> ReadAndApply(int ticket, string path, DecodedDemo decoded, MapFetch prepared)
+    /// <param name="ticket">The load's ticket.</param>
+    /// <param name="path">The demo.</param>
+    /// <param name="decoded">The decoded demo.</param>
+    /// <param name="prepared">What the map fetch came back with.</param>
+    /// <param name="mine">This read's place in the queue, released in that same marshal, after `Apply`.</param>
+    private async Task<DemoLoadResult> ReadAndApply(
+        int ticket, string path, DecodedDemo decoded, MapFetch prepared, TaskCompletionSource mine)
     {
         // Superseded while it waited for the read before it: the newer load reads its own map.
         if (!_loads.IsCurrent(ticket))
@@ -1015,28 +1071,29 @@ public sealed partial class ViewerPresenter : IDisposable
             return _view.OnUi(() => Superseded(_demoLog, path));
         }
 
-        // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
-        // old map touches the device and stays here; finding and reading the new one touches
-        // nothing but files and arithmetic, and goes to a worker.
-        //
-        // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
-        // goes, and the render loop reads them, so between the two the world is half replaced.
-        // The flag holds the loop off until the marshal back, which is also the barrier that
-        // publishes the writes.
-        _view.OnUi(() =>
-        {
-            _readingMap = true;
-
-            // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
-            _effects.DropSkip();
-            ClearMap();
-            return 0;
-        });
-
         (bool Drawn, IReadOnlyList<string> Said) read;
 
         try
         {
+            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
+            // old map touches the device and stays here; finding and reading the new one touches
+            // nothing but files and arithmetic, and goes to a worker.
+            //
+            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
+            // goes, and the render loop reads them, so between the two the world is half replaced.
+            // The flag holds the loop off until the marshal back, which is also the barrier that
+            // publishes the writes. **Raised inside the region that lowers it** (review 23 item 4): a skip or a
+            // clear that throws here must not leave the view dark.
+            _view.OnUi(() =>
+            {
+                _readingMap = true;
+
+                // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
+                _effects.DropSkip();
+                ClearMap();
+                return 0;
+            });
+
             read = await Task.Run(() =>
             {
                 // **The read comes first because it is what opens the install**, and both
@@ -1076,24 +1133,35 @@ public sealed partial class ViewerPresenter : IDisposable
         }
         catch
         {
-            // A read that throws lowers the barrier on its way out; the caller says why.
+            // A read that throws lowers the barrier on its way out, and lets its fixed HUD go; the caller says why.
             _view.OnUi(() =>
             {
                 _readingMap = false;
                 return 0;
             });
+            EndLevelHud();
             throw;
         }
 
         // **Lowered in the marshal that shows the demo** (review 22 item 3): a separate marshal before `Apply` left a
-        // gap in which a scrub built the old demo's moment against the new level's set.
+        // gap in which a scrub built the old demo's moment against the new level's set. **And the queue is released in
+        // it, after `Apply` and after the load's HUD is let go** (review 23 item 5): the next read cannot clear the world
+        // before this demo is shown, nor fix its HUD before this load ends.
         return _view.OnUi(() =>
         {
             _readingMap = false;
 
-            return _loads.IsCurrent(ticket)
-                ? Apply(decoded, read)
-                : Superseded(_demoLog, path);
+            try
+            {
+                return _loads.IsCurrent(ticket)
+                    ? Apply(decoded, read)
+                    : Superseded(_demoLog, path);
+            }
+            finally
+            {
+                EndLevelHud();
+                mine.TrySetResult();
+            }
         });
     }
 

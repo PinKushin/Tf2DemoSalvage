@@ -313,7 +313,9 @@ public sealed class ViewerPresenterTests
     /// **One map read at a time** (B779 review 22 item 1): a second load asked while the first is reading its map — the
     /// user opening demo B mid-read — waits for the first's read, precache and `Apply` before it clears the map or touches
     /// the entity set, as the engine loads one level at a time. Here demo B is started from inside A's read (its `MapRead`),
-    /// and A's read holds until B has either queued behind it or cleared the world. Then the window's barrier calls come in
+    /// and A's read holds until B has either queued behind it or cleared the world. **And A's last marshal — the one that
+    /// lowers the barrier and runs its `Apply` — begins with B still waiting on it** (review 23 item 5): the queue is
+    /// released in that marshal, so B cannot clear the world before A's `Apply`. Then the window's barrier calls come in
     /// two whole runs, A's then B's, each behind the barrier. The controls: B did start a read of its own (two clears), and
     /// A was superseded by B.
     /// </remarks>
@@ -327,11 +329,26 @@ public sealed class ViewerPresenterTests
         view.Loads = 2;
         Task<DemoLoadResult>? secondLoad = null;
         int clearsWhenQueued = -1;
+        bool aReportedModels = false;
+        bool? bWaitingAtALastMarshal = null;
 
         using (loader)
         {
+            // A's last marshal is the first after its models report: the precaches between them ask the window nothing.
+            view.Marshalling = () =>
+            {
+                if (aReportedModels && bWaitingAtALastMarshal is null)
+                {
+                    bWaitingAtALastMarshal = loader.MapReadWaiting;
+                }
+            };
             view.Asked = name =>
             {
+                if (name == "Report: Loading models and sounds" && secondLoad is not null)
+                {
+                    aReportedModels = true;
+                }
+
                 if (name != nameof(ILoadView.MapRead) || secondLoad is not null)
                 {
                     return;
@@ -339,7 +356,7 @@ public sealed class ViewerPresenterTests
 
                 secondLoad = loader.LoadDemoAsync(second);
                 SpinWait.SpinUntil(
-                    () => loader.MapReadsQueued > 0 || view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)) > 1,
+                    () => loader.MapReadWaiting || view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)) > 1,
                     TimeSpan.FromSeconds(30))
                     .ShouldBeTrue("B queued behind A's read, or cleared the world beside it");
                 clearsWhenQueued = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
@@ -348,8 +365,10 @@ public sealed class ViewerPresenterTests
             DemoLoadResult firstResult = await loader.LoadDemoAsync(first).ConfigureAwait(false);
             DemoLoadResult secondResult = await secondLoad.ShouldNotBeNull().ConfigureAwait(false);
             view.Asked = null;
+            view.Marshalling = null;
 
             clearsWhenQueued.ShouldBe(1, "B did not clear the world while A read");
+            bWaitingAtALastMarshal.ShouldBe(true, "B still waited on A when A's Apply marshal began");
             List<(string Name, bool OnUi, bool Reading)> barrier =
             [
                 .. view.Calls.Where(static call => call.Name is nameof(ILoadView.ClearWorld) or nameof(ILoadView.MapRead)
@@ -362,6 +381,168 @@ public sealed class ViewerPresenterTests
             ]);
             barrier.ShouldAllBe(static call => call.Reading, "every barrier call behind the barrier");
             (firstResult.Loaded, secondResult.Loaded).ShouldBe((false, true), "the control: A was superseded by B");
+        }
+    }
+
+    private const string DoorsA = "models/hud_a/doors.mdl";
+    private const string DoorsB = "models/hud_b/doors.mdl";
+
+    /// <summary>A HUD folder whose `HudMatchStatus.res` names these doors.</summary>
+    private string HudWithDoors(string name, string doors)
+    {
+        string ui = Directory.CreateDirectory(Path.Combine(_folder, name, "resource", "UI")).FullName;
+        File.WriteAllText(
+            Path.Combine(ui, "HudMatchStatus.res"),
+            $$"""
+            "Resource/UI/HudMatchStatus.res" { "MatchDoors" { "model" { "modelname" "{{doors}}" } } }
+            """);
+        return Path.Combine(_folder, name);
+    }
+
+    /// <remarks>
+    /// **A load's two model lists read the HUD it began with, and only while it runs** (B779 review 23 items 1 and 3):
+    /// every map read fixes the HUD view at its start — a map that reads, or one whose file fails to — and lets it go once
+    /// its `Apply` has run. Here HUD A chosen, a load, and HUD B chosen when the load reports its models (between `Needed` at
+    /// the map read and `ToPack` at the precache): both lists, asked then, name A's doors and not B's. After the load the
+    /// lists read B's. The control: the HUD did change mid-load (B is chosen at the end).
+    /// </remarks>
+    /// <param name="map">The demo's map: the one written here, or one whose file is held open so its read throws.</param>
+    [TestCase(Map)]
+    [TestCase("pl_locked")]
+    public async Task LoadDemoAsync_AHudChangedMidLoad_BothListsReadTheHudTheLoadBeganWith(string map)
+    {
+        WriteMap();
+        string locked = Path.Combine(_folder, "maps", "pl_locked.bsp");
+        await File.WriteAllBytesAsync(locked, new byte[] { 1, 2, 3, 4 }).ConfigureAwait(false);
+        using FileStream held = new(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            loader.SetChosenHud(hudA);
+            (bool NeededA, bool NeededB, bool ToPackA, bool ToPackB)? midLoad = null;
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading models and sounds")
+                {
+                    loader.SetChosenHud(hudB);
+                    HashSet<string> needed = DemoModels.Needed(null, game);
+                    HashSet<string> toPack = DemoModels.ToPack(null, game);
+                    midLoad = (needed.Contains(DoorsA), needed.Contains(DoorsB), toPack.Contains(DoorsA), toPack.Contains(DoorsB));
+                }
+            };
+
+            await loader.LoadDemoAsync(WriteDemo("changed", map)).ConfigureAwait(false);
+            view.Asked = null;
+
+            midLoad.ShouldBe((true, false, true, false));
+            game.ChosenHud.ShouldBe(hudB, "the control: the HUD changed mid-load");
+            DemoModels.Needed(null, game).Contains(DoorsB).ShouldBeTrue("after the load, the HUD as it is now");
+        }
+    }
+
+    /// <remarks>
+    /// **The barrier does not stay up when the load's first step fails** (B779 review 23 item 4): raising it, dropping the
+    /// skip and clearing the map are one marshal, inside the region that lowers it. Here the window's clear throws an I/O
+    /// error: the load ends saying it could not open the demo, and the barrier is down. The control: the clear was asked.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AClearThatThrows_LeavesTheBarrierDown()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        bool cleared = false;
+        view.Asked = name =>
+        {
+            if (name == nameof(ILoadView.ClearWorld))
+            {
+                cleared = true;
+                throw new IOException("a clear that fails");
+            }
+        };
+
+        using (loader)
+        {
+            DemoLoadResult result = await loader.LoadDemoAsync(WriteDemo("clear")).ConfigureAwait(false);
+            view.Asked = null;
+
+            cleared.ShouldBeTrue("the control");
+            result.Loaded.ShouldBeFalse();
+            loader.ReadingMap.ShouldBeFalse();
+        }
+    }
+
+    /// <remarks>
+    /// **A read that throws lowers the barrier** (B779 review 23 item 6): the worker's failure leaves through the region that
+    /// raised it. Here the report after the map read throws: the load throws it on, and the barrier is down. The control:
+    /// the barrier was up when it threw.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AReadThatThrows_LowersTheBarrier()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        bool? upWhenThrown = null;
+        view.Asked = name =>
+        {
+            if (name == "Report: Loading models and sounds")
+            {
+                upWhenThrown = loader.ReadingMap;
+                throw new InvalidOperationException("a read that fails");
+            }
+        };
+
+        using (loader)
+        {
+            await Should.ThrowAsync<InvalidOperationException>(() => loader.LoadDemoAsync(WriteDemo("throws"))).ConfigureAwait(false);
+            view.Asked = null;
+
+            upWhenThrown.ShouldBe(true, "the control");
+            loader.ReadingMap.ShouldBeFalse();
+        }
+    }
+
+    /// <remarks>
+    /// **The synchronous map read refuses to run beside an asynchronous one** (B779 review 23 item 8): it does not queue, and
+    /// beside a read in flight it would clear the map and read into the same entity set. Here `LoadMap` asked from inside an
+    /// async load's read refuses; the async load still finishes. The control: after the load the same ask reads.
+    /// </remarks>
+    [Test]
+    public async Task LoadMap_WhileAnAsyncReadIsInFlight_Refuses()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        Exception? refused = null;
+        bool asked = false;
+        view.Asked = name =>
+        {
+            if (name == nameof(ILoadView.MapRead) && !asked)
+            {
+                asked = true;
+
+                try
+                {
+                    loader.LoadMap(Map);
+                }
+                catch (InvalidOperationException refusal)
+                {
+                    refused = refusal;
+                }
+            }
+        };
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("sync")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+
+            refused.ShouldNotBeNull().Message.ShouldContain("in flight");
+            Should.NotThrow(() => loader.LoadMap(Map), "the control: with no read in flight it reads");
         }
     }
 

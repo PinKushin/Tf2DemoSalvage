@@ -43468,6 +43468,9 @@ time and draws no world while it does.
      carried item's model and the stock weapon, both panel models listed only by `AddPanelModels`.
 3. *The gap between lowering the flag and `Apply`*: **true**. The flag now lowers inside the marshal that runs `Apply`.
    - *Not tested*: the test window marshals inline, so the gap cannot be reached without a seam inside the load.
+   - *Not closed on the superseded path* (review 23 item 7). A superseded load lowers the flag in its last marshal; the
+     newer load raises it only after a thread hop. Frames between them draw the old demo against the superseded load's
+     level. No worker writes then, so it is a stale picture for a frame or two, not a race.
 4. *A HUD change between the two lists*: **true**.
    - `GameContent.BeginLevelLoad`, called when the map read publishes the install, fixes the HUD view for the load.
    - Both lists read `LevelHudArchives`. The "cannot disagree" remarks now say "within a load".
@@ -43486,6 +43489,61 @@ time and draws no world while it does.
      It takes the held walk, but its own work, 124 ms on f12 (measurements/2026-11-22-b779-panel-preload.md), is
      UI-thread time. That cost predates B779, apart from the panel part; it is filed here as a follow-up, not fixed.
 8. *No interleaving test for the `ReadMap` lock*: **left as disclosed**. No cheap seam exists (review 21 item 5).
+
+**Review 23** (Fable, Sonnet, Grok, Gemini). Item numbers are the coordinator's. No reviewer found a deadlock or a
+release leak in the queue. Everything here is the viewer's own threading and none of it is engine parity. The engine's
+facts it follows are that it loads one level at a time and draws no world while it does.
+
+1. *Nothing tested the `BeginLevelLoad` wiring*: **true**.
+   - *Test*: `ViewerPresenterTests.LoadDemoAsync_AHudChangedMidLoad_BothListsReadTheHudTheLoadBeganWith` (two cases).
+     HUD A is chosen, a load runs, and HUD B is chosen when the load reports its models. Both lists, asked then, name A's
+     doors and not B's.
+   - *Sabotage*: making the begin a no-op reddens both cases.
+2. *Fixing the HUD again was untested*: **true**. The Scene row now begins a second load after the HUD change and expects
+   the new HUD's doors.
+   - *Sabotage*: `_levelHudArchives ??= now` (fixed once, for ever) reddens it.
+3. *The fixed view went stale*: **true**, on two counts.
+   - **A load that read no map file never fixed it.** The begin now sits at the top of `ReadMapNamed`, which every map
+     read passes, including a missing map and a failing one.
+   - **Nothing ever let it go.** `GameContent.EndLevelLoad` now runs on every path: in the marshal that runs `Apply`, in
+     the read's failure path, and at the end of the synchronous `LoadDemo` and `LoadMap`. Outside a load, the lists read
+     the HUD as it is now, and the old view's archives are released.
+   - *Tests*: the item-1 row's second case, `pl_locked`, whose map file is held open so `ReadAllBytes` throws. Its
+     after-load assertion covers the end; so does the Scene row's last assertion.
+   - *Sabotage*: putting the begin back after `ReadAllBytes` reddens the `pl_locked` case alone. Removing the end
+     reddens both cases.
+   - The remarks in `DemoModels.AddPanelModels` and `GameContent` now say this.
+4. *The barrier raise sat outside the region that lowers it*: **true**. The raise, the skip drop and the clear now run
+   inside it.
+   - *Test*: `LoadDemoAsync_AClearThatThrows_LeavesTheBarrierDown`.
+   - *Sabotage*: lowering only when the raise step had finished reddens it.
+5. *The queue test did not observe `Apply`*: **true**.
+   - The queue is now released inside the marshal that runs `Apply`, after it.
+   - The test reads, at the start of A's last marshal, whether B still waits on A.
+   - *Sabotage*: releasing before that marshal (Grok's form) reddens it.
+6. *A throwing read lowering the barrier was untested*: **true**.
+   - *Test*: `LoadDemoAsync_AReadThatThrows_LowersTheBarrier`.
+   - *Sabotage*: removing the lowering in the catch reddens it, and the item-4 row too.
+7. *The superseded path's flag gap*: **not fixed**. Review 22 item 3's wording is corrected above. Keeping a superseded
+   load's barrier up until the next one raises it would risk the barrier never coming down if the next load fails
+   before its read.
+8. *The synchronous path could overlap a queued read*: **true**. `ReadDemoMap` now refuses while a queued read is in
+   flight.
+   - *Test*: `LoadMap_WhileAnAsyncReadIsInFlight_Refuses`.
+   - *Sabotage*: no refusal reddens it.
+   - The first form of this test recursed under the sabotage (the unrefused `LoadMap` reached the same hook again) and
+     crashed the test host. The hook now asks once.
+9. *A count kept only for a test*: **replaced, not removed**. `MapReadsQueued` is gone. `MapReadWaiting` (whether the
+   read the newest load waits on is still in flight) is kept, because a test cannot otherwise tell "waiting" from "about
+   to clear the world". Both queue tests read it.
+10. *Opening a HUD under a lock*: **true**. The begin now runs outside `_hudChoice`, and `HudArchives` opens a HUD
+    outside `GameContent`'s lock. The view is published only if the choice is still the one it was opened for; otherwise
+    it is opened again. Gemini's point was that the fixed view must never be older than a choice made meanwhile, so
+    `BeginLevelLoad` publishes only the view cached for the current choice.
+    - *Not tested*: the interleaving needs a seam inside `WithHud`.
+11. *Stale text*: **true**. "A superseded load's read can run beside a newer one" is gone from `ReadMapNamed`'s remarks.
+
+The queue tests passed in five more runs in a row.
 
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on

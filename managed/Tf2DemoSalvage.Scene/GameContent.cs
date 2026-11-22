@@ -57,8 +57,10 @@ public sealed class GameContent
     /// **Read by the HUD and by the level's preload alike** (B779 review 20 item 1), through <see cref="HudArchives"/>: the
     /// preload lists the models the HUD's layouts name, and must read the layouts the HUD draws. Set by the viewer's
     /// presenter from either thread — the UI's choice, or the map read's worker when it publishes the install — under the
-    /// presenter's one lock for both (`ViewerPresenter.ChooseHud`, review 21 item 5); locked here too. A change reaches the HUD at its next frame and the preload at the next level's load — the preload is read with the map
-    /// (D86), so a HUD chosen mid-level whose layouts name a model no other layout does draws it from the next load.
+    /// presenter's one lock for both (`ViewerPresenter.ChooseHud`, review 21 item 5); locked here too. A change reaches the
+    /// HUD at its next frame and the preload at the next level's load — the preload is read with the map (D86), and a load
+    /// reads the HUD fixed at its start (<see cref="BeginLevelLoad"/>), so a HUD chosen mid-level or mid-load whose layouts
+    /// name a model no other layout does draws it from the next load.
     /// </remarks>
     public string? ChosenHud
     {
@@ -80,40 +82,78 @@ public sealed class GameContent
     }
 
     /// <summary>The HUD's files: the chosen HUD searched first, then the stock files (`GameArchives.WithHud`).</summary>
-    /// <remarks>Made again only when <see cref="ChosenHud"/> changed; locked, as the map load reads it on a worker.</remarks>
+    /// <remarks>
+    /// Made again only when <see cref="ChosenHud"/> changed. **Opened outside the lock** (B779 review 23 item 10): opening a
+    /// HUD reads its folder or `.vpk`, and a choice made meanwhile would wait on it; the view is published only if the choice
+    /// is still the one it was opened for, else it is opened again for the newer one.
+    /// </remarks>
     public GameArchives HudArchives
     {
         get
         {
-            lock (_hudLock)
+            while (true)
             {
-                if (_hudArchives is null || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
+                string? chosen;
+
+                lock (_hudLock)
                 {
-                    _hudArchives = Archives.WithHud(_chosenHud);
-                    _hudArchivesFor = _chosenHud;
+                    if (_hudArchives is { } cached && string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
+                    {
+                        return cached;
+                    }
+
+                    chosen = _chosenHud;
                 }
 
-                return _hudArchives;
+                GameArchives opened = Archives.WithHud(chosen);
+
+                lock (_hudLock)
+                {
+                    if (string.Equals(chosen, _chosenHud, StringComparison.Ordinal))
+                    {
+                        _hudArchives = opened;
+                        _hudArchivesFor = chosen;
+                        return opened;
+                    }
+                }
             }
         }
     }
 
     /// <summary>
-    /// Fixes the HUD view the level's preload reads (<see cref="LevelHudArchives"/>) for one level's load: called once as the
-    /// load begins, so `DemoModels.Needed` at the map read and `ToPack` at the precache read the same layouts even if the
-    /// HUD changes between them (B779 review 22 item 4; B195).
+    /// Fixes the HUD view the level's preload reads (<see cref="LevelHudArchives"/>) for one level's load, from its start to
+    /// <see cref="EndLevelLoad"/>, so `DemoModels.Needed` at the map read and `ToPack` at the precache — and `Apply`'s second
+    /// precache — read the same layouts even if the HUD changes meanwhile (B779 reviews 22-23; B195). The view fixed is the
+    /// one for the choice current under the lock, never one opened for an older choice (review 23, Gemini).
     /// </summary>
     public void BeginLevelLoad()
     {
-        GameArchives now = HudArchives;
-
-        lock (_hudLock)
+        while (true)
         {
-            _levelHudArchives = now;
+            GameArchives now = HudArchives;
+
+            lock (_hudLock)
+            {
+                if (ReferenceEquals(now, _hudArchives) && string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
+                {
+                    _levelHudArchives = now;
+                    return;
+                }
+            }
         }
     }
 
-    /// <summary>The HUD view fixed by the last <see cref="BeginLevelLoad"/>, or the current one when no load began.</summary>
+    /// <summary>Ends the load <see cref="BeginLevelLoad"/> began: outside a load the preload reads the HUD as it is now.</summary>
+    /// <remarks>Also lets the fixed view's archives go (review 23 item 3).</remarks>
+    public void EndLevelLoad()
+    {
+        lock (_hudLock)
+        {
+            _levelHudArchives = null;
+        }
+    }
+
+    /// <summary>The HUD view fixed by <see cref="BeginLevelLoad"/> while a load runs, or the current one outside a load.</summary>
     public GameArchives LevelHudArchives
     {
         get

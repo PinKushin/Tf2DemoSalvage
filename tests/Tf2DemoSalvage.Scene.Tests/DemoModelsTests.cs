@@ -549,6 +549,20 @@ public sealed class DemoModelsTests
             {
                 (set.Contains(customDoors), set.Contains(stockDoors)).ShouldBe((true, false));
             }
+
+            // **The next load fixes the HUD again** (review 23 item 2): stock is chosen now, so its doors and not the custom's.
+            // No `EndLevelLoad` between: a load's view is replaced by the next load's, not kept.
+            game.BeginLevelLoad();
+            game.ChosenHud = chosen;
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
+            {
+                (set.Contains(customDoors), set.Contains(stockDoors)).ShouldBe((false, true), "the next load's HUD");
+            }
+
+            // **And a load's end lets its view go** (review 23 item 3): outside a load, the HUD as it is now — the custom.
+            game.EndLevelLoad();
+            DemoModels.Needed(null, game).Contains(customDoors).ShouldBeTrue("outside a load, the HUD as it is now");
         }
         finally
         {

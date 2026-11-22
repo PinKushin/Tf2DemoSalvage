@@ -148,9 +148,9 @@ public static class DemoModels
     /// <summary>
     /// Every model a HUD panel can ask for, in both of B195's lists alike (B779 reviews 19-20): the HUD layouts' models, each
     /// class's stock weapon, and every carried item's panel models. One method, called the same way by both lists; within one
-    /// level's load they read the same HUD view (<see cref="GameContent.LevelHudArchives"/>, fixed when the load begins) and
-    /// the same carried walk, so they agree on it. Two calls outside a load (no <c>BeginLevelLoad</c>) read the HUD as it
-    /// is at each call.
+    /// load — from <c>BeginLevelLoad</c> at the start of every map read, mapless and failing ones included, to
+    /// <c>EndLevelLoad</c> after its <c>Apply</c> — they read the same HUD view (<see cref="GameContent.LevelHudArchives"/>)
+    /// and the same carried walk, so they agree on it. Outside a load they read the HUD as it is at each call.
     /// </summary>
     private static void AddPanelModels(DemoTimeline? demo, GameContent game, HashSet<string> paths)
     {
