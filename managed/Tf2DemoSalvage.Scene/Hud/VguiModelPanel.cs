@@ -157,7 +157,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         foreach (KeyValuesTree data in block.Children)
         {
-            if (string.Equals(data.Name, "model", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(data.Name, HudPanelModels.ModelBlock, StringComparison.OrdinalIgnoreCase))
             {
                 ParseModelInfo(data);
             }
@@ -172,7 +172,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         VguiModelPanelModelInfo info = new()
         {
-            ModelName = data.Find("modelname")?.Value,
+            ModelName = data.Find(HudPanelModels.ModelName)?.Value,
             ModelNameHwm = data.Find("modelname_hwm")?.Value,
             Skin = Int(data, "skin", -1),
             AbsAngles = (Float(data, "angles_x", 0f), Float(data, "angles_y", 0f), Float(data, "angles_z", 0f)),
@@ -190,9 +190,9 @@ public class VguiModelPanel : VguiEditablePanel
             {
                 OnAddAnimation(entry);
             }
-            else if (string.Equals(entry.Name, "attached_model", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(entry.Name, HudPanelModels.AttachedModel, StringComparison.OrdinalIgnoreCase))
             {
-                info.AttachedModels.Add((entry.Find("modelname")?.Value, Int(entry, "skin", -1)));
+                info.AttachedModels.Add((entry.Find(HudPanelModels.ModelName)?.Value, Int(entry, "skin", -1)));
             }
         }
 

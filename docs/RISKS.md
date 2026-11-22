@@ -43290,9 +43290,49 @@ load-at-once row alone).
    and the layout parents it before any setting, and the only named `SetMDL` is `SetItem`'s, from the HUD's frame on a
    panel already in the viewport's tree. Were it reached, the next level would decide the root again (item 1).
 
-## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — OPEN
+**Review 19** (coordinator): B812 is B779's own claim — "a model only a panel draws is packed through the world's set" was
+false in production for a model no preload listed — so it is fixed here, within the preload design: see B812, with the
+`hud-model-loads` measurement (missing panel models 1 → 0 on each of two POV demos).
+
+## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — FIXED (on B779's branch, review 19)
+
+**Fixed within the preload design** (owner's coordinator, review 19: it is B779's own claim, so it finishes there, D261). The
+engine loads a panel's model from the install on demand; ours preloads every model a level can draw, so the faithful
+equivalent is every model a HUD panel can ask for on the preload list (`DemoModels.Needed` and `ToPack` alike, B195):
+- **The HUD layouts' model blocks**: `HudPanelModels.Named` reads the layouts of the elements that hold model panels
+  (`TfHudMatchStatus.ResFile`, `TfHudPlayerClass.ResFile`, `TfItemModelPanel.ResFile` — the elements' own constants) with
+  the keys the panels read (`model`, `modelname`, `attached_model`; basemodelpanel.cpp:88, :127, :143, :149), every
+  conditional block included. On the install: `models/props_ui/banner.mdl` and `models/vgui/versus_doors.mdl`.
+- **Each class's stock weapon**, which the class panel holds when nothing carried can be held (`HoldFirstValidItem`,
+  tf_playermodelpanel.cpp:290-298; `TfPlayerModelPanel.FallbackItem`, one rule for both).
+- **Every carried item's panel models**: `TfPlayerModelPanel.DisplayModel` (the `EquipItem` rule, now shared) for every
+  class and team (0, RED, BLU — the item panels ask with team 0), its world attachments, and a paint-kit weapon's StatTrak
+  module — for every item instance any player carries, drawn or not.
+- Class models and held weapons were already listed (`GameContent.ModelPaths`, `WeaponModels.AllIn`).
+
+**Measured** with the new `hud-model-loads` probe (the production `VguiHud` over a demo, every 33 ticks, with a loader
+that answers only the preload list, as `MapAssets.Geometry` does), before and after, on the install:
+
+| demo | HUD frames | preload before → after | asked | missing before → after |
+|---|---|---|---|---|
+| `tf2-2026-pub-pov-clean.dem` (POV, soldier) | 852 | 472 → 476 | 13 | 1 (`banner.mdl`) → 0 |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` (POV) | 3647 | 383 → 389 | 21 | 1 (`c_revolver.mdl`, the spy's stock weapon) → 0 |
+| `f12.dem` (STV: no class panel, item panels only) | 3222 | 443 → 450 | 9 | 0 → 0 |
+| `auto-20260817-1720-cp_process_f12.dem` (no class: the null case) | 293 | 126 → 136 | 0 | 0 → 0 |
+
+*The control*: the class panel's model asked and held on both POV demos (the HUD painted a model panel). *Not exercised by
+these demos*: the match doors (no match-start in them) — on the list from the layout, held by the unit test below.
+*Tests*: `DemoModelsTests.NeededAndToPack_AnInstallsHudLayout_HoldItsPanelModelsForTheLevelsLoad` (a synthetic install
+and layout, the lists built the production way, and a set whose loader answers only the preload: the doors load with
+nothing else asking; red first), `AddCarried_AWeaponWithAttachments_ListsItsPanelModels`,
+`NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon`. *Sabotage*: the layout names left off (the layout row),
+the world attachments filtered by the view flag (the carried row), the display model not added (the carried row), the
+stock weapon not added (the stock row). A first sabotage of the stock walk (class + 9) did not redden — not a break:
+`BaseItemForClass` answers the item for such a class too — and was replaced.
 
 Found in B779 review 18. `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
+
+*The filing, as written in review 18:* `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
 (MapAssets.cs:988), and the map load reads `DemoModels.Needed` (LoadedMap.cs:361-365): the class models
 (`GameContent.ModelPaths`), every track's models, viewmodels, held weapons, attached models, and the level-load models
 (DemoModels.cs:154-230). A model named only by a HUD `.res` file — the match doors and the round sign in

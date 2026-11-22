@@ -36,11 +36,123 @@ public static class DemoModels
     /// </remarks>
     private static readonly string[] LevelLoadModels = [.. BoltImpacts.ArrowModels, Disguise.DispenserModel];
 
-    /// <summary><see cref="LevelLoadModels"/>, and the dispenser's break pieces, into one of the two sets.</summary>
+    /// <summary>
+    /// What the HUD's item panels can attach for any item a player carries (B779 review 19, B812): the class panel's
+    /// `EquipItem` model (`TfPlayerModelPanel.DisplayModel`) for every class and team, its world attachments, and a paint-kit
+    /// weapon's StatTrak module.
+    /// </summary>
+    /// <remarks>
+    /// **Carried, not held**: the class panel equips the first valid item of the loadout (`HoldFirstValidItem`), which can be
+    /// a weapon the player never drew, so no held-weapon walk (`WeaponModels.AllIn`) names it — measured with the
+    /// `hud-model-loads` probe on `20150119_2240_cp_process_final_(ovo)_blu.dem`: the recorder's spy revolver,
+    /// `c_revolver.mdl`, missing. The item panels (freeze panel, spectator) show an item a player carries too. Each distinct
+    /// item instance is resolved once.
+    /// </remarks>
+    private static void AddCarriedItemModels(DemoTimeline demo, GameContent game, HashSet<string> paths)
+    {
+        if (game.Weapons.Items is not { } schema)
+        {
+            return;
+        }
+
+        HashSet<(int Definition, ulong ItemId)> seen = [];
+
+        foreach (TimelineFrame frame in demo.Frames)
+        {
+            foreach (ScenePlayer player in frame.Players)
+            {
+                foreach (SceneItem item in player.Items ?? [])
+                {
+                    AddCarried(item, schema, seen, paths);
+                }
+
+                if (player.DisguiseWeaponItem is { } disguise)
+                {
+                    AddCarried(disguise, schema, seen, paths);
+                }
+            }
+        }
+    }
+
+    /// <summary>One carried item's models into <paramref name="paths"/>, once per instance (<paramref name="seen"/>).</summary>
+    /// <param name="item">The item.</param>
+    /// <param name="schema">The schema.</param>
+    /// <param name="seen">The instances done.</param>
+    /// <param name="paths">The list.</param>
+    internal static void AddCarried(SceneItem item, ItemSchema schema, HashSet<(int, ulong)> seen, HashSet<string> paths)
+    {
+        if (item.DefinitionIndex is not { } definition || !seen.Add((definition, item.ItemId))
+            || Hud.TfItemView.From(item, schema) is not { } view)
+        {
+            return;
+        }
+
+        AddItemModels(view, schema, paths);
+    }
+
+    /// <summary>
+    /// What a panel can attach for one item: `TfPlayerModelPanel.DisplayModel` for every class and team, its world
+    /// attachments, and a paint-kit weapon's StatTrak module.
+    /// </summary>
+    private static void AddItemModels(Hud.TfItemView view, ItemSchema schema, HashSet<string> paths)
+    {
+        int definition = view.DefinitionIndex;
+
+        foreach (int team in CarriedTeams)
+        {
+            for (int playerClass = 0; playerClass <= LastClass; playerClass++)
+            {
+                if (Hud.TfPlayerModelPanel.DisplayModel(schema, view, playerClass, team) is { Length: > 0 } model)
+                {
+                    paths.Add(model);
+                }
+            }
+
+            foreach (AttachedModel attached in schema.AttachedModelsFor(definition, team, festivized: true))
+            {
+                if ((attached.DisplayFlags & AttachedModel.WorldModel) != 0 && attached.Model.Length > 0)
+                {
+                    paths.Add(attached.Model);
+                }
+            }
+        }
+
+        if (view.StatTrakModule(schema) is { Length: > 0 } module)
+        {
+            paths.Add(module);
+        }
+    }
+
+    /// <summary>No team (the item panels' `GetPlayerDisplayModel( class, 0 )`), RED and BLU.</summary>
+    private static readonly int[] CarriedTeams = [0, 2, 3];
+
+    /// <summary>The highest player class index; zero is "no class".</summary>
+    private const int LastClass = 9;
+
+    /// <summary><see cref="LevelLoadModels"/>, the dispenser's break pieces, and the HUD panels' layout models, into one of the two sets.</summary>
     private static void AddLevelLoadModels(GameContent game, HashSet<string> paths)
     {
         paths.UnionWith(LevelLoadModels);
         paths.UnionWith(GibsOf(Disguise.DispenserModel, game));
+
+        // **The HUD's own models, which no track names** (B779 review 19, B812): the engine's panels load them from the install
+        // on demand (basemodelpanel.cpp:407, mdlpanel.cpp:185); ours read this preload, so every model a panel's layout names
+        // is on it — the round sign's banner among them, measured missing before (`hud-model-loads`).
+        paths.UnionWith(Hud.HudPanelModels.Named(game.Archives.Read));
+
+        // **And each class's stock weapon**, which the class panel holds when nothing carried can be held
+        // (`HoldFirstValidItem`, tf_playermodelpanel.cpp:290-298) — measured missing before: the spy's `c_revolver.mdl` on
+        // `20150119_2240_cp_process_final_(ovo)_blu.dem`, carried by nobody.
+        if (game.Weapons.Items is { } schema)
+        {
+            for (int playerClass = 1; playerClass <= LastClass; playerClass++)
+            {
+                if (Hud.TfPlayerModelPanel.FallbackItem(schema, playerClass) is { } stock)
+                {
+                    AddItemModels(stock, schema, paths);
+                }
+            }
+        }
     }
 
     /// <summary>Pack every model a demo will show, before anything is drawn.</summary>
@@ -240,6 +352,8 @@ public static class DemoModels
             paths.Add(worn);
         }
 
+        AddCarriedItemModels(demo, game, paths);
+
         return paths;
     }
 
@@ -319,6 +433,8 @@ public static class DemoModels
             {
                 paths.Add(worn);
             }
+
+            AddCarriedItemModels(withItems, game, paths);
         }
 
         return paths;

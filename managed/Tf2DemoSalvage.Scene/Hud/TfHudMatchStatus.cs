@@ -108,6 +108,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
     private VguiFontAmalgam? _playerListFont;
 
+    /// <summary>The layout this element loads, whose model panels name the doors' and the round sign's models.</summary>
+    public const string ResFile = "resource/UI/HudMatchStatus.res";
+
     /// <summary>`m_pMatchStartModelPanel`: the versus doors.</summary>
     public VguiModelPanel MatchStartModelPanel { get; }
 
@@ -156,7 +159,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
         RoundCounter.Visible = useMatchHud;
-        LoadControlSettings("resource/UI/HudMatchStatus.res", context, useMatchHud ? ["if_match"] : null);
+        LoadControlSettings(ResFile, context, useMatchHud ? ["if_match"] : null);
 
         // (:386-395): the lists made again, the "Default" font proportional, and filled.
         InitPlayerList(PlayerListBlue);

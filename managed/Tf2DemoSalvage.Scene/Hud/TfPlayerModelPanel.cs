@@ -386,14 +386,28 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             return;
         }
 
-        // "Some classes only have secondary weapons. Fall back to that." (:294).
-        int? baseItem = schema.BaseItemForClass(CurrentClassIndex, ItemSchema.LoadoutSlotPrimary)
-            ?? schema.BaseItemForClass(CurrentClassIndex, ItemSchema.LoadoutSlotSecondary);
-
-        if (baseItem is { } definition)
+        if (FallbackItem(schema, CurrentClassIndex) is { } fallback)
         {
-            SwitchHeldItemTo(BaseItem(schema, definition));
+            SwitchHeldItemTo(fallback);
         }
+    }
+
+    /// <summary>
+    /// The class's stock item `HoldFirstValidItem` holds when nothing carried can be (:290-298): the primary's base item,
+    /// else — "Some classes only have secondary weapons. Fall back to that." (:294) — the secondary's.
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="playerClass">The class.</param>
+    /// <returns>The item, or null for a class with neither.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can hold (`DemoModels`, B779 review 19).</remarks>
+    public static TfItemView? FallbackItem(ItemSchema schema, int playerClass)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        int? baseItem = schema.BaseItemForClass(playerClass, ItemSchema.LoadoutSlotPrimary)
+            ?? schema.BaseItemForClass(playerClass, ItemSchema.LoadoutSlotSecondary);
+
+        return baseItem is { } definition ? BaseItem(schema, definition) : null;
     }
 
     /// <summary>`HoldItemInSlot` (:307).</summary>
@@ -783,10 +797,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             }
         }
 
-        string? attached = schema.WorldDisplayModel(definition)
-            ?? schema.PlayerDisplayModel(definition, CurrentClassIndex, Team, item.Style(schema));
-
-        if (attached is { Length: > 0 })
+        if (DisplayModel(schema, item, CurrentClassIndex, Team) is { Length: > 0 } attached)
         {
             LoadAndAttachAdditionalModel(attached, item);
 
@@ -803,6 +814,22 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
 
         UpdateHiddenBodyGroups(item);
+    }
+
+    /// <summary>The model `EquipItem` attaches for an item: its world model, else its display model for the class and team.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="item">The item.</param>
+    /// <param name="playerClass">The panel's class.</param>
+    /// <param name="team">The panel's team.</param>
+    /// <returns>The model's path, or null.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can attach (`DemoModels`, B779 review 19).</remarks>
+    public static string? DisplayModel(ItemSchema schema, TfItemView item, int playerClass, int team)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(item);
+
+        return schema.WorldDisplayModel(item.DefinitionIndex)
+            ?? schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, team, item.Style(schema));
     }
 
     /// <summary>`AddCarriedItem` (:1086): a copy, flagged to paint blue when this panel is BLU.</summary>

@@ -267,7 +267,11 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   (LevelSystems.cs:313-315; ViewerPresenter.cs:690-694 returns before the level loads). So our failure can be the
   level's, not the file's: decided once was a class portrait lost for good after one mapless demo. Ours decides once
   a LEVEL — again at the first read after each level's end — which is the engine's verdict wherever our load can answer
-  as its can. What no preload names never loads at all, map or not (B812).
+  as its can. What no preload names never loads at all, map or not — so every model a HUD panel can ask for is now on the
+  preload (B812, fixed in review 19): the HUD layouts' model blocks (the round sign's `banner.mdl`, the doors'
+  `versus_doors.mdl`), each class's stock weapon the class panel falls back to, and every carried item's panel models.
+  *Measured* with the `hud-model-loads` probe on two POV demos: one panel model missing on each before (the sign's banner;
+  the spy's stock `c_revolver.mdl`), none after.
 - *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
 
 ## The Eyes glint (B725, item 3)

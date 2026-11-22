@@ -75,7 +75,8 @@ public sealed class TfClassImage(VguiPanel? parent, string? name) : VguiImagePan
 /// </remarks>
 public sealed class TfHudPlayerClass : VguiEditablePanel
 {
-    private const string ResFile = "resource/UI/HudPlayerClass.res";
+    /// <summary>The layout this element loads, whose model panel's block can name a model (`HudPanelModels`).</summary>
+    public const string ResFile = "resource/UI/HudPlayerClass.res";
     private const int TeamUnassigned = 0;
     private const int ClassUndefined = 0;
     private const int ClassSpy = 8;

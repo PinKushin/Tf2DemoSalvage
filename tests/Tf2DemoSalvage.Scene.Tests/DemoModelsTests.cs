@@ -284,6 +284,134 @@ public sealed class DemoModelsTests
         }
     }
 
+    /// <remarks>
+    /// **The HUD's layout models are on the level's preload** (B779 review 19, B812). The engine's panels load their models
+    /// from the install on demand (basemodelpanel.cpp:407, mdlpanel.cpp:185); ours read the preload (`MapAssets.Geometry`, a
+    /// lookup over `DemoModels.Needed`), so a model only a HUD layout names — the match doors, their lock, the round sign,
+    /// one of them inside the layout's `if_match` block — must be on it. Built the production way: an install folder, its
+    /// `HudMatchStatus.res`, the two lists, and a model set whose loader answers only the preload's paths, as
+    /// `MapAssets.Geometry` does; the doors then load with nothing else having asked. The control: a path no layout names
+    /// is not on the list and does not load.
+    /// </remarks>
+    [Test]
+    public void NeededAndToPack_AnInstallsHudLayout_HoldItsPanelModelsForTheLevelsLoad()
+    {
+        const string doors = "models/vgui/versus_doors.mdl";
+        const string lockModel = "models/vgui/versus_doors_lock.mdl";
+        const string sign = "models/props_ui/banner.mdl";
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-hudmodels-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            File.WriteAllText(Path.Combine(scripts, "spy.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/spy.mdl\"\n}\n");
+            string ui = Directory.CreateDirectory(Path.Combine(tf.FullName, "resource", "UI")).FullName;
+            File.WriteAllText(Path.Combine(ui, "HudMatchStatus.res"), $$"""
+                "Resource/UI/HudMatchStatus.res"
+                {
+                    "MatchDoors" { "ControlName" "CModelPanel" "model" { "modelname" "{{doors}}" "attached_model" { "modelname" "{{lockModel}}" } } }
+                    "if_match" { "RoundSignModel" { "ControlName" "CModelPanel" "model" { "modelname" "{{sign}}" } } }
+                }
+                """);
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
+            {
+                (set.Contains(doors), set.Contains(lockModel), set.Contains(sign)).ShouldBe((true, true, true));
+            }
+
+            HashSet<string> preload = DemoModels.Needed(null, game);
+            PropModels.ModelFrames frames = new(
+                [[new PropVertex(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) }]],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                Skinned: SyntheticSkinnedModel.WithBones("root"));
+            EntityModelSet models = new() { Geometry = path => preload.Contains(path) ? frames : null };
+
+            models.LoadMdl("models/vgui/not_named.mdl").ShouldBeNull("the control: a path no layout names");
+            models.LoadMdl(doors).ShouldNotBeNull();
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// **A carried item's panel models are on the preload** (B779 review 19): the class panel attaches
+    /// `TfPlayerModelPanel.DisplayModel` for its class and team, with the item's world attachments, and the item panels its
+    /// display model with no team — for an item the player may never draw (`HoldFirstValidItem`), so no held-weapon walk names
+    /// it. Here a scout's scattergun, one world attachment and one view attachment: the class's model and the world
+    /// attachment are listed, the view attachment (never drawn by a panel) is not.
+    /// </remarks>
+    [Test]
+    public void AddCarried_AWeaponWithAttachments_ListsItsPanelModels()
+    {
+        Content.Assets.ItemSchema schema = Content.Assets.ItemSchema.Read(System.Text.Encoding.UTF8.GetBytes("""
+            "items_game"
+            {
+                "items"
+                {
+                    "13"
+                    {
+                        "item_slot" "primary" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_scattergun.mdl"
+                        "visuals" { "attached_models" { "0" { "model_display_flags" "1" "model" "models/weapons/scattergun_world_bit.mdl" } "1" { "model_display_flags" "2" "model" "models/weapons/scattergun_view_bit.mdl" } } }
+                    }
+                }
+            }
+            """));
+        Core.Scene.SceneItem item = new(40, "CTFScattergun", 13, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        HashSet<(int, ulong)> seen = [];
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        DemoModels.AddCarried(item, schema, seen, paths);
+
+        paths.ShouldBe(["models/weapons/w_scattergun.mdl", "models/weapons/scattergun_world_bit.mdl"], ignoreOrder: true);
+    }
+
+    /// <remarks>
+    /// **Each class's stock weapon is on the preload** (B779 review 19): the class panel holds the class's base primary,
+    /// else secondary, when nothing carried can be held (`HoldFirstValidItem`, tf_playermodelpanel.cpp:290-298), and a weapon
+    /// nobody carries is named by no walk of the demo — measured missing on a 2015 POV demo, the spy's revolver. Here an
+    /// install whose schema has the scout's base scattergun and a non-base pistol. The control: the non-base item is not
+    /// listed.
+    /// </remarks>
+    [Test]
+    public void NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon()
+    {
+        const string stock = "models/weapons/c_models/c_scattergun.mdl";
+        const string other = "models/weapons/c_models/c_pistol.mdl";
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-stockitems-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            File.WriteAllText(Path.Combine(scripts, "scout.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/scout.mdl\"\n}\n");
+            string items = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "items")).FullName;
+            File.WriteAllText(Path.Combine(items, "items_game.txt"), $$"""
+                "items_game"
+                {
+                    "items"
+                    {
+                        "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "{{stock}}" }
+                        "23" { "item_slot" "secondary" "used_by_classes" { "scout" "1" } "model_player" "{{other}}" }
+                    }
+                }
+                """);
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
+            {
+                (set.Contains(stock), set.Contains(other)).ShouldBe((true, false));
+            }
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
     /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block naming one piece.</summary>
     private static byte[] Breaking(string piece) =>
     [
