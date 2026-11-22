@@ -66,12 +66,6 @@ public sealed partial class FramePresenter
     /// <summary>The overlay frame being built, for the methods <see cref="BuildOverlay"/> calls.</summary>
     private OverlayFrame _overlay;
 
-    /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). The HUD's files are remade the
-    /// next time they are asked for, which is every frame — no restart needed.
-    /// </summary>
-    public string? ChosenHud { get; set; }
-
     /// <summary>Whether the HUD exists yet, for a seek that would run its skip frames.</summary>
     public bool HasHud => _vguiHud is not null && _vguiHost is not null;
 
@@ -110,10 +104,6 @@ public sealed partial class FramePresenter
     /// <summary>The HUD, once built, for the tests of what the frame hands it.</summary>
     internal VguiHud? Hud => _vguiHud;
 
-    // The HUD's stock view of the install, and the install it was made from.
-    private GameArchives? _hudArchives;
-    private GameContent? _hudArchivesOf;
-    private string? _hudArchivesFor;
 
     // Which game events the HUD has heard, so each fires once as playback crosses it.
     private readonly HudEventFeed _hudEvents = new();
@@ -156,23 +146,11 @@ public sealed partial class FramePresenter
             paint: false);
     }
 
-    /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
-    private GameArchives? HudArchives()
-    {
-        if (_game is null)
-        {
-            return null;
-        }
-
-        if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, ChosenHud, StringComparison.Ordinal))
-        {
-            _hudArchives = _game.Archives.WithHud(ChosenHud);
-            _hudArchivesOf = _game;
-            _hudArchivesFor = ChosenHud;
-        }
-
-        return _hudArchives;
-    }
+    /// <summary>
+    /// The files the HUD reads: the install's <see cref="GameContent.HudArchives"/> — the chosen HUD over the stock files, the
+    /// one view the level's preload reads too (B779 review 20 item 1) — remade there when the choice changes.
+    /// </summary>
+    private GameArchives? HudArchives() => _game?.HudArchives;
 
     /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
     /// <returns>The draw list.</returns>

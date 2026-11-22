@@ -89,6 +89,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         public PropModels.ModelFrames? LoadMdl(string path) => Cache?.LoadMdl(path);
 
+        public int LoaderGeneration => Cache?.LoaderGeneration ?? 0;
+
         public IReadOnlyList<int>? PackedOrder(string path) => Cache?.PackedOrder(path);
 
         public int FindBodygroup(string modelPath, string group) => Cache?.FindBodygroup(modelPath, group) ?? -1;
@@ -166,10 +168,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             return;
         }
 
-        // "the first class that can use it" (:330-341), and team 0 (:343).
-        int playerClass = FirstUsingClass(schema, item.DefinitionIndex);
-
-        if (schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, 0, item.Style(schema)) is not { Length: > 0 } model)
+        if (PanelModel(schema, item) is not { Length: > 0 } model)
         {
             return;
         }
@@ -227,6 +226,22 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <summary>`ShouldUseRenderTargetAsIcon` (:1053): festive, or "use_model_cache_icon".</summary>
     private bool ShouldUseRenderTargetAsIcon(ItemSchema schema, TfItemView item) =>
         _isFestivized || (item.Attribute(schema, "use_model_cache_icon") is { } cache && cache.Value != 0f);
+
+    /// <summary>
+    /// The model the item panel shows for an item: `GetPlayerDisplayModel( first class that can use it, 0 )` with its style
+    /// (item_model_panel.cpp:330-343).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="item">The item.</param>
+    /// <returns>The model's path, or null.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can show (`DemoModels`, B779 review 19).</remarks>
+    public static string? PanelModel(ItemSchema schema, TfItemView item)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(item);
+
+        return schema.PlayerDisplayModel(item.DefinitionIndex, FirstUsingClass(schema, item.DefinitionIndex), 0, item.Style(schema));
+    }
 
     /// <summary>
     /// The first set bit of `GetClassUsability()` (:331-340), 0 with none. The bits are the classes of `used_by_classes`,

@@ -351,6 +351,37 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A read in the gap between levels does not decide the next level's root** (B779 review 20 item 5): after a level's end
+    /// the panel's root is undecided (review 18), and a read before the next map binds its loader would decide it invalid
+    /// for the whole level. The verdict is the bound loader's: binding the next one (`EntityModelSet.Geometry`) makes the
+    /// root decided again by the next read. Here a level, its end (`ForgetLevel`, the set's `LevelShutdown`, no loader), a
+    /// read in the gap, the next map's loader, a read. The control: the gap's read found no root.
+    /// </remarks>
+    [Test]
+    public void ModelName_ReadBetweenALevelsEndAndTheNextLoader_IsDecidedAgainByTheBoundLoader()
+    {
+        const string root = "models/player/demo.mdl";
+        PropModels.ModelFrames frames = new(
+            [[new PropVertex(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) }]],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithBones("root"));
+        EntityModelSet models = new() { Geometry = path => path == root ? frames : null };
+        VguiMdlPanel panel = new(null, "model", models);
+
+        panel.SetMDL(root);
+        panel.ForgetLevel();
+        models.LevelShutdown();
+        models.Geometry = EntityModelSet.NoGeometry;
+        panel.ModelName.ShouldBeNull("the control: the gap's read finds nothing");
+
+        models.Geometry = path => path == root ? frames : null;
+
+        panel.ModelName.ShouldBe(root);
+    }
+
+    /// <remarks>
     /// **A root that fails at `SetMDL` stays invalid** (B779 review 17 item 4): `SetMDL( pMDLName )` decides once —
     /// `FindMDL`, then an error model is `MDLHANDLE_INVALID` (mdlpanel.cpp:185-190) — and the draw (:417), the merge
     /// (:836-837) and the header read the handle, never the name again. So a model that becomes loadable later is not drawn

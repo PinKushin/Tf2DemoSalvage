@@ -213,18 +213,30 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// level (mdlpanel.cpp:185-190), so its verdict is the file's. Ours loads from the level's preloaded models
     /// (`EntityModelSet.LoadMdl` over `MapAssets.Geometry`), so a root that failed on a mapless demo's level is asked again
     /// by the first read on the next level — not by a new `SetMDL`, which the HUD skips for the same class. Within a level
-    /// it stays decided (review 17).
+    /// it stays decided (review 17). **And again when the loader changed since the verdict** (review 20 item 5): a read
+    /// between a level's end and the next map's loader asks a loader that has nothing, so its verdict is the gap's; the
+    /// bound loader decides.
     /// </remarks>
     private string? RootPath()
     {
-        if (_rootUndecided)
+        if (_rootUndecided || (_rootAsked is not null && MdlCache.LoaderGeneration != _rootDecidedUnder))
         {
-            _rootUndecided = false;
-            _root.Path = Valid(_rootAsked);
+            Decide();
         }
 
         return _root.Path;
     }
+
+    /// <summary>The verdict on <see cref="_rootAsked"/> under the loader there is now.</summary>
+    private void Decide()
+    {
+        _rootUndecided = false;
+        _rootDecidedUnder = MdlCache.LoaderGeneration;
+        _root.Path = Valid(_rootAsked);
+    }
+
+    /// <summary>The loader (<see cref="IMdlCache.LoaderGeneration"/>) the root's verdict was made under.</summary>
+    private int _rootDecidedUnder;
 
     /// <summary>`FindMDL( pMDLName )` then `IsErrorModel` (:185-190): the name if it loads, else null.</summary>
     private string? Valid(string? modelName) =>
@@ -267,8 +279,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         // keeps no handle, so an invalid root is no root path; a valid one is loaded again by name after a level's end,
         // as the engine's MDL cache still holds it — and an invalid one is decided again then (`RootPath`, review 18).
         _rootAsked = modelName;
-        _rootUndecided = false;
-        _root.Path = Valid(modelName);
+        Decide();
 
         // `m_RootMDL.m_flCycleStartTime = 0.f;` (:169), then `SetPoseParameters( NULL, 0 )` (:172).
         CycleStartTime = 0d;

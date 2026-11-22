@@ -23,7 +23,29 @@ public sealed partial class EntityModelSet
     /// Answers nothing until a map sets it, so the frames drawn before one is open take the same
     /// path as any other rather than a null check at each call site.
     /// </remarks>
-    public Func<string, PropModels.ModelFrames?> Geometry { get; set; } = NoGeometry;
+    public Func<string, PropModels.ModelFrames?> Geometry
+    {
+        get => _geometry;
+        set
+        {
+            _geometry = value;
+            LoaderGeneration++;
+
+            // **A failure remembered under the last loader is that loader's** (B779 review 20 item 5; B363's reason): an ask
+            // made before this one was bound — a panel read between a level's end and the next map — answered from a loader
+            // that had nothing, and must not stand for the file under this one.
+            foreach (string failed in _byModel.Where(static entry => entry.Value.Count == 0).Select(static entry => entry.Key).ToList())
+            {
+                _byModel.Remove(failed);
+            }
+        }
+    }
+
+    private Func<string, PropModels.ModelFrames?> _geometry = NoGeometry;
+
+    /// <inheritdoc/>
+    /// <remarks>Counts the <see cref="Geometry"/> loaders bound: a panel's verdict on a model is the loader's it asked.</remarks>
+    public int LoaderGeneration { get; private set; }
 
     /// <summary>Valve's colour for a brush entity's class, by model path (B219).</summary>
     /// <remarks>

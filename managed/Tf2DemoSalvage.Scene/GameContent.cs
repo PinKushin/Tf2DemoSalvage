@@ -52,6 +52,56 @@ public sealed class GameContent
     /// <summary>Every content source: the VPKs, plus any loose folders beside them.</summary>
     public GameArchives Archives { get; }
 
+    /// <summary>The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193).</summary>
+    /// <remarks>
+    /// **Read by the HUD and by the level's preload alike** (B779 review 20 item 1), through <see cref="HudArchives"/>: the
+    /// preload lists the models the HUD's layouts name, and must read the layouts the HUD draws. Set on the UI thread; a
+    /// change reaches the HUD at its next frame and the preload at the next level's load — the preload is read with the map
+    /// (D86), so a HUD chosen mid-level whose layouts name a model no other layout does draws it from the next load.
+    /// </remarks>
+    public string? ChosenHud
+    {
+        get
+        {
+            lock (_hudLock)
+            {
+                return _chosenHud;
+            }
+        }
+
+        set
+        {
+            lock (_hudLock)
+            {
+                _chosenHud = value;
+            }
+        }
+    }
+
+    /// <summary>The HUD's files: the chosen HUD searched first, then the stock files (`GameArchives.WithHud`).</summary>
+    /// <remarks>Made again only when <see cref="ChosenHud"/> changed; locked, as the map load reads it on a worker.</remarks>
+    public GameArchives HudArchives
+    {
+        get
+        {
+            lock (_hudLock)
+            {
+                if (_hudArchives is null || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
+                {
+                    _hudArchives = Archives.WithHud(_chosenHud);
+                    _hudArchivesFor = _chosenHud;
+                }
+
+                return _hudArchives;
+            }
+        }
+    }
+
+    private readonly System.Threading.Lock _hudLock = new();
+    private string? _chosenHud;
+    private GameArchives? _hudArchives;
+    private string? _hudArchivesFor;
+
     /// <summary>Valve's entity palette from the shipped FGDs, or null when there are none.</summary>
     /// <remarks>
     /// **Editor data, so a dedicated-server or content-only copy has none.** Losing it costs one

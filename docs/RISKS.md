@@ -43294,6 +43294,82 @@ load-at-once row alone).
 false in production for a model no preload listed — so it is fixed here, within the preload design: see B812, with the
 `hud-model-loads` measurement (missing panel models 1 → 0 on each of two POV demos).
 
+**Review 20** (coordinator's thirteen findings on review 19; Gemini's addendum). Each fix below was red first or is
+named as a sabotage that reddens it; the item numbers are the coordinator's.
+1. *The preload read the stock HUD, the HUD drew the chosen one*: one owner now, `GameContent.ChosenHud` and
+   `GameContent.HudArchives` (`WithHud(chosen)`), read by both `FramePresenter`'s HUD and `DemoModels`' layout walk.
+   `ViewerPresenter` hands its choice to the install when it opens and at every change. **Decision**: a HUD changed
+   mid-level reaches the preload at the next level's load, because the preload is read with the map (D86's texture
+   table); the HUD itself switches at once. *Tests*: `DemoModelsTests.Needed_AChosenCustomHud_ListsThatHudsLayoutModelsAlone`
+   (a `custom/` HUD whose layout names another model); `ViewerPresenterTests.SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice`.
+   *Sabotage*: the preload reading `game.Archives` reddens the first; the install-time hand-off dropped, and the
+   after-open hand-off dropped, each redden the second.
+2. *The item panel's model rule was a copy*: `TfEmbeddedItemModelPanel.PanelModel` (`GetPlayerDisplayModel( first
+   class, 0 )`, item_model_panel.cpp:329-342) is used by the panel and the preload; `extra_wearable` is listed through
+   `ItemSchema.ExtraWearableModel`. One method, `DemoModels.AddItemModels`, lists what a panel can ask for one item, for
+   the carried items and the stock weapons alike. *Test*: `DemoModelsTests.AddItemModels_ItemsOfEachShape_ListEveryPanelModel`.
+   *Sabotage*: `PanelModel` not added, the extra wearable not added, the StatTrak module not added — each reddens it.
+3. *The carried wiring untested*: `DemoModels.AddCarriedItemModels(players, schema, paths)` now takes players, walks each
+   player's items and disguise weapon, and is called once from `AddPanelModels`, which both lists run.
+   `DemoModelsTests.AddCarriedItemModels_ItemsAndADisguiseWeapon_ListEachItemsModels`. *Sabotage*: the disguise branch
+   skipped reddens it. **Grok's B195 claim — false**: `Needed`'s `demo` and `ToPack`'s `withItems` were the same timeline
+   at both call sites; the two lists now share `AddPanelModels`, so they cannot differ there, and the probe asserts that
+   `ToPack` holds every listed ask (item 8). *Not unit-tested*: the glue from timeline frames to players — a synthetic
+   frame's players carry no items without `m_hMyWeapons`; the probe's four-demo run covers it.
+4. *One row stood for its definition*: the walk is keyed after the item view is made, on what decides the panels'
+   models — definition, style, paint kit, and whether its strings come from the definition. *Sabotage*: the style left
+   out of the key reddens the new styled-row assertion (a plain and a style-0 rocket launcher; the style row was added
+   because the first sabotage survived); the style and paint kit both left out redden the paint-kit assertion. Keying
+   before `TfItemView.From` is not observable today: `From` rejects only a null definition, which the walk skips first.
+5. *A verdict made between a level's end and the next loader*: reachable (the render loop is held while a map reads, but a
+   UI scrub can reach `ShowMoment`). Two parts: binding a `Geometry` loader forgets the empty entries made under the last
+   one and counts a `LoaderGeneration`; `VguiMdlPanel.RootPath` decides again when the generation moved.
+   *Tests*: `PackedVerticesTests.LoadMdl_AFailureBeforeTheLoaderIsBound_LoadsOnceItIs`,
+   `VguiModelPanelConformanceTests.ModelName_ReadBetweenALevelsEndAndTheNextLoader_IsDecidedAgainByTheBoundLoader`.
+   *Sabotage*: the forget removed reddens both; the generation check made `<` reddens the second alone.
+6. *The Mannpower rune item* — **false**: the powerup items carry `image_inventory` and no model, so the panel never
+   calls `SetMDL` for them.
+7. *Festivized lists mismatched* — **false**: `AttachedModelsFor(festivized: true)` is the plain list plus the festive one
+   (ItemSchema.cs:2197-2203), so asking with it lists both.
+8. *Probe honesty*: the controls are asserted and the run throws when one fails — the class model asked and held
+   (reported NOT APPLICABLE when no frame's local player has a class, as on both f12 demos), an unlisted path answered
+   missing, `ToPack` holding every listed ask; "held" is labelled listed-not-loaded; the HUD reads
+   `GameContent.HudArchives` with no HUD chosen, as the preload does; the usage names the pub demo. **The layout census
+   is measured each run** (Gemini's addendum): every `.res` the HUD read is walked for model blocks and a file outside
+   `HudPanelModels.Layouts` fails the run. *Sabotage*: `HudMatchStatus.res` dropped from `Layouts` fails it on the pub demo.
+9. *Secondary-only stock weapon*: the stock row now has a spy with only a secondary base item. *Sabotage*: the secondary
+   arm of `FallbackItem` removed reddens `NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon`.
+10. *The refused-path row*: it counts loader reads, asks the refused path twice, and checks a real model still loads.
+    *Sabotage*: the refused path stored as an empty `_byModel` entry reddens it; the refusal's memo removed reddens the
+    allocation row instead (the packer refuses it again, so nothing is counted, but the ask allocates).
+11. *The walk's cost at load* (measurements/2026-11-22-b779-panel-preload.md; Release, warm, one run each):
+
+    | demo | frames | `Needed` | `ToPack` | carried walk alone (run once in each) |
+    |---|---|---|---|---|
+    | `tf2-2026-pub-pov-clean.dem` | 21,220 | 437 ms | 310 ms | 121 ms (342 paths) |
+    | `20150119_2240_cp_process_final_(ovo)_blu.dem` | 111,632 | 525 ms | 292 ms | 179 ms (243 paths) |
+    | `f12.dem` | 106,219 | 662 ms | 390 ms | 262 ms (303 paths) |
+    | `auto-20260817-1720-cp_process_f12.dem` | 2,400 | 72 ms | 20 ms | 3 ms (18 paths) |
+
+    About half a second of a long demo's level load is the walk, twice. Not changed here: sharing one walk between the two
+    lists is a follow-up, measured.
+12. *`versus_doors_lock.mdl`* is marked synthetic in the layout row's remark.
+13. *The cut-off duplicate sentence in B812* removed.
+
+**Re-measured, review 20** (measurements/2026-11-22-b779-panel-preload.md; every 33 ticks, controls asserted):
+
+| demo | preload | asked | not listed | `.res` read | with model blocks | outside `Layouts` | class control |
+|---|---|---|---|---|---|---|---|
+| `tf2-2026-pub-pov-clean.dem` | 476 | 13 | 0 | 35 | `HudMatchStatus.res` | 0 | held |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` | 389 | 21 | 0 | 36 | `HudMatchStatus.res` | 0 | held |
+| `f12.dem` | 450 | 9 | 0 | 34 | `HudMatchStatus.res` | 0 | not applicable |
+| `auto-20260817-1720-cp_process_f12.dem` | 136 | 0 | 0 | 34 | `HudMatchStatus.res` | 0 | not applicable |
+
+*The census, corrected*: of the three `Layouts`, only `HudMatchStatus.res` names a model path on the stock install.
+`HudPlayerClass.res` and `ItemModelPanel.res` hold model panels whose models are set in code, so they name none — the
+addendum's "three layouts with model panels" is right about panels and not about paths. No other `.res` the HUD read
+names one. *Not measured*: a custom HUD's layouts (the owner's install was left out on purpose, as for every reference).
+
 ## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — FIXED (on B779's branch, review 19)
 
 **Fixed within the preload design** (owner's coordinator, review 19: it is B779's own claim, so it finishes there, D261). The
@@ -43328,9 +43404,14 @@ nothing else asking; red first), `AddCarried_AWeaponWithAttachments_ListsItsPane
 `NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon`. *Sabotage*: the layout names left off (the layout row),
 the world attachments filtered by the view flag (the carried row), the display model not added (the carried row), the
 stock weapon not added (the stock row). A first sabotage of the stock walk (class + 9) did not redden — not a break:
-`BaseItemForClass` answers the item for such a class too — and was replaced.
+`BaseItemForClass` answers the item for such a class too — and was replaced. (`AddCarried_…` is now
+`AddItemModels_AWeaponWithAttachments_ListsTheWorldAttachmentAlone`; review 20 below widened the rows.)
 
-Found in B779 review 18. `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
+**"Missing" and "held" in this table mean LISTED or not, not loaded**: the probe's loader answers from the preload list
+and reads no file, so a listed `.mdl` the install lacks still counts as held. Whether a listed model loads is the level
+load's own check (review 20 item 8).
+
+Found in B779 review 18.
 
 *The filing, as written in review 18:* `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
 (MapAssets.cs:988), and the map load reads `DemoModels.Needed` (LoadedMap.cs:361-365): the class models

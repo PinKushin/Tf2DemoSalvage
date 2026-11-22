@@ -170,6 +170,30 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    /// <remarks>
+    /// **The install holds the HUD choice the HUD and the level's preload both read** (B779 review 20 item 1;
+    /// `GameContent.ChosenHud`): a choice made before the install opens reaches it when it opens, and one made after reaches
+    /// the open install. The control: a different choice after the load replaced the first.
+    /// </remarks>
+    [Test]
+    public void SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            loader.SetChosenHud("custom/before");
+            loader.LoadDemo(WriteDemo("hud")).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            game.ChosenHud.ShouldBe("custom/before", "chosen before the install opened");
+
+            loader.SetChosenHud("custom/after");
+
+            game.ChosenHud.ShouldBe("custom/after");
+        }
+    }
+
     [Test]
     public void LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing()
     {

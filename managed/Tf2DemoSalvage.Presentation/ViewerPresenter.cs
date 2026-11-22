@@ -446,7 +446,7 @@ public sealed partial class ViewerPresenter : IDisposable
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.
-        _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
+        ChooseHud(launch.Hud ?? _settings.ChosenHud);
 
         // `--windows` (D217 step 4): the window cache beside the whole timeline, for every demo this run opens.
         CheckWindows = launch.Windows;
@@ -459,9 +459,23 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <returns>What to say on the status line, or null for nothing.</returns>
     public string? SetChosenHud(string? hud)
     {
-        _effects.ChosenHud = hud;
+        ChooseHud(hud);
 
         return _settingsOwner.SetChosenHud(hud);
+    }
+
+    /// <summary>The HUD the user chose, held until the install opens; the install's copy is what the HUD and the preload read.</summary>
+    private string? _chosenHud;
+
+    /// <summary>Records the chosen HUD and hands it to the open install (`GameContent.ChosenHud`, B779 review 20 item 1).</summary>
+    private void ChooseHud(string? hud)
+    {
+        _chosenHud = hud;
+
+        if (_game is { } game)
+        {
+            game.ChosenHud = hud;
+        }
     }
 
     /// <summary>The frame presenter this owns.</summary>
@@ -723,6 +737,7 @@ public sealed partial class ViewerPresenter : IDisposable
             // because it is slow — which is what the comment here used to say, and is the difference
             // between "this could be made eager" and "there is nothing to hurry".
             _game = _levels.Install(_maps.GameFolder);
+            _game.ChosenHud = _chosenHud;
 
             _world.TexturesAreCurrent = false;
 

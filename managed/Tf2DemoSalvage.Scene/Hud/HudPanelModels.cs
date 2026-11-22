@@ -41,14 +41,22 @@ public static class HudPanelModels
     /// <param name="read">The install's reader.</param>
     /// <returns>Distinct paths, in layout order.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="read"/> is null.</exception>
-    public static IReadOnlyList<string> Named(Func<string, byte[]?> read)
+    public static IReadOnlyList<string> Named(Func<string, byte[]?> read) => Named(read, Layouts);
+
+    /// <summary>Every model the given layouts' model blocks name — the `hud-model-loads` probe's census of every file the HUD read.</summary>
+    /// <param name="read">The install's reader.</param>
+    /// <param name="layouts">The `.res` files.</param>
+    /// <returns>Distinct paths, in layout order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="read"/> or <paramref name="layouts"/> is null.</exception>
+    public static IReadOnlyList<string> Named(Func<string, byte[]?> read, IEnumerable<string> layouts)
     {
         ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(layouts);
 
         List<string> named = [];
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string layout in Layouts)
+        foreach (string layout in layouts)
         {
             if (read(layout) is not { Length: > 0 } bytes)
             {

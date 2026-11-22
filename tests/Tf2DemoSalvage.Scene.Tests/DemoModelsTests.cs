@@ -287,8 +287,9 @@ public sealed class DemoModelsTests
     /// <remarks>
     /// **The HUD's layout models are on the level's preload** (B779 review 19, B812). The engine's panels load their models
     /// from the install on demand (basemodelpanel.cpp:407, mdlpanel.cpp:185); ours read the preload (`MapAssets.Geometry`, a
-    /// lookup over `DemoModels.Needed`), so a model only a HUD layout names — the match doors, their lock, the round sign,
-    /// one of them inside the layout's `if_match` block — must be on it. Built the production way: an install folder, its
+    /// lookup over `DemoModels.Needed`), so a model only a HUD layout names — the match doors, an attached model (a synthetic
+    /// `versus_doors_lock.mdl`: the install's layout attaches none), the round sign, one of them inside the layout's
+    /// `if_match` block — must be on it. Built the production way: an install folder, its
     /// `HudMatchStatus.res`, the two lists, and a model set whose loader answers only the preload's paths, as
     /// `MapAssets.Geometry` does; the doors then load with nothing else having asked. The control: a path no layout names
     /// is not on the list and does not load.
@@ -346,7 +347,7 @@ public sealed class DemoModelsTests
     /// attachment are listed, the view attachment (never drawn by a panel) is not.
     /// </remarks>
     [Test]
-    public void AddCarried_AWeaponWithAttachments_ListsItsPanelModels()
+    public void AddItemModels_AWeaponWithAttachments_ListsTheWorldAttachmentAlone()
     {
         Content.Assets.ItemSchema schema = Content.Assets.ItemSchema.Read(System.Text.Encoding.UTF8.GetBytes("""
             "items_game"
@@ -361,11 +362,9 @@ public sealed class DemoModelsTests
                 }
             }
             """));
-        Core.Scene.SceneItem item = new(40, "CTFScattergun", 13, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
-        HashSet<(int, ulong)> seen = [];
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
 
-        DemoModels.AddCarried(item, schema, seen, paths);
+        DemoModels.AddItemModels(new Hud.TfItemView(13, 6, new Dictionary<int, Core.Scene.EconAttributeValue>()), schema, paths);
 
         paths.ShouldBe(["models/weapons/w_scattergun.mdl", "models/weapons/scattergun_world_bit.mdl"], ignoreOrder: true);
     }
@@ -374,14 +373,15 @@ public sealed class DemoModelsTests
     /// **Each class's stock weapon is on the preload** (B779 review 19): the class panel holds the class's base primary,
     /// else secondary, when nothing carried can be held (`HoldFirstValidItem`, tf_playermodelpanel.cpp:290-298), and a weapon
     /// nobody carries is named by no walk of the demo — measured missing on a 2015 POV demo, the spy's revolver. Here an
-    /// install whose schema has the scout's base scattergun and a non-base pistol. The control: the non-base item is not
-    /// listed.
+    /// install whose schema has the scout's base scattergun (a primary), the spy's base revolver (the spy has no primary, so
+    /// the secondary arm, :294-296), and a non-base pistol. The control: the non-base item is not listed.
     /// </remarks>
     [Test]
     public void NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon()
     {
         const string stock = "models/weapons/c_models/c_scattergun.mdl";
         const string other = "models/weapons/c_models/c_pistol.mdl";
+        const string secondaryOnly = "models/weapons/c_models/c_revolver.mdl";
         DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-stockitems-");
 
         try
@@ -396,6 +396,7 @@ public sealed class DemoModelsTests
                     {
                         "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "{{stock}}" }
                         "23" { "item_slot" "secondary" "used_by_classes" { "scout" "1" } "model_player" "{{other}}" }
+                        "24" { "item_slot" "secondary" "baseitem" "1" "used_by_classes" { "spy" "1" } "model_player" "{{secondaryOnly}}" }
                     }
                 }
                 """);
@@ -403,13 +404,166 @@ public sealed class DemoModelsTests
 
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
             {
-                (set.Contains(stock), set.Contains(other)).ShouldBe((true, false));
+                (set.Contains(stock), set.Contains(secondaryOnly), set.Contains(other)).ShouldBe((true, true, false));
             }
         }
         finally
         {
             tf.Delete(recursive: true);
         }
+    }
+
+    /// <remarks>
+    /// **The preload reads the HUD the viewer draws** (B779 review 20 item 1): the chosen HUD over the stock files
+    /// (`GameContent.HudArchives`), the view the HUD's own frame reads — not every `custom/` folder at once. An install with
+    /// a stock layout and two custom HUDs, each naming its own doors: chosen, the first HUD's doors and not the other's;
+    /// none chosen, the stock doors and neither custom's. The control: the custom HUDs are installed under `custom/`.
+    /// </remarks>
+    [Test]
+    public void Needed_AChosenCustomHud_ListsThatHudsLayoutModelsAlone()
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-customhud-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            File.WriteAllText(Path.Combine(scripts, "spy.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/spy.mdl\"\n}\n");
+            Layout(Path.Combine(tf.FullName, "resource", "UI"), "models/vgui/versus_doors.mdl");
+            string chosen = Path.Combine(tf.FullName, "custom", "chosen_hud");
+            Layout(Path.Combine(chosen, "resource", "UI"), "models/custom/chosen_doors.mdl");
+            Layout(Path.Combine(tf.FullName, "custom", "other_hud", "resource", "UI"), "models/custom/other_doors.mdl");
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            game.ChosenHud = chosen;
+            HashSet<string> withChosen = DemoModels.Needed(null, game);
+            game.ChosenHud = null;
+            HashSet<string> stock = DemoModels.Needed(null, game);
+
+            (withChosen.Contains("models/custom/chosen_doors.mdl"), withChosen.Contains("models/custom/other_doors.mdl"))
+                .ShouldBe((true, false));
+            (stock.Contains("models/vgui/versus_doors.mdl"), stock.Contains("models/custom/chosen_doors.mdl"),
+                stock.Contains("models/custom/other_doors.mdl")).ShouldBe((true, false, false));
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+
+        static void Layout(string ui, string doors)
+        {
+            Directory.CreateDirectory(ui);
+            File.WriteAllText(
+                Path.Combine(ui, "HudMatchStatus.res"),
+                $$"""
+                "Resource/UI/HudMatchStatus.res" { "MatchDoors" { "model" { "modelname" "{{doors}}" } } }
+                """);
+        }
+    }
+
+    /// <summary>
+    /// A schema for the carried-item rows: a scout scattergun whose world model differs from its player model (the Hot Hand's
+    /// shape), with a festive-only world attachment and an extra wearable; a per-class pistol; a paint-kit StatTrak weapon.
+    /// </summary>
+    private static Content.Assets.ItemSchema CarriedSchema() => Content.Assets.ItemSchema.Read(System.Text.Encoding.UTF8.GetBytes("""
+        "items_game"
+        {
+            "items"
+            {
+                "13"
+                {
+                    "item_slot" "primary" "used_by_classes" { "scout" "1" }
+                    "model_player" "models/weapons/c_scattergun.mdl" "model_world" "models/weapons/w_scattergun.mdl"
+                    "extra_wearable" "models/weapons/scattergun_extra.mdl"
+                    "visuals" { "attached_models_festive" { "0" { "model_display_flags" "1" "model" "models/weapons/festive_lights.mdl" } } }
+                }
+                "23"
+                {
+                    "item_slot" "secondary" "used_by_classes" { "scout" "1" "engineer" "1" }
+                    "model_player_per_class" { "scout" "models/weapons/pistol_scout.mdl" "engineer" "models/weapons/pistol_engineer.mdl" }
+                }
+                "15" { "item_slot" "primary" "used_by_classes" { "heavy" "1" } "model_player" "models/weapons/minigun.mdl" "static_attrs" { "weapon_uses_stattrak_module" "models/weapons/stattrack.mdl" } }
+                "18"
+                {
+                    "item_slot" "primary" "used_by_classes" { "soldier" "1" }
+                    "model_player_per_class" { "soldier" "models/weapons/rocket_plain.mdl" }
+                    "visuals" { "styles" { "0" { "model_player_per_class" { "soldier" "models/weapons/rocket_style.mdl" } } } }
+                }
+            }
+            "attributes"
+            {
+                "542" { "name" "item style override" }
+                "834" { "name" "paintkit_proto_def_index" "stored_as_integer" "1" }
+                "2001" { "name" "weapon_uses_stattrak_module" }
+            }
+        }
+        """));
+
+    /// <remarks>
+    /// **Every model a panel can ask for one item** (B779 review 20 items 2 and 7): the class panel's `EquipItem` model, which is
+    /// the world model when the item has one, and the item panel's `GetPlayerDisplayModel( first class, 0 )`
+    /// (item_model_panel.cpp:329-342) — two different paths for the Hot Hand's shape; the extra wearable
+    /// (tf_playermodelpanel.cpp, `EquipAllWearables`); a festive-only world attachment, which `AttachedModelsFor` adds to the
+    /// plain list under `is_festivized` (econ_entity.cpp:1107-1131), so asking with it lists both; each class's
+    /// per-class model; a paint-kit weapon's StatTrak module.
+    /// </remarks>
+    [Test]
+    public void AddItemModels_ItemsOfEachShape_ListEveryPanelModel()
+    {
+        Content.Assets.ItemSchema schema = CarriedSchema();
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        DemoModels.AddItemModels(new Hud.TfItemView(13, 6, new Dictionary<int, Core.Scene.EconAttributeValue>()), schema, paths);
+        DemoModels.AddItemModels(new Hud.TfItemView(23, 6, new Dictionary<int, Core.Scene.EconAttributeValue>()), schema, paths);
+        DemoModels.AddItemModels(
+            new Hud.TfItemView(15, 11, new Dictionary<int, Core.Scene.EconAttributeValue> { [834] = new(834, 350) }) { IteratesDefinition = true },
+            schema,
+            paths);
+
+        paths.ShouldBe(
+            [
+                "models/weapons/w_scattergun.mdl", "models/weapons/c_scattergun.mdl", "models/weapons/scattergun_extra.mdl",
+                "models/weapons/festive_lights.mdl", "models/weapons/pistol_scout.mdl", "models/weapons/pistol_engineer.mdl",
+                "models/weapons/minigun.mdl", "models/weapons/stattrack.mdl",
+            ],
+            ignoreOrder: true);
+    }
+
+    /// <remarks>
+    /// **What players carry, and a spy's disguise weapon** (B779 review 20 items 3 and 4): every frame's players' items and
+    /// disguise weapons are walked, each instance once, and each model-deciding item once — keyed after its view is made, so
+    /// two rows of one definition with different styles or paint kits are both resolved. Here one player carrying the
+    /// scattergun and disguised with the pistol, then the same definition again with a paint kit.
+    /// </remarks>
+    [Test]
+    public void AddCarriedItemModels_ItemsAndADisguiseWeapon_ListEachItemsModels()
+    {
+        Content.Assets.ItemSchema schema = CarriedSchema();
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        Core.Scene.SceneItem scattergun = new(40, "CTFScattergun", 13, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        Core.Scene.SceneItem pistol = new(41, "CTFPistol", 23, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        Core.Scene.SceneItem plainMinigun = new(42, "CTFMinigun", 15, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        Core.Scene.SceneItem kitMinigun = new(
+            43, "CTFMinigun", 15, new Core.Scene.EconAttributeWire([new(834, 350)], [], HasValidItemId: false), IsWeapon: true);
+        Core.Scene.SceneItem plainRocket = new(44, "CTFRocketLauncher", 18, new Core.Scene.EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true);
+        Core.Scene.SceneItem styledRocket = new(
+            45, "CTFRocketLauncher", 18,
+            new Core.Scene.EconAttributeWire([new(542, BitConverter.SingleToInt32Bits(0f))], [], HasValidItemId: false),
+            IsWeapon: true);
+
+        DemoModels.AddCarriedItemModels(
+            [
+                new Core.Scene.ScenePlayer(1, 0f, 0f, 0f, Team: 2, Health: 100, PlayerClass: 8) { Items = [scattergun], DisguiseWeaponItem = pistol },
+                new Core.Scene.ScenePlayer(2, 0f, 0f, 0f, Team: 3, Health: 100, PlayerClass: 6) { Items = [plainMinigun, kitMinigun] },
+                new Core.Scene.ScenePlayer(3, 0f, 0f, 0f, Team: 2, Health: 100, PlayerClass: 3) { Items = [plainRocket, styledRocket] },
+            ],
+            schema,
+            paths);
+
+        paths.ShouldContain("models/weapons/c_scattergun.mdl");
+        paths.ShouldContain("models/weapons/pistol_scout.mdl", "the disguise weapon");
+        paths.ShouldContain("models/weapons/stattrack.mdl", "the paint-kit row, after a plain row of its definition");
+        paths.ShouldContain("models/weapons/rocket_plain.mdl", "the control: the plain row of the styled definition");
+        paths.ShouldContain("models/weapons/rocket_style.mdl", "the styled row (style 0, the first in the list), after a plain row of its definition");
     }
 
     /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block naming one piece.</summary>

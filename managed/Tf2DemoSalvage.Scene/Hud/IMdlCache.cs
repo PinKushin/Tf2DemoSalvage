@@ -26,6 +26,12 @@ public interface IMdlCache : IModelBodygroups
     public PropModels.ModelFrames? LoadMdl(string path) => FindMdl(path);
 
     /// <summary>
+    /// Which loader <see cref="LoadMdl"/> reads through: changed when a level's preload is bound, so a verdict made under
+    /// another loader is made again (B779 review 20 item 5). Constant for a cache with one loader.
+    /// </summary>
+    public int LoaderGeneration => 0;
+
+    /// <summary>
     /// The studio render context's one view target the panels' draws share with the world's models (B725 5d), or null for a
     /// cache with no render context behind it (a panel then keeps its own).
     /// </summary>

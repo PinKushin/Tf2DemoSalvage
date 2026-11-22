@@ -211,6 +211,26 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
+    /// **A failure remembered before the level's loader is bound does not outlive the bind** (B779 review 20 item 5): a read
+    /// between a level's end and the next map's `Geometry` asks a loader that has nothing (`NoGeometry`), and that answer is
+    /// the gap's, not the file's. Binding the next loader forgets it, as B363's `Precache` forgets an empty entry. The
+    /// controls: the gap's ask failed, and the loader alone has the model.
+    /// </remarks>
+    [Test]
+    public void LoadMdl_AFailureBeforeTheLoaderIsBound_LoadsOnceItIs()
+    {
+        EntityModelSet models = new();
+
+        models.LoadMdl(Path).ShouldBeNull("the control: nothing bound yet");
+        int generation = models.LoaderGeneration;
+
+        models.Geometry = Skinned;
+
+        models.LoaderGeneration.ShouldBe(generation + 1);
+        models.LoadMdl(Path).ShouldNotBeNull();
+    }
+
+    /// <remarks>
     /// **A refused path is not a model** (B779 review 18 item 6): remembered apart from the packed set, so `Count` and
     /// `Paths` — the "entity models: N packed" line and the device's upload — see the models alone. The control: the
     /// refused path is answered null.
@@ -221,10 +241,15 @@ public sealed class PackedVerticesTests
         const string sprite = "sprites/glow01.vmt";
         EntityModelSet models = new() { Geometry = Skinned };
 
-        models.LoadMdl(Path);
+        int reads = 0;
+        models.Geometry = path => { reads++; return Skinned(path); };
+        models.LoadMdl(Path).ShouldNotBeNull("a real model still loads");
         int count = models.Count;
+        int readsBefore = reads;
         models.LoadMdl(sprite).ShouldBeNull("the control");
+        models.LoadMdl(sprite).ShouldBeNull();
 
-        (models.Count, models.Paths.Contains(sprite)).ShouldBe((count, false));
+        (models.Count, models.Paths.Contains(sprite), reads).ShouldBe((count, false, readsBefore), "refused without asking the loader");
+        models.LoadMdl("models/other.mdl").ShouldNotBeNull("another real model still loads after the refusal");
     }
 }
