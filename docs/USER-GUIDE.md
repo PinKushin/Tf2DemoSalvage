@@ -109,10 +109,15 @@ You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 
 `settings.cfg` works this way.
 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
-`r_screenfademinsize` and others) is refused from a config, the console or the command line while `sv_cheats` is `0`, and
-the log shows TF2's own line: *Can't use cheat cvar … in multiplayer, unless the server has sv_cheats set to 1.* Set
-`sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. Setting `sv_cheats` back to `0` returns
-every cheat cvar to its default. The viewer's own keys (`CTRL+0`, `CTRL+1`, `CTRL+2`) and its menus still work without it.
+`mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while
+`sv_cheats` is `0`, and the log shows TF2's own line: *Can't use cheat cvar … in multiplayer, unless the server has
+sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. Setting
+`sv_cheats` back to `0` returns every cheat cvar to its default, wherever it was set. The viewer's own keys (`CTRL+0`,
+`CTRL+1`, `CTRL+2`, `CTRL+w`) and its menus still work without it, and a value in the viewer's own `settings.cfg` is kept
+between runs as the menus' choices are.
+
+A cvar's name is found in any case, as at TF2's console: `CL_SHOWFPS 1` in a config, a bind or the console sets
+`cl_showfps`, and `+DEMO_TIMESCALE 8` on the command line works like the lower-case one.
 
 `mat_queue_mode` picks which thread draws each frame, as TF2's own setting of that name does. The default, `-1`, is
 TF2's: on a machine with two or more physical CPU cores the viewer draws on a second thread (mode `2`), and on one core
@@ -163,6 +168,19 @@ shader; no TF2 model does, so they change nothing on TF2's players. `r_glint_pro
 makes on the CPU with that setting, instead of the one TF2 renders on the GPU (the viewer computes both on
 the CPU), and `r_glint_alwaysdraw 1` draws it on every eye however small on screen
 (TF2 skips an eye under 20 pixels wide). Both default to `0`.
+
+`mat_wireframe`, also the **Wireframe** item in the menu and the `CTRL+w` key, draws triangles in place of shaded
+surfaces. As in TF2, players, weapons and props draw with the studio render's own wireframe material: flat cyan edges,
+unlit, with no fog and no depth test, so their edges show through walls. A model forced to another material, such as a
+gold corpse, keeps that material. The map's walls, floors and doors draw in wireframe fill with their own materials,
+where TF2's own choice for them is not yet established (B803). Set from your config, a bind or the command line it
+needs `sv_cheats 1` (above); the menu item and `CTRL+w` do not.
+
+`r_3dsky`, `cl_detaildist` and `cl_detailfade` take effect the moment they are set, from your config, the console, an
+exec'd cfg or a key, as do `r_lightmap_bicubic`, `mat_disable_bloom`, `r_shader_srgb`, `cl_drawmonitors`,
+`mat_force_tonemap_scale` and `cl_drawhud`. Before, a set made while a demo played changed nothing until the next load.
+A live `cl_detaildist` or `cl_detailfade` stays under a map's own detail cap and lasts until the next level load, where
+TF2's overrides the cap and reverts at the next level (B800).
 
 Sound settings are read from your TF2 config, or from `settings.cfg`, or for one run from the command line
 (`tf2demoview <demo> +cl_voice_filter bob`). `snd_surround_speakers` defaults to `-1`, TF2's headphone panning; `2`

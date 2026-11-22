@@ -1,4 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.69
+# Tf2DemoSalvage 0.1.0-beta.70
+
+## Changes in 0.1.0-beta.70
+
+None of these changes was verified by looking against a TF2 frame. Each follows TF2's published source or its binaries, read by disassembly, and is held by tests. Each merge in this release passed the merge gate: all twelve test assemblies with no failures, then 93 of 93 UI tests. The last gate to print its counts (B784 and B787): core 3167, cli 75, logging 37, fonts 5, animation 5455, scene 5270, audio 672, presentation 1672, content 2176, corpus 273, rendering 1725, viewer 186; the UI suite at 93 passed of 93. Every later merge reported the UI suite at 93 of 93, and the last two ran phase 1 on the combined main after it.
+
+- **`mat_wireframe` is TF2's cheat setting, and a model now draws TF2's own wireframe (B788, B791).** A `mat_wireframe 1` in a config, on a bound key or on the command line is refused while `sv_cheats` is 0, as in TF2, and the log prints TF2's line; put `+sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +mat_wireframe 1`. Before, a config's line set nothing, and a bound key fell through to the viewer's own switch, so it toggled wireframe whatever `sv_cheats` said. The menu item and the default `CTRL+w` key still work without cheats, `sv_cheats 0` now clears a wireframe a config set as well as the menu's, and the viewer's own settings file keeps its value between runs. Under it, players, weapons and props draw the studio render's own wireframe material: flat cyan edges, unlit, with no fog and no depth test, so they show through walls. A model with a forced material, such as a gold corpse, keeps that material. The map's brushwork and doors still draw their own materials in wireframe fill (see *Known gaps*).
+- **Nine more settings take effect as you set them (B790).** `r_lightmap_bicubic`, `mat_disable_bloom`, `r_shader_srgb`, `cl_drawmonitors`, `mat_force_tonemap_scale`, `cl_drawhud`, `r_3dsky`, `cl_detaildist` and `cl_detailfade` were handed to the picture once, when it was built, so a set made while a demo played changed nothing until the next load. Set in your config, at the console, in an exec'd cfg or on a key, each now reaches the picture at once, as in TF2, and the log names it. A live `cl_detaildist` or `cl_detailfade` still stays under a map's own cap and survives the next level load (see *Known gaps*).
+- **A bullet's impact sounds and marks the surface as TF2's does (B796, B797).** A server's bullet that hits a static prop — a crate, a barrel, a sign — now makes the prop's impact sound and leaves its decal; the viewer dropped it. An impact TF2's own test refuses now makes no sound and leaves no mark either: that is one whose damage bits numerically equal the struck entity's team number, which for a plain bullet is RED's 2, and a disguised player's disguise team is asked too. A server impact that names no surface of its own sounds as the surface it hit, as TF2's does.
+- **An impact takes its random numbers in TF2's order (B785, B786).** TF2 draws the ricochet's 1-to-10 number for every impact it accepts and only then tests whether the damage was a bullet; the viewer tested first, so a non-bullet hit's sound started one number early and could play a different wave, volume and pitch. A tracer's whiz also no longer clears a wave of `Bullets.DefaultNearmiss`, which TF2's never does. The numbers are still the viewer's own: no demo records TF2's (B503).
+- **A HUD sound repeats between runs, and two sounds no longer share a stream (B784, B787).** A HUD sound's numbers were seeded from a hash .NET changes every launch, so the same demo sounded different each time, and every later sound of that script could be dealt a different wave; the seed is the name's stable hash now. An entity's sound at an entity of 64 or more shared its stream with another entity's at a later tick, and could share a patch record, so one's stop silenced the other's change; the tick and the entity now key one stream each. Every draw moves from beta.69's, and all of them remain the viewer's own (B503).
+- **A sound whose script the level does not declare now plays nothing (B789).** TF2's emitter draws and plays nothing for a name no loaded script declares; the viewer played it with the wave and values its producer had drawn against another level's catalog. A change of such a sound no longer starts one of its own, and its stop no longer names the producer's wave, which could silence another voice playing it. The log says at debug level which script was missing.
+- **A landing's sounds start and move at the landing's tick (B793).** When a landing's frame also read an earlier batch of sounds, the landing kept that batch's tick, so its own sounds started at the wrong moment and were placed where entities stood then. They now start and follow at the landing's tick.
+- **A cvar typed in capitals now works, as at TF2's console (B791).** `CL_SHOWFPS 1` in a config, a bind or the console set nothing; a typed name is now found in any case and stored under the name TF2 uses, and `+DEMO_TIMESCALE 8` on the command line works like the lower-case one. This is every client cvar, not only the cheats. A key bound to `sv_cheats` also takes the key from a viewer default now, where it lost it.
 
 ## Changes in 0.1.0-beta.69
 
@@ -1098,6 +1111,9 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Merge gate (beta.70):** the last gate to print its counts (B784 and B787, 47ee5346b) passed all twelve assemblies with 0 failed: core 3167, cli 75, logging 37, fonts 5, animation 5455, scene 5270, audio 672, presentation 1672, content 2176, corpus 273, rendering 1725, viewer 186; the UI suite at 93 of 93. The five merges through B790 each reported every assembly at or above its floor with 0 failed; the last two (B785 and B786, B796 and B797) ran phase 1 on the combined main after their phase 2, and the B796 and B797 merge's UI rerun gave 84 passed, 9 skipped and 0 failed of 93 after a first run read LFS pointers in its worktree. The wireframe merge (B788 and B791) also gave 84 passed, 9 skipped, 0 failed of 93.
+  Nothing in this release was compared with a TF2 frame on screen.
+
 - **Merge gate (beta.58):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5390, scene 3477, audio 383, presentation 1334, content 1896, corpus 242, rendering 1470, viewer 163), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed (both phases ran on the release commit's code, 946e6cae). During this release's earlier gate on the water work, one UI test (a cursor-drift check) failed once by a single pixel on a shared desktop and passed alone and on a full rerun (docs/RISKS.md, the entry on the speed slider).
   The water, fog, decal and lighting changes are held by tests that read exact values and by the before/after boxes in *Changes in 0.1.0-beta.58*; the water and under-water changes were also compared against a TF2 capture of `ctf_2fort` at the same cameras, and the `koth_toxic` vat against one of its own. The decal-light and layer-order changes are not compared against real TF2 on screen.
 
@@ -1240,20 +1256,28 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Faces and wireframe (beta.69), open:**
+- **Wireframe and the debug views (beta.70), open:**
   under `mat_wireframe` the world's brushes and brush entities (doors, `func_brush`) keep their own materials in wireframe fill, where what TF2 draws for them is not yet read (B803);
   the other debug views (`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`) are not yet checked against TF2's cheat gate or its drawing (B806);
   under `mat_wireframe` a model wearing a forced material (a gold corpse) draws as edges, where TF2 may draw it solid — not yet read (B808);
   a map's own `Wireframe` material would draw the textures it names, where TF2's wireframe shader reads none (B807; TF2's own wireframe material names none, so nothing differs on screen);
-  `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set while a demo plays do not reach the picture until the device is rebuilt (B790);
+  the viewer's own `CTRL+w` key turns wireframe on with `sv_cheats` at 0, which TF2's cheat gate would refuse; that exemption is filed as a question for the owner (B792).
+- **Sound draws (beta.70), open:**
+  an impact beyond 1024 units still deals its wave, where TF2's makes no sound at all (B783);
+  four sound producers seed from one range, so two of them can draw the same stream (B794);
+  an impact TF2's `Impact` would refuse (a stealthed, disguised or invulnerable player, or one whose hitboxes the decal trace misses) still draws the ricochet number and can ricochet (B795);
+  a stop of a patch the deck does not hold names the producer's wave, which can stop another voice playing it (B798);
+  the client's own bullets carry damage type 0 rather than the weapon's bits, which is not yet worked through everywhere the bits are read (B799);
+  a server impact on an entity the client does not have still sounds (B801);
+  a server world impact's stand-in trace stops at grates, where TF2's clip passes them (B802).
+- **Settings and the command line (beta.70), open:**
+  a live `cl_detaildist` or `cl_detailfade` stays under the map's cap and survives the next level load, where TF2's overrides the cap and reverts at the next level (B800);
+  a `+cheat` on the command line is checked before your configs are read, so `sv_cheats 1` in `autoexec.cfg` does not admit a `+mat_wireframe 1` on the same command line (B811).
+- **Faces (beta.69), open:**
   no draw writes its depth into destination alpha as TF2's main view and 3D sky do, and nothing here reads it yet, so no drawn value changes (B781);
   the shared eye target is set once a frame in our draw order, where TF2 sets it at every draw of every view (B780);
   a model panel's face mesh is drawn without its flex (B779), and the StatTrak module's eyes and target in a player model panel are not TF2's (B778);
   a Teeth material's mouth values are set per draw, where TF2 leaves them in the shared material (B777).
-- **Sound draws (beta.69), open:**
-  a script sound whose script is missing from the level's catalog still plays, where TF2 plays nothing (B789);
-  the stream seed for an entity of 64 or higher is the same as a lower-numbered entity's at a later tick, so the two draw the same values (B787);
-  an impact draws the ricochet number only for bullet damage, where TF2 draws it for any in-range impact it accepts (B786), a tracer whiz clears a wave TF2's does not (B785), HUD sound streams are seeded with a hash that changes each run (B784), and an impact beyond 1024 units still deals its wave (B783).
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
