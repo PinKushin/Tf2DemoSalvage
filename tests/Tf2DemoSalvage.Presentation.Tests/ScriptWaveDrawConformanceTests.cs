@@ -35,7 +35,7 @@ public sealed class ScriptWaveDrawConformanceTests
     {
         SoundScriptEntry entry = Entry("Test.One", "one.wav");
 
-        SceneSound dealt = new ScriptWaveDeck().Deal(ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: true), Scripts(entry));
+        SceneSound dealt = new ScriptWaveDeck().Deal(ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: true), Scripts(entry)).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(7);
         control.RandomFloat(entry.Volume.Low, entry.Volume.High);
@@ -60,7 +60,7 @@ public sealed class ScriptWaveDrawConformanceTests
 
         deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(1), 1, Origin, emitted: true), scripts);
         deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(2), 2, Origin, emitted: true), scripts);
-        SceneSound last = deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(3), 3, Origin, emitted: true), scripts);
+        SceneSound last = deck.Deal(ExplosionSounds.FromWorldAt(entry, Seeded(3), 3, Origin, emitted: true), scripts).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(3);
         control.RandomFloat(entry.Volume.Low, entry.Volume.High);
@@ -84,7 +84,7 @@ public sealed class ScriptWaveDrawConformanceTests
         UniformRandomStream random = Seeded(RefusedFourthSeed);
         random.RandomFloat(0f, 1f);
 
-        SceneSound dealt = new ScriptWaveDeck().Deal(ExplosionSounds.FromWorldAt(entry, random, 1, Origin, emitted: true), Scripts(entry));
+        SceneSound dealt = new ScriptWaveDeck().Deal(ExplosionSounds.FromWorldAt(entry, random, 1, Origin, emitted: true), Scripts(entry)).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(RefusedFourthSeed);
         control.RandomFloat(0f, 1f);
@@ -122,7 +122,7 @@ public sealed class ScriptWaveDrawConformanceTests
         deck.Deal(ExplosionSounds.FromWorldAt(shrapnel, Seeded(99), 4, Origin, emitted: true), scripts);
         deck.Available(shrapnel.Name, 2).ShouldBe(1, "the condition: the earlier ricochet left one wave");
         deck.Deal(sounds[0], scripts);
-        SceneSound dealt = deck.Deal(sounds[1], scripts);
+        SceneSound dealt = deck.Deal(sounds[1], scripts).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(seed);
         control.RandomInt(1, 10);
@@ -164,7 +164,7 @@ public sealed class ScriptWaveDrawConformanceTests
         ScriptWaveDeck deck = new();
         deck.Deal(ExplosionSounds.FromWorldAt(scrape, Seeded(99), 90, Origin, emitted: true), scripts);
         deck.Available(scrape.Name, 2).ShouldBe(1, "the condition: the emitted sound left one wave");
-        SceneSound dealt = deck.Deal(loop, scripts);
+        SceneSound dealt = deck.Deal(loop, scripts).ShouldNotBeNull();
 
         UniformRandomStream control = EntitySounds.Stream(100, corpse);
         float scrapeVolume = control.RandomFloat(scrape.Volume.Low, scrape.Volume.High);
@@ -199,7 +199,7 @@ public sealed class ScriptWaveDrawConformanceTests
         ScriptWaveDeck deck = new();
         deck.Deal(sounds[0], scripts);
         deck.Deal(ExplosionSounds.FromWorldAt(other, Seeded(99), 5, Origin, emitted: true), scripts);
-        SceneSound dealt = deck.Deal(sounds[1], scripts);
+        SceneSound dealt = deck.Deal(sounds[1], scripts).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(seed);
         control.RandomInt(1, 10);
@@ -214,12 +214,12 @@ public sealed class ScriptWaveDrawConformanceTests
     }
 
     /// <remarks>
-    /// An impact whose script the deal-time catalog does not hold plays nothing in the engine (`GetParametersForSoundEx`
-    /// fails, `SoundEmitterSystem.cpp:465-468`; ours still plays it, B789), but it is still the follower its shrapnel was
-    /// held for, so the head goes with it rather than waiting for a reload.
+    /// An impact whose script the deal-time catalog does not hold plays nothing (`GetParametersForSoundEx` fails,
+    /// `SoundEmitterSystem.cpp:465-468`, B789), but it is still the follower its shrapnel was held for, so the head goes
+    /// with it rather than waiting for a reload.
     /// </remarks>
     [Test]
-    public void Deal_AnImpactWhoseScriptIsMissingAtDealTime_ReleasesItsShrapnel()
+    public void Deal_AnImpactWhoseScriptIsMissingAtDealTime_PlaysNothingAndReleasesItsShrapnel()
     {
         SoundScriptEntry shrapnel = Entry(ImpactSounds.Shrapnel, "bounce1.wav", "bounce2.wav");
         SoundScriptEntry impact = Entry("Test.Impact", "x.wav", "y.wav");
@@ -231,7 +231,7 @@ public sealed class ScriptWaveDrawConformanceTests
         deck.Deal(sounds[0], level);
         deck.HeadsHeld.ShouldBe(1, "the condition: the shrapnel is held for its impact");
 
-        deck.Deal(sounds[1], level).ShouldBe(sounds[1]);
+        deck.Deal(sounds[1], level).ShouldBeNull();
         deck.HeadsHeld.ShouldBe(0);
     }
 
@@ -266,7 +266,7 @@ public sealed class ScriptWaveDrawConformanceTests
         deck.Deal(ExplosionSounds.FromWorldAt(shrapnel, Seeded(99), 4, Origin, emitted: true), scripts);
         deck.Deal(sounds[0], scripts);
         deck.Clear();
-        SceneSound dealt = deck.Deal(sounds[1], scripts);
+        SceneSound dealt = deck.Deal(sounds[1], scripts).ShouldNotBeNull();
 
         UniformRandomStream control = Seeded(seed);
         control.RandomInt(1, 10);
@@ -399,7 +399,7 @@ public sealed class ScriptWaveDrawConformanceTests
             Pitch = 100,
         };
 
-        SceneSound dealt = new ScriptWaveDeck().Deal(patch, Scripts(entry));
+        SceneSound dealt = new ScriptWaveDeck().Deal(patch, Scripts(entry)).ShouldNotBeNull();
 
         float scriptVolume = Seeded(7).RandomFloat(entry.Volume.Low, entry.Volume.High);
         (dealt.Volume, dealt.Pitch).ShouldBe((0.5f * scriptVolume, 100));
@@ -430,8 +430,8 @@ public sealed class ScriptWaveDrawConformanceTests
         SceneSound sound = ExplosionSounds.FromWorldAt(entry, Seeded(7), 1, Origin, emitted: true);
         ScriptWaveDeck deck = new();
 
-        SceneSound first = deck.Deal(sound, Scripts(entry));
-        SceneSound second = deck.Deal(sound, Scripts(entry));
+        SceneSound first = deck.Deal(sound, Scripts(entry)).ShouldNotBeNull();
+        SceneSound second = deck.Deal(sound, Scripts(entry)).ShouldNotBeNull();
 
         int firstWave = Numbers(entry, available: 3).Wave;
         (int secondPlace, int soundLevel) = Numbers(entry, available: 2);

@@ -42429,7 +42429,30 @@ fallback, the config's bind claims the action so the fallback is not offered, an
 TF2's own outcome, but the menu still shows that key as the item's shortcut (B791 review 5, Fable). Only the menu click
 works then.
 
-## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
+## B798 — a stop of a patch the deck does not hold names the producer's wave, which can stop another voice (2026-11-21) — OPEN
+
+Found in B789's review (round 3, Fable). `ScriptWaveDeck.Named` (`ScriptWaveDeck.cs`, ~:182-185) returns a stop
+unchanged when its patch is not held — a start never dealt, or a patch `ForgetPlaying` forgot on a reload or on a swap
+to a catalog that still declares the script — so the stop carries the wave its producer drew, and `Start`'s stop branch
+silences the first voice on that entity and channel playing that wave. In the engine a patch that was shut down
+(`CSoundControllerImp::SystemReset`, `soundenvelope.cpp:862-878`) is not playing, so a later `Shutdown` is a no-op
+(`:480`), and no stop is issued at all. B789 closed the undeclared-script case; this is the declared one. *Read from
+published source; not measured.*
+
+## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `ScriptWaveDeck.Deal` returns nothing for a script sound whose script the catalog does not declare (still
+releasing the head it followed), and every caller (`SoundPresenter.Dealt`: the pass's scheduled and emitted starts, a
+skip frame's deal count and hash) plays and counts nothing for it. A CHANGE of a patch whose script the catalog lacks
+plays nothing either, where it fell through to a start of its own (review 1, Fable); and its STOP stops nothing, where
+it named the producer's wave and could stop another voice playing it (review 2, Fable;
+`Update_APatchTheCatalogDeclaresOrNotThenAStop_SilencesOnlyItsDeclaredStart`, red before: 1 silenced). Tests:
+`Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared` and its emitted twin (red before: the undeclared one
+started; the declared row the control), `Update_APatchTheCatalogDeclaresOrNotThenAChange_PlaysNothingWhenUndeclared`
+(red before: 1 start), and `Deal_AnImpactWhoseScriptIsMissingAtDealTime_PlaysNothingAndReleasesItsShrapnel`. The skip
+frame's count and hash, a log line's, are untested. Not verified by listening.
+
+**As filed:**
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
 (`game/shared/SoundEmitterSystem.cpp:465-468`): `if ( !soundemitterbase->GetParametersForSoundEx( ep.m_pSoundName,

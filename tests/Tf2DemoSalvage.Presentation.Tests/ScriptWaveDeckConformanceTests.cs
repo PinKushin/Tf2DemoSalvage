@@ -178,6 +178,95 @@ public sealed class ScriptWaveDeckConformanceTests
         played.ShouldBe(["a.wav", "b.wav", "c.wav"]);
     }
 
+    /// <remarks>
+    /// B789. `EmitSoundByHandle` (`SoundEmitterSystem.cpp:465-468`): `if ( !GetParametersForSoundEx( … ) ) return;` — a
+    /// script the level's catalog does not declare plays nothing, whatever its producer drew against another catalog.
+    /// The control is the same sound with its script declared.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(10, 0)]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 20, Listener, Right, now: 0.3d);
+
+        return sink.Started.Count;
+    }
+
+    /// <remarks>
+    /// B789, a patch: its start played nothing, so its later change names nothing playing. The change must not fall
+    /// through to a start of its own: its emit returns at `EmitSoundByHandle`'s failed lookup
+    /// (`SoundEmitterSystem.cpp:465-470`) before any `SND_CHANGE_*` handling (`:474`). The
+    /// declared row is the control: its start plays, and — this sink holding no voice — its change finds nothing playing
+    /// and falls through to a second start, as `S_AlterChannel` returning 0 does.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 2)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_APatchTheCatalogDeclaresOrNotThenAChange_PlaysNothingWhenUndeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 6, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
+
+        presenter.Schedule = new SoundSchedule([loop, loop with { Tick = 30, ChangesVolume = true, Volume = 0.5f }]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        return sink.Started.Count;
+    }
+
+    /// <remarks>
+    /// B789, a patch's stop: its start played nothing, so its stop names nothing — not the wave its producer drew, which
+    /// another voice on the key could be playing (review 2, Fable). The declared row is the control: its stop names the
+    /// wave its start played.
+    /// </remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_APatchTheCatalogDeclaresOrNotThenAStop_SilencesOnlyItsDeclaredStart(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 6, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
+        loop = loop with { WaveDraw = loop.WaveDraw! with { Scaled = true, Kept = true } };
+
+        presenter.Schedule = new SoundSchedule([loop, loop with { Tick = 30, IsStop = true }]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        return sink.Silenced.Count;
+    }
+
+    /// <remarks>The same for a sound the client emits during play, the pass's other road to the deck (B789).</remarks>
+    [TestCase(true, ExpectedResult = 1)]
+    [TestCase(false, ExpectedResult = 0)]
+    public int Update_AnEmittedScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared(bool declared)
+    {
+        List<string> played = [];
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav");
+        SoundPresenter presenter = Presenter(played, declared ? entry : entry with { Name = "Test.Elsewhere" });
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(10, 0) with { EntityIndex = 9 });
+        presenter.Update(sink, 20, Listener, Right, now: 0.3d);
+
+        return sink.Started.Count;
+    }
+
     [Test]
     public void Update_AnEmittedSoundBetweenTwoScheduledOnes_IsDealtInTickOrder()
     {
