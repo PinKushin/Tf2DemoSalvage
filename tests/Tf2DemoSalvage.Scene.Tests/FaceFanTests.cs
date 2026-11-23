@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>Which edges of a fanned face are the polygon's own (B803).</summary>
@@ -53,4 +56,49 @@ public sealed class FaceFanTests
     public void Outline_OfUnmarkedTriangles_IsEveryEdge() =>
         FaceFan.Outline([new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)])
             .ShouldBe([0u, 1u, 1u, 2u, 2u, 0u]);
+
+    /// <remarks>
+    /// **A vertex count that is not whole triangles is refused** (B803 review 1, Fable): the fourth vertex's partner would be
+    /// index 4, past the end of a four-vertex buffer, which the GPU reads as whatever follows.
+    /// </remarks>
+    [TestCase(4)]
+    [TestCase(5)]
+    public void Outline_OfAVertexCountThatIsNotWholeTriangles_Throws(int count) =>
+        Should.Throw<ArgumentException>(() => FaceFan.Outline([.. Enumerable.Repeat(new WorldVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), count)]));
+
+    /// <remarks>
+    /// **A face starts at each triangle whose first corner's edge is the polygon's** (B803 review 1): a fan's later triangles
+    /// open on a diagonal. A quad in the plane z = 2, wound so its cross product points down, and a triangle in x = 5 wound
+    /// so it points along −x, each with its vertex normal the other way: the plane takes the vertex normal's side, unit
+    /// length, and its distance from the origin along it.
+    /// </remarks>
+    [Test]
+    public void Faces_OfAFannedQuadAndATriangle_AreTwoPlanesOnTheirNormalsSide()
+    {
+        WorldVertex Corner(float x, float y, float z, bool faceEdge, (float X, float Y, float Z) normal) =>
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: normal.X, NormalY: normal.Y, NormalZ: normal.Z, FaceEdge: faceEdge);
+
+        (float, float, float) up = (0f, 0f, 1f);
+        (float, float, float) east = (1f, 0f, 0f);
+
+        FacePlane[] faces = FaceFan.Faces(
+        [
+            Corner(0f, 0f, 2f, true, up), Corner(0f, 4f, 2f, true, up), Corner(4f, 4f, 2f, false, up),
+            Corner(0f, 0f, 2f, false, up), Corner(4f, 4f, 2f, true, up), Corner(4f, 0f, 2f, true, up),
+            Corner(5f, 0f, 0f, true, east), Corner(5f, 4f, 0f, true, east), Corner(5f, 0f, 4f, true, east),
+        ]);
+
+        faces.ShouldBe([new FacePlane(0, 6, 0f, 0f, 1f, 2f), new FacePlane(6, 3, 1f, 0f, 0f, 5f)]);
+    }
+
+    /// <remarks>
+    /// **The engine's brush-model cull, `dot − dist ≥ −0.01`** (`engine.dll` `FUN_1800dcb20`, the surface loop before any
+    /// draw): the plane z = 0 faces an eye above it, and one 0.005 below, and not one 0.02 below or further.
+    /// </remarks>
+    [TestCase(10f, true)]
+    [TestCase(-0.005f, true)]
+    [TestCase(-0.02f, false)]
+    [TestCase(-10f, false)]
+    public void FacesEye_AtAHeightAboveOrBelowThePlane_IsTheEnginesBackfaceTest(float z, bool expected) =>
+        new FacePlane(0, 3, 0f, 0f, 1f, 0f).FacesEye(3f, -7f, z).ShouldBe(expected);
 }
