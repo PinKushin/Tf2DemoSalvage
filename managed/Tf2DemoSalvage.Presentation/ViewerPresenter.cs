@@ -615,10 +615,10 @@ public sealed partial class ViewerPresenter : IDisposable
                 catch (Exception failure) when (failure is IOException or InvalidDataException)
                 {
                     // The load's own catch (`Apply`), here on the frame's path (B814 review 3, Sonnet): an archive that
-                    // fails to read leaves the model it failed on, and every model not reached, to pack on sight (the
-                    // packing unregisters the failed read, B814 review 4), rather than ending the frame. The sound
-                    // precache and the corpse record after it are skipped: sounds decode at first play, and seeks replay
-                    // corpses (D179) until the next load.
+                    // fails to read ends the precache, not the frame. Not from the packing: the loader it binds looks up
+                    // models the map read and cannot throw one (B814 review 5, Fable). What the precache had not reached
+                    // packs on sight; the sound precache and the corpse record after a throw are skipped, so sounds
+                    // decode at first play and seeks replay corpses (D179) until the next load.
                     _log.LogWarning(failure, "{Message}", $"precaching the demo again on {mapName} after the lost device");
                 }
             }

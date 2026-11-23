@@ -206,18 +206,7 @@ public sealed partial class EntityModelSet
         if (staticsNow)
         {
             _staticsPacked = true;
-
-            try
-            {
-                added |= PackCounted(_staticProps, load);
-            }
-            catch
-            {
-                // A read that failed leaves the statics to pack again at the next `Add` (B814 review 4): the ones packed
-                // stay packed, and the one that failed is tried again.
-                _staticsPacked = false;
-                throw;
-            }
+            added |= PackCounted(_staticProps, load);
         }
 
         // Their lighting with them, as the level loads (B607), not on each one's first draw — on its own clock, after the
@@ -275,15 +264,6 @@ public sealed partial class EntityModelSet
         List<(SceneProp Prop, PropModels.ModelFrames Model, List<List<WorldBatch>> Frames)> loaded = [];
         int reserve = 0;
 
-        // **A read that fails is undone, and what was read before it still packs** (B814 review 4, Fable, Sonnet): each
-        // path is registered before its read, so a throw left it, and every path read before it, registered with no frames,
-        // and none packed again until the next level. The failing path is unregistered so a later `Add` tries it again; the
-        // exception is rethrown once the rest are packed.
-        string? reading = null;
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failed = null;
-
-        try
-        {
         foreach (SceneProp prop in props)
         {
             // **Brush entities pack like studio models, because by here they are models.** `*12`
@@ -305,17 +285,12 @@ public sealed partial class EntityModelSet
             added = true;
             Grown = true;
 
-            reading = prop.ModelPath;
-
             // Stryker disable once : a mutant that empties the guard body leaves 'model'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (load(prop.ModelPath) is not { Geometry.Count: > 0 } model)
             {
-                reading = null;
                 continue;
             }
-
-            reading = null;
 
             _frames[prop.ModelPath] = model;
                 _raw[prop.ModelPath] = model.Geometry[0];
@@ -342,12 +317,6 @@ public sealed partial class EntityModelSet
                     shadowFrames));
                 reserve += shadow.Sum(frame => frame.Count);
             }
-        }
-        }
-        catch (Exception failure) when (reading is not null)
-        {
-            _byModel.Remove(reading);
-            failed = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure);
         }
 
         // **Reserved once for every model this call packs, then filled** (finding 80). Grown model by model, the list
@@ -538,9 +507,6 @@ public sealed partial class EntityModelSet
             // path re-files exactly the ones whose frames changed (finding 82).
             _filedLast.Clear();
         }
-
-        // The read that failed, now that what was read before it is packed.
-        failed?.Throw();
 
         return added;
     }

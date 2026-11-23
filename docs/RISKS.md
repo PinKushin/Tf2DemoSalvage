@@ -44404,6 +44404,14 @@ both, leaving the statics flag set reddens the second). The catch's comment now 
 corpse record too. Left: the `InvalidDataException` arm is unreachable from the two precaches, which catch it
 themselves (Fable), kept to match `Apply`; an `UnauthorizedAccessException` still ends the frame, as it ends a load.
 
+**Review 5** (Fable, Sonnet; Gemini and Grok pending at the time of writing). *Review 4's packing fix was reversed*: the
+only loaders production binds (`LevelSystems`: `content.Geometry`, `NoGeometry`) look up models the map read already
+(`MapAssets.Geometry` is a dictionary lookup), so `load(path)` cannot throw `IOException`, and the half-state review 4
+described is not one the viewer reaches (Fable); the fix guarded a path production never runs (D180), and it made a
+read that throws every time be retried and rethrown every frame (Sonnet). `EntityModels.Packing.cs` and its tests are
+back as they were. The reload catch's comment no longer credits the packing: an `IOException` there comes from the
+precache's other reads (which are not traced), and what it had not reached packs on sight.
+
 **As filed:**
 
 Found in B779 review 27 (Sonnet), filed in review 28. Pre-existing.

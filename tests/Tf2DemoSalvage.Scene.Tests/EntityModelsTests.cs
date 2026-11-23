@@ -38,52 +38,6 @@ public sealed class EntityModelsTests
         models.Vertices[0].Depth.ShouldBe(0f, 1e-4f);
     }
 
-    /// <remarks>
-    /// **A model whose read fails is tried again; the ones read before it are packed** (B814 review 4, Fable, Sonnet): a
-    /// pack registered each path before reading it, so an `IOException` on the second left the first registered with no
-    /// frames and the second marked seen, and neither ever packed until the next level. The control: the same three with a
-    /// loader that never fails pack nine corners.
-    /// </remarks>
-    [Test]
-    public void Add_AModelWhoseReadFails_PacksTheOnesBeforeItAndTriesItAgain()
-    {
-        SceneProp[] three = [Prop("models/a.mdl"), Prop("models/b.mdl", x: 10f), Prop("models/c.mdl", x: 20f)];
-        EntityModelSet control = new();
-        control.Add(three, OneTriangle);
-        control.Vertices.Count.ShouldBe(9, "the control: three models of three corners");
-
-        EntityModelSet models = new();
-
-        Should.Throw<System.IO.IOException>(() => models.Add(
-            three, path => path == "models/b.mdl" ? throw new System.IO.IOException("b is unreadable") : OneTriangle(path)));
-
-        models.Vertices.Count.ShouldBe(3, "a, read before b, is packed");
-
-        models.Add(three, OneTriangle);
-
-        models.Vertices.Count.ShouldBe(9);
-    }
-
-    /// <remarks>
-    /// **A static prop whose read fails is packed at the next `Add`** (B814 review 4, Sonnet): the once-a-level statics
-    /// flag was set before their pack, so a throw left every static after it unpacked for the level. The control: the
-    /// first `Add` packs the static read before the failing one.
-    /// </remarks>
-    [Test]
-    public void Add_AStaticPropWhoseReadFails_IsPackedAtTheNextAdd()
-    {
-        EntityModelSet models = new() { StaticProps = [Prop("models/s1.mdl"), Prop("models/s2.mdl", x: 10f)] };
-
-        Should.Throw<System.IO.IOException>(() => models.Add(
-            [], path => path == "models/s2.mdl" ? throw new System.IO.IOException("s2 is unreadable") : OneTriangle(path)));
-
-        models.Vertices.Count.ShouldBe(3, "the control: s1, read before s2, is packed");
-
-        models.Add([], OneTriangle);
-
-        models.Vertices.Count.ShouldBe(6);
-    }
-
     [Test]
     public void AModelIsPackedOnce_HoweverManyEntitiesWearIt()
     {
