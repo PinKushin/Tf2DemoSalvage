@@ -814,7 +814,7 @@ public sealed class ViewerSessionTests
         {
             refused.Window.WireframeTicked = refused.Session.SetWireframe;
             refused.WithDevice();
-            refused.Device.Wireframe.ShouldBeFalse("the control: cheats off in the configs, the launch line is refused");
+            refused.Device.Wireframe.ShouldBe(0, "the control: cheats off in the configs, the launch line is refused");
         }
 
         using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+mat_wireframe", "1");
@@ -822,7 +822,7 @@ public sealed class ViewerSessionTests
 
         rig.WithDevice();
 
-        rig.Device.Wireframe.ShouldBeTrue();
+        rig.Device.Wireframe.ShouldBe(1);
     }
 
     /// <remarks>
@@ -1010,7 +1010,7 @@ public sealed class ViewerSessionTests
 
         rig.WithDevice();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>
@@ -1061,7 +1061,7 @@ public sealed class ViewerSessionTests
 
         rig.WithDevice();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>

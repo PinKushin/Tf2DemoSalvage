@@ -43255,7 +43255,9 @@ On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
 
 ### Review 5 (2026-11-23)
 
-On `fix/b803-wireframe-3-r1` at `d6d7af98a`, then rebased onto main. Same rules.
+On `fix/b803-wireframe-3-r1` at `d6d7af98a`, then rebased onto main (`963f3734a`) with no textual conflict. One semantic
+one: four of main's B811 assertions in `ViewerSessionTests` read `IRenderDevice.Wireframe` as a `bool`, which B803 made
+the ConVar's integer; they now assert 0 for off and 1 for on, the same claims.
 
 1. **The sliver floor far from the origin** (Fable, Grok). *Fixed*: a triangle is no area when its sine is at most
    1e-4 **or** its cross product is within 4 units in the last place of the corners' largest coordinate times the sum
