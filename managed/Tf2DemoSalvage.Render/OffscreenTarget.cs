@@ -177,6 +177,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// </param>
     /// <param name="bicubicLightmap">`r_lightmap_bicubic` for this draw (B679); every draw sets it, so none inherits it.</param>
     /// <param name="specular">Valve's <c>mat_specular</c> for this draw (B720 part 5 review).</param>
+    /// <param name="shotDecals">The game's decals for this draw, as <c>Device3D</c> uploads them, or none (B803).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -205,7 +206,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float? toneMapScale = null,
         VolumeFog? heightFog = null,
         bool bicubicLightmap = false,
-        bool specular = true)
+        bool specular = true,
+        (IReadOnlyList<WorldVertex> Vertices, IReadOnlyList<WorldBatch> Batches)? shotDecals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -225,6 +227,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             world.DrawDetail = detail;
             world.DrawBumped = bumped;
             world.DrawWorld = drawWorld;
+            world.Wireframe = Wireframe;
             world.Seconds = Seconds;
 
             // **Textures first, because the shader clips on their alpha.** With none bound the sample
@@ -233,6 +236,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _uploaded = assets;
             world.UploadGeometry(_device, vertices, batches);
             world.Overlays = decals ?? [];
+            world.UploadShotDecals(_device, _context, shotDecals?.Vertices ?? [], shotDecals?.Batches ?? [], []);
             world.SetCamera(
                 _device, _context, matrix, surfaceColours, specular, fullbright,
                 debug, fog: fog);
@@ -1106,8 +1110,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary><c>r_glint_alwaysdraw</c> and <c>r_glint_procedural</c> for <see cref="DrawModelPose"/> (B725).</summary>
     internal Scene.GlintSwitches Glint { get; set; }
 
-    /// <summary><c>mat_wireframe</c> for <see cref="DrawModelPose"/>.</summary>
-    internal bool Wireframe { get; set; }
+    /// <summary><c>mat_wireframe</c>'s value for <see cref="DrawModelPose"/> and <see cref="DrawWorld"/>, 0 off (B803).</summary>
+    internal int Wireframe { get; set; }
 
     /// <summary>Draws decals on the model the last <see cref="DrawModelPose"/> drew, as <c>Device3D</c> does after it.</summary>
     /// <param name="vertices">The decal's corners.</param>

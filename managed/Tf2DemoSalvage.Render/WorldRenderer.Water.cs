@@ -819,7 +819,7 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>The raster a water material draws with: back faces culled, as the <c>Water</c> shader leaves them (B657).</summary>
     /// <param name="material">The material.</param>
-    /// <returns>The water cull, or both sides for a <c>$nocull</c> material; the wireframe twin under <c>mat_wireframe</c>.</returns>
+    /// <returns>The water cull, or both sides for a <c>$nocull</c> material.</returns>
     /// <remarks>
     /// The shader's shadow state turns culling off only in the editor (<c>water.cpp:393-397</c>, "In edit mode, use
     /// nocull"; that the default is on is read from that line and measured against TF2, shaderlib being unpublished). A

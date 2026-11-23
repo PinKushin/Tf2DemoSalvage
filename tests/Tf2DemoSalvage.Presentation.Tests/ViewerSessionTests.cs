@@ -222,10 +222,10 @@ public sealed class ViewerSessionTests
         int redraws = rig.Window.Count("Redraw");
 
         rig.Session.SetWireframe(true);
-        rig.Device.Wireframe.ShouldBeTrue();
+        rig.Device.Wireframe.ShouldBe(1);
         rig.Session.SetWireframe(false);
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
         // The settings record each for this run too (B791), on their own log line.
         rig.Log.Lines.Where(static line => line.StartsWith("[render] mat_wireframe", StringComparison.Ordinal))
             .ShouldBe(["[render] mat_wireframe 1", "[render] mat_wireframe 0"]);
@@ -303,13 +303,13 @@ public sealed class ViewerSessionTests
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue("a refused cheat is still the console's answer");
-        bool refused = rig.Device.Wireframe;
+        int refused = rig.Device.Wireframe;
         rig.Session.KeyPressed(Key("F6", static _ => false));
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
-        bool cheated = rig.Device.Wireframe;
+        int cheated = rig.Device.Wireframe;
         rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
 
-        (refused, cheated, rig.Device.Wireframe).ShouldBe((false, true, false));
+        (refused, cheated, rig.Device.Wireframe).ShouldBe((0, 1, 0));
         rig.Window.Told.Where(static told => told.StartsWith("ShowWireframe", StringComparison.Ordinal))
             .ShouldBe(["ShowWireframe True", "ShowWireframe False"]);
     }
@@ -317,6 +317,7 @@ public sealed class ViewerSessionTests
     /// <remarks>
     /// **A bind's `mat_wireframe 2` keeps its value** (B791 review 13, Fable): the menu's tick it causes finds the setting
     /// already on and records nothing over it, so `toggle mat_wireframe 2 0` later compares against "2", as TF2's would.
+    /// The device takes the 2 too (B803): `engine.dll` `FUN_1800dc720` draws 2 with the z-buffered material.
     /// </remarks>
     [Test]
     public void KeyPressed_ABindOfMatWireframeTwoWithCheats_KeepsTheValueTwo()
@@ -326,8 +327,26 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeTrue("the control: the set reached the device");
+        rig.Device.Wireframe.ShouldBe(2);
         rig.Settings.Current.ConVarText("mat_wireframe").ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **`mat_wireframe` 1 then 2 reaches the device as 2** (B803): the menu's item is already ticked, so it reports no change,
+    /// and the value has to reach the device by the ConVar's own route. Without it the overlay stays the value 1's.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_MatWireframeTwoAfterOne_TellsTheDeviceTwo()
+    {
+        using Rig rig = BuildWithAutoexec(
+            "sv_cheats 1\nbind \"F6\" \"mat_wireframe 1\"\nbind \"F7\" \"mat_wireframe 2\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.KeyPressed(Key("F6", static _ => false)).ShouldBeTrue();
+        int first = rig.Device.Wireframe;
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        (first, rig.Device.Wireframe).ShouldBe((1, 2));
     }
 
     /// <remarks>
@@ -341,11 +360,11 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("sv_cheats 1\nmat_wireframe 2\nbind \"F7\" \"toggle mat_wireframe 2 0\"\n");
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
         rig.WithDevice();
-        rig.Device.Wireframe.ShouldBeTrue("the control: the config's line reached the device");
+        rig.Device.Wireframe.ShouldBe(2, "the control: the config's line reached the device");
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>
@@ -359,11 +378,11 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("sv_cheats 1\nmat_wireframe 2\nbind \"F8\" \"sv_cheats 0\"\n");
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
         rig.WithDevice();
-        rig.Device.Wireframe.ShouldBeTrue("the control: the config's line reached the device");
+        rig.Device.Wireframe.ShouldBe(2, "the control: the config's line reached the device");
 
         rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>
@@ -376,11 +395,11 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F8\" \"sv_cheats 0\"\n").WithDevice();
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
         rig.Window.ShowWireframe(true);
-        rig.Device.Wireframe.ShouldBeTrue("the control: the menu's tick reached the device");
+        rig.Device.Wireframe.ShouldBe(1, "the control: the menu's tick reached the device");
 
         rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>
@@ -394,11 +413,11 @@ public sealed class ViewerSessionTests
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
 
         rig.Window.ShowWireframe(true);
-        rig.Device.Wireframe.ShouldBeTrue("the control: the menu's tick reached the device");
+        rig.Device.Wireframe.ShouldBe(1, "the control: the menu's tick reached the device");
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeFalse();
+        rig.Device.Wireframe.ShouldBe(0);
     }
 
     /// <remarks>
@@ -534,7 +553,7 @@ public sealed class ViewerSessionTests
 
         // `mat_phong` reaches the device by the material switches' route with `mat_bumpmap` (B720): ViewerPresenterTests.
         (rig.Device.DrawWorld, rig.Device.DrawEntities, rig.Device.Specular).ShouldBe((false, false, false));
-        rig.Device.Wireframe.ShouldBeFalse("no switch throws its neighbour");
+        rig.Device.Wireframe.ShouldBe(0, "no switch throws its neighbour");
         rig.Log.Lines.Where(static line => line.StartsWith("[render] r_draw", StringComparison.Ordinal) || line.StartsWith("[render] mat_", StringComparison.Ordinal))
             .ShouldBe(["[render] r_drawworld 0", "[render] r_drawentities 0", "[render] mat_specular 0", "[render] mat_phong 0"]);
     }
@@ -760,11 +779,11 @@ public sealed class ViewerSessionTests
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_wireframe", "1"));
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
 
-        rig.Device.Wireframe.ShouldBeFalse("the control: a new device starts solid");
+        rig.Device.Wireframe.ShouldBe(0, "the control: a new device starts solid");
 
         rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
 
-        rig.Device.Wireframe.ShouldBeTrue();
+        rig.Device.Wireframe.ShouldBe(1);
         rig.Window.Told.ShouldContain("ShowWireframe True", "the menu is ticked, so its first click turns wireframe off");
     }
 
@@ -780,7 +799,7 @@ public sealed class ViewerSessionTests
 
         rig.WithDevice();
 
-        rig.Device.Wireframe.ShouldBeTrue();
+        rig.Device.Wireframe.ShouldBe(1);
     }
 
     /// <remarks>
@@ -1047,12 +1066,13 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **`mat_wireframe` is read as `WireFrameMode()` reads it, its integer** (`view.h:68`; B788 review 6, Fable): 2 and
-    /// `incrementvar`'s `1.000000` draw wireframe, `0.5` does not.
+    /// `incrementvar`'s `1.000000` draw wireframe, `0.5` does not. The device takes the integer (B803): 3 stays 3.
     /// </remarks>
-    [TestCase("2", true)]
-    [TestCase("1.000000", true)]
-    [TestCase("0.5", false)]
-    public void OpenDevice_WithAMatWireframeValue_DrawsWireframeByItsInteger(string value, bool wireframe)
+    [TestCase("2", 2)]
+    [TestCase("3", 3)]
+    [TestCase("1.000000", 1)]
+    [TestCase("0.5", 0)]
+    public void OpenDevice_WithAMatWireframeValue_DrawsWireframeByItsInteger(string value, int wireframe)
     {
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_wireframe", value));
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
@@ -1077,7 +1097,7 @@ public sealed class ViewerSessionTests
 
         rig.Session.OpenDevice(() => second, NoAttach, 800, 600).ShouldBeTrue();
 
-        second.Wireframe.ShouldBeTrue();
+        second.Wireframe.ShouldBe(1);
     }
 
     /// <summary>An attach that hands nothing over, for the tests about the opening itself.</summary>

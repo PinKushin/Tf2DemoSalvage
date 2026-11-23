@@ -366,7 +366,7 @@ public sealed class EyeShaderRenderTests
             (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
 
         target.Glint = new GlintSwitches(alwaysDraw, procedural);
-        target.Wireframe = wireframe;
+        target.Wireframe = wireframe ? 1 : 0;
         Draw(target, Eyes(irisAlpha: 0), eye, locals: [new LocalLight(0f, -300f, 0f, lamp, lamp, lamp, 1f, 0f, 0f, 0f)]);
 
         (int R, int G, int B) texel = target.PixelAt(34, 30);
@@ -401,7 +401,7 @@ public sealed class EyeShaderRenderTests
 
         Draw(target, assets, eye);
         (int R, int G, int B) own = target.PixelAt(34, 30);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, eye);
         (int R, int G, int B) wire = target.PixelAt(34, 30);
 
@@ -427,7 +427,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, Wireframed("VertexLitGeneric", ignoresZ: true), null, modelPath: modelPath);
 
         target.PixelAt(34, 30).ShouldBe((red, green, blue), "the brush entity's own red, lit, is drawn: not swapped, not absent");
@@ -451,7 +451,7 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
             ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
 
         Draw(target, assets, null, overrideMaterial: "forced.vmt");
@@ -477,7 +477,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, MapAssets.ForMaterials([Uniform4(255, 0, 0, 255)], ["VertexLitGeneric"]), null);
 
         target.PixelAt(34, 30).ShouldBe((89, 0, 0));
@@ -505,7 +505,7 @@ public sealed class EyeShaderRenderTests
 
         Draw(target, assets, null, fog: fog);
         (int R, int G, int B) own = target.PixelAt(34, 30);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, fog: fog);
         (int R, int G, int B) wire = target.PixelAt(34, 30);
 
@@ -574,12 +574,14 @@ public sealed class EyeShaderRenderTests
     /// <remarks>
     /// **`debugmrmwireframe` is `$ignorez 1`**, so its edges draw over what is in front of them (B788). The quad drawn solid
     /// first, then its wireframe at the same depth without clearing: with no depth test the edge is the wireframe's
-    /// (0, 255, 255); with one, the strict test (`ComparisonFunc.Less`) refuses the equal depth and the solid red stays. Not
-    /// `$decal` here, whose `LessEqual` test would pass the equal depth and hide the difference.
+    /// (0, 255, 255). **A depth-tested debug wireframe passes that equal depth too** (B803): it tests `LessEqual`, as
+    /// `mat_wireframe 2`'s outline over the surface it outlines must; until B803 it took the opaque pass's strict `Less`
+    /// and the solid red stayed. Which of the two hides behind a NEARER surface is
+    /// `WorldWireframeConformanceTests.DrawWorld_AnEdgeBehindANearerFace_ShowsByItsWireframesIgnoreZ`.
     /// </remarks>
     [TestCase(true, 0)]
-    [TestCase(false, 89)]
-    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ(bool ignoresZ, int red)
+    [TestCase(false, 0)]
+    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_PassesTheSurfacesOwnDepth(bool ignoresZ, int red)
     {
         using OffscreenTarget? target = Target();
 
@@ -591,7 +593,7 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ, decal: false);
 
         Draw(target, assets, null);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, clear: false);
         (int R, int G, int B) edge = target.PixelAt(34, 30);
 
@@ -602,10 +604,12 @@ public sealed class EyeShaderRenderTests
     /// <remarks>
     /// **A forced material wins over the wireframe one**: the swap needs `m_pForcedMaterial` (`+0x250`) null
     /// (`studiorender.dll` `0x1800041f2`), so a gold corpse's `ForcedMaterialOverride` draws gold, here a blue material 2:
-    /// (0, 0, 89) on the edge, not the wireframe's (0, 255, 255).
+    /// (0, 0, 89) on the edge, not the wireframe's (0, 255, 255). **And solid** (B808): the fill is the drawn material's own
+    /// `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), which a VertexLitGeneric material does not set, so the interior
+    /// (20, 20) is blue too — before, every pass drew its wireframe twin and the interior was the clear black.
     /// </remarks>
     [Test]
-    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne()
+    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOneSolid()
     {
         using OffscreenTarget? target = Target();
 
@@ -617,14 +621,54 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
             ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
         int lit = Encode(Cube);
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, overrideMaterial: "forced.vmt");
 
-        target.PixelAt(34, 30).ShouldBe((0, 0, lit));
+        (target.PixelAt(34, 30), target.PixelAt(20, 20)).ShouldBe(((0, 0, lit), (0, 0, lit)));
+    }
+
+    /// <remarks>
+    /// **A brush entity draws solid under `mat_wireframe`, then is outlined with `debugworldwireframe`** (B803): the
+    /// `R_DrawBrushModel` paths (`engine.dll` `FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`) end in `FUN_1800dc720`, which
+    /// binds `0x18069b3e0` and redraws the surfaces. The edge (34, 30) is `$color [0.9 0.5 0.5]`, unlit, (230, 128, 128)
+    /// within a level; the interior (20, 20) the brush's own red, lit, (89, 0, 0). The studio model of the same mesh is the
+    /// control: swapped to `debugmrmwireframe` (B788), not outlined, so its edge is cyan and its interior the clear black.
+    /// </remarks>
+    [TestCase("*1", 230, 128, 128, 89)]
+    [TestCase("offscreen/posed.mdl", 0, 255, 255, 0)]
+    public void DrawModelPose_UnderWireframe_OutlinesABrushEntityAndSwapsAStudioModel(
+        string modelPath, int red, int green, int blue, int insideRed)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = true },
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe", "Wireframe"],
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(2, IgnoresZ: true) });
+
+        target.Wireframe = 1;
+        Draw(target, assets, null, modelPath: modelPath, frontFacing: true);
+        (int R, int G, int B) edge = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"{modelPath} under wireframe: edge {edge}, inside {target.PixelAt(20, 20)}");
+        Math.Abs(edge.R - red).ShouldBeLessThanOrEqualTo(1);
+        Math.Abs(edge.G - green).ShouldBeLessThanOrEqualTo(1);
+        Math.Abs(edge.B - blue).ShouldBeLessThanOrEqualTo(1);
+        target.PixelAt(20, 20).ShouldBe((insideRed, 0, 0));
     }
 
     /// <remarks>
@@ -646,10 +690,10 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = true }],
             ["VertexLitGeneric", "Wireframe"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             animationFrames: [[Uniform4(255, 0, 0, 255), Uniform4(255, 0, 0, 255)], null]);
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null);
 
         target.PixelAt(34, 30).ShouldBe((0, 255, 255));
@@ -677,7 +721,7 @@ public sealed class EyeShaderRenderTests
                 Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = decal },
             ],
             [shader, "Wireframe"],
-            wireframe: new ModelWireframe(1, ignoresZ));
+            wireframe: new WireframeMaterial(1, ignoresZ));
 
     /// <remarks>
     /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
@@ -1108,7 +1152,8 @@ public sealed class EyeShaderRenderTests
         bool clear = true,
         string? overrideMaterial = null,
         string modelPath = "offscreen/posed.mdl",
-        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        bool frontFacing = false)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -1131,6 +1176,13 @@ public sealed class EyeShaderRenderTests
             Corner(Half, Half, 1f, 1f),
             Corner(-Half, Half, 0f, 1f),
         ];
+
+        // Wound clockwise on screen, the engine's front (`MATERIAL_CULLMODE_CCW`), for a pass that culls back faces (B803);
+        // the default quad is counter-clockwise from the camera and shows only because the draw is both-sided.
+        if (frontFacing)
+        {
+            vertices.Reverse();
+        }
 
         float[] identity =
         [

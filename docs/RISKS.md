@@ -42892,7 +42892,36 @@ order is not read), so TF2 would accept it. Pre-existing for every cheat ConVar 
 `mat_wireframe`. Next: read the order `stuffcmds` runs in (the startup script or the engine's call), then gate the launch
 line after the configs. *Not fixed*.
 
-## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — OPEN
+## B816 — the client's own `mat_wireframe` materials (sprites, beams, particles, detail props, glows) are not ported (2026-11-23) — OPEN
+
+Found reading B803. Beside the engine's passes (findings 113), the client swaps a material of its own wherever
+`ShouldDrawInWireFrameMode()` holds (`view.h:81`, `sv_cheats && mat_wireframe != 0`), read with clangd's references
+(eight sites, the control being the same query on `WireFrameMode`, which has none): `c_sprite.cpp:69`
+`debug/debugspritewireframe`, `beamdraw.cpp:47` `shadertest/wireframevertexcolor`, `particlemgr.cpp:369`
+`debug/debugparticlewireframe`, `detailobjectsystem.cpp:2274`, `:2419`, `:2532` and `:2677` `debug/debugspritewireframe`,
+`glow_overlay.cpp:368` `debug/debugwireframevertexcolor` (*read*). Ours draws all of them with their own materials
+under `mat_wireframe`. Also not ported from the same read: `r_drawworld 2` and `r_drawbrushmodels 2` turning the
+surface wireframe on (`FUN_1800e1e00`, `FUN_1800e05d0`), the decal wireframe's third ConVar (`0x1806a5348` equal to
+2, `FUN_18011aa60`, name not read), and what the studio render does with a model's own decals under `bWireframe`
+(`DrawModelDecals`, not read). *Read; nothing ported.*
+
+## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — FIXED (2026-11-23)
+
+**Fixed** (2026-11-23; how it was settled: `docs/findings/113-mat-wireframe-is-a-material.md`, "The fill is the
+material's flag"). The fill is the drawn material's `MATERIAL_VAR_WIREFRAME`, which the `Wireframe` shader sets
+(`wireframe_dx9.cpp:37`). Three reads found nothing else that sets it: `MaterialSystem_Config_t` has no wireframe field
+(`materialsystem_config.h`); `shaderapidx9.dll` holds no "wire" string (the control, `PolyMode: invalid poly mode` at
+`0x180080618`, is found); and the engine draws `mat_wireframe` by binding debug materials (B803). That shaderlib turns
+the flag into the line fill and nothing else does is *interpolated* (closed). So a forced material draws **solid**. Ported:
+`WorldRenderer.Raster` takes a pass's wireframe twin only for a material whose shader is `Wireframe` (`_lineFill`), on
+every path that knows its material (the model draw, the decal and overlay runs, the translucent world, and the opaque
+world, which before set the pass's state once). A VMT's own `$wireframe 1` sets the same flag. No shipped material
+declares it, and it is not read. Tests: `EyeShaderRenderTests.DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOneSolid`
+(the interior (20, 20) blue, lit, where it was the clear black) and
+`WorldWireframeConformanceTests.DrawWorld_AFaceWhoseOwnMaterialIsWireframe_DrawsInLineFillWithoutMatWireframe`. Both
+reddened when `Raster` was sabotaged back to `mat_wireframe`'s switch.
+
+*As found (2026-11-21):*
 
 Found in B788's review 7 (Fable). Ours applies `mat_wireframe`'s fill to every pass through a wireframe twin of each
 rasteriser state (`WorldRenderer`), so a model whose forced material wins over the studio render's wireframe material
@@ -42923,7 +42952,48 @@ Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but 
 config, a bind or a launch option without `sv_cheats`), and whether what ours draws for each is what the engine binds.
 *Not read*; the flags are the review's, not re-read by the lead. Filed so B791 stays the one ConVar it names.
 
-## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — OPEN
+## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — NARROWED (2026-11-23): OPEN for the value 3 alone
+
+**Read and ported** (2026-11-23; `docs/findings/113-mat-wireframe-is-a-material.md`, `engine.dll` of 2026-10-07). With
+`sv_cheats && mat_wireframe` the engine handles each kind of surface differently:
+
+- **World and brush-entity surfaces, opaque and translucent:** drawn solid with their own materials, then each redrawn
+  with `debugworldwireframe` (`0x18069b3e0`; `[0.9 .5 .5]`, `$ignorez 1`). Under 2 the redraw uses
+  `debugworldwireframezbuffer` (`0x18069b3e8`; `[0 1 .5]`, depth-tested). This is `FUN_1800dc720`, called after
+  `Shader_DrawChains` (`FUN_1800e39d0`), after the brush-model paths (`FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`)
+  and after the translucent surfaces (`FUN_1800e61d0`).
+- **A displacement:** drawn only as `debug/debugwireframe` (`FUN_1800c2140`), with no solid under it.
+- **A decal:** replaced by `debugdecalwireframe` (`FUN_1800c6210`, `FUN_18011aa60`).
+- **Overlays and the shadow manager:** unchanged. They answer `r_overlaywireframe` and `r_shadowwireframe` instead.
+- **Studio models:** take `debugmrmwireframe` for every non-zero value (B788).
+
+Ported:
+
+- `MapAssets.EngineWireframes` loads the four engine materials, as `FUN_1800f6f80` does, whatever the dxlevel.
+- `WorldRenderer` queues each drawn world, sky, translucent and brush-entity run and draws the queue after its pass with
+  the value's material.
+- Displacements draw their wireframe alone, and decals draw the decal wireframe.
+- The device takes the ConVar's value rather than the tick (`IRenderDevice.Wireframe` is an `int`). A value change that
+  moves no tick (1 to 2) reaches the device by the ConVar's route.
+- A depth-tested debug wireframe tests `LessEqual` without writing. The comparison is *interpolated*, since shaderapi's
+  default is closed.
+
+**Measured** on `tf2-live-build11138802-spec-pov-cp_granary.dem` tick 1000, first person, 984×551. Counting pixels by
+hue: pink went from 76 to 57,675 under 1, and green from 0 to 13,631 under 2. Looked at, the walls draw solid with
+their edges over them. Not compared against TF2.
+
+Tests: `WorldWireframeConformanceTests` (seven) and
+`EyeShaderRenderTests.DrawModelPose_UnderWireframe_OutlinesABrushEntityAndSwapsAStudioModel` in Rendering;
+`OverrideMaterialLoadingTests.EngineWireframes_…` on a real install; `ViewerSessionTests.KeyPressed_MatWireframeTwoAfterOne_TellsTheDeviceTwo`
+in Presentation. Each reddened under its own sabotage: the queue, the mode-2 pick, the displacement branch, the decal
+swap, the depth rule and the session's route.
+
+**Still open, the value 3.** `FUN_1800e6780` draws each face's own polygon edges as one line list with
+`debugworldwireframe`, and no triangulation diagonals. Ours outlines the triangles under 3 as it does under 1, so the
+fan's diagonals show as well. Porting it needs each face's boundary kept past upload, for the world and brush-entity
+buffers both, because the draw-time batches hold only triangles. The client's own wireframe materials are B816.
+
+*As found (2026-11-21):*
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
 `mat_wireframe`; the world's brushes, displacements and the 3D skybox still draw with their own materials in wireframe

@@ -4051,6 +4051,9 @@ pass's culling and depth bias, and would therefore answer "what is in the vertex
 "what is being drawn". Those are different questions, and the difference is exactly what a
 missing-geometry hunt turns on.
 
+What `mat_wireframe` draws: superseded by B803/B808 — the twin is taken for a `Wireframe` material, which the switch binds
+over the solid world; findings 113.
+
 ## D76 — the 3D skybox is drawn, and whether it is drawn is the user's setting
 
 **Owner's direction, 2026-08-23**, twice and with the reasoning both times. First that it stops being

@@ -5992,8 +5992,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// produce an absent surface, and every other instrument in this renderer answers only one of
     /// them: a face count says what was submitted, a material ledger says what it was submitted
     /// with, and neither says whether an edge reached the screen.
+    ///
+    /// The ConVar's value, 0 off (B803): <see cref="WorldRenderer.Wireframe"/> says what each draws.
     /// </remarks>
-    public bool Wireframe
+    public int Wireframe
     {
         get => _wireframe;
 
@@ -6009,7 +6011,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
-    private bool _wireframe;
+    private int _wireframe;
 
     /// <summary>Valve's <c>mat_specular</c>: off drops the reflection where the material's params pass would (B720 part 5).</summary>
     /// <remarks>
