@@ -44424,6 +44424,272 @@ behind both, so neither is engine parity.
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
 
+## B820 — a config's `exec` is skipped, and a config line, a key and an alias body each reach a different subset of the console's commands (2026-11-23) — FIXED 2026-11-23
+
+**Fixed.** `ConfigConsole.Run` is the one dispatcher: `Load` runs each line through it, as keys and alias bodies already
+did; it consults an alias only for a `+`/`-` name or one no built-in, ConVar or action command has (`IsCommand`), and
+`Define` now holds the console's own ConCommands, `exec` added. `exec` reads `ConfigConsole.FindConfig`, which `LoadFrom`
+sets to `Tf2ConfigFiles.Finder`, the search path the startup configs come from (opened once for both); a flat file in the
+program's own `custom/` is looked up below `cfg/` and only inside that folder (`GameArchives.InsideFolder`, now shared).
+The 1 MB cap applies to the startup configs too, which `valve.rc` reaches through `exec`. Tests: 36 cases in
+`ConfigConsoleConformanceTests` under "B820" and `ConfigConsoleLoadFromTests.LoadFrom_AnAutoexecThatExecsANestedFile_RunsTheFirstCopyOnTheSearchPath`
+(control: the game's copy alone). No red-first run was possible (the tests name `FindConfig`, new), so each was
+sabotaged instead: alias order ignoring ConVars reddens `Load_AnAliasNamedAsAConVar_DoesNotShadowIt`; `exec` not
+dispatched reddens 11; the path and type guards off redden every refused case (`exec c:a` unquoted is split at `:` by
+the tokenizer, so the case is quoted); built-ins skipped in alias bodies reddens the bind/unbind cases. On the
+owner's install `autoexec.cfg` line 161 is `exec ultra`, 116 settings the viewer now reaches (read from the files; the
+viewer was not run against them).
+
+Found while reviewing B816 (Grok, round 6: "`ConfigConsole` still has no `exec`"). D69's requirement is that a real
+config works as is, mastercomfig's `.vpk` named by the owner. A mastercomfig autoexec is mostly `exec` and aliases that
+run other aliases; this viewer runs none of it.
+
+**What the engine does** (read from `engine.dll`, the build in `F:`, disassembly through Ghidra; `cmd.cpp` by its own
+assert paths):
+
+1. **One dispatcher for every line** (`FUN_1801678a0`, `Cmd_ExecuteCommand`). A line from a file, from a key's bind, or
+   from an alias's body goes through the same function. `bind`, `unbind`, `unbindall`, `alias` and `exec` are ordinary
+   ConCommands found there by name.
+2. **An alias is consulted only when no command or ConVar has that name, or when the name starts with `+` or `-`**
+   (`(c - '+') & 0xfd == 0`). A match inserts the alias's value into the command buffer (`Cbuf_InsertText`) and the
+   dispatch ends. So `alias fps_max "…"` does not shadow the ConVar, and `alias +forward "…"` does shadow the button.
+   The name compare is case-insensitive.
+3. **`exec <name>`** (`FUN_1801672f0`, `Cmd_Exec_f`):
+   - other than exactly one argument prints `exec <filename>: execute a script file`;
+   - the path is `//MOD/cfg/<name>`, and `.cfg` is appended only when the last path segment has no `.`
+     (`FUN_180282920`, `V_DefaultExtension`);
+   - a path holding `\\`, `:`, `..`, a line feed or a carriage return is refused: `exec %s: invalid path.`
+     (`FUN_180176d10`, case-sensitive substring tests);
+   - a path holding `.exe`, `.vbs`, `.com`, `.bat`, `.dll`, `.ini`, `.gcf`, `.sys`, `.zip`, `.vpk`, `.blob` or `.scr`
+     anywhere is refused: `exec %s: invalid file type.`;
+   - a missing file prints `'%s' not present; not executing.`, except `autoexec.cfg`, `joystick.cfg` and `game.cfg`,
+     which are silent;
+   - a file over 1,048,576 bytes prints `exec %s: file size larger than 1 MB!`;
+   - otherwise each line is added to the buffer and executed before the next is read, so a nested file runs inline,
+     where the `exec` stood.
+
+**What this viewer does.** `ConfigConsole.Define` (a config line) handles `unbindall`, `unbind`, `alias`, `bind` and a
+ConVar; everything else, an alias name and `exec` included, is skipped. `ConfigConsole.Run` (a key, or an alias body)
+runs an alias, a ConVar, `toggle`/`incrementvar`/`multvar` and a button, but not `bind`, `unbind`, `unbindall` or
+`exec`, and it consults the alias table before the ConVar for every name.
+
+Measured consequences (synthetic, by reading the code): an autoexec line `exec comfig/comfig` does nothing; a config
+line naming an alias does nothing; `alias toggle_crosshair "bind MOUSE2 +attack2"` bound to a key does nothing.
+
+Fix shape: one dispatcher, used by `Load`, `KeyDown`/`KeyUp` and an alias body, in the engine's order; `exec` through a
+lookup on the same search path `Tf2ConfigFiles` reads (our `custom/`, then the game's mounts). *Interpolated*: the
+engine's self-`exec` bound is not read (nothing in `Cmd_Exec_f` counts depth); this viewer stops at
+`MaximumExpansion`, as its alias expansion already does, so a looping config cannot hang startup.
+
+**Review 1** (Fable, Sonnet, Grok; Gemini approved with no findings, and read the nested flat lookup and the empty
+flat file's shadow as D193's intent, where the other three read them as regressions; item 4 takes theirs, because D193
+is about a file pasted directly into `custom/`, and the engine finds a nested name under an addon's `cfg/`):
+
+1. **A key with a viewer default dropped a bound `exec` or `bind`** (Fable). `SetsState` knew no ConCommand of the
+   console's own, so `CommandFor` fell back to the default (`bind F5 "exec x"` took a screenshot). Fixed: it knows
+   `Definers`, and the alias test takes the dispatcher's order (`ConsultsAlias`, one rule for `Run`, `Expand` and
+   `SetsState`). Test: `KeyDown_ADefaultKeyBoundToExec_RunsTheFileNotTheDefault`, red with `Definers` unread.
+2. **A config's one-shot line now fired at load** (Fable, Sonnet): on a game-folder reload `Triggered` listens, so a
+   `screenshot` or `togglefullscreen` line would act mid-session. Fixed: at load a one-shot does nothing; a `+` button
+   is kept. *Interpolated*: TF2 runs its configs at startup before a demo plays, so a view or playback one-shot has
+   nothing to act on, and the viewer's own names are unknown commands to TF2. Test:
+   `Load_AOneShotLine_DoesNothingAndAButtonLineHolds` (control: the same one-shot from a key fires), red with the rule
+   inverted.
+3. **`_loading` moved to `Load` alone**, so a key's `exec` is a run-time command throughout and announces its sets
+   (Sonnet). Test: `KeyDown_AKeysExecAfterALoad_AnnouncesItsConVarSets`, red with the flag left set.
+4. **An empty flat file shadowed the game's copy; the flat lookup reached nested names** (Sonnet, Grok, Fable). Fixed:
+   the flat file stands in only for a name directly below `cfg/` and only when not empty, as before B820; a nested
+   name is found under an addon's `cfg/`, as the engine finds it. Tests in `Tf2ConfigFilesTests`:
+   `Finder_AFlatFileInOwnCustom_AnswersOnlyATopLevelName`, `Read_AnEmptyFlatFileInOwnCustom_LeavesTheGamesCopy`,
+   `Read_AConfigAtAndOverOneMegabyte_IsReadOnlyAtTheLimit`; each red under its own sabotage.
+5. **A NUL in a name threw out of `GameArchives.InsideFolder`** (Fable, Sonnet), and `ReadUntimed`'s catch does not take
+   an `ArgumentException`, so a map's material name with one would have thrown too (found by the new test, not by
+   reading). Fixed at the root: `InsideFolder` answers null for a NUL. Test: `Finder_ANameWithANul_IsMissing`, red with
+   the check off.
+6. **Breadth**: two `exec self` lines read 2^20 files under the depth bound (Fable, Sonnet). Fixed: `MaximumExecs`
+   (256, *interpolated*) per line run at depth 0, logged once; the depth stop is logged too. Test:
+   `Exec_AFileThatExecsItselfTwice_StopsAtTheBudgetAndTheNextCommandGetsItsOwn`, red with the budget raised.
+7. **Test strength** (Fable, Grok): the refusal cases now assert TF2's exact line (they passed with `exec` not
+   dispatched), the 1 MB cases assert the line, a single backslash is shown accepted, the unbind test has a control,
+   and `unbindall` from an alias body and the static projection's alias order (`Applied_ABindToAnAliasNamedAsAConVar_IsNotCounted`)
+   are pinned. CR and LF cannot reach a path here: a line ends at either.
+8. **Not fixed, filed:** the host's binding projection (`KeyBindings` from `LoadFrom`) is not refreshed by a bind an
+   alias makes at run time (Sonnet): B821.
+
+**Review 2** (Fable, Sonnet, Gemini merge; Grok request changes):
+
+1. **Alias fan-out had no budget** (Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20 runs, now reachable at
+   load. Fixed: `MaximumAliasRuns` (4096, *interpolated*) per line at depth 0, logged once. Test:
+   `Load_AnAliasThatRunsItselfTwice_StopsAtTheBudgetAndTheNextLineRuns`, red with the budget raised.
+2. **`Load` cleared `_loading` instead of restoring it** (Fable, Sonnet). Fixed. Test:
+   `Load_ALoadFromAHandlerDuringALoad_LeavesTheOuterOneShotsIdle`, red when the outer flag is lost.
+3. **A flat file was read whole before the 1 MB cap** (Fable, Sonnet). Fixed: at most `MaximumBytes + 1` bytes are read,
+   so the refusal still fires. Red under the 1 MB test with the read capped at `MaximumBytes`.
+4. **The launch line's one-shots are idle too** (Fable): `RunTheLaunchLine` goes through `Load`, as `main` skipped them
+   before. The item-2 reasoning holds: `stuffcmds` runs at startup, before a demo plays.
+5. **Grok: a wildcard or pipe in a name throws from `Path.GetFullPath`.** Measured false on .NET 10: only a NUL throws;
+   `Finder_ANameAFileCannotHave_IsMissing` pins `*`, `?`, `|`, `<`, `>`, `"` and NUL as missing files. **Grok: a CRLF line
+   keeps its `\r` into the path** — measured false: `exec a\r` reads `cfg/a.cfg` (a case of
+   `Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension`). Both are tests now.
+
+**Review 3** (Fable, Gemini merge; Sonnet, Grok request changes):
+
+1. **The static projection had no fan-out bound** (Sonnet, Fable; on `main` too): `alias a "a;a;a;a"` bound to a key was
+   4^20 calls from `Applied` at load and from `CommandFor` on every press. Fixed exactly rather than by a budget:
+   `Expand` walks each alias once per projection, as its answer is a set of actions and the table is fixed while read.
+   Test: `KeyDown_AKeyBoundToAnAliasThatFansOut_EndsPromptly`, red (10 s timeout) with the walked set ignored.
+2. **The alias budget was shared by a whole `exec` tree** (Fable, Sonnet): one autoexec line `exec comfig/comfig` gave
+   every line of mastercomfig one 4096. Fixed: the alias budget is per file line; the `exec` budget stays per command.
+   Test: `Exec_AFileWhoseTwoLinesEachExhaustTheAliasBudget_GivesEachLineItsOwn`, red with the per-line reset removed.
+3. **A load from a handler reset the outer command's budgets** (Fable, Sonnet). Fixed: `Load` restores them with the
+   flag. Test: `Load_ALoadFromAHandlerInsideAnExecTree_KeepsTheOuterBudget`, red when they are not restored.
+4. **Test strength** (Fable, Sonnet, Grok): the alias budget test now counts the sets (2^19 without the stop), the nested
+   load test has a control that its handler ran, the odd-name test a control that a valid name resolves from the same
+   folder, and `Finder_AFlatFileWellOverTheCap_IsReadOnlyToOneBytePast` pins the bounded read (red with a whole read).
+5. **Grok, "high": a NUL throws out of `ReadFlat`.** False: `InsideFolder` answers null for a NUL before `GetFullPath`
+   (review 1 item 5); the diff Grok was given began after that commit.
+6. **Not fixed, recorded:** a loose `tf/cfg/` or `custom/*/cfg/` file is still read whole by `GameArchives.Read` before
+   `Exec` checks its size (Fable). A memory cost on the player's own files, not a hang or an escape; the cap itself holds.
+
+**Review 4** (Fable, Sonnet, Gemini merge; Grok request changes, its two code findings, the truncated walk and the
+per-line reset, being items 2 and 1 below; its set-union point is moot, every consumer of `Expand` reading membership, as
+Fable and Sonnet checked; the exec-tree budget test now asserts its handler ran, and the fan-out test's timeout covers the
+load):
+
+1. **One command's alias work was bounded only by 256 files of 1 MB lines** (Sonnet, Fable): the per-line budget resets on
+   each line of a nested `exec`. Fixed: `MaximumCommandAliasRuns` (2^20, *interpolated*, about a second) per command at
+   depth 0, logged once. Test: `Exec_AFileWhoseLinesStayUnderTheLineBudget_StopsAtTheCommandBudget`, red with it raised.
+2. **An alias first reached at the depth bound was marked walked and lost its actions at a shallower visit** (Sonnet,
+   Fable): `Expand` now remembers the shallowest depth and walks again from a shallower one. Test:
+   `Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction`, red when a shallower visit is skipped.
+3. **The alias half of `Load`'s restore was untested** (Fable). Test:
+   `Load_ALoadFromAHandlerInsideAnAliasFanOut_KeepsTheOuterAliasBudget`, red when the alias count is not restored. The
+   command count is restored with it.
+4. **The alias budget test's lower bound** (Sonnet): now half the budget, so a stop after a handful passes no longer.
+
+**Review 5** (Gemini merge; Sonnet merge with findings; Fable, Grok request changes):
+
+1. **The engine bounds a command's length, and the viewer did not** (Fable): `CCommand::Tokenize` skips a command of 511
+   bytes or more with *"CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!"* and keeps
+   at most 64 arguments (`src/tier1/convar.cpp:404-409`, `:416`; `COMMAND_MAX_LENGTH` 512 and `COMMAND_MAX_ARGC` 64 at
+   `src/public/tier1/convar.h:206-207`). An alias definition is one such command, which is what bounds one alias run's work
+   in TF2. Implemented in `Run`, per clause, in bytes. Tests: `Load_ACommandAtAndPastTheTokenizersLength_RunsOnlyUnderIt`
+   (510 runs, 511 skipped with the line) and `Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour` (a `toggle` over 70
+   values wraps at the 62nd), each red under its own sabotage.
+2. **The command bound counted alias runs, not work** (Sonnet, Fable): replaced by `MaximumCommandClauses` (2^20,
+   *interpolated*), counting every clause run, so it bounds work whatever a body holds, logs exactly once and ends the
+   command. Grok's short-circuit and repeated-log findings were about the alias-run counter it replaces.
+3. **Only `Load` restored budgets; a key pressed from a handler reset the outer command's** (Fable): one `RunCommand` now
+   starts every depth-0 command (a key, and each line `Load` reads), saving and restoring all three budgets. Tests:
+   `Load_ALoadFromAHandlerInsideALongExecTree_KeepsTheOuterClauseCount` (red when the clause count is not restored) and the
+   command test's next line running (`{Alpha} 8`).
+4. **Test controls** (Fable): the deep-then-shallow test binds `y` to the cut route alone, which must not count; the
+   budget tests stay inside the 510-byte command, as TF2 would run them.
+
+**Review 6** (Gemini, Grok merge; Sonnet merge with findings; Fable request changes):
+
+1. **The length limit is the command buffer's, not only the tokenizer's** (Fable): `CCommandBuffer::AddText` splits a text
+   with `GetNextCommandLength` (`src/tier1/commandbuffer.cpp:163-203`), which measures the RAW command: bytes, leading
+   spaces and a CRLF line's CR counted, a `//` comment not. `InsertCommand` (`:120-126`) refuses 511 bytes or more with
+   *"WARNING: Command too long... ignoring!"* and the command's text onward, and `AddText` (`:242-243`) then returns, so the
+   rest of that file line, bind or alias body never runs. All three warnings are strings in TF2's `engine.dll`, so the
+   engine links this tier1 code. `Run` now splits its text with `BufferCommands`, that function's port, and refuses as
+   `InsertCommand` does; the `Tokenize` length check it replaces is unreachable behind it (same threshold) and is gone.
+   *Interpolated*: that an alias body goes through `AddText` as a bind and an exec'd line do. Tests:
+   `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt` (510/511 bytes, a 2-byte character, two leading spaces, a CR, a
+   comment not counted and the space before one counted) and `Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter`.
+2. **The argument clamp says so** (Fable): *"CCommand::Tokenize: Encountered command which overflows the argument buffer..
+   Clamped!"* once the 64th argument is taken, so exactly 64 says it (`convar.cpp:460-464`). Test:
+   `Load_ACommandOfSixtyFourArguments_SaysItIsClamped` (62 values say it, 61 do not).
+3. **The 64-argument test pins the lower side too** (Fable, Sonnet): a case from 61 expects 62, which 63 kept would not give.
+4. **A nested `exec` gave its line's alias count away** (Sonnet): `RunFile` now restores it. Test:
+   `Load_ALineThatExecsBetweenItsAliases_KeepsItsAliasCountAcrossTheExec`.
+5. **`KeyDown` cleared `_viewerIssued` rather than restoring it** (Fable, Sonnet): restored, so a key pressed from a handler
+   inside a built-in key's command leaves it built in.
+6. Each of items 1, 2 and 4 was red under its own sabotage (the rest of a refused text still run, spaces and CR not
+   counted, the warning at 65, the alias count not restored).
+7. A blank command of any length is skipped, not refused: `AddText` skips a command whose `ParseArgV0` finds no first
+   token before `InsertCommand` (`commandbuffer.cpp:230-232`). Found by the lead before review 7.
+
+**Review 7** (Fable, Sonnet, Gemini, Grok merge; Fable and Sonnet asked for the file case to be read):
+
+1. **How a file reaches the buffer, read** (Fable, Sonnet; `engine.dll` FUN_180177310, `Cmd_Exec_f`'s line reader, and
+   FUN_180166e30, `Cbuf_AddText`, by disassembly through Ghidra). Review 6 item 1 counted a CRLF line's CR; that was wrong
+   for a file. The reader copies a line's bytes until any control byte but tab, so a CR ends the line and is never
+   counted; it caps a line at 1023 bytes and reads the rest as the next line; between lines it skips every byte not above
+   0x1f as a SIGNED char, so a line's leading tabs and any non-ASCII bytes there are dropped (the file's first line keeps
+   them: its first byte is copied whatever it is); and on every line that is not a `bind` (that word at the start once
+   spaces and tabs are skipped, and a space or tab at byte 4 of the line) it makes `\"` into `"` and `\\` into `\`. Each
+   line is then `Cbuf_AddText`'d on its own, so a refused command drops the rest of its line only. Implemented as
+   `ConfigConsole.ExecLines`, used for every file. Tests: the CR, tab and first-line cases of
+   `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt`, `Load_ALineLongerThanTheReadersCap_ContinuesAsTheNextLine`,
+   `Load_ALineThatIsNotABind_HasItsEscapesUndone`, and the four-backslash case of `Exec_ARefusedLine_ReadsNothingAndSaysWhy`;
+   each red under its own sabotage (no unescape, no cap, tabs kept after a break, CR not ending a line).
+2. **The blank skip is `ParseArgV0`'s** (Fable, Sonnet): an empty first token, so `""` counts and Unicode whitespace does
+   not. `wait`, which `AddText` also consumes there, is not implemented. Test: the `""` case, red under its sabotage.
+3. **A config loaded from a handler inside the viewer's own key is a config** (Fable): `Load` clears `_viewerIssued` and
+   restores it. Test: `Load_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats`, red when the outer flag is kept.
+4. **Not changed, with reasons:** the refusal's logged text is at most one file line (1023 bytes) or a 510-byte command, so
+   it needs no cap (Fable 4); the static projections still split with `SourceConfig.Clauses`, which cannot differ for a
+   bind or an alias body, since neither can hold a command too long (Fable 5, Sonnet); the decoded byte count differs from
+   the file's only for an invalid byte (U+FFFD, 3 against 1), near the limit (Fable 3, Sonnet). Grok's claim that the
+   nested-exec test cannot fail is wrong: without the restore the count after the `exec` is the nested line's 1, and that
+   sabotage was red. **Filed:** the BOM the decoder strips is a divergence TF2 does not make (B822).
+
+**Review 8** (Gemini merge, its two findings being items 1 and 5; Fable, Sonnet merge with fixes; Grok request changes):
+
+1. **The launch line went through a file's line reader** (Fable, Sonnet, Grok): `RunTheLaunchLine` called `Load`, so a
+   launch value's `\\` became `\` and a value past 1023 bytes was split. TF2's `stuffcmds` hands the line to
+   `Cbuf_AddText` (*interpolated*: `stuffcmds` itself is not read). Fixed: `ConfigConsole.Stuff` runs the text straight to
+   the dispatcher with the same startup flags; `RunTheLaunchLine` uses it. Test: `Stuff_ALaunchValueWithTwoBackslashes_KeepsThem`,
+   red when `Stuff` goes through the reader.
+2. **A NUL ends the file** (Fable, Grok): the reader's skip returns null at a 0 byte and `Cmd_Exec_f` stops. Test:
+   `Load_AFileWithANul_StopsThereAndALineAfterABreakDropsItsNonAscii`, which also pins the non-ASCII skip after a break;
+   red with the NUL treated as a break.
+3. **The copy loop's compare, read** (Sonnet asked): `MOVSX ESI,byte ptr [RDI]; CMP ESI,0x1f; JA` at `0x18017734c`, an
+   unsigned compare on the sign-extended byte, so a non-ASCII byte continues the line; the skip is `MOVSX`, `CMP EAX,0x20;
+   JGE`, signed. As implemented.
+4. **Tests pinned harder** (Sonnet, Fable, Grok): the cap test now fails at 1022 and at 1024 (a command ending exactly at
+   byte 1023, then `2`); the bind test covers a plain `bind` (the control), `bind\tk`, one leading space (unescaped) and
+   five (kept); the unescape order is pinned by `"a\\"` becoming the value `a\`.
+5. **Recorded, not changed:** a non-ASCII character straddling byte 1023 is cut whole here, where the engine keeps its lead
+   bytes on the line and skips the rest; a .NET string cannot hold half a character, and it needs a 1023-byte line ending
+   mid-character (Fable, Sonnet, Grok).
+
+**Review 9** (Sonnet merge; Fable and Gemini merge after one fix, the leading NUL, item 1; Grok request changes):
+
+1. **A file beginning with a NUL ran the rest** (Fable, Grok): `Cmd_Exec_f` loops while the line's `strlen` is above 0,
+   and the first byte is copied whatever it is, so such a file runs nothing. Fixed. Test:
+   `Load_AFileThatBeginsWithANul_RunsNothing`, red without the check.
+2. **Grok: the line a NUL stops is not run.** Not so: `Cmd_Exec_f` adds and executes the line in the buffer, then reads
+   the next from the returned pointer; null empties the buffer and ends the loop (Fable read the same). Pinned:
+   `Load_ANulInsideALine_RunsTheLineBeforeItAndNothingAfter`.
+3. **Nothing asserted that `RunTheLaunchLine` uses `Stuff`** (Sonnet): `Build_ALaunchValueWithTwoBackslashes_ReachesTheConVarWhole`
+   (control: the same value from the autoexec loses one), red with `Load` put back. And **`Stuff`'s startup flags**
+   (Fable): `Stuff_AOneShot_IsIdleAsAtStartup` (control: a key's one-shot fires).
+4. The findings section now carries review 8's and 9's reads (Fable).
+
+**Review 10** (Fable, Sonnet, Gemini, Grok merge): the B816 launch test's remarks had been displaced by the new launch-value
+test and are back above it (Fable, Sonnet); `Stuff`'s `_viewerIssued` clear is pinned by
+`Stuff_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats` (Fable), red with `AtStartup` removed.
+
+## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
+
+Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it
+becomes part of the first token — which turns a leading `unbindall` into an unknown command which is skipped in
+silence"*. That is what TF2 does: `Cmd_Exec_f`'s line reader (`engine.dll` FUN_180177310) copies the file's first byte
+whatever it is and the rest as ordinary bytes, so the BOM joins the first token. The strip is not listed in
+`docs/ABOVE-VALVE.md`, so it is either an addition to list there with its test or a divergence to remove; removing it
+changes what a Notepad-saved config does (D246). **Needs the owner.** *Not fixed*.
+
+## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
+
+Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
+settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`
+reads live, and not the projection. So the key works and its label is stale. TF2's own binding menu reads the live
+table (*not read*; the key list UI is closed). `Bound` also counts every run-time `bind`, so a toggle alias that rebinds
+on each press grows it; it is reported only at load. Fix shape: refresh the projection on a run-time `bind`. *Not fixed*.
+
 ## B818 — a replicated cheat ConVar's refusal is decided by the launch line alone (2026-11-23) — OPEN
 
 Found in B811 reviews 3-5 (Sonnet, Grok, Fable). `LaunchOptionsReader` refuses `+cl_forwardspeed 500` with TF2's cheat

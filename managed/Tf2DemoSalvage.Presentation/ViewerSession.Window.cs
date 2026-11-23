@@ -415,7 +415,8 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     {
         foreach (string line in _launch.AfterConfigs ?? [])
         {
-            _console.Load(line);
+            // `stuffcmds`, not `exec`: the launch line is not read through a file's line reader (B820 review 8).
+            _console.Stuff(line);
         }
     }
 

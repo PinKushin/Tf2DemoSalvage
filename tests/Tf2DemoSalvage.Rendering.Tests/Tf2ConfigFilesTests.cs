@@ -204,6 +204,126 @@ public sealed class Tf2ConfigFilesTests
         }
     }
 
+    /// <remarks>
+    /// **A flat file in our custom/ stands in only for a name directly below `cfg/`** (B820 review 1, Sonnet): `exec
+    /// comfig/comfig` is found where the engine finds it, under an addon's `cfg/`. The control: the top-level name is found.
+    /// </remarks>
+    [Test]
+    public void Finder_AFlatFileInOwnCustom_AnswersOnlyATopLevelName()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-nested-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(root, "comfig"));
+        File.WriteAllText(Path.Combine(root, "comfig", "comfig.cfg"), "bind e +use");
+        File.WriteAllText(Path.Combine(root, "comfig.cfg"), "bind e +use");
+
+        try
+        {
+            Func<string, byte[]?> find = Tf2ConfigFiles.Finder(null, ownCustomRoot: root);
+
+            find("cfg/comfig/comfig.cfg").ShouldBeNull();
+            find("cfg/comfig.cfg").ShouldNotBeNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// **An empty flat file falls through to the game's copy** (B820 review 1, Sonnet, Grok), as before B820: a 0-byte
+    /// placeholder in our custom/ must not cost the player the game's `config.cfg`.
+    /// </remarks>
+    [Test]
+    public void Read_AnEmptyFlatFileInOwnCustom_LeavesTheGamesCopy()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-empty-" + Guid.NewGuid());
+        string game = Path.Combine(root, "tf");
+        string custom = Path.Combine(root, "custom");
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        Directory.CreateDirectory(custom);
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "bind \"e\" \"+game\"");
+        File.WriteAllText(Path.Combine(custom, "config.cfg"), string.Empty);
+
+        try
+        {
+            Texts(game, ownCustomRoot: custom).ShouldBe(["bind \"e\" \"+game\""]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <remarks>`Cmd_Exec_f`'s 1 MB cap holds for the startup configs, which `valve.rc` reaches through `exec` (B820).</remarks>
+    [TestCase(Tf2ConfigFiles.MaximumBytes, 1)]
+    [TestCase(Tf2ConfigFiles.MaximumBytes + 1, 0)]
+    public void Read_AConfigAtAndOverOneMegabyte_IsReadOnlyAtTheLimit(int size, int read)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-big-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "autoexec.cfg"), new string(' ', size));
+
+        try
+        {
+            Texts(null, ownCustomRoot: root).Count.ShouldBe(read);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// **A flat file over the cap is read only to one byte past it** (B820 review 3, Fable), enough to be refused, rather than
+    /// whole.
+    /// </remarks>
+    [Test]
+    public void Finder_AFlatFileWellOverTheCap_IsReadOnlyToOneBytePast()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-huge-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "autoexec.cfg"), new string(' ', 2 * Tf2ConfigFiles.MaximumBytes));
+
+        try
+        {
+            Tf2ConfigFiles.Finder(null, ownCustomRoot: root)("cfg/autoexec.cfg")!.Length.ShouldBe(Tf2ConfigFiles.MaximumBytes + 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// A name the path API rejects is a missing file, not an exception out of a key press (B820 review 1, Fable, Sonnet). The
+    /// wildcard and pipe cases are review 2's (Grok): a character a file name cannot hold is a missing file too.
+    /// </remarks>
+    [TestCase("cfg/a\0b.cfg")]
+    [TestCase("cfg/a*.cfg")]
+    [TestCase("cfg/a?.cfg")]
+    [TestCase("cfg/a|b.cfg")]
+    [TestCase("cfg/a<b>.cfg")]
+    [TestCase("cfg/a\"b.cfg")]
+    public void Finder_ANameAFileCannotHave_IsMissing(string name)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-nul-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            // The control (B820 review 3, Grok): a file the same lookup can find is found, so null above is the name's.
+            File.WriteAllText(Path.Combine(root, "ok.cfg"), "bind e +use");
+            Func<string, byte[]?> find = Tf2ConfigFiles.Finder(null, ownCustomRoot: root);
+
+            find("cfg/ok.cfg").ShouldNotBeNull();
+            find(name).ShouldBeNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()
     {
