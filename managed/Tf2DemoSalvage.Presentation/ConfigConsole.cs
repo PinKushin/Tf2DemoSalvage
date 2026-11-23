@@ -674,8 +674,9 @@ public sealed class ConfigConsole
             _refusedCheats.Clear();
             Load(configs);
 
-            // TF2's own line for each cheat ConVar a config set with cheats off (B718).
-            foreach (string refused in RefusedCheats)
+            // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
+            // `CheatRefused` handler has printed it already (B811 review 5, Sonnet): only a console nobody listens to prints here.
+            foreach (string refused in CheatRefused is null ? RefusedCheats : [])
             {
                 config.LogInformation(
                     "{Message}", $"Can't use cheat cvar {refused} in multiplayer, unless the server has sv_cheats set to 1.");

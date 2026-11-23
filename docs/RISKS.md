@@ -42790,8 +42790,8 @@ same line under an autoexec without cheats is refused; sabotage: not replaying t
 
 **Review 3** (Fable, Sonnet, Grok; Gemini approved):
 1. *The folder reload ran from the `sv_cheats` the line's replay ended on*, so `+mat_fullbright 1 +sv_cheats 1` admitted
-   the fullbright after a folder was chosen and refused it at the next launch. The reload now starts from `sv_cheats 0`,
-   which reverts every cheat, as a fresh start does; the configs and the line then set them again. Test
+   the fullbright after a folder was chosen and refused it at the next launch. The reload now starts from `sv_cheats 0`
+   (reverting nothing since review 4); the configs and the line then run as at startup. Test
    `GameFolderChosen_AfterALineThatTurnedCheatsOnLast_StillRefusesItsEarlierCheat` (control: the line's cheat after its
    own `sv_cheats 1` is admitted through the same reload; sabotage: no reset reddens it). A fullbright the menu turned off
    before the folder is chosen comes back from the line, as it would at the next launch.
@@ -42804,13 +42804,21 @@ same line under an autoexec without cheats is refused; sabotage: not replaying t
 4. *Found, B816's*: the line's non-cheat ConVars are stored when it is read, not replayed, so after a folder reload a
    config's `fps_max` beats the line's. Added to B816, where moving the configs after `Attach` makes it matter at startup.
 
-**Review 4** (Fable, Sonnet, Grok, Gemini; Gemini approved): the reload's typed `sv_cheats 0` reverted every cheat,
+**Review 4** (found by Fable, Sonnet and Grok; Gemini approved): the reload's typed `sv_cheats 0` reverted every cheat,
 including a value `settings.cfg` or the menu held, which a fresh start keeps (`settings.cfg` `mat_fullbright 1` with
 `+sv_cheats 1` went solid for the run). `ConfigConsole.StartCheatsOff` now sets the console's `sv_cheats` to 0 without
 reverting. Test `GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue` (sabotage: the typed `sv_cheats 0`
 reddens it). Review 3's test now asserts the folder was taken, the exact unset value and both refusals, so it cannot pass
 on a rejected folder. Item 1 of review 3 above no longer reverts anything. USER-GUIDE's replicated-cheat sentence
 corrected: the viewer does not use one either way.
+
+**Review 5** (all four approve or find no blocker). Done: a config's refused cheat was printed twice after `Attach`
+(the settings' `CheatRefused` handler and `LoadFrom`'s own list); `LoadFrom` now prints its list only when nobody listens.
+Test `GameFolderChosen_WhoseAutoexecSetsACheatWithCheatsOff_LogsTheRefusalOnce` (sabotage: printing the list always
+reddens it). The review-4 test asserts the folder was taken. Left, as found (Fable): a cheat a bound key set at run time
+(`bind F5 "sv_cheats 1; mat_wireframe 1"`) stays set through a folder reload that starts cheats at 0, which a fresh
+start would not have; a cheat the program's own `custom/` config alone admitted at startup likewise stays (Sonnet).
+Both need a key press or an own-folder config before the first folder is chosen. Filed: B818, the replicated-cheat gate.
 
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
@@ -44370,6 +44378,17 @@ behind both, so neither is engine parity.
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
+
+## B818 — a replicated cheat ConVar's refusal is decided by the launch line alone (2026-11-23) — OPEN
+
+Found in B811 reviews 3-5 (Sonnet, Grok, Fable). `LaunchOptionsReader` refuses `+cl_forwardspeed 500` with TF2's cheat
+line unless the line's own `+sv_cheats 1` came first; an autoexec's `sv_cheats 1` does not count, and the console never
+takes a replicated ConVar at all (`ConfigConsole.IsClientConVar`), so a config line setting one prints nothing either
+way. TF2's closed `cvar` code decides a client's set of a replicated ConVar ("Can't change replicated ConVar … from
+console of client, only server operator can change its value", from memory of older Source code, *not read*) and of a
+cheat ConVar; which check runs first during demo playback is not read. Only the log line is at stake: nothing in the
+viewer reads a replicated ConVar's value. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
+gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
 
 ## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN
 

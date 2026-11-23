@@ -1652,9 +1652,9 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **A cheat the saved settings hold survives a folder chosen later, as it survives a fresh start** (B811 review 4, all
-    /// four): `settings.cfg`'s `mat_fullbright 1` with `+sv_cheats 1` on the line; the reload's `sv_cheats` starts at 0
-    /// without reverting it. The control: the same settings without the reload are fullbright too.
+    /// **A cheat the saved settings hold survives a folder chosen later, as it survives a fresh start** (B811 review 4,
+    /// Fable, Sonnet, Grok): `settings.cfg`'s `mat_fullbright 1` with `+sv_cheats 1` on the line; the reload's `sv_cheats`
+    /// starts at 0 without reverting it. The control: the same settings without the reload are fullbright too.
     /// </remarks>
     [Test]
     public void GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue()
@@ -1671,7 +1671,29 @@ public sealed class ViewerSessionTests
         _gameFolder = tf;
         rig.Session.GameFolderChosen(tf);
 
+        rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
         rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A config's refused cheat is logged once, as TF2 prints it once** (B811 review 5, Sonnet): after the settings are
+    /// attached, their `CheatRefused` handler prints TF2's line, and the load's own list printed it a second time. A chosen
+    /// folder's autoexec sets `mat_wireframe 1` with cheats off.
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_WhoseAutoexecSetsACheatWithCheatsOff_LogsTheRefusalOnce()
+    {
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "mat_wireframe 1\n");
+        using Rig rig = Build();
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
+        rig.Log.Count("Can't use cheat cvar mat_wireframe in multiplayer").ShouldBe(1);
     }
 
     [Test]
