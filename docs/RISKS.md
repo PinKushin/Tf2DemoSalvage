@@ -44317,10 +44317,12 @@ Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it
   - The line names the wrong owner: the load's models appear under `(hud paint)`.
   - The per-path names, which only the moment's route writes, are written late: at the next moment upload, when the set
     next grows during a moment's build, which lists the whole set, and not with the upload that handed the load's models over.
+    The viewmodel's models are named late the same way since review 36 routed its upload through `UploadNow` (it names
+    no paths), where before the next `Pack` re-uploaded and named them.
   - **Stall attribution is wrong.** A STALL warning for that upload is logged as the HUD paint's and lands on a playback
     frame. So a load's cost reads as a frame hitch, and a frame-time measurement right after a load counts it.
 - **What the engine declares** (read from published source, `public/datacache/imdlcache.h`: `MDLCACHE_STUDIOHWDATA`
-  `:66`, `GetHardwareData` `:198`, `BeginMapLoad`/`EndMapLoad` `:246-247`, `PreloadModel` `:261`). `IMDLCache` brackets a
+  `:67`, `GetHardwareData` `:198`, `BeginMapLoad`/`EndMapLoad` `:246-247`, `PreloadModel` `:260`). `IMDLCache` brackets a
   level load and has a per-model preload and a getter for each model's device data. **Interpolated, not read:** that
   the level load builds the precached models' hardware data before the first frame rather than lazily at the first
   `GetHardwareData`. The header is declarations only; the bodies are in the closed engine, and `GetHardwareData` reads

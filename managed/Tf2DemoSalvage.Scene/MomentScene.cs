@@ -1471,10 +1471,11 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
         // separate the two: no vertices in total means the packing failed, and vertices with no instances means the
-        // posing did. **New** vertices are 0 legitimately in one case: every model packed since the last upload failed to
-        // load. `PackModels` marks the set grown before it asks for the geometry, so a missing file or an empty model still
-        // grows it and reaches here with nothing to hand over (review 35 item 4). Otherwise 0 new is a fault: `Pack` gets
-        // here with nothing grown only when the device has no models, which after a release is an empty device.
+        // posing did. **New** vertices are 0 legitimately in two cases: every model packed since the last upload failed to
+        // load (`PackModels` marks the set grown before it asks for the geometry, so a missing file or an empty model still
+        // grows it; review 35 item 4), or nothing has been packed at all (`Pack` gets here with nothing grown when the
+        // device has no models, as on an empty first frame; review 36). After a release with models packed, 0 new while
+        // the device holds none is a fault.
         // **The model count is the whole set**, not what this upload added — a set only grows (review 34 item 1).
         // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
         // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
