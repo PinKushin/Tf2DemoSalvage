@@ -696,6 +696,13 @@ public sealed partial class EntityModelSet
 
         for (int at = 0; at + 2 < order.Length; at += 3)
         {
+            // Each packed triangle must be one of the corners' own (review 8): a triangle whose corners differ in the
+            // packing's key would be split across groups, and its slots would pair faces with others' planes.
+            if (order[at] / 3 != order[at + 1] / 3 || order[at] / 3 != order[at + 2] / 3)
+            {
+                return null;
+            }
+
             if (packed.Count == 0 || corners[order[at]].FaceEdge)
             {
                 packed.Add(planes[faceOf[order[at]]]);

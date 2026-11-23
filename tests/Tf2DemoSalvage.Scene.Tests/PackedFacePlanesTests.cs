@@ -74,6 +74,32 @@ public sealed class PackedFacePlanesTests
         models.PackedFacePlanes(Path).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A triangle the packing splits has no planes** (review 8, Fable): corners of one triangle in materials 5, 7, 5,
+    /// then one all 5. The material groups pack the first triangle's corners apart, so a packed triangle holds corners of
+    /// two, and a face's plane could pair with another's; none instead. A brush face's corners share one material, so a
+    /// real brush entity never does this.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_OfATriangleThePackingSplits_AreNone()
+    {
+        PropVertex Corner(float x, int material) => new(x, 0f, 0f, 0f, 0f, material);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new PropVertex[] { Corner(0f, 5), Corner(1f, 7), Corner(2f, 5), Corner(3f, 5), Corner(4f, 5), Corner(5f, 5) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [new StoredPlane(1f, 0f, 0f, 0f, false), new StoredPlane(0f, 1f, 0f, 0f, false)]),
+        };
+
+        models.Precache([Path]);
+
+        models.PackedFacePlanes(Path).ShouldBeNull();
+    }
+
     /// <remarks>A studio model has no faces' planes: none, and the outline derives nothing for it, since it draws none.</remarks>
     [Test]
     public void PackedFacePlanes_OfAModelWithoutThem_AreNone()

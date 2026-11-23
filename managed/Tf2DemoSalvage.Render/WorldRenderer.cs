@@ -8427,9 +8427,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // A brush entity's outline faces, made before anything of the model is registered (review 7), so nothing
-            // about them can leave a model half uploaded.
+            // A brush entity's outline faces and outline buffer, made before anything of the model is registered (reviews
+            // 7-8), so a failure leaves the model unregistered and the next upload tries it again, rather than registered
+            // without its outline for the rest of the map.
             FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
+            ComPtr<ID3D11Buffer> outline = faces is not null ? CreateOutline(device, model.Vertices, path) : default;
 
             // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
             // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
@@ -8457,12 +8459,26 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             ComPtr<ID3D11Buffer> buffer = default;
 
-            fixed (float* first = data)
+            try
             {
-                SubresourceData initial = new() { PSysMem = first };
+                fixed (float* first = data)
+                {
+                    SubresourceData initial = new() { PSysMem = first };
 
-                SilkMarshal.ThrowHResult(
-                    device.CreateBuffer(in description, in initial, ref buffer));
+                    SilkMarshal.ThrowHResult(
+                        device.CreateBuffer(in description, in initial, ref buffer));
+                }
+            }
+            catch
+            {
+                // The outline made above is the model's alone and is not registered yet: released here, then the failure
+                // goes on to the caller as before (review 8).
+                if (outline.Handle is not null)
+                {
+                    outline.Dispose();
+                }
+
+                throw;
             }
 
             _modelBuffers[path] = buffer;
@@ -8471,7 +8487,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // to `debugmrmwireframe` instead (B788) and needs none.
             if (faces is not null)
             {
-                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), faces);
+                _modelOutlines[path] = (outline, faces);
             }
         }
 

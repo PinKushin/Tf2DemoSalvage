@@ -110,8 +110,9 @@ public static class BrushModels
 
             // **Each face's stored plane, beside its corners** (B803 review 6): the outline's cull reads the plane the surface
             // record holds (`engine.dll` `FUN_1800df1a0` keeps the record's plane pointer, `+4`), never one the fan's
-            // triangles imply. `dplane_t` by `planenum`: for a brush entity, its brush side's real plane, or a water or
-            // slime face's portal plane, which can face away (`utils/vbsp/faces.cpp:1334-1346`); and `side`, that plane's
+            // triangles imply. `dplane_t` by `planenum`: for a brush entity, its brush side's real plane, or for a water or
+            // slime face that plane with its twin chosen by the face's portal side, `(side->planenum & ~1) | pside`, which
+            // can be the flipped one (`utils/vbsp/faces.cpp:1334-1346`); and `side`, that plane's
             // odd bit (`writebsp.cpp:465-467`), read from `Normal` against `PlaneNormal` as B687 reads it. The same space as
             // the corners: the faces lump's model space. One per face that emitted a triangle: a face of three or more
             // corners always emits one, and a smaller one is skipped above with its plane.

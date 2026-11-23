@@ -285,7 +285,8 @@ public static class FaceFan
 /// <param name="NormalX">
 /// The plane's normal: `dplane_t` by the face's `planenum`. For a brush entity vbsp writes its brush side's own plane,
 /// "the brush model renderer doesn't use PLANEBACK, so write the real plane" (`utils/vbsp/faces.cpp:1334-1346`), except a
-/// face inside water or slime, which takes the portal's plane on the face's side and "can be flipped" (`:1338-1341`).
+/// face inside water or slime, which takes that same plane with its twin chosen by the portal side the face is on,
+/// `(side->planenum &amp; ~1) | pside`, so it can be the flipped twin: "inside water faces can be flipped" (`:1338-1341`).
 /// </param>
 /// <param name="NormalY">The plane's normal.</param>
 /// <param name="NormalZ">The plane's normal.</param>

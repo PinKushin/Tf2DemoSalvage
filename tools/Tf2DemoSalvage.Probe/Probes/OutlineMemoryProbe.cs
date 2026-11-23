@@ -86,13 +86,25 @@ public sealed class OutlineMemoryProbe : IProbe
         long brushVertices = 0;
         long faces = 0;
         int submodels = 0;
+        int withoutPlanes = 0;
         (int Stored, int PlaneBack, int OffPlane, int Along, int Against, int FirstSliver) count = (0, 0, 0, 0, 0, 0);
         float farthest = 0f;
 
         foreach (string model in brush.Keys)
         {
             List<WorldVertex> run = Uploaded(set, model);
+
+            // As WorldRenderer.OutlineFaces takes them (review 8, Sonnet): stored planes only when they number the faces;
+            // a model without falls back to its triangles' planes, is counted here, and is not measured below.
             IReadOnlyList<StoredPlane>? planes = set.PackedFacePlanes(model);
+            int stored = planes?.Count ?? -1;
+
+            if (stored != FaceFan.CountFaces(run))
+            {
+                planes = null;
+                withoutPlanes += run.Count > 0 ? 1 : 0;
+            }
+
             FacePlane[] used = FaceFan.Faces(run, planes);
 
             submodels++;
@@ -148,7 +160,8 @@ public sealed class OutlineMemoryProbe : IProbe
             $"{submodels} brush entities, {brushVertices:N0} vertices: outlines {brushVertices * 2 * sizeof(uint):N0} bytes on the GPU; "
             + $"{faces:N0} face planes of {planeSize} bytes, {faces * planeSize:N0} bytes managed (plus an array header each)");
         output.WriteLine(
-            $"stored planes: {count.Stored} (the control: one per face), {count.PlaneBack} with the odd bit; "
+            $"stored planes: {count.Stored} of {faces:N0} faces (the control: equal unless a model has none), {withoutPlanes} brush "
+            + $"entities with vertices but no stored planes that fit, {count.PlaneBack} with the odd bit; "
             + $"{count.OffPlane} with a corner more than 0.25 off its plane (farthest {farthest:0.####}); "
             + $"largest triangle's winding (b-a)x(c-a): {count.Along} along the stored normal, {count.Against} against; "
             + $"{count.FirstSliver} faces of more than one triangle whose first triangle's sine is under 1e-2; "

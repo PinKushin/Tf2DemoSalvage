@@ -43381,8 +43381,10 @@ On `fix/b803-wireframe-3-r1` at `94d1a7bca`, then main (`b7d49a06d`, B820) merge
 3. **The citation, and the water case** (Sonnet). *Read*: for a brush entity vbsp writes the brush side's own plane,
    "the brush model renderer doesn't use PLANEBACK, so write the real plane" (`utils/vbsp/faces.cpp:1334-1346`), so
    `side` is only that plane's odd bit, not that the face lies on its back; the wording is corrected in `StoredPlane`,
-   `FacePlane`, `BrushModels` and the tests. A face inside water or slime takes the portal's plane on the face's side and
-   "can be flipped" (`:1338-1341`): its stored plane may face away from what is drawn. The engine culls by the stored
+   `FacePlane`, `BrushModels` and the tests. A face inside water or slime takes the brush side's own plane with its twin
+   chosen by the face's portal side, `(side->planenum & ~1) | pside`, and "can be flipped" (`:1338-1341`): its stored
+   plane may be the flipped twin, facing away from what is drawn (wording corrected in review 8, Sonnet; it read "the
+   portal's plane"). The engine culls by the stored
    plane as is, and so does this; the probe's winding count found none facing the other way on either map. Recorded,
    not tested: no specimen has such a face.
 4. **`OnNode`** (Sonnet). *Read*: `FUN_1800dbdb0` walks only each node's own face range (first face at byte `+0x58`,
@@ -43402,6 +43404,41 @@ On `fix/b803-wireframe-3-r1` at `94d1a7bca`, then main (`b7d49a06d`, B820) merge
    list of planes; at the map's build, `BrushModels`' `List<StoredPlane>` per brush entity, kept on `ModelFrames`; at
    upload, `PackedModel.FacePlanes` kept on the device's cached `PackedModel` and one `FaceFan.CountFaces` walk per
    brush entity. 28 bytes a plane (`FacePlane`; `StoredPlane` 20): 250 and 134 planes on the two maps.
+
+### Review 8 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `9d2ed8557`. Same rules.
+
+1. **The outline buffer was made after the model was registered** (Fable, Sonnet). *Fixed*: `WorldRenderer.UploadModels`
+   now makes the outline faces and the outline buffer first, then the vertex buffer; if the vertex buffer throws, the
+   outline is released and the exception goes on as before. Only then is anything of the model registered, so a failure
+   leaves the path unregistered and the next upload tries it again. *Not tested*: forcing `CreateBuffer` to fail needs
+   fault injection the device wrapper does not have; the change is visible in the diff alone.
+2. **The misfit test drew only a front face** (Fable). *Fixed*: it draws a front and a back quad, three planes for the
+   two faces or none, and asserts the front outlined and the back not. Red, `(True, True)` for `(True, False)` in both
+   cases, with the fallback's planes zeroed so every face is outlined whole.
+3. **The once-a-map report was untested** (Fable). *Fixed*: `DrawModelPose_TwoMisfitBrushEntitiesInOneMap_AreReportedOnce`,
+   two misfit uploads in one map, one line; the control is the second upload's front face outlined. Red (2 lines) with
+   the guard bypassed. The offscreen target uploads one model at a time, so the two are two uploads of `*1` under one
+   map, not two models in one upload; the guard is per map either way.
+4. **The odd-bit test could not tell the node rule from the opaque one** (Grok). *Fixed*:
+   `DrawModelPose_ATranslucentBrushFaceWithTheEyeOnItsPlane_IsOutlinedOnlyWithoutTheOddBit` sets the stored plane
+   (0, −1, 0) at 300, so the eye at y −300 lies exactly on it. *Read*: `FUN_1800dbdb0` keeps a face when its `0x40`
+   flag equals `node dist < 0`, with no tolerance, so the face with the bit is dropped and the one without is kept;
+   `FUN_1800dcb20`'s `dot − dist ≥ −0.01` keeps both. Red (the odd-bit case outlined) with the translucent rule replaced
+   by `FacesEye`, where the review-7 test stayed green, as Grok said.
+5. **The water/slime wording** (Sonnet). *Read*: `utils/vbsp/faces.cpp:1338-1341` writes
+   `(side->planenum & ~1) | pside`, the brush side's own plane with its twin chosen by the portal side the face is on,
+   not the portal's plane. Corrected in `StoredPlane`, `BrushModels`, review 7 item 3 and finding 113.
+6. **The probe skipped faces without planes silently** (Sonnet). *Fixed*: the `outline-memory` probe takes stored planes
+   as `WorldRenderer.OutlineFaces` does (only when they number the faces) and prints the stored count beside the face
+   count, with the brush entities that fall back. *Measured*: `cp_process_final` 250 of 250 faces, 0 falling back;
+   `cp_granary` 134 of 134, 0 falling back. The other figures are unchanged from review 7.
+7. **A triangle split across material groups** (Fable). *Fixed*: `EntityModelSet.PackedFacePlanes` returns none when
+   any packed triangle holds corners of more than one source triangle. This covers a group whose corner count is not a
+   multiple of 3, since such a group must split a triangle. Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
+   Red with the check removed: it returned a two-plane list. A real brush face's corners share one material, so a real
+   brush entity does not reach this check.
 
 *As found (2026-11-21):*
 

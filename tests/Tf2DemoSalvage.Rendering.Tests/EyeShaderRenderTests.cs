@@ -915,10 +915,11 @@ public sealed class EyeShaderRenderTests
     /// <remarks>
     /// **Stored planes that do not fit a model's faces fail no upload** (B803 review 7, Sonnet, Fable, Grok): the outline's
     /// faces are made at every brush entity's upload whatever the value, and a throw there left the model half registered
-    /// and every brush entity undrawn. Two stored planes for one face, or none at all: the model draws, its front face is
-    /// outlined under 3 by its triangles' plane, and the render log says so once.
+    /// and every brush entity undrawn. Three stored planes for two faces, or none at all: the model draws, its front face
+    /// is outlined under 3 by its triangles' plane and its back face is not (review 8, Fable: a fallback that outlined
+    /// every face whole would pass on the front alone), and the render log says so once.
     /// </remarks>
-    [TestCase(2)]
+    [TestCase(3)]
     [TestCase(-1)]
     public void DrawModelPose_ABrushEntityWhoseStoredPlanesDoNotFit_DrawsOnItsTrianglesAndSaysSo(int planes)
     {
@@ -926,17 +927,43 @@ public sealed class EyeShaderRenderTests
         using OffscreenTarget target = OffscreenTarget.TryCreate(Size, Size, loggers) ?? throw new InconclusiveException("no Direct3D on this machine");
 
         target.Wireframe = 3;
+        DrawMisfitBrush(target, planes);
+
+        (OutlinePixels(target, 19, 30) > 0, OutlinePixels(target, 34, 45) > 0).ShouldBe((true, false));
+        DerivedPlaneLines(loggers).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The fallback is reported once a map, not once a brush entity** (review 8, Fable): one cause, a builder bug, would
+    /// otherwise name every model. Two uploads of a misfit model in one map, one line; the control is that each upload did
+    /// fall back, the second outlining its front face as the first did.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TwoMisfitBrushEntitiesInOneMap_AreReportedOnce()
+    {
+        using RecordingLoggerFactory loggers = new();
+        using OffscreenTarget target = OffscreenTarget.TryCreate(Size, Size, loggers) ?? throw new InconclusiveException("no Direct3D on this machine");
+
+        target.Wireframe = 3;
+        DrawMisfitBrush(target, -1);
+        DrawMisfitBrush(target, 3);
+
+        OutlinePixels(target, 19, 30).ShouldBeGreaterThan(0, "the control: the second upload drew on its triangles");
+        DerivedPlaneLines(loggers).ShouldBe(1);
+    }
+
+    /// <summary>A front face then a back face, as <c>*1</c>, with <paramref name="planes"/> stored planes, or none if negative.</summary>
+    private static void DrawMisfitBrush(OffscreenTarget target, int planes) =>
         DrawBrush(
             target,
-            [.. BrushFace(0f, 50f, front: true)],
-            [new WorldBatch(0, 0, 6)],
+            [.. BrushFace(-70f, 50f, front: true), .. BrushFace(70f, 50f, front: false)],
+            [new WorldBatch(0, 0, 12)],
             Identity4,
             facePlanes: planes < 0 ? null : [.. Enumerable.Repeat(new StoredPlane(0f, -1f, 0f, 0f, false), planes)]);
 
-        OutlinePixels(target, 20, 44).ShouldBeGreaterThan(0);
-        loggers.From("render").Count(line => line.Contains("*1:", StringComparison.Ordinal) && line.Contains("triangles' planes", StringComparison.Ordinal))
-            .ShouldBe(1);
-    }
+    /// <summary>The render log's lines saying <c>*1</c>'s outline fell back to its triangles' planes.</summary>
+    private static int DerivedPlaneLines(RecordingLoggerFactory loggers) =>
+        loggers.From("render").Count(line => line.Contains("*1:", StringComparison.Ordinal) && line.Contains("triangles' planes", StringComparison.Ordinal));
 
     /// <remarks>
     /// **A translucent face with the odd bit is measured against its node's plane** (B803 review 7, Grok): `FUN_1800dbdb0`
@@ -965,6 +992,36 @@ public sealed class EyeShaderRenderTests
             facePlanes: [new StoredPlane(0f, -1f, 0f, 0f, PlaneBack: true)]);
 
         OutlinePixels(target, 20, 44).ShouldBeGreaterThan(0);
+    }
+
+    /// <remarks>
+    /// **The eye on a translucent face's plane: only the node's rule drops the odd-bit face** (review 8, Grok). The stored
+    /// plane (0, −1, 0) at 300 puts the camera at y −300 exactly on it. `FUN_1800dbdb0` keeps a face when its `0x40` flag
+    /// equals `node dist &lt; 0`, with no tolerance; the node's distance is 0, not below it, so the face with the bit is
+    /// dropped and the one without is kept. `FUN_1800dcb20`'s opaque rule, `dot − dist ≥ −0.01`, keeps both, so a
+    /// translucent face culled by the opaque rule outlines the odd-bit one. The face without the bit is the control.
+    /// </remarks>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void DrawModelPose_ATranslucentBrushFaceWithTheEyeOnItsPlane_IsOutlinedOnlyWithoutTheOddBit(bool planeBack, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true },
+            facePlanes: [new StoredPlane(0f, -1f, 0f, 300f, planeBack)]);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
