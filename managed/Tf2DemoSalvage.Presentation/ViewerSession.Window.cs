@@ -211,11 +211,12 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
         LoadUserConfig();
 
-        // `+sv_cheats` from the launch line runs after the configs, as TF2 runs launch commands after them (B718), so a key's
-        // cheat ConVar later sees it.
-        if (_launch.SvCheats is { } svCheats)
+        // **The launch line's console lines run after the configs, in its order** (B718, B811): TF2's `cfg/valve.rc` runs
+        // `exec autoexec.cfg` and then `stuffcmds`. So a key's cheat ConVar later sees the line's `sv_cheats`, and a cheat
+        // the line alone could not admit is admitted by a config's `sv_cheats 1`, or refused here with TF2's line.
+        foreach (string line in _launch.AfterConfigs ?? [])
         {
-            _console.Load($"sv_cheats {svCheats}");
+            _console.Load(line);
         }
 
         _console.Triggered += OnConsoleAction;

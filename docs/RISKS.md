@@ -42762,7 +42762,19 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
-## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — OPEN
+## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — FIXED 2026-11-23
+
+**Fixed.** The order is now *read*, from the game's shipped data: `cfg/valve.rc` in `tf2_misc_dir.vpk` (the probe
+`game-file cfg/valve.rc`) runs `exec joystick.cfg`, `exec autoexec.cfg`, then `stuffcmds`, which executes the command
+line's `+` commands. `LaunchOptionsReader` no longer refuses a cheat the line alone cannot admit: it hands it, with every
+`+sv_cheats`, to the console after the configs in the line's order (`LaunchOptions.AfterConfigs`, replacing `SvCheats`),
+where a config's `sv_cheats 1` admits it and the console refuses it with TF2's line otherwise. A cheat the line itself
+admits is still stored in the run's settings as before. Tests: `ViewerSessionTests.OpenDevice_ALaunchMatWireframeAfterAnAutoexecsSvCheats_DrawsWireframe`
+(red first; control: the same line under an autoexec without cheats is refused; sabotage: not replaying the deferred line
+reddens it), `OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid` (the line's own order), and
+`LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleAfterTheConfigsInOrder`. Not verified by looking.
+
+**As filed:**
 
 Found in B791's review 16 (Sonnet). `LaunchOptionsReader` gates a `+cheat value` against `sv_cheats` as the launch line
 alone sets it (`cheats` starts false, `LaunchOptions.cs:114`), and it runs before the watcher's configs are read. So an

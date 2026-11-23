@@ -111,7 +111,8 @@ You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while
 `sv_cheats` is `0`, and the log shows TF2's own line: *Can't use cheat cvar … in multiplayer, unless the server has
-sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. Setting
+sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. As in TF2, the command line runs
+after your configs, so an `sv_cheats 1` in your `autoexec.cfg` also lets a `+cl_drawhud 0` on the command line through. Setting
 `sv_cheats` back to `0` returns every cheat cvar to its default, wherever it was set. The viewer's own keys (`CTRL+0`,
 `CTRL+1`, `CTRL+2`, `CTRL+w`) and its menus still work without it, and a value in the viewer's own `settings.cfg` is kept
 between runs as the menus' choices are.

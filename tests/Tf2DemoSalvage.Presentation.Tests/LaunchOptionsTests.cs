@@ -340,6 +340,18 @@ public sealed class LaunchOptionsTests
         Read("+sv_cheats", "1", "+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(12f);
     }
 
+    /// <remarks>
+    /// **A cheat the line alone cannot admit, and every `+sv_cheats`, is handed to the console after the configs in the line's
+    /// order** (B811; TF2's `cfg/valve.rc` runs `stuffcmds` after `exec autoexec.cfg`). An admitted one is stored, not handed.
+    /// </remarks>
+    [Test]
+    public void Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleAfterTheConfigsInOrder()
+    {
+        Read("+mat_wireframe", "1", "+sv_cheats", "0", "a.dem").AfterConfigs.ShouldBe(["mat_wireframe 1", "sv_cheats 0"]);
+        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats 1"], "admitted on the line");
+        Read("+cl_showfps", "1", "a.dem").AfterConfigs.ShouldBeNull("the control: no cheat, nothing handed");
+    }
+
     /// <remarks>`mat_wireframe` is a cheat ConVar in TF2 (`engine.dll` `0x180007b94`, flags `0x4000`), so the launch line's set
     /// meets the same refusal (B791).</remarks>
     [Test]

@@ -44,8 +44,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Like">`--like`: the TF2-side sidecar this run reproduces, recorded in its own sidecar (D226); its values
 /// were already expanded into the other options by <see cref="ShotSidecar.Expand(string[], Func{string, string}, Action{string, string})"/>.</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
-/// <param name="SvCheats">The last `+sv_cheats` value on the line, for the console to take after the configs, as TF2 runs
-/// launch commands after them (B718); null when none was given.</param>
+/// <param name="AfterConfigs">
+/// The console lines the launch line hands to the console after the configs, in the line's order, as TF2's `stuffcmds`
+/// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats`, and every cheat ConVar the line alone
+/// could not admit, so a config's `sv_cheats 1` admits it there. Null when there are none.
+/// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -66,7 +69,7 @@ public readonly record struct LaunchOptions(
     string? Hud = null,
     bool Windows = false,
     string? Like = null,
-    string? SvCheats = null);
+    IReadOnlyList<string>? AfterConfigs = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -112,6 +115,9 @@ public static class LaunchOptionsReader
 
         // `sv_cheats` as the launch line has set it so far (B718); 0, its default, until a `+sv_cheats` says otherwise.
         bool cheats = false;
+
+        // What runs again after the configs, in order (B811): see `LaunchOptions.AfterConfigs`.
+        List<string> afterConfigs = [];
 
         LaunchOptions read = new(settings, paths);
 
@@ -219,7 +225,7 @@ public static class LaunchOptionsReader
                     bool wereOn = cheats;
 
                     cheats = ConfigConsole.CheatsAllowed(value);
-                    read = read with { SvCheats = value };
+                    afterConfigs.Add($"sv_cheats {value}");
 
                     // Back to 0: the cheat ConVars this line set go back to their defaults, as the console's do.
                     if (wereOn && !cheats)
@@ -240,10 +246,13 @@ public static class LaunchOptionsReader
                 // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
                 string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
 
+                // **Not refused here: deferred to after the configs** (B811). TF2 runs the command line through `stuffcmds`
+                // after `exec autoexec.cfg` (`cfg/valve.rc`), so a config's `sv_cheats 1` admits it; the console refuses it
+                // there, with TF2's line, if nothing has.
                 if (ViewerSettings.IsCheat(command) && !cheats)
                 {
-                    log.LogInformation(
-                        "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                    afterConfigs.Add($"{own} {value}");
+                    log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                     continue;
                 }
 
@@ -415,7 +424,7 @@ public static class LaunchOptionsReader
                 ? "no demo was named on the command line"
                 : $"{paths.Count} path(s) from the command line, first: {paths[0]}");
 
-        return read;
+        return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
     }
 
     /// <summary>A number as the command line spells it, or null.</summary>

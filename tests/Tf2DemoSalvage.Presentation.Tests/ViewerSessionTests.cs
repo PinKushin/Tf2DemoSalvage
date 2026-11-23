@@ -183,13 +183,13 @@ public sealed class ViewerSessionTests
     private string? _gameFolder;
 
     /// <summary>A session whose TF2 install carries this autoexec.cfg.</summary>
-    private Rig BuildWithAutoexec(string autoexec)
+    private Rig BuildWithAutoexec(string autoexec, params string[] arguments)
     {
         _gameFolder = Path.Combine(_folder, "tf");
         Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
         File.WriteAllText(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), autoexec);
 
-        return Build();
+        return Build(arguments);
     }
 
     private Dictionary<string, string> _environment = [];
@@ -781,6 +781,44 @@ public sealed class ViewerSessionTests
         rig.WithDevice();
 
         rig.Device.Wireframe.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A launch cheat runs after the configs, so an autoexec's `sv_cheats 1` admits it** (B811). TF2's shipped
+    /// `cfg/valve.rc` (read from `tf2_misc_dir.vpk`) runs `exec autoexec.cfg` and only then `stuffcmds`, which executes the
+    /// command line's `+` commands. The control: the same launch line with an autoexec that leaves cheats off is refused.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_ALaunchMatWireframeAfterAnAutoexecsSvCheats_DrawsWireframe()
+    {
+        using (Rig refused = BuildWithAutoexec("cl_showfps 0\n", "+mat_wireframe", "1"))
+        {
+            refused.Window.WireframeTicked = refused.Session.SetWireframe;
+            refused.WithDevice();
+            refused.Device.Wireframe.ShouldBeFalse("the control: cheats off in the configs, the launch line is refused");
+        }
+
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+mat_wireframe", "1");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.WithDevice();
+
+        rig.Device.Wireframe.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **The launch line runs in its own order after the configs** (B811): an autoexec's `sv_cheats 1`, then the line's
+    /// `+mat_wireframe 1 +sv_cheats 0`, ends with wireframe off, as `sv_cheats 0` puts every cheat ConVar back.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+mat_wireframe", "1", "+sv_cheats", "0");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.WithDevice();
+
+        rig.Device.Wireframe.ShouldBeFalse();
     }
 
     /// <remarks>
