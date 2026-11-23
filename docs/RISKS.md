@@ -44386,8 +44386,11 @@ line unless the line's own `+sv_cheats 1` came first; an autoexec's `sv_cheats 1
 takes a replicated ConVar at all (`ConfigConsole.IsClientConVar`), so a config line setting one prints nothing either
 way. TF2's closed `cvar` code decides a client's set of a replicated ConVar ("Can't change replicated ConVar … from
 console of client, only server operator can change its value", from memory of older Source code, *not read*) and of a
-cheat ConVar; which check runs first during demo playback is not read. Only the log line is at stake: nothing in the
-viewer reads a replicated ConVar's value. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
+cheat ConVar; which check runs first during demo playback, and whether the replicated refusal applies while a demo plays
+at all, are not read. The viewer does read replicated ConVars (`FlightInput` and `PredictedPlayer` read `cl_forwardspeed`)
+from the demo's own server values; no console or launch-line set reaches them. So if TF2 admits a client's set of a
+replicated cheat during playback under `sv_cheats 1`, the free camera's speed is at stake, not only a log line (B811
+review 6, Fable). Fix shape: read the order in `engine.dll` (the replicated string's xref), then
 gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
 
 ## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN

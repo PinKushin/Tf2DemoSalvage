@@ -45,6 +45,31 @@ public sealed class ConfigConsoleLoadFromTests
         log.Count("no TF2 install found").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A config's refused cheat is printed by the load when nobody else listens** (B718; B811 review 6, Fable): at startup
+    /// the configs load before the settings attach, so this list is the only place TF2's line comes from. The control: with
+    /// a listener, the load leaves the printing to it.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AConfigCheatWithCheatsOff_PrintsTheRefusalOnlyWhenNobodyListens()
+    {
+        const string Refusal = "Can't use cheat cvar mat_wireframe in multiplayer";
+        string folder = TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder, "cfg"));
+        File.WriteAllText(Path.Combine(folder, "cfg", "autoexec.cfg"), "mat_wireframe 1\n");
+
+        RecordingLogger alone = new();
+        ConfigConsole.WithDefaults().LoadFrom(folder, NullLoggerFactory.Instance, alone);
+
+        RecordingLogger heard = new();
+        ConfigConsole listened = ConfigConsole.WithDefaults();
+        listened.CheatRefused += (_, _) => { };
+        listened.LoadFrom(folder, NullLoggerFactory.Instance, heard);
+
+        alone.Count(Refusal).ShouldBe(1);
+        heard.Count(Refusal).ShouldBe(0, "the control: the listener prints it");
+    }
+
     [Test]
     public void LoadFrom_WithAConfigThatBinds_TakesTheBindingAndReportsIt()
     {
