@@ -214,18 +214,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
+        // **After `Attach`** (B811 review 1): an admitted set reaches the run's settings through `ConVarSet`, where its
+        // readers look and where it wins over the saved value; a refused one is logged with TF2's line. **Before
+        // `OnConVarSet`** (review 2): the window's controls do not exist yet while it is being built, and the switches are
+        // applied from the settings when the device opens.
+        RunTheLaunchLine();
+
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
-
-        // **The launch line's console lines run after the configs, in its order** (B718, B811): TF2's `cfg/valve.rc` runs
-        // `exec autoexec.cfg` and then `stuffcmds`. So a key's cheat ConVar later sees the line's `sv_cheats`, and a cheat
-        // the line alone could not admit is admitted by a config's `sv_cheats 1`. **After `Attach`** (B811 review 1): an
-        // admitted set then reaches the run's settings through `ConVarSet`, where its readers look and where it wins over
-        // the saved value, as the command line does in TF2; a refused one is logged with TF2's line through `CheatRefused`.
-        foreach (string line in _launch.AfterConfigs ?? [])
-        {
-            _console.Load(line);
-        }
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -382,7 +378,23 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         if (!installOpen)
         {
             LoadUserConfig();
+
+            // The configs ran again, so the line runs after them again, as `stuffcmds` follows `exec` (B811 review 2).
+            RunTheLaunchLine();
             _window.ShowBindings(_bindings);
+        }
+    }
+
+    /// <summary>
+    /// The launch line's console lines, run after the configs in its order (B718, B811): TF2's <c>cfg/valve.rc</c> runs
+    /// <c>exec autoexec.cfg</c> and then <c>stuffcmds</c>, so a cheat on the line meets <c>sv_cheats</c> as the configs and
+    /// the line so far left it.
+    /// </summary>
+    private void RunTheLaunchLine()
+    {
+        foreach (string line in _launch.AfterConfigs ?? [])
+        {
+            _console.Load(line);
         }
     }
 

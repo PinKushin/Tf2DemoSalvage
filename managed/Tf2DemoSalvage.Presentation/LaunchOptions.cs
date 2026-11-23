@@ -218,49 +218,41 @@ public static class LaunchOptionsReader
                 string command = argument[1..];
                 string value = pending.Dequeue();
 
-                // **A launch option is a console command, so a cheat ConVar meets the same gate** (B718, measured on live
-                // TF2): admitted here after an earlier `+sv_cheats 1` on the line, otherwise handed to the console after the
-                // configs, where a config's `sv_cheats 1` admits it or TF2's refusal is logged (B811).
+                // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718,
+                // B811): TF2's `cfg/valve.rc` runs `exec autoexec.cfg` and then `stuffcmds`, which executes the whole line,
+                // so the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it.
+                // None is stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred
+                // set of the same ConVar win over a later admitted one). Quoted, so the console reads the value as the one
+                // argument the line gave.
                 if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
                 {
-                    bool wereOn = cheats;
-
                     cheats = ConfigConsole.CheatsAllowed(value);
-                    afterConfigs.Add($"sv_cheats {value}");
-
-                    // Back to 0: the cheat ConVars this line set go back to their defaults, as the console's do.
-                    if (wereOn && !cheats)
-                    {
-                        foreach (Core.Net.EngineConVar cheat in Core.Net.EngineConVars.All)
-                        {
-                            if (cheat.Cheat && !cheat.Replicated)
-                            {
-                                read = read with { Settings = read.Settings.Set(cheat.Name, cheat.Default) };
-                            }
-                        }
-                    }
-
-                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line)");
+                    afterConfigs.Add($"sv_cheats \"{value}\"");
+                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line, after the configs)");
                     continue;
                 }
 
                 // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
                 string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
 
-                // **Not refused here: deferred to after the configs** (B811). TF2 runs the command line through `stuffcmds`
-                // after `exec autoexec.cfg` (`cfg/valve.rc`), so a config's `sv_cheats 1` admits it; the console refuses it
-                // there, with TF2's line, if nothing has.
-                if (ViewerSettings.IsCheat(command) && !cheats)
+                if (ViewerSettings.IsCheat(command))
                 {
-                    // A replicated cheat is the server's, which no client set admits (B811 review 1, Sonnet): refused here.
+                    // A replicated cheat is the server's, which the console's client sets never take (B811 review 1, Sonnet):
+                    // gated against the line's own `sv_cheats` here, as before.
                     if (declared is { Replicated: true })
                     {
-                        log.LogInformation(
-                            "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                        if (!cheats)
+                        {
+                            log.LogInformation(
+                                "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                            continue;
+                        }
+
+                        read = read with { Settings = read.Settings.Set(own, value) };
+                        log.LogInformation("{Message}", $"{own} {value} (from the command line)");
                         continue;
                     }
 
-                    // Quoted, so the console's tokenizer reads the value as the one argument the line gave (review 1, Sonnet).
                     afterConfigs.Add($"{own} \"{value}\"");
                     log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                     continue;

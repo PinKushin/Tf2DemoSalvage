@@ -836,14 +836,12 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **The launch line runs in its own order after the configs** (B811): an autoexec's `sv_cheats 1`, then the line's
-    /// `+mat_wireframe 1 +sv_cheats 0`, ends with wireframe off, as `sv_cheats 0` puts every cheat ConVar back.
+    /// **The launch line runs in its own order** (B811 review 1, Fable): with no cheats in the configs,
+    /// `+mat_wireframe 1 +sv_cheats 1` refuses the wireframe before the line admits cheats; a reversed replay would draw it.
     /// </remarks>
     [Test]
     public void OpenDevice_ALaunchMatWireframeBeforeItsSvCheatsOne_DrawsSolid()
     {
-        // The line's order (review 1, Fable): with no cheats in the configs, `+mat_wireframe 1 +sv_cheats 1` refuses the
-        // wireframe before the line admits cheats; a reversed replay would draw it.
         using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+mat_wireframe", "1", "+sv_cheats", "1");
         rig.Window.WireframeTicked = rig.Session.SetWireframe;
 
@@ -852,6 +850,46 @@ public sealed class ViewerSessionTests
         rig.Device.Wireframe.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The last set on the line wins, as `stuffcmds` running the whole line gives** (B811 review 2, Sonnet): an autoexec's
+    /// `sv_cheats 1`, then `+mat_fullbright 1 +sv_cheats 1 +mat_fullbright 0` ends at 0. Before, the line's admitted 0 was
+    /// stored when it was read and the deferred 1 replayed over it. The control: the same line ending in 1 ends at 1.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCheatSetTwiceAroundItsSvCheats_EndsAtTheLastValue()
+    {
+        using (Rig control = BuildWithAutoexec("sv_cheats 1\n", "+mat_fullbright", "0", "+sv_cheats", "1", "+mat_fullbright", "1"))
+        {
+            control.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1", "the control: the last value is 1");
+        }
+
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+mat_fullbright", "1", "+sv_cheats", "1", "+mat_fullbright", "0");
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("0");
+    }
+
+    /// <remarks>
+    /// **The launch line runs before the window is told of any set** (B811 review 2, Fable and Sonnet): the session is built
+    /// before the real window's menu and viewport exist, so a switch applied then crashed it. The switches reach the window
+    /// from the settings when the device opens. The control: the same set after the device opens is told.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCheatAdmittedByAnAutoexec_TellsTheWindowNothingUntilTheDeviceOpens()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+mat_wireframe", "1");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Window.Told.ShouldNotContain(said => said.StartsWith("ShowWireframe", StringComparison.Ordinal));
+
+        rig.WithDevice();
+
+        rig.Window.Told.ShouldContain("ShowWireframe True", "the control: the device's hand-over tells it");
+    }
+
+    /// <remarks>
+    /// **`sv_cheats 0` later on the line puts the cheat back** (B811): an autoexec's `sv_cheats 1`, then the line's
+    /// `+mat_wireframe 1 +sv_cheats 0`, ends with wireframe off, as `sv_cheats 0` reverts every cheat ConVar.
+    /// </remarks>
     [Test]
     public void OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid()
     {
@@ -1550,6 +1588,27 @@ public sealed class ViewerSessionTests
 
         rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.NotAGameFolder);
         rig.Window.Told.ShouldNotContain("ShowBindings");
+    }
+
+    /// <remarks>
+    /// **The configs read from a folder chosen later are followed by the launch line again** (B811 review 2, Fable), as
+    /// `stuffcmds` follows `exec`: the new folder's autoexec admits cheats, so the line's `+mat_fullbright 1` refused at
+    /// startup is applied. The control: before the folder, it was refused.
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_WhoseAutoexecAdmitsCheats_RunsTheLaunchLineAgain()
+    {
+        using Rig rig = Build("+mat_fullbright", "1");
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "sv_cheats 1\n");
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldNotBe("1", "the control: refused with no config");
+
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
     }
 
     [Test]
