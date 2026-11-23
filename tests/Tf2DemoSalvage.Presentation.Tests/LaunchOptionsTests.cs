@@ -349,14 +349,23 @@ public sealed class LaunchOptionsTests
 
     /// <remarks>
     /// **A replicated cheat is the server's, so the line's own `sv_cheats` gates it and the console never sees it**
-    /// (B811 review 1, Sonnet; review 2, Gemini): `+cl_forwardspeed 500` is refused with TF2's line and not handed on, and
-    /// after `+sv_cheats 1` it is still not handed on, only the `sv_cheats` is.
+    /// (B811 review 1, Sonnet; reviews 2 and 3): `+cl_forwardspeed 500` is refused with TF2's line and not handed on; after
+    /// `+sv_cheats 1` it is not refused, and still not handed on, only the `sv_cheats` is.
     /// </remarks>
     [Test]
     public void Read_AReplicatedCheat_IsGatedOnTheLineAndNeverHandedOn()
     {
-        Read("+cl_forwardspeed", "500", "a.dem").AfterConfigs.ShouldBeNull();
-        Read("+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger refusedLog = new();
+        RecordingLogger admittedLog = new();
+
+        LaunchOptionsReader.Read(["+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), refusedLog)
+            .AfterConfigs.ShouldBeNull();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), admittedLog)
+            .AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+
+        refusedLog.Count(Refusal).ShouldBe(1);
+        admittedLog.Count(Refusal).ShouldBe(0, "the control: the line's own sv_cheats admits it");
     }
 
     /// <remarks>

@@ -42788,11 +42788,28 @@ same line under an autoexec without cheats is refused; sabotage: not replaying t
 4. `sv_cheats` is quoted in the replayed line like every other value. A replicated cheat stays gated on the line
    (`Read_AReplicatedCheat_IsGatedOnTheLineAndNeverHandedOn`). B816's text corrected: a `ClientConVar` reader is shadowed too.
 
+**Review 3** (Fable, Sonnet, Grok; Gemini approved):
+1. *The folder reload ran from the `sv_cheats` the line's replay ended on*, so `+mat_fullbright 1 +sv_cheats 1` admitted
+   the fullbright after a folder was chosen and refused it at the next launch. The reload now starts from `sv_cheats 0`,
+   which reverts every cheat, as a fresh start does; the configs and the line then set them again. Test
+   `GameFolderChosen_AfterALineThatTurnedCheatsOnLast_StillRefusesItsEarlierCheat` (control: the line's cheat after its
+   own `sv_cheats 1` is admitted through the same reload; sabotage: no reset reddens it). A fullbright the menu turned off
+   before the folder is chosen comes back from the line, as it would at the next launch.
+2. *A test's "no install" read this machine's TF2 configs*: `ConfigConsole.LoadFrom` fell back to `SteamInstall.Machine`
+   when handed no folder, which production's caller had already asked. Dropped; test
+   `ConfigConsoleLoadFromTests.LoadFrom_WithNoFolderGiven_ReadsNoMachineInstall` (red on a machine with TF2).
+3. *The replicated-cheat store was a no-op* (the settings type no replicated ConVar) and its test asserted nothing of
+   the gate. The store is gone; the test now reads the refusal line, with the line's own `sv_cheats 1` as its control.
+   A config's `sv_cheats 1` does not admit one: the console never takes a replicated ConVar.
+4. *Found, B816's*: the line's non-cheat ConVars are stored when it is read, not replayed, so after a folder reload a
+   config's `fps_max` beats the line's. Added to B816, where moving the configs after `Attach` makes it matter at startup.
+
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
    stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,
    `r_screenfademinsize`, `mat_force_tonemap_scale` and others read. Only `mat_wireframe`, read through `ClientConVar`,
-   worked. Now the replay runs after `Attach` and the `OnConVarSet` subscription: an admitted set reaches the run's
+   worked. Then the replay ran after `Attach` and the `OnConVarSet` subscription (*superseded by review 2*: after `Attach`,
+   before `OnConVarSet`): an admitted set reaches the run's
    settings (not the saved file) and wins over the saved value, as the command line does in TF2. Test
    `ViewerSessionTests.Build_ALaunchClDrawhudAfterAnAutoexecsSvCheats_ReachesTheSettings` (control: cheats off, refused).
 2. *The refusal line was lost*: `CheatRefused` had no subscriber yet. Test `Build_ALaunchCheatNothingAdmits_LogsTf2sRefusal`.
@@ -44356,7 +44373,10 @@ answers for every typed ConVar, so the console's value is shadowed there too (B8
 (`DrawHud`, `Fullbright`, the tonemap scale, the screen-fade sizes, `FrameRateLimit`) and a `ClientConVar` reader of the
 same name both see the default. Only a ConVar the settings do not type is read from the console's list. So an autoexec's
 `cl_drawhud 0` under `sv_cheats 1` (TF2 hides the HUD) draws it here. Which ConVars are affected, one by one, is not yet
-counted. Fix shape: the configs' lines reach the run's settings as the command line's now do (B811). *Not fixed*.
+counted. Fix shape: the configs' lines reach the run's settings as the command line's now do (B811). That alone would
+let a config's `fps_max 123` beat a launch `+fps_max 60`, because the line's non-cheat ConVars are stored when it is read
+rather than run after the configs (B811 review 3); TF2's `stuffcmds` runs them after the configs too, so they must be
+replayed with the cheats. A folder chosen later already shows it. *Not fixed*.
 
 ## B815 — a load's precache reaches the device under the HUD's name, on a later frame (2026-11-22) — OPEN
 

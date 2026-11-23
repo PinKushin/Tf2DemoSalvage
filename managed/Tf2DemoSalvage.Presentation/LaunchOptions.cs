@@ -46,8 +46,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
 /// <param name="AfterConfigs">
 /// The console lines the launch line hands to the console after the configs, in the line's order, as TF2's `stuffcmds`
-/// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats`, and every cheat ConVar the line alone
-/// could not admit, so a config's `sv_cheats 1` admits it there. Null when there are none.
+/// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats` and every client cheat ConVar, so the
+/// console's gate decides each against `sv_cheats` as the configs and the line so far left it. Null when there are none.
 /// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
@@ -237,19 +237,17 @@ public static class LaunchOptionsReader
 
                 if (ViewerSettings.IsCheat(command))
                 {
-                    // A replicated cheat is the server's, which the console's client sets never take (B811 review 1, Sonnet):
-                    // gated against the line's own `sv_cheats` here, as before.
+                    // A replicated cheat is the server's: the console's client sets never take it and the settings hold no
+                    // copy (B811 review 1, Sonnet; review 3, Fable: the store here was a no-op). Refused with TF2's line
+                    // against the line's own `sv_cheats`, as before; admitted, nothing in the viewer reads it.
                     if (declared is { Replicated: true })
                     {
                         if (!cheats)
                         {
                             log.LogInformation(
                                 "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
-                            continue;
                         }
 
-                        read = read with { Settings = read.Settings.Set(own, value) };
-                        log.LogInformation("{Message}", $"{own} {value} (from the command line)");
                         continue;
                     }
 

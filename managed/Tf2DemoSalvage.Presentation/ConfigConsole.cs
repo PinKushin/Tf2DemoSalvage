@@ -651,7 +651,9 @@ public sealed class ConfigConsole
 
         try
         {
-            string? game = installedGameFolder ?? Tf2ConfigFiles.DefaultGameFolder;
+            // **The caller's answer, null included** (B811 review 3, Fable): production's is already `SteamInstall.Machine`'s,
+            // so falling back to it again only reached past a test's "no install" to this machine's own TF2 configs.
+            string? game = installedGameFolder;
 
             // **The program's own custom/ folder is checked even with no TF2 install found** (D193):
             // a config a player pasted in there does not depend on the game being installed at all.

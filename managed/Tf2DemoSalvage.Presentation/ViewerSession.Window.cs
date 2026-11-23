@@ -377,9 +377,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // The menu was built from the bindings before this read, so its shortcuts are redone from the new ones.
         if (!installOpen)
         {
+            // **From `sv_cheats 0`, as a fresh start is** (B811 review 3, Fable, Sonnet): left at what the line's replay
+            // ended on, a cheat the line put before its own `+sv_cheats 1` would be admitted now and refused at the next
+            // launch. Going to 0 reverts every cheat ConVar, which the configs and the line then set again.
+            _console.Load("sv_cheats 0");
             LoadUserConfig();
 
-            // The configs ran again, so the line runs after them again, as `stuffcmds` follows `exec` (B811 review 2).
+            // The configs ran again, so the line's cheats run after them again, as `stuffcmds` follows `exec` (B811
+            // review 2). Its other ConVars were stored when it was read and are not replayed (B816).
             RunTheLaunchLine();
             _window.ShowBindings(_bindings);
         }

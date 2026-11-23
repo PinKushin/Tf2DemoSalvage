@@ -1606,9 +1606,40 @@ public sealed class ViewerSessionTests
 
         rig.Settings.Current.ConVarText("mat_fullbright").ShouldNotBe("1", "the control: refused with no config");
 
+        _gameFolder = tf;
         rig.Session.GameFolderChosen(tf);
 
         rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The folder's configs and the line run from `sv_cheats 0`, as a fresh start does** (B811 review 3, Fable, Sonnet):
+    /// `+mat_fullbright 1 +sv_cheats 1` refuses the fullbright and leaves cheats on; a chosen folder whose autoexec sets no
+    /// `sv_cheats` must refuse it again, as the next launch would. The control: the same cheat after the line's
+    /// `+sv_cheats 1` is admitted through the same reload.
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_AfterALineThatTurnedCheatsOnLast_StillRefusesItsEarlierCheat()
+    {
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "cl_showfps 0\n");
+
+        using (Rig control = Build("+sv_cheats", "1", "+mat_fullbright", "1"))
+        {
+            _gameFolder = tf;
+            control.Session.GameFolderChosen(tf);
+            control.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1", "the control: admitted after its sv_cheats");
+            _gameFolder = null;
+        }
+
+        using Rig rig = Build("+mat_fullbright", "1", "+sv_cheats", "1");
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldNotBe("1");
     }
 
     [Test]

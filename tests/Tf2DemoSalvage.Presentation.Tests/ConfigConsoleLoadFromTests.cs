@@ -28,6 +28,23 @@ public sealed class ConfigConsoleLoadFromTests
         log.Count("no configs under").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **No folder is no install, not this machine's** (B811 review 3, Fable): the session passes `SteamInstall.Machine`'s
+    /// answer already, so a second fallback only let a test that says "no install" read the real TF2 configs of whoever
+    /// runs it. Red only on a machine with TF2 installed, which is where it mattered.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_WithNoFolderGiven_ReadsNoMachineInstall()
+    {
+        RecordingLogger log = new();
+
+        ConfigConsole.WithDefaults()
+            .LoadFrom(installedGameFolder: null, NullLoggerFactory.Instance, log, ownCustomRoot: NowhereFolder())
+            .ShouldBeNull();
+
+        log.Count("no TF2 install found").ShouldBe(1);
+    }
+
     [Test]
     public void LoadFrom_WithAConfigThatBinds_TakesTheBindingAndReportsIt()
     {
