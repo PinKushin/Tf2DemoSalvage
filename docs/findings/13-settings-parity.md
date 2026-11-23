@@ -233,3 +233,52 @@ WorldVertexTransition's too). TF2's `stdshader_dx9.dll` tests the config bit (+0
 **The same pass answered `$envmapmasktransform`:** the VertexLitGeneric helper declares it and reads it nowhere; the mask
 samples at the base coordinate, as TF2's shipped `vertexlit_and_unlit_generic_ps20b` does (`texld r2, t0, s4` beside
 `texld r4, t0, s0`). *Evidence class: published source, confirmed in shipped bytecode.*
+
+## A config line, a key and an alias body are one dispatcher, and `exec` is one of its commands (B820, 2026-11-23)
+
+**Believed first:** `exec` could be left out. `ConfigConsole`'s own header listed it under "deliberately does not
+implement", beside `wait`, on the reasoning that the viewer reads `config.cfg` and `autoexec.cfg` itself. That reading
+treats a config as two files; a real one is a tree. The owner's own `autoexec.cfg` ends in `exec ultra`, 116 settings
+the viewer never saw, and a mastercomfig autoexec is almost nothing but `exec` and aliases.
+
+**What the console also did wrong, found in the same read:** a config line went through one method (`Define`: bind,
+unbind, unbindall, alias, a ConVar) and a key or an alias body through another (`Run`: alias, ConVar, toggle, button). So
+a config line naming an alias did nothing, and an alias whose body binds a key did nothing.
+
+**What the engine does** (*disassembly*, `engine.dll` on the 2026-11 install, `cmd.cpp` by its assert paths):
+
+- `Cmd_ExecuteCommand` (`FUN_1801678a0`) runs every line, whatever its source. An alias is consulted only when
+  `FindCommandBase` finds no command or ConVar of the name, **or** the name starts with `+` or `-` (`(c - '+') & 0xfd`).
+  So an alias cannot shadow `fps_max`, and can shadow `+forward`.
+- `Cmd_Exec_f` (`FUN_1801672f0`) reads `//MOD/cfg/<name>`, appends `.cfg` only when the last segment has no dot
+  (`V_DefaultExtension`), refuses a path holding `\\`, `:`, `..`, CR or LF and one holding any of twelve file types
+  (case-sensitive substrings, so `A.VPK` passes), refuses a file over 0x100000 bytes, and is silent about a missing file
+  only when the argument as typed contains `autoexec.cfg`, `joystick.cfg` or `game.cfg` (`V_stristr`) — so
+  `exec autoexec` without the extension does print `'autoexec' not present; not executing.` Each line is executed
+  before the next is read, so a nested file runs where its `exec` stood.
+
+**A command has a length, and it is the buffer's** (*published source*, confirmed by the strings in TF2's `engine.dll`).
+Believed first, in review 5: the limit is `CCommand::Tokenize`'s, which skips a command of 511 bytes or more and moves on;
+it was implemented that way, on the trimmed clause. What killed it, in review 6: the command never reaches `Tokenize`.
+`CCommandBuffer::AddText` (`src/tier1/commandbuffer.cpp:209-247`) splits text with `GetNextCommandLength`, which counts the
+raw command (leading spaces and a CRLF line's CR in, a `//` comment out), and `InsertCommand` refuses 511 bytes or more
+with *"WARNING: Command too long... ignoring!"*, after which `AddText` returns: the rest of that line, bind or alias body is
+dropped, not run. The same threshold makes `Tokenize`'s check unreachable from the buffer. This limit, and `COMMAND_MAX_ARGC`
+64 (*"…overflows the argument buffer.. Clamped!"* once the 64th is taken), are what bound one alias run's work in TF2:
+an alias body is one command.
+
+**A file is not one text, and its CR is not counted** (*disassembly*, `engine.dll` FUN_180177310, `Cmd_Exec_f`'s line
+reader). Believed in review 6: a CRLF line's CR counts toward the length, because `GetNextCommandLength` counts it. What
+killed it, in review 7: the CR never reaches the buffer. The reader copies a line until any control byte but tab, caps it
+at 1023 bytes (the rest is the next line), skips everything not above 0x1f as a signed `char` before the next line (so
+leading tabs and non-ASCII bytes there go), unescapes `\"` and `\\` on every line that is not a `bind`, and hands each line
+to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, not of the file. Reviews 8 and 9 read the
+rest: the copy compares the sign-extended byte UNSIGNED (`JA`), so a non-ASCII byte continues a line, while the skip
+compares it SIGNED (`JGE`); a NUL ends the file, after the line it stopped runs, and a file beginning with one runs nothing
+(`Cmd_Exec_f` loops while the line's `strlen` is above 0). The launch line is not a file: `stuffcmds` hands it to
+`Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
+
+**What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;
+`exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in
+`Cmd_Exec_f` counts depth, so the engine's bound on a file that execs itself is not read; the viewer stops at the alias
+expansion limit.

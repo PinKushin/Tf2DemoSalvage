@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Presentation;
 
@@ -1018,5 +1019,822 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown("TAB").ShouldBeTrue();
         console.KeyUp("TAB");
         console.IsHeld(ViewerAction.ShowScores).ShouldBeFalse("the second press takes it down");
+    }
+
+    // ---- B820: one dispatcher, and `exec` ----------------------------------------------------------------------------
+    // Read from engine.dll (Ghidra): `Cmd_ExecuteCommand` (FUN_1801678a0) runs every line, from a file, a key or an alias
+    // body, and `Cmd_Exec_f` (FUN_1801672f0) reads `//MOD/cfg/<name>`. The full read is B820 in docs/RISKS.md.
+
+    /// <summary>A client ConVar no test elsewhere depends on, set by the files below.</summary>
+    private const string Alpha = "tf_hud_target_id_alpha";
+
+    /// <summary>A console whose `exec` reads from the given files, recording each path it asked for.</summary>
+    private static ConfigConsole WithFiles(List<string> asked, params (string Path, string Text)[] files)
+    {
+        Dictionary<string, string> byPath = new(StringComparer.Ordinal);
+
+        foreach ((string path, string text) in files)
+        {
+            byPath[path] = text;
+        }
+
+        return new ConfigConsole
+        {
+            FindConfig = path =>
+            {
+                asked.Add(path);
+                return byPath.TryGetValue(path, out string? text) ? System.Text.Encoding.UTF8.GetBytes(text) : null;
+            },
+        };
+    }
+
+    /// <remarks>Each line of the file is executed before the next is read, so a nested file runs where its `exec` stood.</remarks>
+    [Test]
+    public void Load_AnExecLine_RunsTheFileWhereTheLineStands()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 100"));
+
+        console.Load($"{Alpha} 50\nexec a");
+        console.ConVar(Alpha).ShouldBe("100");
+
+        console.Load($"exec a\n{Alpha} 50");
+        console.ConVar(Alpha).ShouldBe("50");
+
+        asked.ShouldBe(["cfg/a.cfg", "cfg/a.cfg"]);
+    }
+
+    /// <remarks>`V_DefaultExtension` (FUN_180282920) appends `.cfg` only when the last path segment has no dot.</remarks>
+    [TestCase("exec comfig/comfig", "cfg/comfig/comfig.cfg")]
+    [TestCase("exec a.txt", "cfg/a.txt")]
+    [TestCase("exec a.b/c", "cfg/a.b/c.cfg")]
+    [TestCase("exec A.VPK", "cfg/A.VPK")]
+    [TestCase("exec \"a\\b\"", "cfg/a\\b.cfg")]
+    [TestCase("exec a\r", "cfg/a.cfg")]
+    public void Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension(string line, string path)
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked);
+
+        console.Load(line);
+
+        asked.ShouldBe([path]);
+    }
+
+    /// <remarks>
+    /// `exec` takes exactly one argument; the path is refused when it holds `\\`, `:`, `..`, CR or LF (FUN_180176d10), or
+    /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read,
+    /// and so is a single backslash. A file's line has `\\` made `\` before `exec` sees it (FUN_180177310), so the double
+    /// backslash case is written as four. Each refusal is TF2's own line (B820 review 1, Fable, Grok: reading nothing alone
+    /// passed with `exec` not dispatched). CR and LF cannot reach a path here: a line ends at LF and the tokenizer trims a CR (`exec a\r` above).
+    /// </remarks>
+    [TestCase("exec", "exec <filename>: execute a script file")]
+    [TestCase("exec a b", "exec <filename>: execute a script file")]
+    [TestCase("exec ../a", "exec cfg/../a.cfg: invalid path.")]
+    [TestCase("exec \"c:a\"", "exec cfg/c:a.cfg: invalid path.")]
+    [TestCase("exec \"a\\\\\\\\b\"", "exec cfg/a\\\\b.cfg: invalid path.")]
+    [TestCase("exec a.vpk", "exec cfg/a.vpk: invalid file type.")]
+    [TestCase("exec a.dll.cfg", "exec cfg/a.dll.cfg: invalid file type.")]
+    [TestCase("exec a.exe", "exec cfg/a.exe: invalid file type.")]
+    [TestCase("exec a.vbs", "exec cfg/a.vbs: invalid file type.")]
+    [TestCase("exec a.com", "exec cfg/a.com: invalid file type.")]
+    [TestCase("exec a.bat", "exec cfg/a.bat: invalid file type.")]
+    [TestCase("exec a.ini", "exec cfg/a.ini: invalid file type.")]
+    [TestCase("exec a.gcf", "exec cfg/a.gcf: invalid file type.")]
+    [TestCase("exec a.sys", "exec cfg/a.sys: invalid file type.")]
+    [TestCase("exec a.zip", "exec cfg/a.zip: invalid file type.")]
+    [TestCase("exec a.blob", "exec cfg/a.blob: invalid file type.")]
+    [TestCase("exec a.scr", "exec cfg/a.scr: invalid file type.")]
+    public void Exec_ARefusedLine_ReadsNothingAndSaysWhy(string line, string said)
+    {
+        List<string> asked = [];
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles(asked);
+        console.Log = log;
+
+        console.Load(line);
+
+        asked.ShouldBeEmpty();
+        log.Lines.Select(entry => entry.Message).ShouldBe([said]);
+    }
+
+    /// <remarks>A file over 1,048,576 bytes is refused: `exec %s: file size larger than 1 MB!`.</remarks>
+    [TestCase(1_048_576, "7", 0)]
+    [TestCase(1_048_577, null, 1)]
+    public void Exec_AFileAtAndOverOneMegabyte_RunsOnlyAtTheLimit(int size, string? expected, int said)
+    {
+        string line = $"{Alpha} 7\n";
+        string text = line + new string(' ', size - line.Length);
+        List<string> asked = [];
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles(asked, ("cfg/big.cfg", text));
+        console.Log = log;
+
+        console.Load("exec big");
+
+        console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("exec big: file size larger than 1 MB!").ShouldBe(said);
+    }
+
+    /// <remarks>
+    /// *Interpolated* budget (B820 review 1, Fable, Sonnet): two `exec self` lines would read 2^20 files under the depth bound
+    /// alone; one command reads at most <see cref="ConfigConsole.MaximumExecs"/>, says so once, and the next command starts
+    /// a fresh budget.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileThatExecsItselfTwice_StopsAtTheBudgetAndTheNextCommandGetsItsOwn()
+    {
+        List<string> asked = [];
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", "exec loop\nexec loop"), ("cfg/a.cfg", $"{Alpha} 4"));
+        console.Log = log;
+
+        console.Load("exec loop\nexec a");
+
+        asked.Count(path => path == "cfg/loop.cfg").ShouldBe(ConfigConsole.MaximumExecs);
+        log.Count("more than 256 files from one command").ShouldBe(1);
+        console.ConVar(Alpha).ShouldBe("4", "the second line is a new command with its own budget");
+    }
+
+    /// <remarks>
+    /// `'%s' not present; not executing.` for a missing file, except when the argument AS TYPED holds `autoexec.cfg`,
+    /// `joystick.cfg` or `game.cfg` (`V_stristr`, FUN_1802845d0): `exec autoexec` says it, `exec MyGame.CFG` does not.
+    /// </remarks>
+    [TestCase("exec missing", 1)]
+    [TestCase("exec autoexec", 1)]
+    [TestCase("exec autoexec.cfg", 0)]
+    [TestCase("exec joystick.cfg", 0)]
+    [TestCase("exec MyGame.CFG", 0)]
+    public void Exec_AMissingFile_SaysSoUnlessItIsOneOfTheEnginesOptionalThree(string line, int said)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([]);
+        console.Log = log;
+
+        console.Load(line);
+
+        log.Count("not present; not executing.").ShouldBe(said);
+    }
+
+    /// <remarks>*Interpolated* bound: nothing in `Cmd_Exec_f` counts depth; this console stops a self-`exec` rather than hang.</remarks>
+    [Test]
+    public void Exec_AFileThatExecsItself_Ends()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", "exec loop"));
+
+        console.Load("exec loop");
+
+        asked.Count.ShouldBe(ConfigConsole.MaximumExpansion);
+    }
+
+    /// <remarks>
+    /// *Interpolated* budget (B820 review 2, Fable, Sonnet): `alias a "a;a"` and a line `a` is 2^20 runs under the depth
+    /// bound alone, and a config line runs its alias at load. One command runs at most
+    /// <see cref="ConfigConsole.MaximumAliasRuns"/>, says so once, and the next line starts a fresh budget.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasThatRunsItselfTwice_StopsAtTheBudgetAndTheNextLineRuns()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        List<string> sets = [];
+        console.ConVarSet += (_, e) => sets.Add(e.Value);
+
+        console.Load($"alias a \"a;a;{Alpha} 1\"\na\n{Alpha} 8");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
+        sets.Count.ShouldBeInRange(
+            ConfigConsole.MaximumAliasRuns / 2,
+            ConfigConsole.MaximumAliasRuns + 1,
+            "the stop itself (B820 reviews 3 and 4, Fable, Sonnet): 2^19 sets without it, and the budget's worth with it");
+        sets[^1].ShouldBe("8", "the next line runs");
+    }
+
+    /// <remarks>
+    /// **The alias budget is per line of an exec'd file too** (B820 review 3, Fable, Sonnet): one `exec` of a config tree does
+    /// not share one budget among all its lines. Two lines of one file that each exhaust it say so twice.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileWhoseTwoLinesEachExhaustTheAliasBudget_GivesEachLineItsOwn()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/fan.cfg", "a\na"));
+        console.Log = log;
+
+        console.Load("alias a \"a;a\"\nexec fan");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A load from a handler keeps the outer line's alias budget too** (B820 review 4, Fable): a handler that loads on every
+    /// set would otherwise zero it each time, and `a` would run 2^19 sets.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideAnAliasFanOut_KeepsTheOuterAliasBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        int sets = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            sets++;
+            console.Load(string.Empty);
+        };
+
+        Should.CompleteIn(() => console.Load($"alias a \"a;a;{Alpha} 1\"\na"), TimeSpan.FromSeconds(10));
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
+        sets.ShouldBeLessThanOrEqualTo(ConfigConsole.MaximumAliasRuns + 1);
+    }
+
+    /// <summary>
+    /// An alias `wa` whose body runs 150 of `wb`, each running 240 unknown commands: 36,151 clauses a line, inside the engine's
+    /// 510-byte command and under the per-line alias budget; 30 such lines pass the command's budget. <paramref name="lead"/>
+    /// goes first in `wa`'s body.
+    /// </summary>
+    private static string WideAliases(string lead = "") =>
+        $"alias wb \"{string.Join(';', Enumerable.Repeat("x", 240))}\"\n" +
+        $"alias wa \"{lead}{string.Join(';', Enumerable.Repeat("wb", 150))}\"";
+
+    /// <remarks>
+    /// **…and one command runs at most <see cref="ConfigConsole.MaximumCommandClauses"/> clauses in all** (B820 reviews 4 and 5,
+    /// Sonnet): the per-line budget resets on every line of an exec'd file and counts alias runs, not what a body does, so 30
+    /// lines each under it still stop at the command's. Said once, and the next command runs.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileWhoseLinesStayUnderTheLineBudget_StopsAtTheCommandBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("wa", 30))));
+        console.Log = log;
+
+        console.Load($"{WideAliases()}\nexec big\n{Alpha} 8");
+
+        log.Count($"more than {ConfigConsole.MaximumCommandClauses} commands run from one command").ShouldBe(1);
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(0);
+        log.Count("overflows the tokenizer buffer").ShouldBe(0, "every command is inside the engine's length");
+        console.ConVar(Alpha).ShouldBe("8", "the next command has a budget of its own (B820 review 5, Fable)");
+    }
+
+    /// <remarks>
+    /// **A load from a handler keeps the outer command's clause count** (B820 review 5, Sonnet, Fable): the handler's `Load`
+    /// runs commands of its own, and without the restore the exec tree above never reaches the command's budget.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideALongExecTree_KeepsTheOuterClauseCount()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("wa", 30))));
+        console.Log = log;
+        console.ReadSettingsFrom(_ => null);
+        int handled = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load("x");
+        };
+
+        console.Load($"{WideAliases($"{Alpha} 1;")}\nexec big");
+
+        handled.ShouldBeGreaterThan(0, "the control: the handler loaded inside the tree");
+        log.Count($"more than {ConfigConsole.MaximumCommandClauses} commands run from one command").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A command of 511 bytes or more is refused** (`CCommandBuffer::InsertCommand`, `src/tier1/commandbuffer.cpp:120-126`),
+    /// with TF2's line; 510 runs. An alias definition is one such command, which is what bounds what one alias run can do.
+    /// </remarks>
+    [TestCase(510, "5", ' ', "", "")]
+    [TestCase(511, null, ' ', "", "")]
+    [TestCase(510, null, 'é', "", "")]
+    [TestCase(509, null, ' ', "  ", "")]
+    [TestCase(509, "5", ' ', "\r\n\t\t", "")]
+    [TestCase(509, null, ' ', "\t\t", "")]
+    [TestCase(510, "5", ' ', "", "\r")]
+    [TestCase(510, "5", ' ', "", "// a comment the buffer does not count")]
+    [TestCase(510, null, ' ', "", " // the space before a comment is counted")]
+    public void Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt(int length, string? expected, char pad, string lead, string tail)
+    {
+        // `GetNextCommandLength` measures the raw command (B820 review 6, Fable, Sonnet): bytes (the 'é' case is 510
+        // characters), leading spaces counted, a `//` comment not. The file's line reader (`FUN_180177310`, review 7) ends
+        // a line at its CR and drops the tabs that start a line after a break, so neither is counted; the file's first line
+        // keeps them (its first byte is copied whatever it is). The refused command's line is TF2's.
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string command = $"{Alpha} 5 \"";
+
+        console.Load(lead + command + new string(pad, length - command.Length - 1) + "\"" + tail);
+
+        console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(expected is null ? 1 : 0);
+    }
+
+    /// <remarks>
+    /// **A config loaded from a handler inside the viewer's own key is a config** (B820 review 7, Fable): the built-in
+    /// `CTRL+1` sets the cheat `mat_fullbright` with cheats off (D253), and a load its set sets off refuses its own cheat line.
+    /// </remarks>
+    [Test]
+    public void Load_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ConVarSet += (_, e) =>
+        {
+            if (e.Name == "mat_fullbright")
+            {
+                console.Load("mat_wireframe 1");
+            }
+        };
+
+        console.KeyDown("CTRL+1");
+
+        console.ConVar("mat_fullbright").ShouldBe("1", "the control: the viewer's own key set its cheat");
+        console.RefusedCheats.ShouldContain("mat_wireframe");
+    }
+
+    /// <remarks>
+    /// **…and so is launch text** (B820 review 10, Fable): `Stuff` clears `_viewerIssued` as `Load` does, so a launch line run
+    /// from a handler inside the viewer's own key meets TF2's cheat refusal.
+    /// </remarks>
+    [Test]
+    public void Stuff_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ConVarSet += (_, e) =>
+        {
+            if (e.Name == "mat_fullbright")
+            {
+                console.Stuff("mat_wireframe 1");
+            }
+        };
+
+        console.KeyDown("CTRL+1");
+
+        console.ConVar("mat_fullbright").ShouldBe("1", "the control: the viewer's own key set its cheat");
+        console.RefusedCheats.ShouldContain("mat_wireframe");
+    }
+
+    /// <remarks>
+    /// **A file line is cut at 1023 bytes and the rest read as the next line** (`Cmd_Exec_f`'s line reader, `engine.dll`
+    /// FUN_180177310, B820 review 7): a 1023-byte line of spaces then `{Alpha} 6` runs the ConVar as a line of its own.
+    /// </remarks>
+    [Test]
+    public void Load_ALineLongerThanTheReadersCap_ContinuesAsTheNextLine()
+    {
+        // Exactly 1023 bytes end in `{Alpha} 1`; the next byte, `2`, starts the next line (B820 review 8, Sonnet): a cap of
+        // 1022 leaves `{Alpha} ` with no value, and one of 1024 makes the value 12. Empty `;` commands pad the front.
+        ConfigConsole console = new();
+        string command = $"{Alpha} 1";
+
+        console.Load(new string(';', 1023 - command.Length) + command + "2");
+
+        console.ConVar(Alpha).ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A file line that is not a `bind` has `\"` made `"` and `\\` made `\`** (FUN_180177310's two replacements, B820
+    /// review 7); a `bind` line keeps them. A line is a `bind` when the word starts it once spaces and tabs are skipped AND
+    /// byte 4 of the line itself is a space or tab: ` bind` (byte 4 is `n`) is unescaped, `bind\tk` is not. The control: the
+    /// plain form binds.
+    /// </remarks>
+    [TestCase("bind k \"+forward\"", true)]
+    [TestCase("bind k \\\"+forward\\\"", false)]
+    [TestCase("bind\tk \\\"+forward\\\"", false)]
+    [TestCase(" bind k \\\"+forward\\\"", true)]
+    [TestCase("     bind k \\\"+forward\\\"", false)]
+    public void Load_ABindLine_KeepsItsEscapesAndAnyOtherLineLosesThem(string line, bool forward)
+    {
+        ConfigConsole console = new();
+
+        console.Load(line);
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBe(forward);
+    }
+
+    /// <remarks>
+    /// The unescape on a ConVar line, and its order (B820 review 8, Sonnet): `\"` is made `"` first, then `\\` `\`, so
+    /// `"a\\"` becomes `"a\"`, the value `a\`; the other order would end at `"a""` and the value `a`.
+    /// </remarks>
+    [Test]
+    public void Load_ALineThatIsNotABind_UndoesItsEscapesQuoteFirst()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} \\\"5\\\"");
+        console.ConVar(Alpha).ShouldBe("5");
+
+        console.Load("cl_voice_filter \"a\\\\\"");
+        console.ConVar("cl_voice_filter").ShouldBe("a\\");
+    }
+
+    /// <remarks>
+    /// **A NUL ends the file** (FUN_180177310 returns null at a 0 byte and `Cmd_Exec_f` stops; B820 review 8, Fable); and a
+    /// non-ASCII character starting a line after a break is skipped, a signed `char` below 0x20.
+    /// </remarks>
+    [Test]
+    public void Load_AFileWithANul_StopsThereAndALineAfterABreakDropsItsNonAscii()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1\né{Alpha} 2\n\0\n{Alpha} 3");
+
+        console.ConVar(Alpha).ShouldBe("2", "é was skipped, so the second line ran; the third is after the NUL");
+    }
+
+    /// <remarks>
+    /// **A file that begins with a NUL runs nothing** (B820 review 9, Fable): `Cmd_Exec_f` loops while a line's `strlen` is
+    /// above 0, and its first line is the NUL copied whatever it is.
+    /// </remarks>
+    [Test]
+    public void Load_AFileThatBeginsWithANul_RunsNothing()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"\0\n{Alpha} 1");
+
+        console.ConVar(Alpha).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A NUL that stops a line's copy ends the file after that line runs** (B820 review 9): `Cmd_Exec_f` adds and executes
+    /// the line in the buffer, then the reader's null return makes the next line empty and the loop ends.
+    /// </remarks>
+    [Test]
+    public void Load_ANulInsideALine_RunsTheLineBeforeItAndNothingAfter()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1\0{Alpha} 2\n{Alpha} 3");
+
+        console.ConVar(Alpha).ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The launch line is startup text** (B820 review 9, Fable): `Stuff` takes `Load`'s startup flags, so a launch one-shot
+    /// is idle, as TF2's `stuffcmds` runs before a demo plays. The control: the same one-shot from a key fires.
+    /// </remarks>
+    [Test]
+    public void Stuff_AOneShot_IsIdleAsAtStartup()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Stuff("screenshot");
+        fired.ShouldBeEmpty();
+
+        console.Load("bind k screenshot");
+        console.KeyDown("k");
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
+    /// a launch value stays two backslashes where a config line's would become one.
+    /// </remarks>
+    [Test]
+    public void Stuff_ALaunchValueWithTwoBackslashes_KeepsThem()
+    {
+        ConfigConsole console = new();
+
+        console.Stuff("cl_voice_filter \"a\\\\b\"");
+
+        console.ConVar("cl_voice_filter").ShouldBe("a\\\\b");
+    }
+
+    /// <remarks>
+    /// `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it
+    /// (`commandbuffer.cpp:230-232`): a blank command, or one whose first token is `""`, of any length.
+    /// </remarks>
+    [TestCase(" ")]
+    [TestCase("\"\" ")]
+    public void Load_ABlankCommandOfAnyLength_IsSkippedNotRefused(string start)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"{start}{new string(' ', 600)};{Alpha} 3");
+
+        log.Count("Command too long").ShouldBe(0);
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **The commands after a refused one in the same text never run** (`CCommandBuffer::AddText` returns at the refusal,
+    /// `src/tier1/commandbuffer.cpp:242-243`; B820 review 6, Fable): a file's line, which `Cmd_Exec_f` hands `Cbuf_AddText`
+    /// on its own (FUN_180177310). The one before it does. (A bind or an alias cannot hold one: its own definition would be
+    /// the command too long.)
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"+back;echo {new string('a', 520)};+forward");
+
+        console.IsHeld(ViewerAction.FlyBack).ShouldBeTrue("the command before it ran");
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse("the command after it is dropped with it");
+    }
+
+    /// <remarks>
+    /// **A command keeps at most 64 arguments** (`COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`; the tokenizer's loop,
+    /// `src/tier1/convar.cpp:416`). `toggle` and the name are two, so values 1 to 62 are kept of 1 to 70; from 62, the last
+    /// kept, it wraps to 1, where all 70 would go on to 63; from 61 it goes on to 62, which 63 kept would not (it would wrap,
+    /// as `toggle` goes to the first value when the current is not in its list; B820 review 6, Sonnet).
+    /// </remarks>
+    [TestCase("62", "1")]
+    [TestCase("61", "62")]
+    public void Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour(string from, string expected)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"{Alpha} {from}\ntoggle {Alpha} {string.Join(' ', Enumerable.Range(1, 70))}");
+
+        console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("CCommand::Tokenize: Encountered command which overflows the argument buffer.. Clamped!").ShouldBe(1);
+    }
+
+    /// <remarks>The warning comes once the 64th argument is taken, so exactly 64 says it and 63 does not (`convar.cpp:460-464`).</remarks>
+    [TestCase(62, 1)]
+    [TestCase(61, 0)]
+    public void Load_ACommandOfSixtyFourArguments_SaysItIsClamped(int values, int said)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"toggle {Alpha} {string.Join(' ', Enumerable.Range(1, values))}");
+
+        log.Count("overflows the argument buffer.. Clamped!").ShouldBe(said);
+    }
+
+    /// <remarks>
+    /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
+    /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
+    /// </remarks>
+    [Test]
+    public void Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction()
+    {
+        ConfigConsole console = new();
+        IEnumerable<string> chain = Enumerable.Range(1, 19)
+            .Select(at => $"alias c{at} {(at < 19 ? $"c{at + 1}" : "s")}");
+
+        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
+
+        console.Applied.ShouldBe(1, "x counts; y, whose only route to s is the cut one, does not (B820 review 5, Fable)");
+    }
+
+    /// <remarks>
+    /// **A line keeps its alias count across an `exec` it runs** (B820 review 6, Sonnet): the nested file's lines take their
+    /// own and the line gets its back. 20 `m` (201 runs each), the exec, then one more `m` pass 4096 on the one line.
+    /// </remarks>
+    [Test]
+    public void Load_ALineThatExecsBetweenItsAliases_KeepsItsAliasCountAcrossTheExec()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/f.cfg", "n"));
+        console.Log = log;
+
+        console.Load(
+            $"alias n \"\"\nalias m \"{string.Join(';', Enumerable.Repeat("n", 200))}\"\n" +
+            $"{string.Join(';', Enumerable.Repeat("m", 20))};exec f;m");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The static projection walks each alias once** (B820 review 3, Sonnet, Fable): `alias a "a;a;a;a"` bound to a key was
+    /// 4^20 calls from `Applied` at load and from the key's lookup on every press, on `main` too.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundToAnAliasThatFansOut_EndsPromptly()
+    {
+        ConfigConsole console = new();
+
+        Should.CompleteIn(
+            () =>
+            {
+                // The load inside the limit too (B820 review 4, Grok), should it ever project eagerly.
+                console.Load("alias a \"a;a;a;a;+forward\"\nbind x a");
+                console.Applied.ShouldBe(1);
+                console.KeyDown("x");
+            },
+            TimeSpan.FromSeconds(10));
+    }
+
+    /// <remarks>
+    /// **A load inside a load leaves the outer one a load** (B820 reviews 2 and 3, Sonnet, Fable): a handler that loads a
+    /// config while one is loading must not end the outer load's quiet one-shots. The control: the handler ran.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerDuringALoad_LeavesTheOuterOneShotsIdle()
+    {
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(_ => null);
+        List<ViewerAction> fired = [];
+        int handled = 0;
+        console.Triggered += (_, e) => fired.Add(e.Action);
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load(string.Empty);
+        };
+
+        console.Load($"{Alpha} 1\nscreenshot");
+
+        handled.ShouldBe(1);
+        fired.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **…nor hand the outer command fresh budgets** (B820 review 3, Fable, Sonnet): a file that execs itself twice and sets a
+    /// ConVar on each line, with a handler that loads on every set, still stops at <see cref="ConfigConsole.MaximumExecs"/>.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideAnExecTree_KeepsTheOuterBudget()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", $"{Alpha} 1\nexec loop\nexec loop"));
+        console.ReadSettingsFrom(_ => null);
+        int handled = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load(string.Empty);
+        };
+
+        Should.CompleteIn(() => console.Load("exec loop"), TimeSpan.FromSeconds(10));
+
+        handled.ShouldBeGreaterThan(0, "the control (B820 review 4, Grok): the handler loaded inside the tree");
+        asked.Count.ShouldBe(ConfigConsole.MaximumExecs);
+    }
+
+    [Test]
+    public void KeyDown_AKeyBoundToExec_RunsTheFile()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 33"));
+        console.Load("bind k \"exec a\"");
+
+        console.KeyDown("k");
+
+        console.ConVar(Alpha).ShouldBe("33");
+    }
+
+    /// <remarks>A config line is dispatched as a key's is: a name with no command of its own runs its alias.</remarks>
+    [Test]
+    public void Load_ALineNamingAnAlias_RunsIt()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias set_alpha \"{Alpha} 70\"\nset_alpha");
+
+        console.ConVar(Alpha).ShouldBe("70");
+    }
+
+    /// <remarks>`bind`, `unbind` and `unbindall` are ConCommands, so an alias body reaches them as a file line does.</remarks>
+    [Test]
+    public void KeyDown_AnAliasThatBinds_BindsTheKey()
+    {
+        ConfigConsole console = new();
+        console.Load("alias rebind \"bind k +forward\"\nbind j rebind");
+
+        console.KeyDown("j");
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
+    }
+
+    [Test]
+    public void KeyDown_AnAliasThatUnbinds_UnbindsTheKey()
+    {
+        ConfigConsole console = new();
+        console.Load("bind k +forward\nalias drop \"unbind k\"\nbind j drop");
+        console.KeyDown("k");
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue("the control: the bind landed (B820 review 1, Grok)");
+        console.KeyUp("k");
+
+        console.KeyDown("j");
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
+    }
+
+    [Test]
+    public void KeyDown_AnAliasThatUnbindsAll_UnbindsEveryKey()
+    {
+        ConfigConsole console = new();
+        console.Load("bind k +forward\nalias clear unbindall\nbind j clear");
+
+        console.KeyDown("j");
+
+        console.Bound.ShouldBe(0);
+        console.KeyDown("k").ShouldBeFalse("nothing is bound to k now");
+    }
+
+    /// <remarks>
+    /// **A key with a viewer default still runs a bound `exec` or `bind`** (B820 review 1, Fable): the default stands in only
+    /// for a bind that does nothing here, and those do something.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ADefaultKeyBoundToExec_RunsTheFileNotTheDefault()
+    {
+        List<string> asked = [];
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.FindConfig = path =>
+        {
+            asked.Add(path);
+            return path == "cfg/a.cfg" ? System.Text.Encoding.UTF8.GetBytes($"{Alpha} 12") : null;
+        };
+        string key = console.Bindings().KeyFor(ViewerAction.Screenshot);
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+        console.Load($"bind \"{key}\" \"exec a\"");
+
+        console.KeyDown(key);
+
+        console.ConVar(Alpha).ShouldBe("12");
+        fired.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// *Interpolated* (B820 review 1, Fable, Sonnet): TF2 runs its configs at startup, before a demo plays, so a config's view
+    /// or playback one-shot has nothing to act on; a `+` button is state and is kept. The control: the same one-shot from a
+    /// key fires.
+    /// </remarks>
+    [Test]
+    public void Load_AOneShotLine_DoesNothingAndAButtonLineHolds()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("screenshot\ntogglefullscreen\ncl_showpos\n+forward\nbind k screenshot");
+
+        fired.ShouldBeEmpty();
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
+
+        console.KeyDown("k");
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **A key's `exec` is a run-time command** (B820 review 1, Sonnet, Fable): its ConVar sets are announced as a key's are,
+    /// and a `Load` before it leaves nothing behind that would silence them.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeysExecAfterALoad_AnnouncesItsConVarSets()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 21"), ("cfg/b.cfg", $"{Alpha} 3"));
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Load("exec b\nbind k \"exec a\"");
+
+        console.KeyDown("k");
+
+        set.ShouldBe([$"{Alpha} 21"], "the load's own set is not announced; the key's is");
+    }
+
+    /// <remarks>
+    /// The static projection takes the dispatcher's order (B820): an alias named as a ConVar is not what a key bound to that
+    /// name runs, so the bind names nothing this viewer implements.
+    /// </remarks>
+    [Test]
+    public void Applied_ABindToAnAliasNamedAsAConVar_IsNotCounted()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias {Alpha} +forward\nbind k {Alpha}");
+
+        console.Applied.ShouldBe(0);
+    }
+
+    /// <remarks>An alias is consulted only when no command or ConVar has the name, so it cannot shadow a ConVar.</remarks>
+    [Test]
+    public void Load_AnAliasNamedAsAConVar_DoesNotShadowIt()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias {Alpha} \"{Alpha} 5\"\n{Alpha} 60");
+
+        console.ConVar(Alpha).ShouldBe("60");
+    }
+
+    /// <remarks>…except a `+` or `-` name, where the alias wins: `alias +forward` replaces the button.</remarks>
+    [Test]
+    public void KeyDown_AnAliasNamedAsAPlusCommand_ShadowsIt()
+    {
+        ConfigConsole console = new();
+        console.Load("alias +forward +back\nbind w +forward");
+
+        console.KeyDown("w");
+
+        console.IsHeld(ViewerAction.FlyBack).ShouldBeTrue();
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
     }
 }
