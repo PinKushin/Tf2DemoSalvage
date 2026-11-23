@@ -836,6 +836,150 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **An autoexec's typed ConVars reach the run's settings, where their readers look** (B816): TF2 runs `autoexec.cfg`
+    /// (`cfg/valve.rc`), so an autoexec's `fps_max 123` and, under its `sv_cheats 1`, `cl_drawhud 0` are the run's values.
+    /// The control: an autoexec that sets neither leaves both at the rig's saved values.
+    /// </remarks>
+    [Test]
+    public void Build_AnAutoexecsTypedConVars_ReachTheSettings()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(0, "the control: the rig's saved value");
+            control.Settings.Current.DrawHud.ShouldBeTrue("the control: nothing hides the HUD");
+        }
+
+        using Rig rig = BuildWithAutoexec("fps_max 123\nsv_cheats 1\ncl_drawhud 0\n");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(123);
+        rig.Settings.Current.DrawHud.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **TF2's `config.cfg` ranks below the viewer's own saved settings, which play its part** (D264, the owner's pick):
+    /// a saved `fps_max 144` survives a `config.cfg` that says 77. The control: the same line in `autoexec.cfg`, the
+    /// player's hand-written layer, wins over the saved value, as in TF2.
+    /// </remarks>
+    [Test]
+    public void Build_ASavedConVarAlsoInTf2sConfigCfg_KeepsTheSavedValue()
+    {
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        ViewerSettings saved = new ViewerSettings { FrameRateLimit = 0 }.Set("fps_max", "144");
+
+        File.WriteAllText(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "fps_max 77\n");
+        using (Rig control = Build(saved))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(77, "the control: autoexec.cfg wins over the saved value");
+        }
+
+        File.Delete(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"));
+        File.WriteAllText(Path.Combine(_gameFolder, "cfg", "config.cfg"), "fps_max 77\n");
+        using Rig rig = Build(saved);
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(144);
+    }
+
+    /// <remarks>
+    /// **What is read once at startup is read after the configs** (B816 review 1, Fable, Sonnet): an autoexec's
+    /// `mat_hdr_level 0` is the lighting every loader takes, as the settings say. The control: without it, the saved 2.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake()
+    {
+        // The level is process-wide: put back what this found, so no later test loads a map at 0 (review 7, Grok).
+        int before = Content.Bsp.BspHdr.MatHdrLevel;
+
+        try
+        {
+            using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+            {
+                Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(control.Settings.Current.HdrLevel, "the control: the saved level");
+                control.Settings.Current.HdrLevel.ShouldNotBe(0);
+            }
+
+            using Rig rig = BuildWithAutoexec("mat_hdr_level 0\n");
+
+            rig.Settings.Current.HdrLevel.ShouldBe(0);
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+        }
+        finally
+        {
+            Content.Bsp.BspHdr.MatHdrLevel = before;
+        }
+    }
+
+    /// <remarks>
+    /// **A folder chosen before any map reads its autoexec's `mat_hdr_level` into the lighting too** (B816 review 2, Grok):
+    /// no map has been read, so the first one must take the new value. The control: before the folder, the saved level.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void GameFolderChosen_WhoseAutoexecSetsMatHdrLevel_IsTheLightingTheLoadersTake()
+    {
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "mat_hdr_level 0\n");
+        int before = Content.Bsp.BspHdr.MatHdrLevel;
+
+        try
+        {
+            using Rig rig = Build();
+
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldNotBe(0, "the control: the saved level before the folder");
+
+            _gameFolder = tf;
+            rig.Session.GameFolderChosen(tf);
+
+            rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+        }
+        finally
+        {
+            // Process-wide: put back what this found (review 7, Grok).
+            Content.Bsp.BspHdr.MatHdrLevel = before;
+        }
+    }
+
+    /// <remarks>
+    /// **An instrument's run reads none of the machine's configs** (B816 review 5): `TF2VIEW_NO_CONFIGS=1` leaves an
+    /// autoexec's `fps_max 123` out of the run. The control: without it, 123.
+    /// </remarks>
+    [Test]
+    public void Build_WithNoConfigs_ReadsNoAutoexec()
+    {
+        using (Rig control = BuildWithAutoexec("fps_max 123\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(123, "the control: the autoexec is read");
+        }
+
+        _environmentAtStart[ViewerSession.NoConfigsVariable] = "1";
+        using Rig rig = BuildWithAutoexec("fps_max 123\n");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(0, "the rig's saved value");
+        rig.Log.Count("no config is read").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
+    /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue()
+    {
+        using (Rig control = BuildWithAutoexec("fps_max 123\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(123, "the control: the autoexec's value");
+        }
+
+        using Rig rig = BuildWithAutoexec("fps_max 123\n", "+fps_max", "60");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(60);
+    }
+
+    /// <remarks>
     /// **The launch line runs in its own order** (B811 review 1, Fable): with no cheats in the configs,
     /// `+mat_wireframe 1 +sv_cheats 1` refuses the wireframe before the line admits cheats; a reversed replay would draw it.
     /// </remarks>

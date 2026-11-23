@@ -65,6 +65,7 @@ public sealed class KeyboardBindUiTests
             new Dictionary<string, string?>
             {
                 [ViewerSettings.PathVariable] = Path.Combine(_root, "settings.cfg"),
+                [Tf2DemoSalvage.Presentation.ViewerSession.NoConfigsVariable] = "0",
                 [SteamInstall.SteamRootVariable] = Path.Combine(_root, "emptysteam"),
                 [SteamInstall.OverrideVariable] = null,
             },

@@ -148,7 +148,8 @@ public sealed class RealTf2ConfigTests
         }
 
         ConfigConsole console = new();
-        console.Load([Config("autoexec.cfg") ?? string.Empty, config]);
+        console.Load(Config("autoexec.cfg"));
+        console.Load(config);
 
         TestContext.Out.WriteLine($"{console.Applied} of {console.Bound} binds landed");
 

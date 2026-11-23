@@ -44441,7 +44441,86 @@ countdown). `cl_upspeed` has no reader. So if TF2 admits a client's set of a rep
 `sv_cheats 1`, all of those are at stake, not only a log line. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
 gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
 
-## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN
+## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — FIXED 2026-11-23
+
+**Fixed.** The startup now loads the configs after `SettingsPresenter.Attach`, as the folder reload already did, so a
+config's ConVar reaches the run's settings through `ConVarSet` (the console's own D215 comment: a line read after
+attaching reaches them as a run-time set does); the saved file is untouched. The line's non-cheat ConVars are still
+stored when it is read, for what reads the launch before the console runs, and are now also handed to the console after
+the configs (`LaunchOptions.AfterConfigs`), so the line wins as `stuffcmds` after `exec` gives. Tests:
+`ViewerSessionTests.Build_AnAutoexecsTypedConVars_ReachTheSettings` (red first; control: an autoexec setting neither),
+`Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue` (control: the autoexec's value alone; sabotage: not handing
+the non-cheat on reddens it and the reader's test). Every `autoexec.cfg` ConVar now logs `(set at run time)` once at
+startup, as the folder reload's already did, and each launch ConVar logs twice (read, then run). Not verified by looking.
+
+**Review 1** (Fable, Sonnet; then Gemini, approved with the comment fixes below, and Grok):
+1. *TF2's `config.cfg` overrode the viewer's saved menu choices on every start* (Fable, high): it is executed too, and
+   holds every ConVar TF2 archives. Owner's pick, D264: the viewer's saved settings take `config.cfg`'s place, so its
+   ConVars and `config_default.cfg`'s stay in the console's list below them; `autoexec.cfg` and the line win.
+   `Tf2ConfigFiles.IsSaved`, `ConfigConsole._savedLayer`. Test `Build_ASavedConVarAlsoInTf2sConfigCfg_KeepsTheSavedValue`
+   (control: the same line in `autoexec.cfg` wins; sabotage: nothing counted as saved reddens it).
+2. *`spec_autodirector` and `mat_hdr_level` were read once when the line was read, before the configs* (Fable, Sonnet),
+   so an autoexec's value reached the settings but not the lighting or the spectator. Now
+   `ViewerPresenter.ApplyTheStartingSettings` reads them after the configs and the line. Test
+   `Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake` (sabotage: applying them when the line is read reddens it).
+3. Stale comments corrected (the folder reload now replays the whole line; `SettingsPresenter.Attach`'s order).
+4. Recorded, no change: every non-cheat `+name value` now reaches the console, so `+alias a b` clears alias `a` (only
+   `a` is taken); `+toggle x` does nothing, since a loaded line is defined, not run (`Define` never calls
+   `CvarCommand`; corrected in review 2, Fable); an autoexec's `sv_cheats 1` then `0` reverts the saved cheats for the
+   run, as TF2's would revert its own. `Triggered` is now subscribed after the configs; `Define` never raises it, so this
+   guards nothing that happens today (review 2, Fable, Sonnet).
+
+**Review 2** (Fable, Sonnet, Grok find; Gemini pending at the time of writing):
+1. *A game folder chosen later re-ran the configs but not what startup reads once* (all three, medium): an autoexec's
+   `mat_hdr_level` or `spec_autodirector` reached the settings and not the lighting or the spectator, and no map has been
+   read yet then. `ViewerPresenter.ApplyTheConfiguredSettings` (the director, leaving whom it follows, and the lighting)
+   now runs after the reload's line too. Test `GameFolderChosen_WhoseAutoexecSetsMatHdrLevel_IsTheLightingTheLoadersTake`
+   (sabotage: not calling it reddens it). That test sees only the lighting (review 3, Fable, Sonnet): the director half
+   is held by `CameraPresenterTests.UseAutoDirector_AfterASpectateChoice_ChangesOnlyTheDirector`, and the call itself in
+   `ApplyTheConfiguredSettings` by no session test (no rig reads the spectator's director). A folder picked while a demo
+   load is reading its map could change `MatHdrLevel` mid-read (review 3, Fable, Sonnet; not traced whether the folder
+   prompt can be open then).
+2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
+   LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
+   `autoexec.cfg`; an untyped ConVar stays readable from the console) and
+   `LoadFrom_SvCheatsOnThenOffWithASavedCheat_RevertsItOnlyFromAutoexec`. Dropping `|| _savedLayer` from either branch
+   reddens them.
+3. USER-GUIDE corrected: a typed ConVar in `config.cfg` never takes effect, since the settings answer it with the saved
+   value or the default; an untyped one is still read from it. `ReadLaunch`'s summary corrected.
+
+**Review 3** (Fable, Sonnet, Grok, Gemini): the director half's test (`CameraPresenterTests`) and the mid-read note, in
+item 1 above.
+
+**Review 4** (Gemini, Sonnet approve; Fable holds the gate on one). *This machine's own `autoexec.cfg` now reaches every
+local run* (Fable, medium): it sets `crosshair 0`, `cl_interp 0`, `cl_interp_ratio 1` and `cl_updaterate 66`, which the
+settings shadowed before; the HUD goldens were taken at `crosshair 1`, and every golden was matched at the default
+interpolation. The golden runs now pin them (`Golden.Common` carries `cl_interp 0.1`, `cl_interp_ratio 2`,
+`cl_updaterate 20`; the HUD goldens add `crosshair 1`), so local and CI agree again; the UI phase of the gate is the
+check. Any `--shot`, `--measure` or A/B run on this machine now uses the watcher's config, as it should. Left: a launch
+`+unbind KEY x` or `+unbindall x` now reaches the console after the menu's shortcuts were built from the binds (Fable,
+low); a launch value's quoting is refused for `"` and line breaks (B811 review 10).
+
+**Review 5** (Sonnet, Fable, Grok, Gemini). *Pinning setting by setting could not keep up* (all four): beside the
+interpolation, a watcher's autoexec can set `cl_hud_minmode`, `r_drawviewmodel`, `viewmodel_fov`, `cl_drawhud`,
+`hud_deathnotice_time` (this machine's sets 5) and more, each moving a golden or starving a UI wait. Replaced by a
+harness switch: `TF2VIEW_NO_CONFIGS=1` makes a run read none of the machine's TF2 configs (`--help` lists it; a watcher
+never needs it, D210). Every UI launch sets it (`CaptureUiTests.Capture`, `ViewerApplication`); the four tests that
+write their own configs (keyboard binds, menu sync, the two game-folder tests) set it back to 0. Review 4's pins are
+gone. Test `ViewerSessionTests.Build_WithNoConfigs_ReadsNoAutoexec` (control: without it the autoexec is read). *An
+undeclared launch name was handed to the console* (Fable, medium): a `--like` sidecar key such as `x\nbind q quit`
+became a console line of its own. Only a declared ConVar is handed on now; the console sets nothing for an undeclared
+one anyway, so `+alias a b` and `+unbind KEY x` no longer reach it either. Tested in
+`LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleInOrderAndNotStored`.
+
+**Review 6** (Fable, Grok approve; Sonnet holds for the UI phase): `PlaybackUiTests` built its own launch and did not
+set the switch, so "every UI launch" was not true; it does now. The switch also skips the program's own `custom/`
+config, which `--help` and the log now say. `Tf2ConfigFiles.Read` had only test callers after B816 (D180), so it is
+gone and its tests read `ReadFiles`, one asserting the path each config carries. A doc comment that had moved off
+`LoadUserConfig` is back. UI runs no longer exercise a real machine config, only the config-writing tests' own (Sonnet,
+a trade-off: what a real config does is pinned by `Tf2ConfigFilesTests` on the install).
+`Tf2ConfigFiles.DefaultGameFolder`, read by nothing after B811 dropped its fallback, is removed (D180; review 7, Sonnet).
+
+**As filed:**
 
 Found in B811's review 1 (Fable, Sonnet), confirmed with a test (`fps_max 123` and `sv_cheats 1; cl_drawhud 0` in an
 autoexec leave the run's `ViewerSettings` at their defaults). The watcher's configs load before

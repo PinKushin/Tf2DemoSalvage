@@ -27,6 +27,9 @@ public sealed partial class ViewerSession
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private (int X, int Y)? _dragFrom;
 
+    /// <summary>The instrument switch that keeps a run from reading any TF2 config, the game's or the program's own (B816 review 5).</summary>
+    public const string NoConfigsVariable = "TF2VIEW_NO_CONFIGS";
+
     /// <summary>Runs the player's own TF2 configs over the shipped defaults.</summary>
     /// <remarks>
     /// **Their controls, not ours, and that is the requirement in one line (D69).** Someone running
@@ -44,6 +47,16 @@ public sealed partial class ViewerSession
     /// </remarks>
     private void LoadUserConfig()
     {
+        // **An instrument's run reads none of the machine's configs** (B816 review 5, Fable, Sonnet, Grok): since the
+        // configs reach the run's settings, whatever the watcher's own `autoexec.cfg` sets would move a golden or a
+        // measurement, and pinning those one ConVar at a time never keeps up. A test harness switch, as `TF2VIEW_SETTINGS`
+        // is; a watcher never needs it (D210).
+        if (_host.Environment(NoConfigsVariable) is "1")
+        {
+            _configLog.LogInformation("{Message}", $"{NoConfigsVariable}=1: no config is read, the game's or the program's own");
+            return;
+        }
+
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.

@@ -588,6 +588,10 @@ public sealed class CameraPresenter
         _spectator.AutoDirector = autoDirector;
     }
 
+    /// <summary>The watcher's `spec_autodirector`, leaving whom the spectator follows as it is (B816 review 2).</summary>
+    /// <param name="autoDirector">Whether the director picks the view.</param>
+    public void UseAutoDirector(bool autoDirector) => _spectator.AutoDirector = autoDirector;
+
     /// <summary>Whose eyes the camera is in at a tick other than the transport's: the HUD's, during a seek.</summary>
     /// <param name="tick">The tick asked about.</param>
     public int? Followed(int tick) => _spectator.Followed(tick);

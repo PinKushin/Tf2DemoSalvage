@@ -40,23 +40,34 @@ public static class Tf2ConfigFiles
     public static IReadOnlyList<string> Order { get; } =
         ["cfg/config_default.cfg", "cfg/config.cfg", "cfg/autoexec.cfg"];
 
-    /// <summary>Reads whichever of the player's configs exist.</summary>
+    /// <summary>Whether a config is the engine's saved one, whose part the viewer's own settings file plays (D264).</summary>
+    /// <param name="path">A path from <see cref="Order"/>.</param>
+    /// <returns>True for <c>config_default.cfg</c> and <c>config.cfg</c>.</returns>
+    /// <remarks>
+    /// `config.cfg` is what TF2 last wrote of its menus; the viewer's menus write `settings.cfg`. So a ConVar either sets
+    /// ranks below the viewer's saved value, as `config.cfg` ranks below nothing the player chose since. `autoexec.cfg` is
+    /// the player's hand-written layer and still wins, as in TF2.
+    /// </remarks>
+    public static bool IsSaved(string path) => path != Order[^1];
+
+    /// <summary>Reads whichever of the player's configs exist, each with its path from <see cref="Order"/>.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
     /// <param name="log">Where to report what was found, or null.</param>
     /// <param name="ownCustomRoot">
     /// The program's own <c>custom/</c> folder, or null — searched above the game, as <c>tf/custom</c> is
     /// (<see cref="GameArchives.WithOwnCustom"/>).
     /// </param>
-    /// <returns>The configs' text in exec order; empty when the game is not installed.</returns>
+    /// <returns>The configs in exec order; empty when the game is not installed.</returns>
     /// <remarks>
     /// **Missing files are normal and are not errors.** A fresh install has no `config.cfg` until
     /// the game has run once, and most players have never created an `autoexec.cfg` at all. The
-    /// viewer must start regardless — its own defaults are a working set of controls.
+    /// viewer must start regardless — its own defaults are a working set of controls. The path ranks each config
+    /// (<see cref="IsSaved"/>, D264).
     /// </remarks>
-    public static IReadOnlyList<string> Read(
+    public static IReadOnlyList<(string Path, string Text)> ReadFiles(
         string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
     {
-        List<string> configs = [];
+        List<(string Path, string Text)> configs = [];
 
         // **Our own custom/ is one more search path, above the game's (D193).** `exec` reads the FIRST match on the
         // search path, so a config there replaces the game's copy of that file rather than running after it.
@@ -72,7 +83,7 @@ public static class Tf2ConfigFiles
                 continue;
             }
 
-            configs.Add(text);
+            configs.Add((path, text));
             log?.Invoke("config", $"{path}: {text.Length} characters");
         }
 
@@ -133,11 +144,4 @@ public static class Tf2ConfigFiles
         return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false)
             .GetString(span);
     }
-
-    /// <summary>This machine's <c>tf</c> folder, from <see cref="SteamInstall"/>.</summary>
-    /// <remarks>
-    /// Was a hand-typed Program Files guess until 2026-10-02; it now asks the one resolver. Null —
-    /// "no config found" — is a correct outcome, not a failure.
-    /// </remarks>
-    public static string? DefaultGameFolder => SteamInstall.Machine.GameFolder();
 }

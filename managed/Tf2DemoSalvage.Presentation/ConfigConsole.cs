@@ -387,26 +387,6 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>Executes several configs in order, as a set of files layered on one another.</summary>
-    /// <param name="texts">The configs' contents, earliest first.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="texts"/> is null.</exception>
-    /// <remarks>
-    /// **A bind and the alias it names routinely live in different files.** The owner's `config.cfg`
-    /// binds `w` to `+mfwd`, and `+mfwd` is defined in `autoexec.cfg`. Loading either alone finds no
-    /// movement bindings at all — which is what happened, and what fifteen synthetic tests built
-    /// from `config_default.cfg` could not show, because that file binds movement directly and so
-    /// contains no alias to miss.
-    /// </remarks>
-    public void Load(IEnumerable<string> texts)
-    {
-        ArgumentNullException.ThrowIfNull(texts);
-
-        foreach (string text in texts)
-        {
-            Load(text);
-        }
-    }
-
     /// <summary>Presses a key, running whatever it is bound to.</summary>
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
     /// <returns>
@@ -657,9 +637,9 @@ public sealed class ConfigConsole
 
             // **The program's own custom/ folder is checked even with no TF2 install found** (D193):
             // a config a player pasted in there does not depend on the game being installed at all.
-            // `Tf2ConfigFiles.Read` already treats a null/empty gameFolder as "nothing from the
+            // `Tf2ConfigFiles.ReadFiles` already treats a null/empty gameFolder as "nothing from the
             // game", so passing `game` through unconditionally is enough.
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, loggers.LogTo(), ownCustomRoot);
+            IReadOnlyList<(string Path, string Text)> configs = Tf2ConfigFiles.ReadFiles(game, loggers.LogTo(), ownCustomRoot);
 
             if (configs.Count == 0)
             {
@@ -672,7 +652,23 @@ public sealed class ConfigConsole
             }
 
             _refusedCheats.Clear();
-            Load(configs);
+
+            // **TF2's saved configs rank below the viewer's own saved settings** (D264): their ConVars stay in this console's
+            // list, which the attached settings shadow, rather than reaching the settings as a run-time set. Their binds
+            // and aliases count as always. `autoexec.cfg` reaches the settings, as the player's hand-written layer.
+            foreach ((string path, string text) in configs)
+            {
+                _savedLayer = Tf2ConfigFiles.IsSaved(path);
+
+                try
+                {
+                    Load(text);
+                }
+                finally
+                {
+                    _savedLayer = false;
+                }
+            }
 
             // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
             // `CheatRefused` handler has printed it already (B811 review 5, Sonnet): only a console nobody listens to prints here.
@@ -828,7 +824,8 @@ public sealed class ConfigConsole
 
         // Everything else is a cvar, an exec, or a game command; only a cvar is kept. Once the settings are attached
         // they are its one copy (D215), so a config line read after that reaches them as a run-time set does.
-        if (SetConVar(tokens) && _settingValue is not null)
+        // TF2's saved configs excepted (D264): their lines stay here, below the viewer's own saved settings.
+        if (SetConVar(tokens) && _settingValue is not null && !_savedLayer)
         {
             ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
         }
@@ -884,8 +881,9 @@ public sealed class ConfigConsole
             return false;
         }
 
-        // Once the settings are attached they hold every client ConVar, implemented or not (D215): no second copy.
-        if (_settingValue is null)
+        // Once the settings are attached they hold every client ConVar, implemented or not (D215): no second copy, except
+        // for TF2's saved configs, which keep their own lines below the settings (D264).
+        if (_settingValue is null || _savedLayer)
         {
             _conVars[declared.Name] = tokens[1];
         }
@@ -914,6 +912,12 @@ public sealed class ConfigConsole
 
     /// <summary>The ConVar that allows cheat ConVars.</summary>
     private const string CheatsConVar = "sv_cheats";
+
+    /// <summary>
+    /// Whether the line being run comes from TF2's saved configs (<see cref="Tf2ConfigFiles.IsSaved"/>), whose ConVars rank
+    /// below the viewer's own saved settings (D264).
+    /// </summary>
+    private bool _savedLayer;
 
     /// <summary>
     /// <c>sv_cheats</c> back to 0 as a fresh start has it, reverting nothing: for the configs and the launch line run again
@@ -957,7 +961,8 @@ public sealed class ConfigConsole
                 continue;
             }
 
-            if (_settingValue is null)
+            // TF2's saved configs revert only their own lines, below the viewer's saved settings (D264).
+            if (_settingValue is null || _savedLayer)
             {
                 _conVars[cheat.Name] = cheat.Default;
             }

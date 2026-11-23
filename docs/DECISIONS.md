@@ -11706,3 +11706,26 @@ used for reviews. OpenCode's Gemini models are not free, so they are not used. T
 or another free model, they dont have a free gemeni model"*.
 Mistral ranks above Codex because on that round Mistral found nothing new but raised no false alarm, while Codex's
 findings were refuted. The owner: *"you also actually had mistral above codex, since codex found a bunch of fake shit"*.
+
+## D264 — the viewer's own saved settings take TF2's `config.cfg` place in the config order (2026-11-23)
+
+**What was decided.** TF2 runs `config_default.cfg`, `config.cfg`, `autoexec.cfg` and then the command line
+(`cfg/valve.rc`). B816 made the configs' ConVars reach the run's settings, which let TF2's `config.cfg` (every archived
+ConVar TF2 last wrote: volume, `fps_max`, `mat_hdr_level`...) override the viewer's own saved menu choices on every start
+(B816 review 1, Fable). Now the viewer's `settings.cfg` plays `config.cfg`'s part: a ConVar in `config.cfg` or
+`config_default.cfg` stays in the console's own list, below the viewer's saved value; `autoexec.cfg` and then the
+command line win over the saved value, as they win over `config.cfg` in TF2. Binds and aliases come from every file.
+
+**Provenance: picked from options I offered**, not voiced. The three: the viewer's file replaces `config.cfg`
+(recommended, picked); TF2's order with `config.cfg` winning over the menu; the viewer's saved settings winning over
+every config. *Not offered*: writing the viewer's menu choices back into TF2's `config.cfg` (what TF2 itself does);
+letting `config.cfg` fill only the ConVars the viewer has never saved (the settings answer a typed ConVar with its
+default, so this would need the settings to tell "saved" from "default"). Treating `config_default.cfg` like
+`config.cfg` is my reading of the pick, since it ranks below `config.cfg` in TF2.
+
+**Why it follows.** The menu writes `settings.cfg` as TF2's menu writes `config.cfg`, so each is that program's record
+of what the player chose; a choice made in the viewer's menu must stick, and an `autoexec.cfg` re-applies every start in
+TF2 too.
+
+**How to apply.** `Tf2ConfigFiles.IsSaved` names the saved layer; `ConfigConsole.LoadFrom` runs it with `_savedLayer`,
+which keeps its ConVar sets (and an `sv_cheats` revert) in the console's own list.

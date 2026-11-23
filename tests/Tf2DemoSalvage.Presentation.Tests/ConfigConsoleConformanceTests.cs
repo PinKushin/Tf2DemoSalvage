@@ -379,10 +379,12 @@ public sealed class ConfigConsoleConformanceTests
         // diagnostic would say the config barely loaded, which is the worst kind of wrong: a number
         // that misdirects rather than an error that stops you.
         ConfigConsole engineOrder = new();
-        engineOrder.Load(["bind \"w\" \"+mfwd\"", "alias +mfwd \"+forward\""]);
+        engineOrder.Load("bind \"w\" \"+mfwd\"");
+        engineOrder.Load("alias +mfwd \"+forward\"");
 
         ConfigConsole reversed = new();
-        reversed.Load(["alias +mfwd \"+forward\"", "bind \"w\" \"+mfwd\""]);
+        reversed.Load("alias +mfwd \"+forward\"");
+        reversed.Load("bind \"w\" \"+mfwd\"");
 
         engineOrder.Applied.ShouldBe(1);
         engineOrder.Applied.ShouldBe(reversed.Applied, "the order the files arrive in cannot matter");

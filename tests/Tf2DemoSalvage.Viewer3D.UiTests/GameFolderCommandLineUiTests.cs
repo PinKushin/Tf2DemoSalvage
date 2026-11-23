@@ -50,6 +50,7 @@ public sealed class GameFolderCommandLineUiTests
             new Dictionary<string, string?>
             {
                 [ViewerSettings.PathVariable] = settings,
+                [Tf2DemoSalvage.Presentation.ViewerSession.NoConfigsVariable] = "0",
                 [SteamInstall.SteamRootVariable] = Path.Combine(_root, "emptysteam"),
                 [SteamInstall.OverrideVariable] = null,
             },

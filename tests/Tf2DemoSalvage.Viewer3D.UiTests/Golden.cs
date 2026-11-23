@@ -26,6 +26,10 @@ internal sealed record Golden(
     /// once, to <see cref="GoldenMeasure.MeasuredWidth"/> wide (HighQualityBilinear, HighQuality pixel offset). A golden is
     /// therefore measured as it is, and only the viewer's frame is resampled at test time.
     /// </remarks>
+    /// <remarks>
+    /// The watcher's own TF2 configs are not read by a capture at all (`TF2VIEW_NO_CONFIGS`, set by `CaptureUiTests.Capture`;
+    /// B816 review 5), so nothing a machine's `autoexec.cfg` sets reaches a golden.
+    /// </remarks>
     public static readonly IReadOnlyList<string> Common =
         ["+sv_cheats", "1", "+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 

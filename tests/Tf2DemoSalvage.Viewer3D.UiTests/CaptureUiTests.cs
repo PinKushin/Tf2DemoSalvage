@@ -359,6 +359,10 @@ public sealed class CaptureUiTests
             start.Environment.Remove(inherited);
         }
 
+        // **No capture reads the machine's TF2 configs** (B816 review 5): they now reach the run's settings, and a golden
+        // must show what its sidecar says, not what this machine's `autoexec.cfg` sets. A test may set it back.
+        start.Environment[Tf2DemoSalvage.Presentation.ViewerSession.NoConfigsVariable] = "1";
+
         foreach ((string name, string value) in environment ?? new System.Collections.Generic.Dictionary<string, string>())
         {
             start.Environment[name] = value;

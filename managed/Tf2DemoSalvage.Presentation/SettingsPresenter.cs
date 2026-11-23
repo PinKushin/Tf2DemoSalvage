@@ -361,7 +361,8 @@ public sealed class SettingsPresenter
     }
 
     /// <summary>Makes these settings the console's ConVar values: it reads them, and a key's set lands in them (D215).</summary>
-    /// <param name="console">The console; attach after the watcher's configs load, which keep their own lines.</param>
+    /// <param name="console">The console; attach before the watcher's configs load, so `autoexec.cfg` reaches the settings
+    /// while TF2's saved configs keep their own lines below them (B816, D264).</param>
     public void Attach(ConfigConsole console)
     {
         ArgumentNullException.ThrowIfNull(console);
