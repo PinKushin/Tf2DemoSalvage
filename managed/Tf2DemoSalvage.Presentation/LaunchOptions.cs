@@ -47,7 +47,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="AfterConfigs">
 /// The console lines the launch line hands to the console after the configs, in the line's order, as TF2's `stuffcmds`
 /// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats` and every client cheat ConVar, so the
-/// console's gate decides each against `sv_cheats` as the configs and the line so far left it. Null when there are none.
+/// console's gate decides each against `sv_cheats` as the configs and the line so far left it; and every other `+name value`,
+/// so the line wins over the configs (B816). Null when there are none.
 /// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
@@ -267,7 +268,11 @@ public static class LaunchOptionsReader
                     continue;
                 }
 
+                // **Stored now for what reads the launch before the console runs, and run after the configs too** (B816):
+                // `stuffcmds` runs the whole line after `exec autoexec.cfg`, so a config's `fps_max 123` must not beat a
+                // launch `+fps_max 60` now that the configs reach the run's settings.
                 read = read with { Settings = read.Settings.Set(own, value) };
+                afterConfigs.Add($"{own} \"{value}\"");
 
                 log.LogInformation("{Message}", $"{own} {value} (from the command line)");
                 continue;

@@ -207,12 +207,16 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         Paths = [.. _launch.Paths];
 
-        // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** Without it the
-        // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
-        LoadUserConfig();
-
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
+
+        // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** Without it the
+        // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
+        // **After `Attach`** (B816): a config's ConVar then reaches the run's settings, where every reader looks, as the
+        // console says a line read after attaching does (D215); before, the settings' own value shadowed it. TF2 runs
+        // `config.cfg` and then `autoexec.cfg` (`cfg/valve.rc`), so a config's value wins over the saved one for this run;
+        // the saved file is untouched (`SettingsPresenter.SetConVar` never saves). Before `OnConVarSet`, as the line is.
+        LoadUserConfig();
 
         // **After `Attach`** (B811 review 1): an admitted set reaches the run's settings through `ConVarSet`, where its
         // readers look and where it wins over the saved value; a refused one is logged with TF2's line. **Before

@@ -344,7 +344,12 @@ public sealed class LaunchOptionsTests
             ["mat_fullbright \"1\"", "sv_cheats \"1\"", "mat_fullbright \"0\"", "r_screenfademinsize \"12\""]);
         mixed.Settings.ConVarText("mat_fullbright").ShouldBe(Read("a.dem").Settings.ConVarText("mat_fullbright"), "not stored");
         mixed.Settings.ScreenFadeMinSize.ShouldBe(0f, "not stored");
-        Read("+cl_showfps", "1", "a.dem").AfterConfigs.ShouldBeNull("the control: no cheat, nothing handed");
+        Read("a.dem").AfterConfigs.ShouldBeNull("the control: no console option, nothing handed");
+
+        // B816: a non-cheat is stored for early readers and handed on too, so it runs after the configs as well.
+        LaunchOptions plain = Read("+cl_showfps", "1", "a.dem");
+        plain.AfterConfigs.ShouldBe(["cl_showfps \"1\""]);
+        plain.Settings.ConVarText("cl_showfps").ShouldBe("1");
     }
 
     /// <remarks>

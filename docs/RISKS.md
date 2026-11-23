@@ -44441,7 +44441,19 @@ countdown). `cl_upspeed` has no reader. So if TF2 admits a client's set of a rep
 `sv_cheats 1`, all of those are at stake, not only a log line. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
 gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
 
-## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN
+## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — FIXED 2026-11-23
+
+**Fixed.** The startup now loads the configs after `SettingsPresenter.Attach`, as the folder reload already did, so a
+config's ConVar reaches the run's settings through `ConVarSet` (the console's own D215 comment: a line read after
+attaching reaches them as a run-time set does); the saved file is untouched. The line's non-cheat ConVars are still
+stored when it is read, for what reads the launch before the console runs, and are now also handed to the console after
+the configs (`LaunchOptions.AfterConfigs`), so the line wins as `stuffcmds` after `exec` gives. Tests:
+`ViewerSessionTests.Build_AnAutoexecsTypedConVars_ReachTheSettings` (red first; control: an autoexec setting neither),
+`Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue` (control: the autoexec's value alone; sabotage: not handing
+the non-cheat on reddens it and the reader's test). Every config ConVar now logs `(set at run time)` once at startup, as
+the folder reload's already did. Not verified by looking.
+
+**As filed:**
 
 Found in B811's review 1 (Fable, Sonnet), confirmed with a test (`fps_max 123` and `sv_cheats 1; cl_drawhud 0` in an
 autoexec leave the run's `ViewerSettings` at their defaults). The watcher's configs load before

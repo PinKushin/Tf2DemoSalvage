@@ -836,6 +836,43 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **An autoexec's typed ConVars reach the run's settings, where their readers look** (B816): TF2 runs `config.cfg`
+    /// and then `autoexec.cfg` (`cfg/valve.rc`), so an autoexec's `fps_max 123` and, under its `sv_cheats 1`, `cl_drawhud 0`
+    /// are the run's values. The control: an autoexec that sets neither leaves both at their defaults.
+    /// </remarks>
+    [Test]
+    public void Build_AnAutoexecsTypedConVars_ReachTheSettings()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldNotBe(123, "the control: nothing sets it");
+            control.Settings.Current.DrawHud.ShouldBeTrue("the control: nothing hides the HUD");
+        }
+
+        using Rig rig = BuildWithAutoexec("fps_max 123\nsv_cheats 1\ncl_drawhud 0\n");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(123);
+        rig.Settings.Current.DrawHud.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
+    /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue()
+    {
+        using (Rig control = BuildWithAutoexec("fps_max 123\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(123, "the control: the autoexec's value");
+        }
+
+        using Rig rig = BuildWithAutoexec("fps_max 123\n", "+fps_max", "60");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(60);
+    }
+
+    /// <remarks>
     /// **The launch line runs in its own order** (B811 review 1, Fable): with no cheats in the configs,
     /// `+mat_wireframe 1 +sv_cheats 1` refuses the wireframe before the line admits cheats; a reversed replay would draw it.
     /// </remarks>
