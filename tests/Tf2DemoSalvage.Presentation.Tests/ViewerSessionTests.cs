@@ -963,14 +963,12 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
-    /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
+    /// **The launch line runs as `stuffcmds`, not through a file's line reader** (B820 review 9, Sonnet): the reader would
+    /// make `\\` into `\`. The control: the same value from the autoexec, a file, loses one.
     /// </remarks>
     [Test]
     public void Build_ALaunchValueWithTwoBackslashes_ReachesTheConVarWhole()
     {
-        // **The launch line runs as `stuffcmds`, not through a file's line reader** (B820 review 9, Sonnet): the reader
-        // would make `\\` into `\`. The control: the same value from the autoexec, a file, loses one.
         using (Rig control = BuildWithAutoexec("cl_voice_filter \"a\\\\b\"\n"))
         {
             control.Settings.ConVar("cl_voice_filter").ShouldBe("a\\b", "the control: a file line is unescaped");
@@ -981,6 +979,10 @@ public sealed class ViewerSessionTests
         rig.Settings.ConVar("cl_voice_filter").ShouldBe("a\\\\b");
     }
 
+    /// <remarks>
+    /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
+    /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
+    /// </remarks>
     [Test]
     public void Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue()
     {
