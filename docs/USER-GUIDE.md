@@ -115,7 +115,8 @@ sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +s
 cvars run after your configs, so an `sv_cheats 1` in your `autoexec.cfg` also lets a `+cl_drawhud 0` on the command line
 through. A server-side cheat such as `cl_forwardspeed` is refused unless the command line's own `+sv_cheats 1` comes
 first, and even then the viewer keeps the demo's own value. Setting
-`sv_cheats` back to `0` returns every cheat cvar to its default, wherever it was set. The viewer's own keys (`CTRL+0`,
+`sv_cheats` back to `0` returns every client cheat cvar to its default, wherever it was set (a server-side one already
+has the demo's value). A shot's `--like` file records `sv_cheats` too, so its cheats come back. The viewer's own keys (`CTRL+0`,
 `CTRL+1`, `CTRL+2`, `CTRL+w`) and its menus still work without it, and a value in the viewer's own `settings.cfg` is kept
 between runs as the menus' choices are.
 

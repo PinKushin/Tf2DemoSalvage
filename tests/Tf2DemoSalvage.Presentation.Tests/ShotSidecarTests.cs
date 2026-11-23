@@ -238,6 +238,25 @@ public sealed class ShotSidecarTests
         });
     }
 
+    /// <remarks>
+    /// **`sv_cheats` expands before the cheats it admits** (B811 review 7, Fable): the line runs in its order after the
+    /// configs, so `mat_fullbright` sorted before `sv_cheats` would be refused. The rest stay by name.
+    /// </remarks>
+    [Test]
+    public void Expand_ASidecarWithSvCheats_PutsItBeforeEveryCheat()
+    {
+        string cheats = Tf2Sidecar.Replace(
+            "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
+            "\"convars\": { \"mat_fullbright\": \"1\", \"sv_cheats\": \"1\", \"mat_phong\": \"0\" }",
+            StringComparison.Ordinal);
+
+        cheats.ShouldNotBe(Tf2Sidecar, "the control: the fixture was rewritten");
+
+        string[] expanded = ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => cheats, (_, _) => { });
+
+        expanded[2..8].ShouldBe(["+sv_cheats", "1", "+mat_fullbright", "1", "+mat_phong", "0"]);
+    }
+
     [Test]
     public void Expand_WithLikeAndNoDemo_OpensTheDemoBesideTheSidecar()
     {

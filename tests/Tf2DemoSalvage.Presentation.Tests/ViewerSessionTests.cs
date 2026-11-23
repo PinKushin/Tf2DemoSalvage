@@ -1921,6 +1921,27 @@ public sealed class ViewerSessionTests
         rig.Window.Count("Close posted").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A shot taken with cheats records `sv_cheats`, though it is replicated** (B811 review 7, Fable): without it `--like`
+    /// replays the shot's cheats with cheats off and every one is refused. The control: a cheat ConVar recorded beside it.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_OnACaptureRunWithCheats_RecordsSvCheatsInTheSidecar()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        using Rig rig = Build(WriteDemo("shot"), "--shot", shot, "--tick", "40", "+sv_cheats", "1", "+mat_fullbright", "1").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 104);
+
+        System.Text.Json.Nodes.JsonObject convars = System.Text.Json.Nodes.JsonNode.Parse(
+            await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!["convars"]!.AsObject();
+        convars["mat_fullbright"]!.GetValue<string>().ShouldBe("1", "the control: the cheat it admitted");
+        convars["sv_cheats"]!.GetValue<string>().ShouldBe("1");
+    }
+
     [TestCase("Debug")]
     [TestCase("Release")]
     public async Task RenderFrame_OnACaptureRun_WritesTheD226SidecarBesideTheShotInEveryBuild(string build)

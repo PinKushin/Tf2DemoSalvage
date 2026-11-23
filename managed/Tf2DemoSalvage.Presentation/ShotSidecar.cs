@@ -397,7 +397,11 @@ public static class ShotSidecar
 
         List<string> expanded = ["--tick", like.Tick.ToString(CultureInfo.InvariantCulture)];
 
-        foreach ((string name, string value) in like.Convars.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        // **`sv_cheats` first** (B811 review 7, Fable): the line now runs in its order after the configs, so a cheat sorted
+        // before it would be refused. The rest by name, so a sidecar expands the same way every time.
+        foreach ((string name, string value) in like.Convars
+            .OrderBy(pair => pair.Key.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(pair => pair.Key, StringComparer.Ordinal))
         {
             expanded.Add("+" + name);
             expanded.Add(value);

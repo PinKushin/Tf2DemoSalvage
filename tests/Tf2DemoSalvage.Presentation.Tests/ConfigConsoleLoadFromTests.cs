@@ -58,16 +58,19 @@ public sealed class ConfigConsoleLoadFromTests
         Directory.CreateDirectory(Path.Combine(folder, "cfg"));
         File.WriteAllText(Path.Combine(folder, "cfg", "autoexec.cfg"), "mat_wireframe 1\n");
 
+        // No custom/ of this machine's or the test binary's (review 7, Fable): only the folder above is read.
         RecordingLogger alone = new();
-        ConfigConsole.WithDefaults().LoadFrom(folder, NullLoggerFactory.Instance, alone);
+        ConfigConsole.WithDefaults().LoadFrom(folder, NullLoggerFactory.Instance, alone, NowhereFolder());
 
         RecordingLogger heard = new();
         ConfigConsole listened = ConfigConsole.WithDefaults();
-        listened.CheatRefused += (_, _) => { };
-        listened.LoadFrom(folder, NullLoggerFactory.Instance, heard);
+        int told = 0;
+        listened.CheatRefused += (_, _) => told++;
+        listened.LoadFrom(folder, NullLoggerFactory.Instance, heard, NowhereFolder());
 
         alone.Count(Refusal).ShouldBe(1);
-        heard.Count(Refusal).ShouldBe(0, "the control: the listener prints it");
+        told.ShouldBe(1, "the control: the listener is told, so it can print it");
+        heard.Count(Refusal).ShouldBe(0);
     }
 
     [Test]

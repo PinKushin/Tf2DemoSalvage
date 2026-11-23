@@ -239,7 +239,8 @@ public static class LaunchOptionsReader
                 {
                     // A replicated cheat is the server's: the console's client sets never take it and the settings hold no
                     // copy (B811 review 1, Sonnet; review 3, Fable: the store here was a no-op). Refused with TF2's line
-                    // against the line's own `sv_cheats`, as before; admitted, nothing in the viewer reads it.
+                    // against the line's own `sv_cheats`, as before; admitted, it is dropped, and its readers keep the
+                    // demo's own server value (B818).
                     if (declared is { Replicated: true })
                     {
                         if (!cheats)

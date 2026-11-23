@@ -42810,7 +42810,7 @@ including a value `settings.cfg` or the menu held, which a fresh start keeps (`s
 reverting. Test `GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue` (sabotage: the typed `sv_cheats 0`
 reddens it). Review 3's test now asserts the folder was taken, the exact unset value and both refusals, so it cannot pass
 on a rejected folder. Item 1 of review 3 above no longer reverts anything. USER-GUIDE's replicated-cheat sentence
-corrected: the viewer does not use one either way.
+corrected: the viewer does not use one either way (*superseded in review 6*: the viewer reads them, from the demo).
 
 **Review 5** (all four approve or find no blocker). Done: a config's refused cheat was printed twice after `Attach`
 (the settings' `CheatRefused` handler and `LoadFrom`'s own list); `LoadFrom` now prints its list only when nobody listens.
@@ -42818,7 +42818,25 @@ Test `GameFolderChosen_WhoseAutoexecSetsACheatWithCheatsOff_LogsTheRefusalOnce` 
 reddens it). The review-4 test asserts the folder was taken. Left, as found (Fable): a cheat a bound key set at run time
 (`bind F5 "sv_cheats 1; mat_wireframe 1"`) stays set through a folder reload that starts cheats at 0, which a fresh
 start would not have; a cheat the program's own `custom/` config alone admitted at startup likewise stays (Sonnet).
-Both need a key press or an own-folder config before the first folder is chosen. Filed: B818, the replicated-cheat gate.
+Both need a key press or an own-folder config before the first folder is chosen (the second traced away in review 6).
+Filed separately: B818, the replicated-cheat gate, which these two are not part of.
+
+**Review 6** (Fable, Gemini, Sonnet approve; Grok did not). Grok's case, a cheat admitted at startup by an autoexec and
+refused after a folder reload: with no install at startup, the only startup configs are the program's own `custom/`
+ones, which run again at the reload, so their `sv_cheats 1` then `0` reverts the cheat as a fresh start does; not a
+defect, and it disposes of Sonnet's `custom/` residual in review 5 too. Done (Fable): `LoadFrom`'s no-listener print had
+no test (`ConfigConsoleLoadFromTests.LoadFrom_AConfigCheatWithCheatsOff_PrintsTheRefusalOnlyWhenNobodyListens`;
+inverting the guard reddens it and the folder test); B818 and USER-GUIDE no longer say nothing reads a replicated cheat.
+
+**Review 7** (Gemini, Sonnet approve; Fable approves with fixes; Grok minor findings). Done: the review-6 test's
+listener now counts what it is told, and both loads read no `custom/` folder; B818 names every reader of a replicated
+cheat (Gemini: `FlightInput` itself reads none, `FreeFlightPath.WalkSpeed` does); the `LaunchOptions` comment still
+said nothing reads one. **`--like` reproduces a shot taken with cheats** (Fable): it expanded the sidecar's ConVars by
+name, so every cheat ran before `sv_cheats` and was refused, and the viewer's own sidecar never recorded `sv_cheats`,
+being replicated. `ShotSidecar.Expand` now puts `sv_cheats` first, and the sidecar records it when it differs from 0.
+Tests `ShotSidecarTests.Expand_ASidecarWithSvCheats_PutsItBeforeEveryCheat` and
+`ViewerSessionTests.RenderFrame_OnACaptureRunWithCheats_RecordsSvCheatsInTheSidecar` (sabotage: each half alone reddens
+its test). The USER-GUIDE's `sv_cheats 0` sentence now says a server-side cheat keeps the demo's value (Grok).
 
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
@@ -44387,10 +44405,13 @@ takes a replicated ConVar at all (`ConfigConsole.IsClientConVar`), so a config l
 way. TF2's closed `cvar` code decides a client's set of a replicated ConVar ("Can't change replicated ConVar … from
 console of client, only server operator can change its value", from memory of older Source code, *not read*) and of a
 cheat ConVar; which check runs first during demo playback, and whether the replicated refusal applies while a demo plays
-at all, are not read. The viewer does read replicated ConVars (`FlightInput` and `PredictedPlayer` read `cl_forwardspeed`)
-from the demo's own server values; no console or launch-line set reaches them. So if TF2 admits a client's set of a
-replicated cheat during playback under `sv_cheats 1`, the free camera's speed is at stake, not only a log line (B811
-review 6, Fable). Fix shape: read the order in `engine.dll` (the replicated string's xref), then
+at all, are not read. The viewer does read the replicated cheats, from the demo's own server values, and no console or
+launch-line set reaches them (B811 reviews 6 and 7, Fable, Gemini, Sonnet): `FreeFlightPath.WalkSpeed` (the free
+camera's walk, `+speed`) reads `cl_forwardspeed`; `MovementConVars.From` (`PredictedPlayer.cs`, the recorder's predicted
+movement) reads `cl_forwardspeed`, `cl_backspeed` and `cl_sidespeed`; `tf_always_loser` is read by `DemoTimeline`,
+`TfTargetId` and `RecorderPrediction`; `spec_freeze_time` and `spec_freeze_traveltime` by `TfRespawnWave` (the respawn
+countdown). `cl_upspeed` has no reader. So if TF2 admits a client's set of a replicated cheat during playback under
+`sv_cheats 1`, all of those are at stake, not only a log line. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
 gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
 
 ## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN
