@@ -1422,9 +1422,13 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The upload line's route for the HUD overlay's upload (`UploadGrown`).</summary>
     public const string HudPaintRoute = "hud paint";
 
+    /// <summary>The upload line's route for the first-person viewmodel's upload (`AddViewmodel`).</summary>
+    public const string ViewmodelRoute = "viewmodel";
+
     /// <summary>Uploads the whole set and marks it uploaded, reporting a stall and the count.</summary>
     /// <param name="upload">The device.</param>
-    /// <param name="route">Which route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>, review 33 item 4). The
+    /// <param name="route">Which route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>,
+    /// <see cref="ViewmodelRoute"/>, review 33 item 4, review 35 item 1); the line and any STALL warning name it. The
     /// per-path names follow from it, not from a second argument (review 34 item 2): only the moment's own upload names
     /// every packed path, so a HUD paint that grows the set by one model does not list the whole set again (review 32
     /// item 6).</param>
@@ -1459,7 +1463,7 @@ public sealed class MomentScene : IGameSystemPerFrame
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"STALL uploading {vertices} vertices took " +
+                    $"STALL ({route}) uploading {vertices} vertices took " +
                     $"{uploadSeconds * 1000d:0} ms because the model set grew to {models}"));
 
             // Stryker restore all
@@ -1467,7 +1471,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
         // separate the two: no vertices in total means the packing failed, and vertices with no instances means the
-        // posing did. **New** vertices can be 0 legitimately: a pass with nothing new since a release (review 33 item 1).
+        // posing did. **New** vertices are 0 legitimately in one case: every model packed since the last upload failed to
+        // load. `PackModels` marks the set grown before it asks for the geometry, so a missing file or an empty model still
+        // grows it and reaches here with nothing to hand over (review 35 item 4). Otherwise 0 new is a fault: `Pack` gets
+        // here with nothing grown only when the device has no models, which after a release is an empty device.
         // **The model count is the whole set**, not what this upload added — a set only grows (review 34 item 1).
         // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
         // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
@@ -2174,15 +2181,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
         // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
         // were packed, posed, instanced, transformed correctly and submitted against geometry the
-        // renderer did not have.
+        // renderer did not have. **Through `UploadNow`**, which marks the set uploaded: a direct call left `Grown` set, and
+        // the HUD paint's `UploadGrown` then handed the whole set over again (B779 review 35 item 1).
         if (_models.Add(scene.Props) && Upload is { } upload)
         {
-            upload.UploadModels(_models);
-
-            _render.LogDebug(
-                "{Message}",
-                $"viewmodel models uploaded: {_models.Count} packed, " +
-                $"{_models.Vertices.Count} vertices");
+            UploadNow(upload, ViewmodelRoute);
         }
 
         // **The viewmodel is where the owner saw it** (B380): a 2008 sticky launcher's `draw` is 2 in

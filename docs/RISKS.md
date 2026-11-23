@@ -44275,6 +44275,22 @@ behind both, so neither is engine parity.
        set from the map (B814), so its upload carries vertices. The review 33 note above that called a re-upload
        legitimate is superseded; the comment now keeps only "nothing new since a release".
      - **The load's own upload has no owner**: filed as B815 (item 4).
+   - *Review 35*:
+     - **The viewmodel's upload bypassed the set** (item 1, a cost this branch introduced). `AddViewmodel` called the
+       device directly and never called `Uploaded`, so `Grown` stayed set and the HUD paint's `UploadGrown` handed the
+       whole set over again. It now goes through `UploadNow` under a third route, `viewmodel`, which marks the set
+       uploaded, writes the one line and takes the STALL timing; its own "viewmodel models uploaded" line is gone.
+       *Test*: `MomentSceneTests.UploadGrown_AfterAViewmodelUpload_UploadsNothing`, red before the fix. *Sabotage*:
+       skipping `Uploaded` on the viewmodel route reddens it on the upload count.
+     - **The STALL warning names its route** (item 2): `STALL (route) uploading V vertices took ...`. *Test*:
+       `UploadGrown_OnASlowDevice_TheStallNamesTheRoute`, red before the route was added; the fake device holds until
+       `StallSeconds` has passed on its own clock.
+     - **B815's text corrected** (item 3): every upload is `UploadNow`'s after item 1, the per-path names are written
+       late rather than never, and the frame is named.
+     - **When 0 new vertices is legitimate** (item 4). `PackModels` sets `Grown` before it asks for the geometry, so a
+       model that fails to load, or has no geometry, grows the set with no vertices. That is the one legitimate case.
+       Otherwise 0 new is a fault: `Pack` reaches the upload with nothing grown only when the device has no models,
+       which after a release is an empty device.
 
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
@@ -44292,19 +44308,24 @@ the two f12 demos.
 
 Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it visible.
 - **What happens.** A demo load packs its precache (`DemoModels.Precache`) and uploads nothing. The set is handed to the
-  device by whichever per-frame upload runs first afterwards. The only uploads are `MomentScene.UploadNow`'s two routes:
-  `Pack` (the moment) and `UploadGrown` (the HUD overlay). In the review-33 UI run, the HUD overlay's went first and
-  carried all 911 models, partly on the first frame after the load.
+  device by whichever per-frame upload runs first afterwards. Every upload goes through `MomentScene.UploadNow` (since
+  B779 review 35, which moved the viewmodel's direct upload there), under one of three routes: `Pack` (the moment),
+  `UploadGrown` (the HUD overlay) and `AddViewmodel` (the viewmodel). One upload hands over the whole set, on the first
+  frame drawn after the load: the overlay's `UploadGrown` runs after the overlay and before that frame's draw. In the
+  review-33 UI run it was the HUD overlay's, carrying all 911 models.
 - **Consequences.**
   - The line names the wrong owner: the load's models appear under `(hud paint)`.
-  - The per-path names, which only the moment's route writes, are never written for the load's models.
+  - The per-path names, which only the moment's route writes, are written late: at the next moment upload, when the set
+    next grows during a moment's build, which lists the whole set, and not with the upload that handed the load's models over.
   - **Stall attribution is wrong.** A STALL warning for that upload is logged as the HUD paint's and lands on a playback
     frame. So a load's cost reads as a frame hitch, and a frame-time measurement right after a load counts it.
-- **What the engine does** (read from published source, `public/datacache/imdlcache.h:246-260`; the bodies are in the
-  closed engine, so the order is interpolated). `IMDLCache` brackets a level load with `BeginMapLoad`/`EndMapLoad` and
-  has `PreloadModel` and `GetHardwareData`, which is the per-model device data (`MDLCACHE_STUDIOHWDATA`). So the
-  engine's level load makes the precached models' hardware data before the first frame. It does not leave that data
-  for the first draw to make.
+- **What the engine declares** (read from published source, `public/datacache/imdlcache.h`: `MDLCACHE_STUDIOHWDATA`
+  `:66`, `GetHardwareData` `:198`, `BeginMapLoad`/`EndMapLoad` `:246-247`, `PreloadModel` `:261`). `IMDLCache` brackets a
+  level load and has a per-model preload and a getter for each model's device data. **Interpolated, not read:** that
+  the level load builds the precached models' hardware data before the first frame rather than lazily at the first
+  `GetHardwareData`. The header is declarations only; the bodies are in the closed engine, and `GetHardwareData` reads
+  as a lazy getter by name. A disassembly read of the load path (`PreloadModel`, `EndMapLoad`) settles it, and must
+  come before the fix shape below is treated as parity (B779 review 35, Sonnet).
 - **The fix shape.** Upload once at the end of the load, under a third route (for example `"load"`) that names every
   path, and before the first frame is drawn. Then the first frame has nothing new from the precache, and a STALL warning
   for the load is the load's. Not fixed on B779's branch: it adds a route and moves when the upload happens, which is
