@@ -161,17 +161,21 @@ public sealed class WiringUiTests
         // and per-change diagnostics were moved off `Information` when B191 turned out to be one log
         // line taking a machine-wide lock.
         //
-        // **The line's VALUE, not its presence** (B779 review 32 item 5): every upload writes it now, a HUD paint's
-        // included, so a line alone no longer says the demo's geometry went up. At least one line must carry vertices —
-        // `entity models: N packed, V vertices`, V after the comma.
-        IReadOnlyList<string> lines = Viewer.AllLines("entity models:");
-        lines.ShouldNotBeEmpty("the control: some upload said what it handed over");
+        // **The demo's set, by its size, and its VALUE** (B779 reviews 32-33): every upload writes a line now — `entity
+        // models (route): N packed, V new vertices, T vertices in all` — a HUD paint's included. **Not keyed on the
+        // route**: after a load the precache has grown the set, and whichever upload runs first hands over all of it — in
+        // the UI run that was the HUD overlay's, with 911 models, and the moment's own pass then had nothing new (measured,
+        // review 33). So the row requires one upload of more than 50 models with vertices in all: a HUD panel alone asks
+        // for at most 21 (measurements/2026-11-22-b779-panel-preload.md), and a demo's load packs hundreds. Read with a
+        // pattern, not by position, so whatever the log sink puts around the message does not matter.
+        IReadOnlyList<string> lines = Viewer.AllLines("entity models (");
+        lines.ShouldNotBeEmpty("the control: an upload said what it handed over");
 
         lines.Any(line =>
-            line[(line.LastIndexOf(',') + 1)..].Trim().Split(' ')[0] is var vertices
-            && int.TryParse(vertices, NumberStyles.None, CultureInfo.InvariantCulture, out int count)
-            && count > 0)
-            .ShouldBeTrue("an upload carried vertices: " + string.Join(" | ", lines));
+            Regex.Match(line, @"(\d+) packed, \d+ new vertices, (\d+) vertices in all") is { Success: true } match
+            && int.Parse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture) > 50
+            && int.Parse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture) > 0)
+            .ShouldBeTrue("an upload put the demo's set, with vertices, on the device: " + string.Join(" | ", lines));
     }
 
     [Test]

@@ -39,4 +39,9 @@
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Fonts\Tf2DemoSalvage.Fonts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Fonts references Scene, so this assembly reaches ViewerSettings: the shared settings-file redirect (B779 gate). -->
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SettingsFileRedirect.cs" Link="SettingsFileRedirect.cs" />
+  </ItemGroup>
+
 </Project>

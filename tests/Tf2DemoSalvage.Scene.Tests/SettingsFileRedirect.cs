@@ -25,26 +25,53 @@ public abstract class SettingsFileRedirect
     /// <summary>The folder every run's settings file lives in.</summary>
     public static string Folder => Path.Combine(Path.GetTempPath(), "tf2salvage-tests");
 
-    /// <summary>Points the settings file at a fresh temp file for this run.</summary>
-    [OneTimeSetUp]
-    public void RedirectTheSettingsFile() =>
-        Environment.SetEnvironmentVariable(
-            Scene.ViewerSettings.PathVariable,
-            Path.Combine(Folder, GetType().Assembly.GetName().Name + "-" + Guid.NewGuid().ToString("N") + ".cfg"));
+    /// <summary>
+    /// The pin each assembly runs: the settings file is a temp file **named for that assembly**, never the owner's — so a
+    /// variable another assembly left set in a shared runner cannot pass it (review 33, Grok).
+    /// </summary>
+    /// <param name="policy">The assembly's own `SettingsFilePolicy` type.</param>
+    public static void ShouldBeRedirectedFor(Type policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
 
-    /// <summary>Deletes this run's settings file, if a test wrote one, and lifts the redirect.</summary>
+        string owners = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tf2DemoSalvage", "settings.cfg");
+        string path = Scene.ViewerSettings.Path;
+
+        path.ShouldNotBe(owners);
+        Path.GetDirectoryName(path).ShouldBe(Folder);
+        Path.GetFileName(path).ShouldStartWith(policy.Assembly.GetName().Name + "-");
+    }
+
+    /// <summary>The file this run redirected to, or null before the set-up.</summary>
+    private string? _created;
+
+    /// <summary>The variable's value before the redirect, restored after.</summary>
+    private string? _before;
+
+    /// <summary>Points the settings file at a fresh temp file for this run, remembering what it replaced.</summary>
+    [OneTimeSetUp]
+    public void RedirectTheSettingsFile()
+    {
+        _before = Environment.GetEnvironmentVariable(Scene.ViewerSettings.PathVariable);
+        _created = Path.Combine(Folder, GetType().Assembly.GetName().Name + "-" + Guid.NewGuid().ToString("N") + ".cfg");
+        Environment.SetEnvironmentVariable(Scene.ViewerSettings.PathVariable, _created);
+    }
+
+    /// <summary>Deletes the file this run created, if a test wrote it, and puts the variable back as it was.</summary>
     /// <remarks>
-    /// **The variable is cleared too** (review 32, Gemini): it is process-wide, and a runner that hosts assemblies one after
-    /// another would otherwise hand the next one a path that no longer exists.
+    /// **This run's file, not whatever the variable names now, and the prior value restored** (review 33 item 6; review 32,
+    /// Gemini): the variable is process-wide, so a runner hosting assemblies one after another would otherwise hand the next
+    /// one a path that no longer exists, and a test that moved the variable would have its file deleted.
     /// </remarks>
     [OneTimeTearDown]
     public void DeleteTheRunsSettingsFile()
     {
-        if (Environment.GetEnvironmentVariable(Scene.ViewerSettings.PathVariable) is { Length: > 0 } file && File.Exists(file))
+        if (_created is { } file && File.Exists(file))
         {
             File.Delete(file);
         }
 
-        Environment.SetEnvironmentVariable(Scene.ViewerSettings.PathVariable, null);
+        Environment.SetEnvironmentVariable(Scene.ViewerSettings.PathVariable, _before);
     }
 }

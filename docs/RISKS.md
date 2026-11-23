@@ -44208,15 +44208,25 @@ behind both, so neither is engine parity.
      UI tests' D210 seam) and deletes the file afterwards. The redirect is one linked base, `SettingsFileRedirect`.
    - Each assembly pins it: `SettingsFilePolicyTests.Path_InThisAssembly_IsARunsTempFileNotTheOwners`. *Sabotage*:
      dropping the `[SetUpFixture]` in Scene.Tests reddens it.
-   - **What this covers, exactly** (review 32 item 4):
+   - **What this covers, exactly** (reviews 32-33):
      - no test in those assemblies writes the owner's file, and Presentation and Viewer3D tests do not read it;
-     - Content.Tests and Audio.Tests do not reference Scene, so they cannot reach `ViewerSettings` at all;
+     - **Fonts.Tests too** (review 33 item 5): the Fonts project references Scene, so its tests reach `ViewerSettings`
+       transitively. Review 32 checked only the test projects' direct references and missed it. It now has the policy
+       and the pin. *Sabotage*: dropping its `[SetUpFixture]` reddens its pin.
+     - Content.Tests, Audio.Tests, Animation.Tests, Cli.Tests, Core.Tests and Logging.Tests reach no project that
+       references Scene, directly or through another project (checked review 33), so they cannot reach `ViewerSettings`;
      - Corpus.Tests is left as it is: it reads this machine's game folder (`cl_game_folder`) by design, read-only, as
        the UI tests' map fetch does.
    - *Proof*: the gate run was red. After the change it is green, and the owner's file kept its timestamp through full
      Presentation, Scene, Viewer3D and Rendering runs.
    - **The owner's file has been reset.** The coordinator restored it (`hud_chosen` back to the default). The 21:52
      write was the coordinator's, not a test's.
+   - *Review 33*:
+     - Each pin now checks the file is named for its own assembly, through one shared assertion
+       (`SettingsFileRedirect.ShouldBeRedirectedFor`). In a shared runner, a variable another assembly left set could
+       otherwise pass it (Grok).
+     - The teardown deletes the file this run created, not whatever the variable names, and restores the variable's
+       prior value instead of clearing it (item 6).
 2. *UI `TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`: no "entity models:" line.* **A lost log line, not lost
    geometry.**
    - Review 16 (6889c9bb5) added `MomentScene.UploadGrown`, the upload after the HUD's overlay. It uploaded without the
@@ -44238,6 +44248,22 @@ behind both, so neither is engine parity.
        upload (B407). The line now counts what is handed over, before the hand-over; so does the STALL warning, which
        had the same fault. *Test*: `MomentSceneTests.UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver`
        (red with the count read after the upload).
+   - *Review 33*:
+     - **The line now says which route uploaded, and gives two counts**:
+       `entity models (moment|hud paint): N packed, V new vertices, T vertices in all`. After a release the set holds
+       only what was packed since, so the new count alone mixed units with the model count (item 1).
+     - A re-upload legitimately reports 0 new vertices, so the comment now says "no vertices in total means the packing
+       failed".
+     - The Scene rows assert the exact counts: one triangle is 3 new and 3 in all, then 3 new and 6 in all after a
+       release (item 2).
+     - `Build_AMomentWithAModel_TheUploadNamesWhatItPacked` pins the moment's per-path names. *Sabotage*: `Pack`
+       passing `namePaths: false` reddens it (item 3).
+     - The UI row reads the counts with a pattern, not by position (item 4). **Keying it on the moment's own line was
+       tried and was red**, because no `(moment)` line was written in the UI run. After the load the precache has grown
+       the set, and the HUD overlay's upload ran first and handed over all 911 models; the moment's own pass then had
+       nothing new. Which route uploads first is incidental. The row now requires one upload of more than 50 models
+       with vertices in all. A HUD panel alone asks for at most 21 (measurements/2026-11-22-b779-panel-preload.md),
+       and a demo's load packs hundreds.
 
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI

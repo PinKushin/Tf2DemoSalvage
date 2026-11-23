@@ -1361,8 +1361,25 @@ public sealed class MomentSceneTests
         scene.UploadGrown();
 
         models.Grown.ShouldBeFalse("the control: the set was handed over");
-        log.Count("entity models: 1 packed").ShouldBe(1);
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 1 packed, 3 new vertices, 3 vertices in all").ShouldBe(1);
         log.Count("  packed models/").ShouldBe(0, "the per-path names are the moment's own upload's, not a HUD paint's (review 32 item 6)");
+    }
+
+    /// <remarks>
+    /// **The moment's own upload names what it packed** (B779 review 33 item 3): under the count, one line per packed path,
+    /// so "the health packs are not drawing" can be answered by name — and only on this route (the HUD paint's does not).
+    /// Here a moment built with a crate: its upload says it is the moment's, and names the crate.
+    /// </remarks>
+    [Test]
+    public void Build_AMomentWithAModel_TheUploadNamesWhatItPacked()
+    {
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet { Geometry = OneTriangle }, new ViewmodelScene(), log) { Upload = new Uploads() };
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info());
+
+        log.Count($"entity models ({MomentScene.MomentRoute}): 1 packed").ShouldBe(1);
+        log.Count("  packed models/props/crate.mdl").ShouldBe(1);
     }
 
     /// <remarks>
@@ -1370,7 +1387,8 @@ public sealed class MomentSceneTests
     /// the world is up the set lets its copy go after an upload (B407), so a count read after the upload said
     /// "911 packed, 0 vertices" in the UI run for a set that had just gone up. Here release armed after a first upload,
     /// then a second model loaded and uploaded: its line carries the vertices it handed over. The control: the copy was
-    /// let go after it.
+    /// let go after it. **Two counts, exactly** (review 33 items 1 and 2): one triangle's three new vertices, and six in all —
+    /// the three let go after the first upload plus these.
     /// </remarks>
     [Test]
     public void UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver()
@@ -1386,7 +1404,7 @@ public sealed class MomentSceneTests
         scene.UploadGrown();
 
         models.Vertices.ShouldBeEmpty("the control: the set let its copy go after the second upload");
-        log.Count(", 0 vertices").ShouldBe(0);
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 2 packed, 3 new vertices, 6 vertices in all").ShouldBe(1);
     }
 
     [Test]

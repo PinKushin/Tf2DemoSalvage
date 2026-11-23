@@ -1416,18 +1416,28 @@ public sealed class MomentScene : IGameSystemPerFrame
         UploadNow(upload, namePaths: false);
     }
 
+    /// <summary>The upload line's route for the moment's own upload (`Pack`), which also names every packed path.</summary>
+    public const string MomentRoute = "moment";
+
+    /// <summary>The upload line's route for the HUD overlay's upload (`UploadGrown`).</summary>
+    public const string HudPaintRoute = "hud paint";
+
     /// <summary>Uploads the whole set and marks it uploaded, reporting a stall and the count.</summary>
     /// <param name="upload">The device.</param>
-    /// <param name="namePaths">Whether to name every packed path under the count: the moment's own upload only, so a HUD
-    /// paint that grows the set by one model does not list the whole set again (review 32 item 6).</param>
+    /// <param name="namePaths">Whether this is the moment's own upload, which names every packed path under the count, so a
+    /// HUD paint that grows the set by one model does not list the whole set again (review 32 item 6); the line says which
+    /// route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>, review 33 item 4).</param>
     private void UploadNow(IModelUpload upload, bool namePaths)
     {
         long uploadedAt = Stopwatch.GetTimestamp();
 
         // What is handed over, counted before the hand-over: once the world is up the set lets its copy go after an
-        // upload (B407), so a count read afterwards says 0 vertices for a set that just uploaded hundreds of models.
+        // upload (B407), so a count read afterwards says 0 vertices for a set that just uploaded hundreds of models. Two
+        // counts, because after a release the set holds only what was packed since (review 33 item 1): the new vertices
+        // this upload hands over, and the total on the device after it (`VertexBase`, what went up before, plus those).
         int models = _models.Count;
         int vertices = _models.Vertices.Count;
+        int total = _models.VertexBase + vertices;
 
         upload.UploadModels(_models);
 
@@ -1454,13 +1464,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
-        // separate the two: no vertices means the packing failed, and vertices with no instances means the posing did.
+        // separate the two: no vertices in total means the packing failed, and vertices with no instances means the
+        // posing did. **New** vertices can be 0 legitimately — a re-upload after the device lost its buffers, or a pass
+        // with nothing new since a release (review 33 item 1).
         // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
         // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
         // packed.
         _render.LogDebug(
             "{Message}",
-            $"entity models: {models} packed, {vertices} vertices");
+            $"entity models ({(namePaths ? MomentRoute : HudPaintRoute)}): {models} packed, {vertices} new vertices, {total} vertices in all");
 
         if (!namePaths || !_render.IsEnabled(LogLevel.Debug))
         {
