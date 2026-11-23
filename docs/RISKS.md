@@ -43472,7 +43472,8 @@ time and draws no world while it does.
      newer load raises it only after a thread hop. Frames between them draw the old demo against the superseded load's
      level. No worker writes then, so it is a stale picture for a frame or two, not a race.
 4. *A HUD change between the two lists*: **true**.
-   - `GameContent.BeginLevelLoad`, called when the map read publishes the install, fixes the HUD view for the load.
+   - `GameContent.BeginLevelLoad` fixes the HUD view for the load. *Since review 23* it is called at the top of
+     `ReadMapNamed`, not when the map read publishes the install (review 24 item 6).
    - Both lists read `LevelHudArchives`. The "cannot disagree" remarks now say "within a load".
    - *Test*: `NeededAndToPack_AHudChangedDuringALoad_ReadTheHudTheLoadBeganWith`.
    - *Sabotage*: reading the live `HudArchives` reddens it.
@@ -43513,6 +43514,10 @@ facts it follows are that it loads one level at a time and draws no world while 
    - *Sabotage*: putting the begin back after `ReadAllBytes` reddens the `pl_locked` case alone. Removing the end
      reddens both cases.
    - The remarks in `DemoModels.AddPanelModels` and `GameContent` now say this.
+   - *Corrected in review 24 (item 5)*: "closed" does not hold on a session's **first** load when its map is missing or
+     unreadable. No install has been published (`_game` is null), so the precache is skipped and no list reads the
+     fixed view. That leaves nothing to disagree, but nothing is covered either. The test's warm first load is what
+     makes the `pl_locked` case reach a list.
 4. *The barrier raise sat outside the region that lowers it*: **true**. The raise, the skip drop and the clear now run
    inside it.
    - *Test*: `LoadDemoAsync_AClearThatThrows_LeavesTheBarrierDown`.
@@ -43544,6 +43549,62 @@ facts it follows are that it loads one level at a time and draws no world while 
 11. *Stale text*: **true**. "A superseded load's read can run beside a newer one" is gone from `ReadMapNamed`'s remarks.
 
 The queue tests passed in five more runs in a row.
+
+**Review 24** (Fable, Sonnet; Grok's points folded in; Gemini still out). Item numbers are the coordinator's, and Grok's
+are marked G. Everything here is the viewer's own threading, not engine parity.
+
+1. *The synchronous refusal could crash the render loop*: **true**.
+   - `NeedsReload` (ViewerPresenter.Draw.cs:100-104) calls `LoadMap` from inside the frame. The refusal keyed on an
+     incomplete queue, so it threw whenever a load was queued but had not yet raised the barrier, or in the gap after a
+     superseded load.
+   - The refusal is now keyed on the barrier: it refuses only while a worker is actually reading. While the barrier is
+     up, the frame itself returns early, so the reload never reaches it.
+   - The check runs first, on the UI thread. The barrier is raised and lowered only in UI marshals, so it cannot change
+     during the call (G3: a load started after the check cannot reach its read until the UI thread is free).
+   - *Test*: `LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap`. `LoadMap` is asked at the start of the load's
+     raising marshal and reads.
+   - *Sabotage*: keying the refusal on the queue again reddens it.
+2. *A refused call released a view it never fixed*: **true**. The refusal now runs before the `try`, so the `finally`
+   never sees it.
+   - *Test*: `LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed`. After the refusal, HUD B is chosen and the
+     lists still read A's doors.
+   - *Sabotage*: putting the refusal inside the `try` reddens it.
+3. *A refused synchronous `LoadDemo` left a half-applied demo*: **true**. `LoadDemo` now refuses at its entry, before it
+   takes a ticket or calls `Apply`. The same row asserts no demo opened.
+   - *Sabotage*: moving the refusal back into `ReadDemoMap` reddens the row. It fails at the async load's own result,
+     because the refused call had already taken a ticket and superseded it, which is the half-applied state itself.
+4. *Three release sites were untested*: **true**. One row now covers each.
+   - The read's failure path: `LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo`.
+   - `LoadMap` and `LoadDemo`: `LoadMapAndLoadDemo_AfterTheirRead_LetTheLoadsHudGo` (two cases). In each, HUD B is chosen
+     during the read and the lists read B afterwards.
+   - *Sabotage*: removing all three releases reddened each row.
+   - *Not covered separately*: a superseded load's release. It is the same `finally` as the current load's, and it can
+     only be seen if the next load never begins.
+5. *The first load with no readable map fixes a view nothing reads*: **true**. Review 23 item 3 is corrected above. No
+   code change: with no install published, the precache does not run.
+6. *Stale route comments*: **true**.
+   - `LoadDemoAsync` is the playlist's, the command line's (`ViewerSession.Capture.cs:522`) and `--shot`'s route.
+   - `LoadDemo` is `MainForm.LoadDemo`'s and the tests'.
+   - `LoadMap` is the frame's reload.
+   - The comments now name these callers. Review 22 item 4 now names the new place of the begin.
+
+Grok's items:
+- **G1** (a release on the worker before `Apply`): **false**. Nothing releases in or after `ReadMapNamed`. The releases
+  are at the end of the marshal that runs `Apply`, in the read's failure path, and at the end of the synchronous
+  `LoadMap` and `LoadDemo`. The mid-load test already switches the HUD after `ReadMapNamed` has returned, at the models
+  report.
+- **G2** (a synchronous read overlapping an async one through the shared slot): **cannot happen**.
+  - The synchronous routes run on the UI thread, and an async load's steps that matter — its install hand-off, its
+    raise, and its worker's begin after the raise — need the UI thread first.
+  - A synchronous read therefore finishes, and releases its view, before an async read can begin.
+  - An async read already begun refuses the synchronous one (item 1).
+- **G4** (the queue test samples before `Apply`): **true as written, harmless in production**. The real window runs
+  marshals one at a time on its thread, so the next load's raise cannot begin until the whole of A's last marshal,
+  `Apply` included, has run, wherever inside it the queue is released. A superseded A runs no `Apply`, and nothing in its
+  last marshal reaches the window to observe. The test window runs marshals inline on many threads, which is looser than
+  production. No change.
+- **G5** (the Scene row never selects stock): **false**. `ChosenHud` is null, which is stock, from the first part of the
+  row. The row now asserts that as a control and says so in its comment.
 
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on

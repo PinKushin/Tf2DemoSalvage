@@ -478,21 +478,28 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **A read that throws lowers the barrier** (B779 review 23 item 6): the worker's failure leaves through the region that
-    /// raised it. Here the report after the map read throws: the load throws it on, and the barrier is down. The control:
-    /// the barrier was up when it threw.
+    /// **A read that throws lowers the barrier and lets its fixed HUD go** (B779 review 23 item 6, review 24 item 4): the
+    /// worker's failure leaves through the region that raised it. Here HUD A chosen, and HUD B chosen as the report after
+    /// the map read throws: the load throws it on, the barrier is down, and the lists read B's doors. The controls: the
+    /// barrier was up when it threw, and the lists read A's then.
     /// </remarks>
     [Test]
-    public async Task LoadDemoAsync_AReadThatThrows_LowersTheBarrier()
+    public async Task LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo()
     {
         WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
         (ViewerPresenter loader, FakeLoadView view, _) = Loader();
         bool? upWhenThrown = null;
+        bool? aWhenThrown = null;
+        loader.SetChosenHud(hudA);
         view.Asked = name =>
         {
             if (name == "Report: Loading models and sounds")
             {
                 upWhenThrown = loader.ReadingMap;
+                loader.SetChosenHud(hudB);
+                aWhenThrown = DemoModels.Needed(null, loader.Game.ShouldNotBeNull()).Contains(DoorsA);
                 throw new InvalidOperationException("a read that fails");
             }
         };
@@ -502,28 +509,39 @@ public sealed class ViewerPresenterTests
             await Should.ThrowAsync<InvalidOperationException>(() => loader.LoadDemoAsync(WriteDemo("throws"))).ConfigureAwait(false);
             view.Asked = null;
 
-            upWhenThrown.ShouldBe(true, "the control");
+            (upWhenThrown, aWhenThrown).ShouldBe(((bool?)true, (bool?)true), "the controls");
             loader.ReadingMap.ShouldBeFalse();
+            DemoModels.Needed(null, loader.Game.ShouldNotBeNull()).Contains(DoorsB).ShouldBeTrue("the load let its HUD go");
         }
     }
 
     /// <remarks>
-    /// **The synchronous map read refuses to run beside an asynchronous one** (B779 review 23 item 8): it does not queue, and
-    /// beside a read in flight it would clear the map and read into the same entity set. Here `LoadMap` asked from inside an
-    /// async load's read refuses; the async load still finishes. The control: after the load the same ask reads.
+    /// **The synchronous map read refuses to run beside a worker's read, and the refusal touches nothing** (B779 reviews
+    /// 23-24): it does not queue, and beside a worker it would clear the map and read into the same entity set. Here
+    /// `LoadMap` asked from inside an async load's read refuses; and the load's fixed HUD view stays fixed — HUD B chosen
+    /// then, the lists still read A's doors (review 24 item 2: the refusal must not release a view it never fixed). The
+    /// controls: the barrier was up, and after the load the same ask reads.
     /// </remarks>
     [Test]
-    public async Task LoadMap_WhileAnAsyncReadIsInFlight_Refuses()
+    public async Task LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed()
     {
         WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
         (ViewerPresenter loader, FakeLoadView view, _) = Loader();
         Exception? refused = null;
+        Exception? demoRefused = null;
+        string? demoPathAfterRefusal = "unset";
         bool asked = false;
+        bool? barrierUp = null;
+        (bool A, bool B)? afterRefusal = null;
+        loader.SetChosenHud(hudA);
         view.Asked = name =>
         {
             if (name == nameof(ILoadView.MapRead) && !asked)
             {
                 asked = true;
+                barrierUp = loader.ReadingMap;
 
                 try
                 {
@@ -533,6 +551,24 @@ public sealed class ViewerPresenterTests
                 {
                     refused = refusal;
                 }
+
+                // `LoadDemo` refuses too, before it changes anything (review 24 item 3): no half-applied demo.
+                string other = WriteDemo("other");
+
+                try
+                {
+                    loader.LoadDemo(other);
+                }
+                catch (InvalidOperationException refusal)
+                {
+                    demoRefused = refusal;
+                }
+
+                demoPathAfterRefusal = loader.DemoPath;
+
+                loader.SetChosenHud(hudB);
+                HashSet<string> needed = DemoModels.Needed(null, loader.Game.ShouldNotBeNull());
+                afterRefusal = (needed.Contains(DoorsA), needed.Contains(DoorsB));
             }
         };
 
@@ -541,8 +577,112 @@ public sealed class ViewerPresenterTests
             (await loader.LoadDemoAsync(WriteDemo("sync")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
             view.Asked = null;
 
-            refused.ShouldNotBeNull().Message.ShouldContain("in flight");
-            Should.NotThrow(() => loader.LoadMap(Map), "the control: with no read in flight it reads");
+            barrierUp.ShouldBe(true, "the control: a worker was reading");
+            refused.ShouldNotBeNull().Message.ShouldContain("worker");
+            demoRefused.ShouldNotBeNull();
+            demoPathAfterRefusal.ShouldBeNull("the refused LoadDemo opened nothing: the first load had not applied yet");
+            afterRefusal.ShouldBe((true, false), "the load's HUD stayed fixed through the refusal");
+            Should.NotThrow(() => loader.LoadMap(Map), "the control: with no worker reading it reads");
+        }
+    }
+
+    /// <remarks>
+    /// **A reload between a load's place in the queue and its read reads the map** (B779 review 24 item 1): the frame's
+    /// reload after a lost device (`NeedsReload`) calls `LoadMap`, and it can run while a load is queued but before it
+    /// raises the barrier — no worker is reading then. Here `LoadMap` asked at the start of the load's raising marshal (the
+    /// first marshal after it reports loading the map): it reads rather than refusing. The control: the barrier was down
+    /// and the load still finishes.
+    /// </remarks>
+    [Test]
+    public async Task LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        bool loadingTheMap = false;
+        bool reloaded = false;
+        bool? barrierUp = null;
+        Exception? thrown = null;
+        view.Asked = name =>
+        {
+            if (name == "Report: Loading the map")
+            {
+                loadingTheMap = true;
+            }
+        };
+        view.Marshalling = () =>
+        {
+            if (!loadingTheMap || reloaded)
+            {
+                return;
+            }
+
+            reloaded = true;
+            barrierUp = loader.ReadingMap;
+
+            try
+            {
+                loader.LoadMap(Map);
+            }
+            catch (InvalidOperationException refusal)
+            {
+                thrown = refusal;
+            }
+        };
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("reload")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+            view.Marshalling = null;
+
+            (reloaded, barrierUp).ShouldBe((true, (bool?)false), "the control: the reload ran with no worker reading");
+            thrown.ShouldBeNull();
+        }
+    }
+
+    /// <remarks>
+    /// **A synchronous load lets its fixed HUD view go** (B779 review 24 item 4): `LoadMap` and `LoadDemo` each end the load
+    /// they began, so afterwards the lists read the HUD as it is now. HUD A chosen, the load, HUD B chosen during its map
+    /// read; after it, the lists read B's doors. The control: during the read, they read A's.
+    /// </remarks>
+    /// <param name="loadMap">Whether the route is `LoadMap` (else `LoadDemo`).</param>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void LoadMapAndLoadDemo_AfterTheirRead_LetTheLoadsHudGo(bool loadMap)
+    {
+        WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("warm")).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            loader.SetChosenHud(hudA);
+            bool? duringA = null;
+            view.Asked = name =>
+            {
+                if (name == nameof(ILoadView.MapRead))
+                {
+                    loader.SetChosenHud(hudB);
+                    duringA = DemoModels.Needed(null, game).Contains(DoorsA);
+                }
+            };
+
+            if (loadMap)
+            {
+                loader.LoadMap(Map);
+            }
+            else
+            {
+                loader.LoadDemo(WriteDemo("sync")).Loaded.ShouldBeTrue();
+            }
+
+            view.Asked = null;
+
+            duringA.ShouldBe(true, "the control: during the read, the load's HUD");
+            DemoModels.Needed(null, game).Contains(DoorsB).ShouldBeTrue("after it, the HUD as it is now");
         }
     }
 

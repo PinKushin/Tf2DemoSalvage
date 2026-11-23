@@ -550,8 +550,10 @@ public sealed class DemoModelsTests
                 (set.Contains(customDoors), set.Contains(stockDoors)).ShouldBe((true, false));
             }
 
-            // **The next load fixes the HUD again** (review 23 item 2): stock is chosen now, so its doors and not the custom's.
+            // **The next load fixes the HUD again** (review 23 item 2): `ChosenHud` is null — stock — since the line before the
+            // loop above, so this load fixes stock, and choosing the custom HUD after it changes nothing until the next load.
             // No `EndLevelLoad` between: a load's view is replaced by the next load's, not kept.
+            game.ChosenHud.ShouldBeNull("the control: stock is current as this load begins");
             game.BeginLevelLoad();
             game.ChosenHud = chosen;
 
