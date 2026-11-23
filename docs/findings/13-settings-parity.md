@@ -257,6 +257,16 @@ a config line naming an alias did nothing, and an alias whose body binds a key d
   `exec autoexec` without the extension does print `'autoexec' not present; not executing.` Each line is executed
   before the next is read, so a nested file runs where its `exec` stood.
 
+**A command has a length, and it is the buffer's** (*published source*, confirmed by the strings in TF2's `engine.dll`).
+Believed first, in review 5: the limit is `CCommand::Tokenize`'s, which skips a command of 511 bytes or more and moves on;
+it was implemented that way, on the trimmed clause. What killed it, in review 6: the command never reaches `Tokenize`.
+`CCommandBuffer::AddText` (`src/tier1/commandbuffer.cpp:209-247`) splits text with `GetNextCommandLength`, which counts the
+raw command (leading spaces and a CRLF line's CR in, a `//` comment out), and `InsertCommand` refuses 511 bytes or more
+with *"WARNING: Command too long... ignoring!"*, after which `AddText` returns: the rest of that line, bind or alias body is
+dropped, not run. The same threshold makes `Tokenize`'s check unreachable from the buffer. This limit, and `COMMAND_MAX_ARGC`
+64 (*"…overflows the argument buffer.. Clamped!"* once the 64th is taken), are what bound one alias run's work in TF2:
+an alias body is one command.
+
 **What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;
 `exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in
 `Cmd_Exec_f` counts depth, so the engine's bound on a file that execs itself is not read; the viewer stops at the alias

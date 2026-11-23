@@ -44586,6 +44586,29 @@ load):
 4. **Test controls** (Fable): the deep-then-shallow test binds `y` to the cut route alone, which must not count; the
    budget tests stay inside the 510-byte command, as TF2 would run them.
 
+**Review 6** (Gemini, Grok merge; Sonnet merge with findings; Fable request changes):
+
+1. **The length limit is the command buffer's, not only the tokenizer's** (Fable): `CCommandBuffer::AddText` splits a text
+   with `GetNextCommandLength` (`src/tier1/commandbuffer.cpp:163-203`), which measures the RAW command: bytes, leading
+   spaces and a CRLF line's CR counted, a `//` comment not. `InsertCommand` (`:120-126`) refuses 511 bytes or more with
+   *"WARNING: Command too long... ignoring!"* and the command's text onward, and `AddText` (`:242-243`) then returns, so the
+   rest of that file line, bind or alias body never runs. All three warnings are strings in TF2's `engine.dll`, so the
+   engine links this tier1 code. `Run` now splits its text with `BufferCommands`, that function's port, and refuses as
+   `InsertCommand` does; the `Tokenize` length check it replaces is unreachable behind it (same threshold) and is gone.
+   *Interpolated*: that an alias body goes through `AddText` as a bind and an exec'd line do. Tests:
+   `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt` (510/511 bytes, a 2-byte character, two leading spaces, a CR, a
+   comment not counted and the space before one counted) and `Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter`.
+2. **The argument clamp says so** (Fable): *"CCommand::Tokenize: Encountered command which overflows the argument buffer..
+   Clamped!"* once the 64th argument is taken, so exactly 64 says it (`convar.cpp:460-464`). Test:
+   `Load_ACommandOfSixtyFourArguments_SaysItIsClamped` (62 values say it, 61 do not).
+3. **The 64-argument test pins the lower side too** (Fable, Sonnet): a case from 61 expects 62, which 63 kept would not give.
+4. **A nested `exec` gave its line's alias count away** (Sonnet): `RunFile` now restores it. Test:
+   `Load_ALineThatExecsBetweenItsAliases_KeepsItsAliasCountAcrossTheExec`.
+5. **`KeyDown` cleared `_viewerIssued` rather than restoring it** (Fable, Sonnet): restored, so a key pressed from a handler
+   inside a built-in key's command leaves it built in.
+6. Each of items 1, 2 and 4 was red under its own sabotage (the rest of a refused text still run, spaces and CR not
+   counted, the warning at 65, the alias count not restored).
+
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the

@@ -1261,7 +1261,7 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **…and one command runs at most <see cref="ConfigConsole.MaximumCommandClauses"/> clauses in all** (B820 reviews 4 and 5,
-    /// Sonnet): the per-line budget resets on every line of an exec'd file and counts alias runs, not what a body does, so 20
+    /// Sonnet): the per-line budget resets on every line of an exec'd file and counts alias runs, not what a body does, so 30
     /// lines each under it still stop at the command's. Said once, and the next command runs.
     /// </remarks>
     [Test]
@@ -1307,34 +1307,73 @@ public sealed class ConfigConsoleConformanceTests
     /// **A command of 511 bytes or more is skipped** (`CCommand::Tokenize`, `src/tier1/convar.cpp:404-409`), with TF2's line;
     /// 510 runs. An alias definition is one such command, which is what bounds what one alias run can do.
     /// </remarks>
-    [TestCase(510, "5")]
-    [TestCase(511, null)]
-    public void Load_ACommandAtAndPastTheTokenizersLength_RunsOnlyUnderIt(int length, string? expected)
+    [TestCase(510, "5", ' ', "", "")]
+    [TestCase(511, null, ' ', "", "")]
+    [TestCase(510, null, 'é', "", "")]
+    [TestCase(509, null, ' ', "  ", "")]
+    [TestCase(510, null, ' ', "", "\r")]
+    [TestCase(510, "5", ' ', "", "// a comment the buffer does not count")]
+    [TestCase(510, null, ' ', "", " // the space before a comment is counted")]
+    public void Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt(int length, string? expected, char pad, string lead, string tail)
     {
+        // `GetNextCommandLength` measures the raw command (B820 review 6, Fable, Sonnet): bytes (the 'é' case is 510
+        // characters), leading spaces and a CRLF line's CR counted, a `//` comment not. The refused command's line is TF2's.
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
-        string command = $"{Alpha} 5";
+        string command = $"{Alpha} 5 \"";
 
-        console.Load(command + new string(' ', length - command.Length - 2) + "\"\"");
+        console.Load(lead + command + new string(pad, length - command.Length - 1) + "\"" + tail);
 
         console.ConVar(Alpha).ShouldBe(expected);
-        log.Count("CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!")
-            .ShouldBe(expected is null ? 1 : 0);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(expected is null ? 1 : 0);
+    }
+
+    /// <remarks>
+    /// **The commands after a refused one in the same text never run** (`CCommandBuffer::AddText` returns at the refusal,
+    /// `src/tier1/commandbuffer.cpp:242-243`; B820 review 6, Fable): a file's line, which `Cmd_Exec_f` adds whole. The one
+    /// before it does. (A bind or an alias cannot hold one: its own definition would be the command too long.)
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"+back;echo {new string('a', 520)};+forward");
+
+        console.IsHeld(ViewerAction.FlyBack).ShouldBeTrue("the command before it ran");
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse("the command after it is dropped with it");
     }
 
     /// <remarks>
     /// **A command keeps at most 64 arguments** (`COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`; the tokenizer's loop,
     /// `src/tier1/convar.cpp:416`). `toggle` and the name are two, so values 1 to 62 are kept of 1 to 70; from 62, the last
-    /// kept, it wraps to 1, where all 70 would go on to 63.
+    /// kept, it wraps to 1, where all 70 would go on to 63; from 61 it goes on to 62, which 63 kept would not (it would wrap,
+    /// as `toggle` goes to the first value when the current is not in its list; B820 review 6, Sonnet).
     /// </remarks>
-    [Test]
-    public void Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour()
+    [TestCase("62", "1")]
+    [TestCase("61", "62")]
+    public void Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour(string from, string expected)
     {
-        ConfigConsole console = new();
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
 
-        console.Load($"{Alpha} 62\ntoggle {Alpha} {string.Join(' ', Enumerable.Range(1, 70))}");
+        console.Load($"{Alpha} {from}\ntoggle {Alpha} {string.Join(' ', Enumerable.Range(1, 70))}");
 
-        console.ConVar(Alpha).ShouldBe("1");
+        console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("CCommand::Tokenize: Encountered command which overflows the argument buffer.. Clamped!").ShouldBe(1);
+    }
+
+    /// <remarks>The warning comes once the 64th argument is taken, so exactly 64 says it and 63 does not (`convar.cpp:460-464`).</remarks>
+    [TestCase(62, 1)]
+    [TestCase(61, 0)]
+    public void Load_ACommandOfSixtyFourArguments_SaysItIsClamped(int values, int said)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"toggle {Alpha} {string.Join(' ', Enumerable.Range(1, values))}");
+
+        log.Count("overflows the argument buffer.. Clamped!").ShouldBe(said);
     }
 
     /// <remarks>
@@ -1351,6 +1390,24 @@ public sealed class ConfigConsoleConformanceTests
         console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
 
         console.Applied.ShouldBe(1, "x counts; y, whose only route to s is the cut one, does not (B820 review 5, Fable)");
+    }
+
+    /// <remarks>
+    /// **A line keeps its alias count across an `exec` it runs** (B820 review 6, Sonnet): the nested file's lines take their
+    /// own and the line gets its back. 20 `m` (201 runs each), the exec, then one more `m` pass 4096 on the one line.
+    /// </remarks>
+    [Test]
+    public void Load_ALineThatExecsBetweenItsAliases_KeepsItsAliasCountAcrossTheExec()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/f.cfg", "n"));
+        console.Log = log;
+
+        console.Load(
+            $"alias n \"\"\nalias m \"{string.Join(';', Enumerable.Repeat("n", 200))}\"\n" +
+            $"{string.Join(';', Enumerable.Repeat("m", 20))};exec f;m");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
     }
 
     /// <remarks>

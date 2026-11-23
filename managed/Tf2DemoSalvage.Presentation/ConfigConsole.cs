@@ -411,6 +411,97 @@ public sealed class ConfigConsole
     /// <summary>Runs a file's lines through the one dispatcher, each before the next is read, as `Cmd_Exec_f` does (B820).</summary>
     private void RunFile(string text, int depth)
     {
+        // A nested file's lines take the alias budget from the line that exec'd it, which gets its own back (B820 review 6).
+        int aliasRuns = _aliasRuns;
+
+        try
+        {
+            RunLines(text, depth);
+        }
+        finally
+        {
+            _aliasRuns = aliasRuns;
+        }
+    }
+
+    /// <summary>
+    /// One `AddText` call's commands, split and measured as `CCommandBuffer::GetNextCommandLength`
+    /// (`src/tier1/commandbuffer.cpp:163-203`): at a `;` outside quotes or any line feed, quotes counted, a `//` comment and
+    /// what follows it not, and everything else counted as it stands, leading spaces and a CR included, in bytes.
+    /// </summary>
+    /// <returns>Each command with its measured length, its text, and the text from it on (what TF2 prints when refusing it).</returns>
+    private static IEnumerable<(int Length, string Command, string FromHere)> BufferCommands(string text)
+    {
+        int at = 0;
+
+        while (at < text.Length)
+        {
+            int start = at;
+            int length = 0;
+            bool quoted = false;
+            bool commented = false;
+            System.Text.StringBuilder command = new();
+
+            while (at < text.Length)
+            {
+                char c = text[at];
+
+                if (!commented)
+                {
+                    if (!quoted && c == '/' && at < text.Length - 1 && text[at + 1] == '/')
+                    {
+                        commented = true;
+                        at += 2;
+                        continue;
+                    }
+
+                    if (c == '"')
+                    {
+                        quoted = !quoted;
+                    }
+                    else if (!quoted && c == ';')
+                    {
+                        break;
+                    }
+                }
+
+                if (c == '\n')
+                {
+                    break;
+                }
+
+                if (commented)
+                {
+                    at++;
+                    continue;
+                }
+
+                // UTF-8 bytes, as the engine's `char` loop counts: a surrogate pair is four, counted on its first half.
+                length += c switch
+                {
+                    < (char)0x80 => 1,
+                    < (char)0x800 => 2,
+                    _ when char.IsHighSurrogate(c) => 4,
+                    _ when char.IsLowSurrogate(c) => 0,
+                    _ => 3,
+                };
+                command.Append(c);
+                at++;
+            }
+
+            // `if ( nCommandLength <= 0 ) continue;` — an empty command is no command (`:224-225`).
+            if (length > 0)
+            {
+                yield return (length, command.ToString(), text[start..]);
+            }
+
+            at++;
+        }
+    }
+
+    /// <summary>The lines of <see cref="RunFile"/>.</summary>
+    private void RunLines(string text, int depth)
+    {
         foreach (string line in text.Split('\n'))
         {
             // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
@@ -447,6 +538,9 @@ public sealed class ConfigConsole
         // The defaults sit in the binds too (`WithDefaults`), so "built in" is the command being this key's default.
         bool builtIn = _defaults.TryGetValue(key!, out string? fallback) && string.Equals(fallback, command, StringComparison.Ordinal);
 
+        // Restored rather than cleared, so a key pressed from a handler inside a built-in key's command leaves that command
+        // built in (B820 review 6, Fable).
+        bool viewerIssued = _viewerIssued;
         _viewerIssued = builtIn;
 
         try
@@ -457,7 +551,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _viewerIssued = false;
+            _viewerIssued = viewerIssued;
         }
     }
 
@@ -1328,7 +1422,7 @@ public sealed class ConfigConsole
             return acted;
         }
 
-        foreach (string clause in SourceConfig.Clauses(commandLine))
+        foreach ((int length, string clause, string rest) in BufferCommands(commandLine))
         {
             // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).
             if (++_commandClauses > MaximumCommandClauses)
@@ -1341,13 +1435,16 @@ public sealed class ConfigConsole
                 return acted;
             }
 
-            // **A command of 511 bytes or more is skipped, and at most 64 arguments are kept** (`CCommand::Tokenize`,
-            // `src/tier1/convar.cpp:404-409` and `:416`; `COMMAND_MAX_LENGTH` 512, `COMMAND_MAX_ARGC` 64 in
-            // `src/public/tier1/convar.h:206-207`). It bounds an alias body too, which is one such command (B820 review 5, Fable).
-            if (System.Text.Encoding.UTF8.GetByteCount(clause) >= MaximumCommandLength - 1)
+            // **A command of 511 bytes or more is refused, and so is the rest of the text it came in** (B820 reviews 5 and 6,
+            // Fable): `CCommandBuffer::InsertCommand` (`src/tier1/commandbuffer.cpp:120-126`) refuses `nCommandSize >=
+            // CCommand::MaxCommandLength()` (`COMMAND_MAX_LENGTH - 1`, `src/public/tier1/convar.h:207,217-220`) with TF2's line,
+            // and `AddText` (`:242-243`) then returns, so the commands after it in that file line, bind or alias body never run.
+            // The strings are in TF2's `engine.dll`, so the engine links this tier1 code. *Interpolated*: that an alias body is
+            // inserted through `AddText` as a bind and an exec'd line are.
+            if (length >= MaximumCommandLength - 1)
             {
-                Log.LogInformation("{Message}", "CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!");
-                continue;
+                Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
+                return acted;
             }
 
             IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
@@ -1357,8 +1454,11 @@ public sealed class ConfigConsole
                 continue;
             }
 
-            if (tokens.Count > MaximumArguments)
+            // **At most 64 arguments, said once the 64th is taken** (`CCommand::Tokenize`, `src/tier1/convar.cpp:416,460-464`;
+            // `COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`).
+            if (tokens.Count >= MaximumArguments)
             {
+                Log.LogInformation("{Message}", "CCommand::Tokenize: Encountered command which overflows the argument buffer.. Clamped!");
                 tokens = [.. tokens.Take(MaximumArguments)];
             }
 
