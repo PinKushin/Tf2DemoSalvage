@@ -330,39 +330,83 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
-    /// **A launch option is a console command, so a cheat ConVar meets TF2's refusal** (B718, measured on live TF2): refused
-    /// while `sv_cheats` is 0, applied after an earlier `+sv_cheats 1` on the line.
+    /// **Every cheat ConVar and every `+sv_cheats` on the line is handed to the console after the configs, in the line's order,
+    /// and none is stored** (B718, B811; TF2's `cfg/valve.rc` runs `stuffcmds` after `exec autoexec.cfg`), so the console's
+    /// gate decides each one, admitted or refused, where the session's tests measure it. Stored at read time, a cheat the
+    /// line admitted lost to an earlier deferred set of the same ConVar (B811 review 2).
     /// </remarks>
     [Test]
-    public void Read_ACheatConVarOnTheLine_AppliesOnlyAfterSvCheats()
+    public void Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleInOrderAndNotStored()
     {
-        Read("+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(0f, "refused with cheats off");
-        Read("+sv_cheats", "1", "+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(12f);
+        LaunchOptions mixed = Read("+mat_fullbright", "1", "+sv_cheats", "1", "+mat_fullbright", "0", "+r_screenfademinsize", "12", "a.dem");
+
+        mixed.AfterConfigs.ShouldBe(
+            ["mat_fullbright \"1\"", "sv_cheats \"1\"", "mat_fullbright \"0\"", "r_screenfademinsize \"12\""]);
+        mixed.Settings.ConVarText("mat_fullbright").ShouldBe(Read("a.dem").Settings.ConVarText("mat_fullbright"), "not stored");
+        mixed.Settings.ScreenFadeMinSize.ShouldBe(0f, "not stored");
+        Read("+cl_showfps", "1", "a.dem").AfterConfigs.ShouldBeNull("the control: no cheat, nothing handed");
     }
 
-    /// <remarks>`mat_wireframe` is a cheat ConVar in TF2 (`engine.dll` `0x180007b94`, flags `0x4000`), so the launch line's set
-    /// meets the same refusal (B791).</remarks>
+    /// <remarks>
+    /// **A replicated cheat is the server's, so the line's own `sv_cheats` gates it and the console never sees it**
+    /// (B811 review 1, Sonnet; reviews 2 and 3): `+cl_forwardspeed 500` is refused with TF2's line and not handed on; after
+    /// `+sv_cheats 1` it is not refused, and still not handed on, only the `sv_cheats` is.
+    /// </remarks>
     [Test]
-    public void Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats()
+    public void Read_AReplicatedCheat_IsGatedOnTheLineAndNeverHandedOn()
     {
-        Read("+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBeNull("refused with cheats off");
-        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger refusedLog = new();
+        RecordingLogger admittedLog = new();
+
+        LaunchOptionsReader.Read(["+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), refusedLog)
+            .AfterConfigs.ShouldBeNull();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), admittedLog)
+            .AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+
+        refusedLog.Count(Refusal).ShouldBe(1);
+        admittedLog.Count(Refusal).ShouldBe(0, "the control: the line's own sv_cheats admits it");
+    }
+
+    /// <remarks>
+    /// **A value that would close its own quotes or start another line is refused** (B811 review 10, Sonnet): handed to
+    /// the console as `name "value"`, it would run as further console lines. The control: a plain value is handed on.
+    /// </remarks>
+    /// <param name="value">The value given.</param>
+    [TestCase("1\"; bind q quit; \"")]
+    [TestCase("1\nbind q quit")]
+    [TestCase("1\rbind q quit")]
+    [TestCase("1\0bind q quit")]
+    public void Read_ACheatValueThatBreaksItsQuotes_IsRefused(string value)
+    {
+        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs
+            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""], "the control: a plain value");
+
+        Read("+sv_cheats", "1", "+mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+    }
+
+    /// <remarks>
+    /// **The guard holds on every branch, not only the cheat one** (B811 review 11, Fable, Sonnet): `+sv_cheats` and a
+    /// non-cheat value with a line break are refused too. The controls: their plain values pass.
+    /// </remarks>
+    [Test]
+    public void Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused()
+    {
+        Read("+sv_cheats", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""], "the control: sv_cheats passes");
+        Read("+sv_cheats", "1\nbind q quit", "a.dem").AfterConfigs.ShouldBeNull();
+
+        Read("+cl_showfps", "1", "a.dem").Settings.ConVarText("cl_showfps").ShouldBe("1", "the control: a non-cheat is stored");
+        Read("+cl_showfps", "1\nbind q quit", "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe("1\nbind q quit");
     }
 
     /// <remarks>
     /// **The launch line finds a ConVar in any case, as the console does** (B791 review 9, Sonnet; the console's lookup is the
-    /// closed `vstdlib`'s, *interpolated*): `+MAT_FULLBRIGHT 1` is refused with cheats off, and with them `+MAT_WIREFRAME 1`
-    /// is stored under its own name.
+    /// closed `vstdlib`'s, *interpolated*): `+MAT_WIREFRAME 1` is handed on under its own name.
     /// </remarks>
     [Test]
-    public void Read_ACheatConVarInUpperCase_IsGatedAndStoredLikeLowerCase()
+    public void Read_ACheatConVarInUpperCase_IsHandedOnUnderItsOwnName()
     {
-        string? unset = Read("a.dem").Settings.ConVarText("mat_fullbright");
-
-        unset.ShouldNotBe("1", "the control: no launch option, no fullbright");
-        Read("+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe(unset, "refused with cheats off");
-        Read("+sv_cheats", "1", "+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe("1");
-        Read("+sv_cheats", "1", "+MAT_WIREFRAME", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+        Read("+SV_CHEATS", "1", "+MAT_WIREFRAME", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""]);
     }
 
     /// <remarks>

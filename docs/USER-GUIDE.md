@@ -111,8 +111,14 @@ You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while
 `sv_cheats` is `0`, and the log shows TF2's own line: *Can't use cheat cvar … in multiplayer, unless the server has
-sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. Setting
-`sv_cheats` back to `0` returns every cheat cvar to its default, wherever it was set. The viewer's own keys (`CTRL+0`,
+sv_cheats set to 1.* Set `sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. As in TF2, the command line's cheat
+cvars run after your configs, so an `sv_cheats 1` in your `autoexec.cfg` also lets a `+cl_drawhud 0` on the command line
+through. A server-side cheat such as `cl_forwardspeed` is refused unless the command line's own `+sv_cheats 1` comes
+first, and even then the viewer keeps the demo's own value. Setting
+`sv_cheats` back to `0` returns every client cheat cvar to its default, wherever it was set (a server-side one already
+has the demo's value). `--like` turns `sv_cheats` on before a shot's cheats whenever its file holds a client cheat cvar, so the value it was
+taken with (a TF2 golden's `cl_drawhud 0`, or one the viewer's menu set) is in effect again; a server-side one keeps the
+demo's value. The viewer's own keys (`CTRL+0`,
 `CTRL+1`, `CTRL+2`, `CTRL+w`) and its menus still work without it, and a value in the viewer's own `settings.cfg` is kept
 between runs as the menus' choices are.
 

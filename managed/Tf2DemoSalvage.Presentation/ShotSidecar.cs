@@ -397,7 +397,26 @@ public static class ShotSidecar
 
         List<string> expanded = ["--tick", like.Tick.ToString(CultureInfo.InvariantCulture)];
 
-        foreach ((string name, string value) in like.Convars.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        // **A shot that held a cheat had it in effect, so its replay admits cheats first** (B811 review 8, Fable, Sonnet):
+        // a TF2-side sidecar never records `sv_cheats`, nor did the viewer's before review 7, and a cheat the viewer's own
+        // menu or key set (D253) was in effect with `sv_cheats` 0. Without this, `--like` refused every such cheat.
+        // Any client cheat asks for it, a replicated one not (B811 review 9, Fable, Sonnet, Grok: the line drops it anyway).
+        // At its default too (review 10, Fable): the run may hold the cheat away from its default (`settings.cfg`'s
+        // `mat_fullbright 1`), and refused, the sidecar's `mat_fullbright 0` would leave the replay fullbright.
+        if (!like.Convars.Keys.Any(name => name.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase)) &&
+            like.Convars.Keys.Any(name =>
+                Core.Net.EngineConVars.TryByConsoleName(name, out Core.Net.EngineConVar? declared) &&
+                declared.Cheat && !declared.Replicated))
+        {
+            expanded.Add("+sv_cheats");
+            expanded.Add("1");
+        }
+
+        // **`sv_cheats` first** (B811 review 7, Fable): the line now runs in its order after the configs, so a cheat sorted
+        // before it would be refused. The rest by name, so a sidecar expands the same way every time.
+        foreach ((string name, string value) in like.Convars
+            .OrderBy(pair => pair.Key.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(pair => pair.Key, StringComparer.Ordinal))
         {
             expanded.Add("+" + name);
             expanded.Add(value);

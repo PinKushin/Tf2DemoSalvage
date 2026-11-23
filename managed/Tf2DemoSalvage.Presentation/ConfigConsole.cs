@@ -651,7 +651,9 @@ public sealed class ConfigConsole
 
         try
         {
-            string? game = installedGameFolder ?? Tf2ConfigFiles.DefaultGameFolder;
+            // **The caller's answer, null included** (B811 review 3, Fable): production's is already `SteamInstall.Machine`'s,
+            // so falling back to it again only reached past a test's "no install" to this machine's own TF2 configs.
+            string? game = installedGameFolder;
 
             // **The program's own custom/ folder is checked even with no TF2 install found** (D193):
             // a config a player pasted in there does not depend on the game being installed at all.
@@ -672,8 +674,9 @@ public sealed class ConfigConsole
             _refusedCheats.Clear();
             Load(configs);
 
-            // TF2's own line for each cheat ConVar a config set with cheats off (B718).
-            foreach (string refused in RefusedCheats)
+            // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
+            // `CheatRefused` handler has printed it already (B811 review 5, Sonnet): only a console nobody listens to prints here.
+            foreach (string refused in CheatRefused is null ? RefusedCheats : [])
             {
                 config.LogInformation(
                     "{Message}", $"Can't use cheat cvar {refused} in multiplayer, unless the server has sv_cheats set to 1.");
@@ -911,6 +914,13 @@ public sealed class ConfigConsole
 
     /// <summary>The ConVar that allows cheat ConVars.</summary>
     private const string CheatsConVar = "sv_cheats";
+
+    /// <summary>
+    /// <c>sv_cheats</c> back to 0 as a fresh start has it, reverting nothing: for the configs and the launch line run again
+    /// after a game folder is chosen (B811 review 4). A typed <c>sv_cheats 0</c> would revert every cheat, including a
+    /// value the viewer's own settings or menu hold, which a fresh start keeps.
+    /// </summary>
+    public void StartCheatsOff() => _conVars[CheatsConVar] = "0";
 
     /// <summary>Whether <c>sv_cheats</c> allows cheats now; 0, its default, until set.</summary>
     private bool CheatsOn => _conVars.TryGetValue(CheatsConVar, out string? cheats) && CheatsAllowed(cheats);

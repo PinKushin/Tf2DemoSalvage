@@ -42762,7 +42762,126 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
-## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — OPEN
+## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — FIXED 2026-11-23
+
+**Fixed.** The order is now *read*, from the game's shipped data: `cfg/valve.rc` in `tf2_misc_dir.vpk` (the probe
+`game-file cfg/valve.rc`) runs `exec joystick.cfg`, `exec autoexec.cfg`, then `stuffcmds`, which executes the command
+line's `+` commands. `LaunchOptionsReader` no longer gates a client cheat: it hands every one, with every `+sv_cheats`, to
+the console after the configs in the line's order (`LaunchOptions.AfterConfigs`, replacing `SvCheats`), where a config's
+or the line's `sv_cheats 1` admits it and the console refuses it with TF2's line otherwise. Tests:
+`ViewerSessionTests.OpenDevice_ALaunchMatWireframeAfterAnAutoexecsSvCheats_DrawsWireframe` (red first; control: the
+same line under an autoexec without cheats is refused; sabotage: not replaying the deferred line reddens it),
+`OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid` (the line's own order), and
+`LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleInOrderAndNotStored`. Not verified by looking.
+
+**Review 2** (Fable, Sonnet, Gemini; the replay ran after the window's `OnConVarSet` subscription):
+1. *Startup crash*: the session is built before the real window's menu and viewport exist (`MainForm.cs:518` against
+   `:577`, `:718`), so an admitted launch cheat applied its switch to a null control. The replay now runs after `Attach`
+   and before `OnConVarSet` is subscribed; the device hand-over applies the switches from the settings. Test
+   `Build_ALaunchCheatAdmittedByAnAutoexec_TellsTheWindowNothingUntilTheDeviceOpens` (sabotage: subscribing first reddens it).
+2. *Order*: a cheat the line admitted was stored at read time, so `+mat_fullbright 1 +sv_cheats 1 +mat_fullbright 0`
+   under an autoexec's `sv_cheats 1` replayed the deferred 1 over the stored 0; TF2 ends at 0. No client cheat is stored
+   at read time now. Test `Build_ALaunchCheatSetTwiceAroundItsSvCheats_EndsAtTheLastValue` (sabotage: storing an admitted
+   one reddens it and the reader's test).
+3. *A folder chosen later* re-reads the configs, and the line now runs after them again. Test
+   `GameFolderChosen_WhoseAutoexecAdmitsCheats_RunsTheLaunchLineAgain` (sabotage: dropping the second run reddens it).
+4. `sv_cheats` is quoted in the replayed line like every other value. A replicated cheat stays gated on the line
+   (`Read_AReplicatedCheat_IsGatedOnTheLineAndNeverHandedOn`). B816's text corrected: a `ClientConVar` reader is shadowed too.
+
+**Review 3** (Fable, Sonnet, Grok; Gemini approved):
+1. *The folder reload ran from the `sv_cheats` the line's replay ended on*, so `+mat_fullbright 1 +sv_cheats 1` admitted
+   the fullbright after a folder was chosen and refused it at the next launch. The reload now starts from `sv_cheats 0`
+   (reverting nothing since review 4); the configs and the line then run as at startup. Test
+   `GameFolderChosen_AfterALineThatTurnedCheatsOnLast_StillRefusesItsEarlierCheat` (control: the line's cheat after its
+   own `sv_cheats 1` is admitted through the same reload; sabotage: no reset reddens it). A fullbright the menu turned off
+   before the folder is chosen comes back from the line, as it would at the next launch.
+2. *A test's "no install" read this machine's TF2 configs*: `ConfigConsole.LoadFrom` fell back to `SteamInstall.Machine`
+   when handed no folder, which production's caller had already asked. Dropped; test
+   `ConfigConsoleLoadFromTests.LoadFrom_WithNoFolderGiven_ReadsNoMachineInstall` (red on a machine with TF2).
+3. *The replicated-cheat store was a no-op* (the settings type no replicated ConVar) and its test asserted nothing of
+   the gate. The store is gone; the test now reads the refusal line, with the line's own `sv_cheats 1` as its control.
+   A config's `sv_cheats 1` does not admit one: the console never takes a replicated ConVar.
+4. *Found, B816's*: the line's non-cheat ConVars are stored when it is read, not replayed, so after a folder reload a
+   config's `fps_max` beats the line's. Added to B816, where moving the configs after `Attach` makes it matter at startup.
+
+**Review 4** (found by Fable, Sonnet and Grok; Gemini approved): the reload's typed `sv_cheats 0` reverted every cheat,
+including a value `settings.cfg` or the menu held, which a fresh start keeps (`settings.cfg` `mat_fullbright 1` with
+`+sv_cheats 1` went solid for the run). `ConfigConsole.StartCheatsOff` now sets the console's `sv_cheats` to 0 without
+reverting. Test `GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue` (sabotage: the typed `sv_cheats 0`
+reddens it). Review 3's test now asserts the folder was taken, the exact unset value and both refusals, so it cannot pass
+on a rejected folder. Item 1 of review 3 above no longer reverts anything. USER-GUIDE's replicated-cheat sentence
+corrected: the viewer does not use one either way (*superseded in review 6*: the viewer reads them, from the demo).
+
+**Review 5** (all four approve or find no blocker). Done: a config's refused cheat was printed twice after `Attach`
+(the settings' `CheatRefused` handler and `LoadFrom`'s own list); `LoadFrom` now prints its list only when nobody listens.
+Test `GameFolderChosen_WhoseAutoexecSetsACheatWithCheatsOff_LogsTheRefusalOnce` (sabotage: printing the list always
+reddens it). The review-4 test asserts the folder was taken. Left, as found (Fable): a cheat a bound key set at run time
+(`bind F5 "sv_cheats 1; mat_wireframe 1"`) stays set through a folder reload that starts cheats at 0, which a fresh
+start would not have; a cheat the program's own `custom/` config alone admitted at startup likewise stays (Sonnet).
+Both need a key press or an own-folder config before the first folder is chosen (the second traced away in review 6).
+Filed separately: B818, the replicated-cheat gate, which these two are not part of.
+
+**Review 6** (Fable, Gemini, Sonnet approve; Grok did not). Grok's case, a cheat admitted at startup by an autoexec and
+refused after a folder reload: with no install at startup, the only startup configs are the program's own `custom/`
+ones, which run again at the reload, so their `sv_cheats 1` then `0` reverts the cheat as a fresh start does; not a
+defect, and it disposes of Sonnet's `custom/` residual in review 5 too. Done (Fable): `LoadFrom`'s no-listener print had
+no test (`ConfigConsoleLoadFromTests.LoadFrom_AConfigCheatWithCheatsOff_PrintsTheRefusalOnlyWhenNobodyListens`;
+inverting the guard reddens it and the folder test); B818 and USER-GUIDE no longer say nothing reads a replicated cheat.
+
+**Review 7** (Gemini, Sonnet approve; Fable approves with fixes; Grok minor findings). Done: the review-6 test's
+listener now counts what it is told, and both loads read no `custom/` folder; B818 names every reader of a replicated
+cheat (Gemini: `FlightInput` itself reads none, `FreeFlightPath.WalkSpeed` does); the `LaunchOptions` comment still
+said nothing reads one. **`--like` reproduces a shot taken with cheats** (Fable): it expanded the sidecar's ConVars by
+name, so every cheat ran before `sv_cheats` and was refused, and the viewer's own sidecar never recorded `sv_cheats`,
+being replicated. `ShotSidecar.Expand` now puts `sv_cheats` first, and the sidecar records it when it differs from 0.
+Tests `ShotSidecarTests.Expand_ASidecarWithSvCheats_PutsItBeforeEveryCheat` and
+`ViewerSessionTests.RenderFrame_OnACaptureRunWithCheats_RecordsSvCheatsInTheSidecar` (sabotage: each half alone reddens
+its test). The USER-GUIDE's `sv_cheats 0` sentence now says a server-side cheat keeps the demo's value (Grok).
+
+**Review 8** (Gemini approves; Fable, Sonnet approve with one fix; Grok). *Review 7's `--like` fix held only for a viewer
+sidecar written with cheats on* (Fable, Sonnet): a TF2-side sidecar never records `sv_cheats` (three committed goldens
+hold `cl_drawhud 0` without it), nor did an older viewer sidecar, and a cheat the viewer's own menu or key set (D253)
+was in effect with `sv_cheats` 0; `--like` refused all of them, and a typed `+sv_cheats 1` could not repair it, since
+the sidecar's lines come first. `ShotSidecar.Expand` now prepends `+sv_cheats 1` when the sidecar holds a cheat and no
+`sv_cheats`. Test `Expand_ASidecarWithACheatAndNoSvCheats_AdmitsCheatsFirst` (control: a sidecar without a cheat gains
+nothing; sabotage: admitting with 0 reddens it); the upper-case spelling is a second case of the ordering test (Fable,
+Sonnet). Grok's "the sidecar records a value the frame did not run" does not hold: `sv_cheats` is read from the
+console's own list, the gate's value (Fable, Gemini).
+
+**Review 9** (Gemini approves; Fable, Sonnet, Grok low). The admit rule looked at the name only, so a sidecar holding a
+cheat at its default (`cl_drawhud 1`) or only a replicated cheat (`cl_forwardspeed`, which the line drops) turned
+cheats on for nothing. It now counts only a client cheat (not replicated). The default half was added and taken out
+again in review 10 (Fable): the run may hold a cheat away from its default (`settings.cfg`'s `mat_fullbright 1`), and a
+sidecar's default `mat_fullbright 0`, refused, left the replay fullbright; admitting for a default-only sidecar is the
+harmless side. Test `Expand_AReplicatedCheat_AdmitsNothingAndAClientCheatAdmitsAtAnyValue`.
+**Review 10** also: a launch value holding a `"`, `\r` or `\n` is refused (Sonnet), since it is handed to the console as
+`name "value"` and would run as further console lines, from a `--like` sidecar as much as a typed line. Test
+`LaunchOptionsTests.Read_ACheatValueThatBreaksItsQuotes_IsRefused`. A `;` is not refused: TF2's `stuffcmds` runs the
+line through the same tokenizer, and how it treats one there is not read.
+**Review 11** (Gemini, Sonnet, Grok approve; Fable lows): a NUL is refused too, since the console's tokenizer ends a
+quoted token at one; the guard is tested on the `+sv_cheats` and non-cheat branches as well
+(`Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused`).
+Left, as found: a replay of a shot whose cheat the menu set at `sv_cheats 0` now runs at `sv_cheats 1`, so the replay's
+own sidecar gains `sv_cheats` the original lacks; a TF2 sidecar holding `sv_cheats 0` with a cheat still refuses it, a
+state TF2 itself cannot be in. No test runs `--like` on a committed golden.
+
+**Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
+1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
+   stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,
+   `r_screenfademinsize`, `mat_force_tonemap_scale` and others read. Only `mat_wireframe`, read through `ClientConVar`,
+   worked. Then the replay ran after `Attach` and the `OnConVarSet` subscription (*superseded by review 2*: after `Attach`,
+   before `OnConVarSet`): an admitted set reaches the run's
+   settings (not the saved file) and wins over the saved value, as the command line does in TF2. Test
+   `ViewerSessionTests.Build_ALaunchClDrawhudAfterAnAutoexecsSvCheats_ReachesTheSettings` (control: cheats off, refused).
+2. *The refusal line was lost*: `CheatRefused` had no subscriber yet. Test `Build_ALaunchCheatNothingAdmits_LogsTf2sRefusal`.
+   Both tests redden when the replay moves back before `Attach`.
+3. *Order*: `OpenDevice_ALaunchMatWireframeBeforeItsSvCheatsOne_DrawsSolid` (a reversed replay would draw wireframe).
+4. *A replicated cheat* is refused on the line with TF2's line again, as before (no client set admits it); the value is
+   quoted in the replayed line, so the console reads it as one argument.
+5. *Found, not this entry's*: a config's own typed cheat (`sv_cheats 1` then `cl_drawhud 0` in an autoexec) stays in the
+   console and does not reach readers of the run's settings. Filed as B816.
+
+**As filed:**
 
 Found in B791's review 16 (Sonnet). `LaunchOptionsReader` gates a `+cheat value` against `sv_cheats` as the launch line
 alone sets it (`cheats` starts false, `LaunchOptions.cs:114`), and it runs before the watcher's configs are read. So an
@@ -44304,6 +44423,38 @@ behind both, so neither is engine parity.
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
+
+## B818 — a replicated cheat ConVar's refusal is decided by the launch line alone (2026-11-23) — OPEN
+
+Found in B811 reviews 3-5 (Sonnet, Grok, Fable). `LaunchOptionsReader` refuses `+cl_forwardspeed 500` with TF2's cheat
+line unless the line's own `+sv_cheats 1` came first; an autoexec's `sv_cheats 1` does not count, and the console never
+takes a replicated ConVar at all (`ConfigConsole.IsClientConVar`), so a config line setting one prints nothing either
+way. TF2's closed `cvar` code decides a client's set of a replicated ConVar ("Can't change replicated ConVar … from
+console of client, only server operator can change its value", from memory of older Source code, *not read*) and of a
+cheat ConVar; which check runs first during demo playback, and whether the replicated refusal applies while a demo plays
+at all, are not read. The viewer does read the replicated cheats, from the demo's own server values, and no console or
+launch-line set reaches them (B811 reviews 6 and 7, Fable, Gemini, Sonnet): `FreeFlightPath.WalkSpeed` (the free
+camera's walk, `+speed`) reads `cl_forwardspeed`; `MovementConVars.From` (`PredictedPlayer.cs`, the recorder's predicted
+movement) reads `cl_forwardspeed`, `cl_backspeed` and `cl_sidespeed`; `tf_always_loser` is read by `DemoTimeline`,
+`TfTargetId` and `RecorderPrediction`; `spec_freeze_time` and `spec_freeze_traveltime` by `TfRespawnWave` (the respawn
+countdown). `cl_upspeed` has no reader. So if TF2 admits a client's set of a replicated cheat during playback under
+`sv_cheats 1`, all of those are at stake, not only a log line. Fix shape: read the order in `engine.dll` (the replicated string's xref), then
+gate a replicated cheat in the console like the others, from the line and the configs alike. *Not fixed*.
+
+## B816 — a config's typed ConVar stays in the console, so no reader sees it (2026-11-23) — OPEN
+
+Found in B811's review 1 (Fable, Sonnet), confirmed with a test (`fps_max 123` and `sv_cheats 1; cl_drawhud 0` in an
+autoexec leave the run's `ViewerSettings` at their defaults). The watcher's configs load before
+`SettingsPresenter.Attach`, so their lines are kept in the console's own list (`ConfigConsole.SetConVar`), by design
+("configs keep their own lines"). After `Attach`, `ClientConVar` asks the settings first, and `ViewerSettings.ConVarText`
+answers for every typed ConVar, so the console's value is shadowed there too (B811 review 2, Fable): a typed field
+(`DrawHud`, `Fullbright`, the tonemap scale, the screen-fade sizes, `FrameRateLimit`) and a `ClientConVar` reader of the
+same name both see the default. Only a ConVar the settings do not type is read from the console's list. So an autoexec's
+`cl_drawhud 0` under `sv_cheats 1` (TF2 hides the HUD) draws it here. Which ConVars are affected, one by one, is not yet
+counted. Fix shape: the configs' lines reach the run's settings as the command line's now do (B811). That alone would
+let a config's `fps_max 123` beat a launch `+fps_max 60`, because the line's non-cheat ConVars are stored when it is read
+rather than run after the configs (B811 review 3); TF2's `stuffcmds` runs them after the configs too, so they must be
+replayed with the cheats. A folder chosen later already shows it. *Not fixed*.
 
 ## B815 — a load's precache reaches the device under the HUD's name, on a later frame (2026-11-22) — OPEN
 

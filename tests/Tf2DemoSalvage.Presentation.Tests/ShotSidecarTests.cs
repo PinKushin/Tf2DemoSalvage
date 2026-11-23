@@ -238,6 +238,69 @@ public sealed class ShotSidecarTests
         });
     }
 
+    /// <remarks>
+    /// **`sv_cheats` expands before the cheats it admits** (B811 review 7, Fable): the line runs in its order after the
+    /// configs, so `mat_fullbright` sorted before `sv_cheats` would be refused. The rest stay by name.
+    /// </remarks>
+    [TestCase("sv_cheats")]
+    [TestCase("SV_CHEATS")]
+    public void Expand_ASidecarWithSvCheats_PutsItBeforeEveryCheat(string spelled)
+    {
+        string cheats = Tf2Sidecar.Replace(
+            "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
+            $"\"convars\": {{ \"mat_fullbright\": \"1\", \"{spelled}\": \"1\", \"mat_phong\": \"0\" }}",
+            StringComparison.Ordinal);
+
+        cheats.ShouldNotBe(Tf2Sidecar, "the control: the fixture was rewritten");
+
+        string[] expanded = ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => cheats, (_, _) => { });
+
+        expanded[2..8].ShouldBe([$"+{spelled}", "1", "+mat_fullbright", "1", "+mat_phong", "0"]);
+    }
+
+    /// <remarks>
+    /// **A sidecar holding a cheat and no `sv_cheats` admits cheats first** (B811 review 8, Fable, Sonnet): a TF2-side
+    /// golden's `cl_drawhud 0` was in effect when it was taken, and `--like` refused it. The control: a sidecar with no
+    /// cheat gains nothing.
+    /// </remarks>
+    [Test]
+    public void Expand_ASidecarWithACheatAndNoSvCheats_AdmitsCheatsFirst()
+    {
+        string cheat = Tf2Sidecar.Replace(
+            "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
+            "\"convars\": { \"cl_drawhud\": \"0\", \"mat_phong\": \"0\" }",
+            StringComparison.Ordinal);
+
+        ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => Tf2Sidecar, (_, _) => { })
+            .ShouldNotContain("+sv_cheats", "the control: no cheat, no sv_cheats");
+
+        string[] expanded = ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => cheat, (_, _) => { });
+
+        expanded[2..8].ShouldBe(["+sv_cheats", "1", "+cl_drawhud", "0", "+mat_phong", "0"]);
+    }
+
+    /// <remarks>
+    /// **A replicated cheat admits nothing; a client cheat admits at any value** (B811 reviews 9, 10): `cl_forwardspeed` is
+    /// the server's, which the line drops; `cl_drawhud 1` is the default, but the run may hold `cl_drawhud 0` from its
+    /// saved settings, and the sidecar's default must replace it. The control: `cl_drawhud 0` admits.
+    /// </remarks>
+    /// <param name="convars">The sidecar's ConVars.</param>
+    /// <param name="admits">Whether `+sv_cheats 1` is prepended.</param>
+    [TestCase("\"cl_drawhud\": \"0\"", true)]
+    [TestCase("\"cl_drawhud\": \"1\"", true)]
+    [TestCase("\"cl_forwardspeed\": \"500\"", false)]
+    public void Expand_AReplicatedCheat_AdmitsNothingAndAClientCheatAdmitsAtAnyValue(string convars, bool admits)
+    {
+        string sidecar = Tf2Sidecar.Replace(
+            "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
+            $"\"convars\": {{ {convars} }}",
+            StringComparison.Ordinal);
+
+        sidecar.ShouldNotBe(Tf2Sidecar, "the fixture was rewritten");
+
+        ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => sidecar, (_, _) => { }).Contains("+sv_cheats").ShouldBe(admits);
+    }
+
     [Test]
     public void Expand_WithLikeAndNoDemo_OpensTheDemoBesideTheSidecar()
     {

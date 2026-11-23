@@ -348,10 +348,13 @@ public sealed partial class ViewerSession
         Dictionary<string, string> convars = new(StringComparer.Ordinal);
 
         // **Read back through the one route the frame reads them by** (`ClientConVar`), and only those that differ from
-        // their declared default (owner: "only the ones that differ from defaults").
+        // their declared default (owner: "only the ones that differ from defaults"). `sv_cheats` too, though replicated: the
+        // console takes it (B718), and without it `--like` refuses every cheat the shot was taken with (B811 review 7).
         foreach (Core.Net.EngineConVar declared in Core.Net.EngineConVars.All)
         {
-            if (!declared.Replicated && ClientConVar(declared.Name) is { } value && ShotSidecar.DiffersFromDefault(value, declared.Default))
+            bool recorded = !declared.Replicated || declared.Name.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase);
+
+            if (recorded && ClientConVar(declared.Name) is { } value && ShotSidecar.DiffersFromDefault(value, declared.Default))
             {
                 convars[declared.Name] = ShotSidecar.Private(value);
             }

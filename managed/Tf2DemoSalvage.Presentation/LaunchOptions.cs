@@ -44,8 +44,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Like">`--like`: the TF2-side sidecar this run reproduces, recorded in its own sidecar (D226); its values
 /// were already expanded into the other options by <see cref="ShotSidecar.Expand(string[], Func{string, string}, Action{string, string})"/>.</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
-/// <param name="SvCheats">The last `+sv_cheats` value on the line, for the console to take after the configs, as TF2 runs
-/// launch commands after them (B718); null when none was given.</param>
+/// <param name="AfterConfigs">
+/// The console lines the launch line hands to the console after the configs, in the line's order, as TF2's `stuffcmds`
+/// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats` and every client cheat ConVar, so the
+/// console's gate decides each against `sv_cheats` as the configs and the line so far left it. Null when there are none.
+/// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -66,7 +69,7 @@ public readonly record struct LaunchOptions(
     string? Hud = null,
     bool Windows = false,
     string? Like = null,
-    string? SvCheats = null);
+    IReadOnlyList<string>? AfterConfigs = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -112,6 +115,9 @@ public static class LaunchOptionsReader
 
         // `sv_cheats` as the launch line has set it so far (B718); 0, its default, until a `+sv_cheats` says otherwise.
         bool cheats = false;
+
+        // What runs again after the configs, in order (B811): see `LaunchOptions.AfterConfigs`.
+        List<string> afterConfigs = [];
 
         LaunchOptions read = new(settings, paths);
 
@@ -212,38 +218,52 @@ public static class LaunchOptionsReader
                 string command = argument[1..];
                 string value = pending.Dequeue();
 
-                // **A launch option is a console command, so a cheat ConVar meets the same refusal** (B718, measured on live
-                // TF2): refused while `sv_cheats` is 0, which an earlier `+sv_cheats 1` on the line changes.
+                // **A value is one argument, so it may not close its own quotes or start another line** (B811 review 10,
+                // Sonnet): it is handed to the console as `name "value"`, and a `"`, `\r` or `\n` inside would become
+                // further console lines, from a `--like` sidecar as much as a typed line; a NUL would cut the value short
+                // (review 11, Fable). Refused, and said so.
+                if (value.AsSpan().IndexOfAny("\"\r\n\0") >= 0)
+                {
+                    log.LogWarning("{Message}", $"+{command}: a value holding a quote, a line break or a NUL is refused");
+                    continue;
+                }
+
+                // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718,
+                // B811): TF2's `cfg/valve.rc` runs `exec autoexec.cfg` and then `stuffcmds`, which executes the whole line,
+                // so the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it.
+                // None is stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred
+                // set of the same ConVar win over a later admitted one). Quoted, so the console reads the value as the one
+                // argument the line gave.
                 if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
                 {
-                    bool wereOn = cheats;
-
                     cheats = ConfigConsole.CheatsAllowed(value);
-                    read = read with { SvCheats = value };
-
-                    // Back to 0: the cheat ConVars this line set go back to their defaults, as the console's do.
-                    if (wereOn && !cheats)
-                    {
-                        foreach (Core.Net.EngineConVar cheat in Core.Net.EngineConVars.All)
-                        {
-                            if (cheat.Cheat && !cheat.Replicated)
-                            {
-                                read = read with { Settings = read.Settings.Set(cheat.Name, cheat.Default) };
-                            }
-                        }
-                    }
-
-                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line)");
+                    afterConfigs.Add($"sv_cheats \"{value}\"");
+                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line, after the configs)");
                     continue;
                 }
 
                 // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
                 string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
 
-                if (ViewerSettings.IsCheat(command) && !cheats)
+                if (ViewerSettings.IsCheat(command))
                 {
-                    log.LogInformation(
-                        "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                    // A replicated cheat is the server's: the console's client sets never take it and the settings hold no
+                    // copy (B811 review 1, Sonnet; review 3, Fable: the store here was a no-op). Refused with TF2's line
+                    // against the line's own `sv_cheats`, as before; admitted, it is dropped, and its readers keep the
+                    // demo's own server value (B818).
+                    if (declared is { Replicated: true })
+                    {
+                        if (!cheats)
+                        {
+                            log.LogInformation(
+                                "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                        }
+
+                        continue;
+                    }
+
+                    afterConfigs.Add($"{own} \"{value}\"");
+                    log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                     continue;
                 }
 
@@ -415,7 +435,7 @@ public static class LaunchOptionsReader
                 ? "no demo was named on the command line"
                 : $"{paths.Count} path(s) from the command line, first: {paths[0]}");
 
-        return read;
+        return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
     }
 
     /// <summary>A number as the command line spells it, or null.</summary>

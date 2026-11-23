@@ -21,4 +21,8 @@ tokens"*, *"im fine with you using implementors right now"*, *"not full spam sor
 invitation stands: the lead keeps implementing its own item, and 2-3 background agents (implementers in worktrees, readers)
 run on other items beside it. "Right now" scopes it to that stretch of work, not a standing change to D245.
 
+**Restated 2026-11-23:** after the lead spawned one implementer (B803/B808) and was still reading for its own item,
+the owner: *"you need to be doing something too, unless you are tunning parallel, no sub agents are needed"*. An
+implementer exists only beside an item the lead is actively doing; start the lead's own item first, or at once.
+
 **How to apply:** a lead on Sonnet or below still delegates implementation to Opus (D196). Bounded doc and mechanical work may still go to cheap or free models. Decision record: D245. Spend rule: [[one-subagent-and-prefer-cheap-models]] is superseded on this point.

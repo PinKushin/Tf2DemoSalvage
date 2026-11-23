@@ -28,6 +28,51 @@ public sealed class ConfigConsoleLoadFromTests
         log.Count("no configs under").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **No folder is no install, not this machine's** (B811 review 3, Fable): the session passes `SteamInstall.Machine`'s
+    /// answer already, so a second fallback only let a test that says "no install" read the real TF2 configs of whoever
+    /// runs it. Red only on a machine with TF2 installed, which is where it mattered.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_WithNoFolderGiven_ReadsNoMachineInstall()
+    {
+        RecordingLogger log = new();
+
+        ConfigConsole.WithDefaults()
+            .LoadFrom(installedGameFolder: null, NullLoggerFactory.Instance, log, ownCustomRoot: NowhereFolder())
+            .ShouldBeNull();
+
+        log.Count("no TF2 install found").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A config's refused cheat is printed by the load when nobody else listens** (B718; B811 review 6, Fable): at startup
+    /// the configs load before the settings attach, so this list is the only place TF2's line comes from. The control: with
+    /// a listener, the load leaves the printing to it.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AConfigCheatWithCheatsOff_PrintsTheRefusalOnlyWhenNobodyListens()
+    {
+        const string Refusal = "Can't use cheat cvar mat_wireframe in multiplayer";
+        string folder = TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder, "cfg"));
+        File.WriteAllText(Path.Combine(folder, "cfg", "autoexec.cfg"), "mat_wireframe 1\n");
+
+        // No custom/ of this machine's or the test binary's (review 7, Fable): only the folder above is read.
+        RecordingLogger alone = new();
+        ConfigConsole.WithDefaults().LoadFrom(folder, NullLoggerFactory.Instance, alone, NowhereFolder());
+
+        RecordingLogger heard = new();
+        ConfigConsole listened = ConfigConsole.WithDefaults();
+        int told = 0;
+        listened.CheatRefused += (_, _) => told++;
+        listened.LoadFrom(folder, NullLoggerFactory.Instance, heard, NowhereFolder());
+
+        alone.Count(Refusal).ShouldBe(1);
+        told.ShouldBe(1, "the control: the listener is told, so it can print it");
+        heard.Count(Refusal).ShouldBe(0);
+    }
+
     [Test]
     public void LoadFrom_WithAConfigThatBinds_TakesTheBindingAndReportsIt()
     {
