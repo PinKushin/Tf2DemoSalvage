@@ -800,9 +800,11 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **The reload after a lost world sets the open demo's level up again** (B814): `LoadMap`'s `ClearMap` shuts the
-    /// level's systems down, which forgets the packed models, the sound schedule and the corpse record, so the reload runs
-    /// the demo's precache again, as its load did. The control: a reload with no demo open runs none.
+    /// **The reload after a lost world precaches the open demo again and keeps its schedule** (B814): the reload resets
+    /// the packed models (level shutdown) and the sound cache's list (the map read), so it runs the demo's precache again,
+    /// as its load did; the schedule is the demo's (B228) and is kept. The control: a reload with no demo open runs none.
+    /// What this can see: that both precaches ran again (their log lines; the fixture's install is empty, so neither packs
+    /// nor decodes anything) and that the schedule is the same object.
     /// </remarks>
     [Test]
     public void LoadMap_WithADemoOpen_PrecachesTheDemoAgain()
@@ -821,15 +823,16 @@ public sealed class ViewerPresenterTests
 
             loader.LoadDemo(WriteDemo("open")).Loaded.ShouldBeTrue();
             int afterLoad = log.Count("precached models in ");
-            int soundsAfterLoad = log.Count("sounds ");
+            int soundsAfterLoad = log.Count(" sounds in ");
             SoundSchedule? schedule = loader.SoundSchedule;
             afterLoad.ShouldBe(1);
+            soundsAfterLoad.ShouldBe(1, "the control: the load precached sounds once");
             schedule.ShouldNotBeNull("the control: the load made the demo's schedule");
 
             loader.LoadMap(Map);
 
             log.Count("precached models in ").ShouldBe(afterLoad + 1);
-            log.Count("sounds ").ShouldBeGreaterThan(soundsAfterLoad, "the sounds precached again");
+            log.Count(" sounds in ").ShouldBe(soundsAfterLoad + 1, "the sounds precached again");
             // The demo's schedule survives the reload (B228). Without an install the effect sounds schedule nothing, so this
             // holds the demo's own schedule (`DemoSystems.Open`); the install's replacement is kept off the reload by
             // `LoadMap` not calling `AddEffectSounds` at all.

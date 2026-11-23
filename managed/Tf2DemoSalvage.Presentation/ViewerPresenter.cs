@@ -632,12 +632,13 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <param name="timeline">The open demo.</param>
     /// <remarks>
     /// **Run by every load and by the reload after a lost world** (B814): the reload's `ClearMap` shuts the level's
-    /// systems down, which resets the packed models (`EntityModelSet` at level shutdown) and the sound cache's list
-    /// (`SoundCache.Level`), and its map read drops the corpse record (`ReadMapNamed`); the read restores only the map's
-    /// own. **The schedule is the demo's and survives** (B228: `DemoSystems.Open` owns it), so the effect sounds are
-    /// scheduled by the load alone, before this, and never here: a new schedule would restart every sound in flight
-    /// mid-playback (B814 review 1, Fable, Gemini, Sonnet). Not the engine's shape: Source's precache tables outlive a
-    /// device reset, and this re-precache answers this viewer's reload re-reading the whole level.
+    /// systems down, which resets the packed models (`EntityModelSet` at level shutdown); its map read resets the sound
+    /// cache's list (`LevelSystems.Load` calls `SoundCache.Level`) and drops the corpse record (`ReadMapNamed`); the read
+    /// restores only the map's own. **The schedule is the demo's and survives** (B228: `DemoSystems.Open` owns it), so the
+    /// effect sounds are scheduled by the load alone, before this, and never here: a new schedule would restart every
+    /// sound in flight mid-playback (B814 review 1, Fable, Gemini, Sonnet). Not the engine's shape: a reload that re-reads
+    /// the whole level is this viewer's (B819); that Source keeps its precache tables across a device reset is recalled,
+    /// *not read*.
     /// </remarks>
     private void PrecacheTheDemosLevel(DemoTimeline? timeline)
     {
@@ -1362,6 +1363,9 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         _effects.DropSkip();
         _demo = decoded.Demo;
+
+        // The previous demo's effect sounds go with it, until this load schedules its own (B814 review 2, Fable, Gemini).
+        _emitted = [];
         _timeline = decoded.Timeline;
 
         // `--windows` (D217 step 4): the window cache walks beside the whole timeline and is checked on every seek.
@@ -1481,6 +1485,7 @@ public sealed partial class ViewerPresenter : IDisposable
         _effects.DropSkip();
         _demo = null;
         _timeline = null;
+        _emitted = [];
         _windowCheck?.Dispose();
         _windowCheck = null;
 
