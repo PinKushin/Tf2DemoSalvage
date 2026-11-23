@@ -44264,6 +44264,17 @@ behind both, so neither is engine parity.
        nothing new. Which route uploads first is incidental. The row now requires one upload of more than 50 models
        with vertices in all. A HUD panel alone asks for at most 21 (measurements/2026-11-22-b779-panel-preload.md),
        and a demo's load packs hundreds.
+   - *Review 34*:
+     - **"N packed" said the wrong thing.** N is the whole set, which only grows, while the vertex count is this
+       upload's. The line now reads `entity models (moment|hud paint): N models in the set, V new vertices, T vertices
+       in all`, and the UI row's comment says "an upload of a set holding more than 50 models" (item 1). The three Scene
+       rows were red on the old text before the rename.
+     - **The route is the one argument** (item 2). `UploadNow` takes the route's label, and whether it names every
+       packed path follows from it (only `MomentRoute` does), so the label and the names cannot disagree.
+     - **"A re-upload after the device lost its buffers" is not a zero-new case** (item 3). A lost device rebuilds the
+       set from the map (B814), so its upload carries vertices. The review 33 note above that called a re-upload
+       legitimate is superseded; the comment now keeps only "nothing new since a release".
+     - **The load's own upload has no owner**: filed as B815 (item 4).
 
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
@@ -44276,6 +44287,28 @@ behind both, so neither is engine parity.
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
+
+## B815 — a load's precache reaches the device under the HUD's name, on a later frame (2026-11-22) — OPEN
+
+Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it visible.
+- **What happens.** A demo load packs its precache (`DemoModels.Precache`) and uploads nothing. The set is handed to the
+  device by whichever per-frame upload runs first afterwards. The only uploads are `MomentScene.UploadNow`'s two routes:
+  `Pack` (the moment) and `UploadGrown` (the HUD overlay). In the review-33 UI run, the HUD overlay's went first and
+  carried all 911 models, partly on the first frame after the load.
+- **Consequences.**
+  - The line names the wrong owner: the load's models appear under `(hud paint)`.
+  - The per-path names, which only the moment's route writes, are never written for the load's models.
+  - **Stall attribution is wrong.** A STALL warning for that upload is logged as the HUD paint's and lands on a playback
+    frame. So a load's cost reads as a frame hitch, and a frame-time measurement right after a load counts it.
+- **What the engine does** (read from published source, `public/datacache/imdlcache.h:246-260`; the bodies are in the
+  closed engine, so the order is interpolated). `IMDLCache` brackets a level load with `BeginMapLoad`/`EndMapLoad` and
+  has `PreloadModel` and `GetHardwareData`, which is the per-model device data (`MDLCACHE_STUDIOHWDATA`). So the
+  engine's level load makes the precached models' hardware data before the first frame. It does not leave that data
+  for the first draw to make.
+- **The fix shape.** Upload once at the end of the load, under a third route (for example `"load"`) that names every
+  path, and before the first frame is drawn. Then the first frame has nothing new from the precache, and a STALL warning
+  for the load is the load's. Not fixed on B779's branch: it adds a route and moves when the upload happens, which is
+  more than a log fix.
 
 ## B814 — a lost-device reload forgets the demo's precached models (2026-11-22) — OPEN
 

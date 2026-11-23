@@ -1361,7 +1361,7 @@ public sealed class MomentSceneTests
         scene.UploadGrown();
 
         models.Grown.ShouldBeFalse("the control: the set was handed over");
-        log.Count($"entity models ({MomentScene.HudPaintRoute}): 1 packed, 3 new vertices, 3 vertices in all").ShouldBe(1);
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 1 models in the set, 3 new vertices, 3 vertices in all").ShouldBe(1);
         log.Count("  packed models/").ShouldBe(0, "the per-path names are the moment's own upload's, not a HUD paint's (review 32 item 6)");
     }
 
@@ -1378,7 +1378,7 @@ public sealed class MomentSceneTests
 
         scene.Build([], [Prop("models/props/crate.mdl")], Info());
 
-        log.Count($"entity models ({MomentScene.MomentRoute}): 1 packed").ShouldBe(1);
+        log.Count($"entity models ({MomentScene.MomentRoute}): 1 models in the set, 3 new vertices, 3 vertices in all").ShouldBe(1);
         log.Count("  packed models/props/crate.mdl").ShouldBe(1);
     }
 
@@ -1404,7 +1404,7 @@ public sealed class MomentSceneTests
         scene.UploadGrown();
 
         models.Vertices.ShouldBeEmpty("the control: the set let its copy go after the second upload");
-        log.Count($"entity models ({MomentScene.HudPaintRoute}): 2 packed, 3 new vertices, 6 vertices in all").ShouldBe(1);
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 2 models in the set, 3 new vertices, 6 vertices in all").ShouldBe(1);
     }
 
     [Test]

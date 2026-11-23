@@ -162,17 +162,19 @@ public sealed class WiringUiTests
         // line taking a machine-wide lock.
         //
         // **The demo's set, by its size, and its VALUE** (B779 reviews 32-33): every upload writes a line now — `entity
-        // models (route): N packed, V new vertices, T vertices in all` — a HUD paint's included. **Not keyed on the
-        // route**: after a load the precache has grown the set, and whichever upload runs first hands over all of it — in
-        // the UI run that was the HUD overlay's, with 911 models, and the moment's own pass then had nothing new (measured,
-        // review 33). So the row requires one upload of more than 50 models with vertices in all: a HUD panel alone asks
+        // models (route): N models in the set, V new vertices, T vertices in all` — a HUD paint's included; N is the whole
+        // set, not what this upload added (review 34 item 1). **Not keyed on the route**: after a load the precache has
+        // grown the set, and whichever upload runs first hands over all of it — in the UI run that was the HUD overlay's,
+        // with 911 models, and the moment's own pass then had nothing new (measured, review 33; B815 files the load's
+        // upload having no owner). So the row requires an upload of a set holding more than 50 models, with vertices in
+        // all: a HUD panel alone asks
         // for at most 21 (measurements/2026-11-22-b779-panel-preload.md), and a demo's load packs hundreds. Read with a
         // pattern, not by position, so whatever the log sink puts around the message does not matter.
         IReadOnlyList<string> lines = Viewer.AllLines("entity models (");
         lines.ShouldNotBeEmpty("the control: an upload said what it handed over");
 
         lines.Any(line =>
-            Regex.Match(line, @"(\d+) packed, \d+ new vertices, (\d+) vertices in all") is { Success: true } match
+            Regex.Match(line, @"(\d+) models in the set, \d+ new vertices, (\d+) vertices in all") is { Success: true } match
             && int.Parse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture) > 50
             && int.Parse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture) > 0)
             .ShouldBeTrue("an upload put the demo's set, with vertices, on the device: " + string.Join(" | ", lines));

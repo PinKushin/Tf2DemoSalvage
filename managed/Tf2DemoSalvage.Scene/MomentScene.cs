@@ -1413,7 +1413,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        UploadNow(upload, namePaths: false);
+        UploadNow(upload, HudPaintRoute);
     }
 
     /// <summary>The upload line's route for the moment's own upload (`Pack`), which also names every packed path.</summary>
@@ -1424,11 +1424,13 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>Uploads the whole set and marks it uploaded, reporting a stall and the count.</summary>
     /// <param name="upload">The device.</param>
-    /// <param name="namePaths">Whether this is the moment's own upload, which names every packed path under the count, so a
-    /// HUD paint that grows the set by one model does not list the whole set again (review 32 item 6); the line says which
-    /// route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>, review 33 item 4).</param>
-    private void UploadNow(IModelUpload upload, bool namePaths)
+    /// <param name="route">Which route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>, review 33 item 4). The
+    /// per-path names follow from it, not from a second argument (review 34 item 2): only the moment's own upload names
+    /// every packed path, so a HUD paint that grows the set by one model does not list the whole set again (review 32
+    /// item 6).</param>
+    private void UploadNow(IModelUpload upload, string route)
     {
+        bool namePaths = route == MomentRoute;
         long uploadedAt = Stopwatch.GetTimestamp();
 
         // What is handed over, counted before the hand-over: once the world is up the set lets its copy go after an
@@ -1465,14 +1467,14 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
         // separate the two: no vertices in total means the packing failed, and vertices with no instances means the
-        // posing did. **New** vertices can be 0 legitimately — a re-upload after the device lost its buffers, or a pass
-        // with nothing new since a release (review 33 item 1).
+        // posing did. **New** vertices can be 0 legitimately: a pass with nothing new since a release (review 33 item 1).
+        // **The model count is the whole set**, not what this upload added — a set only grows (review 34 item 1).
         // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
         // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
         // packed.
         _render.LogDebug(
             "{Message}",
-            $"entity models ({(namePaths ? MomentRoute : HudPaintRoute)}): {models} packed, {vertices} new vertices, {total} vertices in all");
+            $"entity models ({route}): {models} models in the set, {vertices} new vertices, {total} vertices in all");
 
         if (!namePaths || !_render.IsEnabled(LogLevel.Debug))
         {
@@ -1585,7 +1587,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         // The count is said by the upload itself (`UploadNow`), on every route; the names on this one.
-        UploadNow(upload, namePaths: true);
+        UploadNow(upload, MomentRoute);
     }
 
     /// <summary>The main viewmodel's bob state — `CTFViewModel::m_BobState` — stepped as frames advance (B525).</summary>
