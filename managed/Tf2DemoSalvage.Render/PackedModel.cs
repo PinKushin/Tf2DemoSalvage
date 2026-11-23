@@ -17,4 +17,9 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 public sealed record PackedModel(
     IReadOnlyList<WorldVertex> Vertices,
-    IReadOnlyList<IReadOnlyList<WorldBatch>> Frames);
+    IReadOnlyList<IReadOnlyList<WorldBatch>> Frames)
+{
+    /// <summary>A brush entity's stored face planes, in the order its vertices hold its faces, or null (B803 review 6).</summary>
+    /// <remarks>What its <c>mat_wireframe 3</c> outline culls by: <see cref="EntityModelSet.PackedFacePlanes"/>.</remarks>
+    public IReadOnlyList<StoredPlane>? FacePlanes { get; init; }
+}

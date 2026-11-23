@@ -3564,6 +3564,7 @@ public static class PropModels
     /// would mean opening one model's `.phy` twice.
     /// </param>
     /// <param name="Hitboxes">The hitbox sets, by <c>m_nHitboxSet</c>, which is what a bullet strikes (B415).</param>
+    /// <param name="FacePlanes">A brush entity's faces' stored planes, in corner order (B803 review 6); null for a studio model.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -3622,7 +3623,12 @@ public static class PropModels
         // collision solid with nothing to simulate.
         RagdollBody? Ragdoll = null,
         IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null,
-        IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
+        IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null,
+
+        // **A brush entity's faces' stored planes, one per face in the first frame's corner order** (B803 review 6):
+        // the plane the engine's surface record holds, which the `mat_wireframe 3` outline culls by. Null for a studio
+        // model, which has no faces.
+        IReadOnlyList<StoredPlane>? FacePlanes = null)
     {
         /// <summary>
         /// The model's <c>studiohdr_t.flags</c> as the file has them, which decide whether a static prop gets a CPU colour

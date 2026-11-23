@@ -99,9 +99,9 @@ internal sealed unsafe partial class WorldRenderer
     /// `FUN_1800df1a0`'s list (every surface without flag `0x20`), `dot − dist ≥ −0.01`, no flag read; the translucent path
     /// `FUN_1800de800` collects through `FUN_1800dbdb0`, a back-to-front walk of the model's nodes that keeps a surface with
     /// flag `0x20` that is NOCULL (`0x200`) or whose plane-back flag (`0x40`) matches the eye's side of its node, no
-    /// tolerance; both lists reach `FUN_1800dc720`. *Interpolated*: that flag `0x20` is the viewer's blended materials
-    /// (`IsBlendedMaterial`), that a face's node plane is its own, and that an eye exactly on a plane-back face's plane is
-    /// negligible. *Read*: flag `0x200` is NOCULL, set from the material's <c>$nocull</c> (`0x1800fa3d0`, B457,
+    /// tolerance; both lists reach `FUN_1800dc720`. The planes are the faces' stored ones (review 6, `BrushModels`,
+    /// `EntityModelSet.PackedFacePlanes`), never a triangle's. *Interpolated*: that flag `0x20` is the viewer's blended
+    /// materials (`IsBlendedMaterial`), and that a face's node plane is its stored plane, flipped for a plane-back face. *Read*: flag `0x200` is NOCULL, set from the material's <c>$nocull</c> (`0x1800fa3d0`, B457,
     /// <see cref="IsTwoSidedMaterial"/>), the viewer's <c>_noCull</c>. *Not read*: that `0x20` and `0x40` are set the
     /// same way, from the surface's own material and plane. A line is never culled by the rasteriser, so without the planes a door seen from behind was outlined
     /// under 3 and not under 1 or 2. The world needs none: its walk already leaves out a surface whose plane the eye is

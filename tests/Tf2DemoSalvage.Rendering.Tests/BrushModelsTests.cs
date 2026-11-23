@@ -65,6 +65,25 @@ public sealed class BrushModelsTests
         built["*1"].Geometry[0].Select(corner => corner.FaceEdge).ShouldBe([true, true, false, false, true, true]);
     }
 
+    /// <remarks>
+    /// **Each face carries its stored plane, unflipped, with its side as the plane-back flag** (B803 review 6): the engine's
+    /// outline cull reads the surface record's plane (`engine.dll` `FUN_1800df1a0`, `+4`). Two faces: one on the front of
+    /// its plane (+z, dist 3000), one on the back of its plane (−x, dist −1000; its side flips the normal to +x).
+    /// </remarks>
+    [Test]
+    public void Build_TwoFaces_CarryTheirStoredPlanesAndSides()
+    {
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
+            [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 2)],
+            [
+                Face(0, material: 1),
+                Face(1, material: 2) with { PlaneNormal = (0f, 0f, 1f), PlaneDistance = 3000f },
+                Face(2, material: 3, corners: 4) with { Normal = (1f, 0f, 0f), PlaneNormal = (-1f, 0f, 0f), PlaneDistance = -1000f },
+            ]);
+
+        built["*1"].FacePlanes.ShouldBe([new StoredPlane(0f, 0f, 1f, 3000f, false), new StoredPlane(-1f, 0f, 0f, -1000f, true)]);
+    }
+
     [Test]
     public void TheWorldModel_IsNotABrushEntity()
     {

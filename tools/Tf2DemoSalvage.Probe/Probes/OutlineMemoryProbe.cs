@@ -77,24 +77,36 @@ public sealed class OutlineMemoryProbe : IProbe
 
         set.Precache(brush.Keys);
 
+        // Review 6: the planes are the stored ones the upload hands over (EntityModelSet.PackedFacePlanes, as Device3D
+        // passes them), and beside them what the triangles alone would have said (the largest one's plane, FaceFan.Faces
+        // without them), to count where the two disagree: the cases a derived plane got wrong.
         long brushVertices = 0;
         long faces = 0;
         int submodels = 0;
-        (int Faces, int Below3, int Below5) slivers = (0, 0, 0);
+        (int Stored, int PlaneBack, int Disagree, int FirstSliver) count = (0, 0, 0, 0);
 
         foreach (string model in brush.Keys)
         {
             List<WorldVertex> run = Uploaded(set, model);
+            IReadOnlyList<StoredPlane>? planes = set.PackedFacePlanes(model);
+            FacePlane[] used = FaceFan.Faces(run, planes);
+            FacePlane[] derived = FaceFan.Faces(run);
 
             submodels++;
             brushVertices += run.Count;
+            faces += used.Length;
 
-            foreach (FacePlane face in FaceFan.Faces(run))
+            for (int face = 0; planes is not null && face < used.Length; face++)
             {
-                faces++;
-                float sine = Sine(run[face.First], run[face.First + 1], run[face.First + 2]);
+                FacePlane plane = used[face];
+                float agreement = (plane.NormalX * derived[face].NormalX) + (plane.NormalY * derived[face].NormalY) + (plane.NormalZ * derived[face].NormalZ);
+                float sine = Sine(run[plane.First], run[plane.First + 1], run[plane.First + 2]);
 
-                slivers = (slivers.Faces + (face.Count > 3 && sine < 1e-2f ? 1 : 0), slivers.Below3 + (sine < 1e-3f ? 1 : 0), slivers.Below5 + (sine < 1e-5f ? 1 : 0));
+                count = (
+                    count.Stored + 1,
+                    count.PlaneBack + (plane.PlaneBack ? 1 : 0),
+                    count.Disagree + (agreement < 0.9999f ? 1 : 0),
+                    count.FirstSliver + (plane.Count > 3 && sine < 1e-2f ? 1 : 0));
             }
         }
 
@@ -104,8 +116,9 @@ public sealed class OutlineMemoryProbe : IProbe
             $"{submodels} brush entities, {brushVertices:N0} vertices: outlines {brushVertices * 2 * sizeof(uint):N0} bytes on the GPU; "
             + $"{faces:N0} face planes of {planeSize} bytes, {faces * planeSize:N0} bytes managed (plus an array header each)");
         output.WriteLine(
-            $"first triangles by the sine of their angle: {slivers.Faces} of faces with more than one triangle under 1e-2, "
-            + $"{slivers.Below3} of all faces under 1e-3, {slivers.Below5} under 1e-5");
+            $"stored planes: {count.Stored} (the control: one per face), {count.PlaneBack} plane-back; "
+            + $"{count.Disagree} where the largest triangle's plane is more than 0.8° off the stored one; "
+            + $"{count.FirstSliver} faces of more than one triangle whose first triangle's sine is under 1e-2");
     }
 
     /// <summary>A model's vertices as the upload slices them from the set (Device3D.UploadModels).</summary>

@@ -669,7 +669,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 rebased.Add(local);
             }
 
-            PackedModel built = new(own, rebased);
+            // A brush entity's faces' stored planes come with its vertices, for the outline's cull (B803 review 6).
+            PackedModel built = new(own, rebased) { FacePlanes = models.PackedFacePlanes(path) };
 
             _packedModels[path] = built;
             packed[path] = built;

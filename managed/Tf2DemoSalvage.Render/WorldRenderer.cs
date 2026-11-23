@@ -8467,7 +8467,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // to `debugmrmwireframe` instead (B788) and needs none.
             if (path.StartsWith(BrushModels.SubmodelPrefix))
             {
-                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), FaceFan.Faces(model.Vertices));
+                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), FaceFan.Faces(model.Vertices, model.FacePlanes));
             }
         }
 

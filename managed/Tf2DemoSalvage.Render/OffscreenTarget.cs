@@ -921,6 +921,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="weaponSkin">The war paint a <c>WeaponSkin</c> material binds as its base, or null (B754).</param>
     /// <param name="heightFog">A water volume's height fog, as a refraction view sets it before its models draw, or null; cleared after.</param>
     /// <param name="modelPath">The model's name: a studio model's path, or a brush entity's <c>*N</c>.</param>
+    /// <param name="facePlanes">A brush entity's stored face planes, as the upload hands them (B803 review 6), or null.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -960,7 +961,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         MouthShading? mouth = null,
         WeaponSkin? weaponSkin = null,
         VolumeFog? heightFog = null,
-        string modelPath = "offscreen/posed.mdl")
+        string modelPath = "offscreen/posed.mdl",
+        IReadOnlyList<StoredPlane>? facePlanes = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1010,7 +1012,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 _device,
                 new Dictionary<string, PackedModel>(StringComparer.Ordinal)
                 {
-                    [Posed] = new PackedModel(vertices, new[] { batches }),
+                    [Posed] = new PackedModel(vertices, new[] { batches }) { FacePlanes = facePlanes },
                 });
         }
 

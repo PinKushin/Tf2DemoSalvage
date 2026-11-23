@@ -43247,7 +43247,8 @@ On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
    Test: `EyeShaderRenderTests.DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial`
    (an opaque back face under a translucent `$nocull` override; red with the drawn material queued instead).
 7. **`0x200` as `$nocull`** (Fable). `DrawOutline`'s remark now names it: the world walk's NOCULL bit, read in B457
-   (`0x1800fa3d0`), with that read's own interpolation that it follows the material's `$nocull`.
+   (`0x1800fa3d0`), with that read's own interpolation that it follows the material's `$nocull`. *Superseded by review 5,
+   item 6: the `$nocull` link is read.*
 8. **The probe's second route** (Fable, Sonnet, Grok). *Fixed*: it packs with the model set the viewer uses
    (`EntityModelSet.Precache`) and slices each model's run as `Device3D.UploadModels` does, then counts `FaceFan.Faces`
    of it; the comment says the slice arithmetic is the one step repeated rather than carried (`Device3D`'s slice is
@@ -43300,6 +43301,53 @@ the ConVar's integer; they now assert 0 for off and 1 for on, the same claims.
    floor inert on those two maps.
 6. **What is read about the flags** (Sonnet). Both remarks now say only: `0x200` is NOCULL from `$nocull`, *read*
    (B457, `0x1800fa3d0`); `0x20` and `0x40` set the same way, from the surface's own material and plane, *not read*.
+
+### Review 6 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `41518469e` (rebased onto main). Same rules.
+
+1. **The stored plane** (Fable, parity). The sliver floors modelled the wrong noise: vbsp keeps a T-junction corner up
+   to `OFF_EPSILON` 0.25 off its edge (`utils/vbsp/faces.cpp:31`, `:458`) as a brush entity's fan start (the world alone
+   is re-triangulated, `:636-641`, `:652`), and a corner 0.1 off a 512 edge at 4096 gives a sine of 1.6e-3, which no
+   floor separates from a real thin triangle. *Done*: the outline culls by each face's **stored plane**, the one the
+   engine reads (`FUN_1800df1a0` keeps the surface record's plane pointer, `+4`, for `FUN_1800dcb20`; `FUN_1800dbdb0`
+   measures against the node's plane with the surface's plane-back flag `0x40`). The path:
+   - `BrushModels.Build` records each fanned face's `dplane_t[planenum]` and its `side` (`BspSurface.PlaneNormal`,
+     `PlaneDistance`, and `Normal` against `PlaneNormal` for the side) as `ModelFrames.FacePlanes`, in corner order, in
+     the faces lump's model space, the corners' own. vbsp writes `planenum` as the face's own plane and `side` as its
+     low bit (`utils/vbsp/writebsp.cpp:465-467`), so the stored plane faces out of the face.
+   - `EntityModelSet.PackedFacePlanes` puts them in the order the packing's material groups hold the faces;
+     `Device3D.UploadModels` hands them to the renderer on `PackedModel.FacePlanes`; `WorldRenderer.UploadModels`
+     builds the outline's faces from them (`FaceFan.Faces(vertices, stored)`), deriving nothing from triangles.
+   - `FacePlane.OutlinedFrom`: the opaque test reads the stored plane as is; the translucent one negates the distance
+     for a plane-back face, its node's plane being the face's flipped (*interpolated*: vbsp's split planes, not read).
+   The sliver heuristics are deleted (`SliverSine`, `RoundingUlps`, the corner-normal fallback; D180). Without stored
+   planes (a test's model only) the plane is the face's largest triangle's, and a face with no area or no side is drawn
+   whole. *Measured* (the `outline-memory` probe, through the model set's packing and the upload's slice): stored planes
+   for every face, 250 on `cp_process_final` (133 plane-back) and 134 on `cp_granary` (49); the largest triangle's plane
+   is within 0.8° of the stored one on every face of both, which is the measurement behind "the stored plane faces out";
+   5 faces on `cp_granary` have a first triangle under a sine of 1e-2. Tests:
+   `FaceFanTests.Faces_WithStoredPlanes_TakeThemAndNotTheTriangles` (the 0.1-off T-junction, its sine asserted 1.4e-3 to
+   1.8e-3, and a real thin face; red with the stored planes ignored), `Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws`,
+   `OutlinedFrom_APlaneBackFace_IsKeptByTheNodesSide` (red with the node's negation removed),
+   `PackedFacePlanesTests` (red with the planes taken in corner order), `BrushModelsTests.Build_TwoFaces_CarryTheirStoredPlanesAndSides`
+   (red with the side never set), and `EyeShaderRenderTests.DrawModelPose_ABrushFaceWithAStoredPlane_IsCulledByThatPlane`
+   (a face whose triangles face the camera, culled by a stored plane facing away; red with the upload ignoring the
+   planes). The test quad `BrushFace` is now a fan from its first corner, as vbsp's faces are, since the stored planes
+   are one per face as the fan counts them.
+2. **The floors' pins** (Fable, Sonnet). *Moot*: no floor survives. The far-from-origin and thin-but-real tests went
+   with the floors; the stored-plane test asserts its premise sine rather than printing it.
+3. **The off-path list** (Fable, Sonnet; read from the code, *not measured*; corrects review 5's item 4):
+   - `DrawOpaqueBatches` is called for the world's opaque pass (`Drawn`, WorldRenderer.cs:4881) and the 3D skybox's
+     (`SkyBatches`, :4967), not the props';
+   - `DrawDecalBatch`'s call into `BindDecalRun` and its returned boolean are paid by every caller: the world's shot
+     decals (:7170), the overlays (:7225), the entity shot decals (:7495) and the model decals (:7664);
+   - per kept model batch, one new integer comparison (:8889, before the `*` test); `DrawnMaterial`'s
+     `Wireframe != 0` (:6430) and the reporting choice (:9050) were boolean reads on main and are integer comparisons
+     now, the same count; `DrawnMaterial`'s override dictionary lookup ahead of its test is main's (B788), not new.
+   The rest of review 5's list stands.
+4. **Review 4 item 7** — marked superseded by review 5 item 6.
+5. **The capture test** (Fable). Nothing changed in it; the gate's phase 2 runs it.
 
 *As found (2026-11-21):*
 

@@ -115,18 +115,85 @@ public sealed class FaceFanTests
     }
 
     /// <remarks>
-    /// **A face with no area at all keeps a plane, its corner's normal through that corner** (B803 review 2), so an eye
-    /// behind it does not see it: three corners on one line in z = 3, normal +z, an eye at z = 0 below.
+    /// **With no stored plane, a face with no area is drawn whole** (B803 review 6): three corners on one line in z = 3
+    /// have no plane to give, and the zero plane faces every eye, below as above. Review 2 took the corner's normal here,
+    /// a heuristic the stored plane replaced; a real brush face reaches the outline with its stored plane (below).
     /// </remarks>
     [Test]
-    public void Faces_OfAFaceWithNoArea_AreItsCornersNormalPlaneAndCullFromBehind()
+    public void Faces_OfAFaceWithNoAreaAndNoStoredPlane_AreSeenFromEverywhere()
     {
         WorldVertex Corner(float x) => new(x, 0f, 3f, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0f, NormalZ: 2f);
 
         FacePlane face = FaceFan.Faces([Corner(0f), Corner(1f), Corner(2f)]).ShouldHaveSingleItem();
 
-        (face, face.FacesEye(1f, 0f, 0f), face.FacesEye(1f, 0f, 6f)).ShouldBe((new FacePlane(0, 3, 0f, 0f, 1f, 3f), false, true));
+        (face, face.FacesEye(1f, 0f, 0f), face.FacesEye(1f, 0f, 6f)).ShouldBe((new FacePlane(0, 3, 0f, 0f, 0f, 0f), true, true));
     }
+
+    /// <remarks>
+    /// **A stored plane decides, whatever the fan's triangles say** (B803 review 6, Fable): the engine culls a brush
+    /// surface by the plane its record stores (`FUN_1800df1a0`, `+4`). Two faces at 4096:
+    /// - a T-junction fan whose first corner vbsp left 0.1 off the edge it splits, 64 along a 512 edge (`OFF_EPSILON` 0.25,
+    ///   `utils/vbsp/faces.cpp:31`; kept on a brush entity, `:652`), whose first triangle's sine is 1.6e-3, a plane at an
+    ///   arbitrary angle about that edge;
+    /// - a real thin face, a sine of 1e-3.
+    /// Each takes its stored plane exactly, plane-back flag included, and neither takes a triangle's.
+    /// </remarks>
+    [Test]
+    public void Faces_WithStoredPlanes_TakeThemAndNotTheTriangles()
+    {
+        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0f, NormalZ: 1f, FaceEdge: faceEdge);
+
+        const float B = 4096f;
+
+        // The T-junction: base (B, B, 0), the edge to (B + 512 · 0.6, B + 512 · 0.8, 0), its split corner 64 along it and
+        // 0.1 off it, out of the face's plane z = 0; then the far corner and one across.
+        WorldVertex a = Corner(B, B, 0f, true);
+        WorldVertex t = Corner(B + (64f * 0.6f), B + (64f * 0.8f), 0.1f, true);
+        WorldVertex e = Corner(B + (512f * 0.6f), B + (512f * 0.8f), 0f, false);
+        WorldVertex across = Corner(B - 400f, B + 300f, 0f, true);
+
+        System.Numerics.Vector3 u = new(t.X - a.X, t.Y - a.Y, t.Depth - a.Depth);
+        System.Numerics.Vector3 v = new(e.X - a.X, e.Y - a.Y, e.Depth - a.Depth);
+        float sine = System.Numerics.Vector3.Cross(u, v).Length() / (u.Length() * v.Length());
+
+        sine.ShouldBeInRange(1.4e-3f, 1.8e-3f, "the premise: the T-junction triangle's sine is about 1.6e-3");
+
+        StoredPlane tJunction = new(0f, 0f, 1f, 0f, PlaneBack: false);
+        StoredPlane thin = new(0f, 0f, -1f, -7f, PlaneBack: true);
+
+        FacePlane[] faces = FaceFan.Faces(
+            [
+                a, t, e, a with { FaceEdge = false }, e with { FaceEdge = true }, across,
+                Corner(0f, 0f, 7f, true), Corner(1000f, 0f, 7f, true), Corner(2000f, 2f, 7f, true),
+            ],
+            [tJunction, thin]);
+
+        faces.ShouldBe([new FacePlane(0, 6, 0f, 0f, 1f, 0f), new FacePlane(6, 3, 0f, 0f, -1f, -7f, PlaneBack: true)]);
+    }
+
+    /// <remarks>A stored plane list that is not one per face is refused, not matched by position.</remarks>
+    [Test]
+    public void Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws() =>
+        Should.Throw<ArgumentException>(() => FaceFan.Faces(
+            [new WorldVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f)],
+            [new StoredPlane(0f, 0f, 1f, 0f, false), new StoredPlane(0f, 0f, 1f, 0f, false)]));
+
+    /// <remarks>
+    /// **The translucent rule measures against the node's plane, which is a plane-back face's own flipped** (`FUN_1800dbdb0`:
+    /// kept when the plane-back flag equals `node dist &lt; 0`; vbsp writes the face's own plane, `writebsp.cpp:465-467`). A
+    /// face on z = 0 facing +z: an eye above sees it and one below does not, plane-back or not, translucent or opaque. The
+    /// flag shows only for an eye exactly on the plane: a translucent plane-back face is not kept there (its node distance
+    /// is −0, not below 0), a translucent plain one is, and the opaque test (−0.01) keeps both.
+    /// </remarks>
+    [TestCase(1f, true, true, true)]
+    [TestCase(-1f, true, true, false)]
+    [TestCase(0f, true, true, false)]
+    [TestCase(0f, true, false, true)]
+    [TestCase(0f, false, true, true)]
+    [TestCase(-1f, false, true, false)]
+    public void OutlinedFrom_APlaneBackFace_IsKeptByTheNodesSide(float z, bool translucent, bool planeBack, bool expected) =>
+        new FacePlane(0, 3, 0f, 0f, 1f, 0f, PlaneBack: planeBack).OutlinedFrom(0f, 0f, z, translucent, noCull: false).ShouldBe(expected);
 
     /// <remarks>
     /// **A face with area but no side to choose is drawn whole** (B803 review 3, Fable, Grok): a triangle in z = 0 whose
@@ -216,14 +283,14 @@ public sealed class FaceFanTests
     }
 
     /// <remarks>
-    /// **A first triangle that is a sliver does not set the plane** (B803 review 4, Fable): corners (0, 0, 0), (1000, 0, 0)
-    /// and (2000, 0.0005, 0.0007) are a T-junction's line, their cross product (0, −0.7, 0.5) rounding-sized against edges
-    /// of 1000 and 2000 (a sine of 4e-7), yet a direction 54° from the face. The second triangle, to (0, 1000, 0), spans
-    /// the face in z = 0, and decides: (0, 0, 1) to a thousandth. The corners' normal is tilted, (0, 0.6, 0.8), so the
-    /// corner-normal plane, the no-area fallback, reads apart from the next triangle's (review 5).
+    /// **With no stored plane, the face's largest triangle decides** (B803 review 6, the fallback for a model the upload
+    /// gives no planes, which no brush entity is): corners (0, 0, 0), (1000, 0, 0) and (2000, 0.0005, 0.0007) are a
+    /// sliver whose cross product (0, −0.7, 0.5) points 54° from the face; the second triangle, to (0, 1000, 0), is the
+    /// face's largest and spans it in z = 0: (0, 0, 1) to a thousandth. The corners' normal is tilted, (0, 0.6, 0.8), so
+    /// only the second triangle's plane reads so. Reviews 4 and 5's sine and ulp floors are gone with the stored plane.
     /// </remarks>
     [Test]
-    public void Faces_WhoseFirstTriangleIsASliver_TakeThePlaneOfTheNext()
+    public void Faces_WithoutStoredPlanes_TakeTheLargestTrianglesPlane()
     {
         WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
             new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0.6f, NormalZ: 0.8f, FaceEdge: faceEdge);
@@ -236,60 +303,6 @@ public sealed class FaceFanTests
 
         (face.First, face.Count).ShouldBe((0, 6));
         face.NormalZ.ShouldBeGreaterThan(0.999f, $"was ({face.NormalX}, {face.NormalY}, {face.NormalZ})");
-    }
-
-    /// <remarks>
-    /// **Far from the origin a sliver's noise is the coordinates' rounding, not its edges'** (B803 review 5, Fable): at
-    /// (4096, 4096, 0) an ulp is 4.9e-4. A T-junction two units along the oblique edge (1, 2, 2)/3 from the fan's base,
-    /// and the edge's far end 1000 along it, are each rounded to that, and their triangle's sine clears the 1e-4 floor
-    /// while its cross product is rounding (printed). The ulp floor takes it as no area, and the second triangle, up z
-    /// by 1000, decides: the plane of (1, 2, 2) and z, normal (2, −1, 0)/√5, to a thousandth. The corners' normal is
-    /// tilted off it, so the fallback reads apart.
-    /// </remarks>
-    [Test]
-    public void Faces_WhoseFirstTriangleIsASliverFarFromTheOrigin_TakeThePlaneOfTheNext()
-    {
-        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
-            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0.8f, NormalY: -0.2f, NormalZ: 0.565f, FaceEdge: faceEdge);
-
-        const float Base = 4096f;
-        float Along(float distance, float share) => Base + (distance * share);
-
-        WorldVertex a = Corner(Base, Base, 0f, true);
-        WorldVertex b = Corner(Along(2f, 1f / 3f), Along(2f, 2f / 3f), 2f * 2f / 3f, true);
-        WorldVertex c = Corner(Along(1000f, 1f / 3f), Along(1000f, 2f / 3f), 1000f * 2f / 3f, false);
-        WorldVertex up = Corner(Base, Base, 1000f, true);
-
-        System.Numerics.Vector3 u = new(b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
-        System.Numerics.Vector3 v = new(c.X - a.X, c.Y - a.Y, c.Depth - a.Depth);
-        TestContext.Out.WriteLine($"first triangle's sine {System.Numerics.Vector3.Cross(u, v).Length() / (u.Length() * v.Length()):E2}");
-
-        FacePlane face = FaceFan.Faces([a, b, c, a with { FaceEdge = false }, c with { FaceEdge = true }, up]).ShouldHaveSingleItem();
-
-        (face.First, face.Count).ShouldBe((0, 6));
-        System.Numerics.Vector3 normal = new(face.NormalX, face.NormalY, face.NormalZ);
-        (normal - new System.Numerics.Vector3(2f, -1f, 0f) / MathF.Sqrt(5f)).Length().ShouldBeLessThan(1e-3f, $"was {normal}");
-    }
-
-    /// <remarks>
-    /// **A real thin triangle keeps its own plane** (B803 review 5, Grok): (0, 0, 0), (1000, 0, 0), (2000, 2, 0), a sine
-    /// of 1e-3, lies in z = 0 and is no sliver; the second triangle is tilted 10° off it, to (0, 1000, 176), and the
-    /// corners' normal is tilted otherwise, so only keeping the first triangle's plane reads (0, 0, 1). A floor as loose
-    /// as 1e-2 takes the second's.
-    /// </remarks>
-    [Test]
-    public void Faces_WhoseFirstTriangleIsThinButReal_KeepItsPlane()
-    {
-        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
-            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0.6f, NormalZ: 0.8f, FaceEdge: faceEdge);
-
-        FacePlane face = FaceFan.Faces(
-        [
-            Corner(0f, 0f, 0f, true), Corner(1000f, 0f, 0f, true), Corner(2000f, 2f, 0f, false),
-            Corner(0f, 0f, 0f, false), Corner(2000f, 2f, 0f, true), Corner(0f, 1000f, 176f, true),
-        ]).ShouldHaveSingleItem();
-
-        face.NormalZ.ShouldBeGreaterThan(0.99999f, $"was ({face.NormalX}, {face.NormalY}, {face.NormalZ})");
     }
 
     /// <remarks>

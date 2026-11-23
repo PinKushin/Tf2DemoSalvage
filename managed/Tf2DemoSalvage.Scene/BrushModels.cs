@@ -108,6 +108,13 @@ public static class BrushModels
             BspModel model = models[index];
             List<PropVertex> corners = [];
 
+            // **Each face's stored plane, beside its corners** (B803 review 6): the outline's cull reads the plane the surface
+            // record holds (`engine.dll` `FUN_1800df1a0` keeps the record's plane pointer, `+4`), never one the fan's
+            // triangles imply. `dplane_t` by `planenum`, which vbsp writes as the face's own plane (`writebsp.cpp:465-467`),
+            // and the face's `side` as the plane-back flag, read from `Normal` against `PlaneNormal` as B687 reads it. The
+            // same space as the corners: the faces lump's model space.
+            List<StoredPlane> planes = [];
+
             // Looked up once per model rather than per vertex: every face of a brush entity belongs
             // to the same entity and therefore to the same class.
             (float Red, float Green, float Blue)? tint = tintFor?.Invoke(index);
@@ -170,6 +177,11 @@ public static class BrushModels
                     Append(corners, surface, corner, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 1));
                     Append(corners, surface, corner + 1, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 2));
                 }
+
+                (float x, float y, float z) = surface.PlaneNormal;
+                (float sideX, float sideY, float sideZ) = surface.Normal;
+
+                planes.Add(new StoredPlane(x, y, z, surface.PlaneDistance, (x * sideX) + (y * sideY) + (z * sideZ) < 0f));
             }
 
             if (corners.Count == 0)
@@ -227,7 +239,8 @@ public static class BrushModels
                     [],
                     HeaderBounds: new StudioBox(
                         model.Minimum.X, model.Minimum.Y, model.Minimum.Z,
-                        model.Maximum.X, model.Maximum.Y, model.Maximum.Z));
+                        model.Maximum.X, model.Maximum.Y, model.Maximum.Z),
+                    FacePlanes: planes);
         }
 
         return built;

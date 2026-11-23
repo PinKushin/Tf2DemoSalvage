@@ -884,6 +884,34 @@ public sealed class EyeShaderRenderTests
         (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
+    /// <remarks>
+    /// **The stored plane decides the outline, not the triangles** (B803 review 6, Fable): the upload hands a brush
+    /// entity's stored face planes with its vertices, and the cull reads them as the engine reads the surface record's
+    /// (`FUN_1800df1a0`, `FUN_1800dcb20`). A quad whose corners face the camera at y −300, given a stored plane that faces
+    /// it, (0, −1, 0), is outlined; given one that faces away, (0, 1, 0), it is not, though its triangles say otherwise.
+    /// </remarks>
+    [TestCase(-1f, true)]
+    [TestCase(1f, false)]
+    public void DrawModelPose_ABrushFaceWithAStoredPlane_IsCulledByThatPlane(float normalY, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            facePlanes: [new StoredPlane(0f, normalY, 0f, 0f, false)]);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
     internal static WorldVertex[] BrushFace(float x, float half, bool front)
     {
@@ -898,12 +926,14 @@ public sealed class EyeShaderRenderTests
                 FaceEdge = edge,
             };
 
-        // Clockwise on screen for the front, as Draw's frontFacing, and counter-clockwise for the back; the diagonal unmarked.
+        // Clockwise on screen for the front, as Draw's frontFacing, and counter-clockwise for the back; each a fan from its
+        // first corner, as vbsp's faces are, so a later triangle opens on the diagonal (review 6: a stored plane per face
+        // needs the faces counted as the fan counts them).
         return front
             ?
             [
-                Corner(-half, half, true), Corner(half, half, false), Corner(-half, -half, true),
-                Corner(half, half, true), Corner(half, -half, true), Corner(-half, -half, false),
+                Corner(-half, half, true), Corner(half, half, true), Corner(half, -half, false),
+                Corner(-half, half, false), Corner(half, -half, true), Corner(-half, -half, true),
             ]
             :
             [
@@ -919,7 +949,8 @@ public sealed class EyeShaderRenderTests
         WorldBatch[] batches,
         float[] placement,
         MapTexture? face = null,
-        string? overrideMaterial = null)
+        string? overrideMaterial = null,
+        IReadOnlyList<StoredPlane>? facePlanes = null)
     {
         // Material 2 is a translucent `$nocull` override, `forced.vmt`, for a draw that names it.
         MapAssets assets = MapAssets.ForMaterials(
@@ -943,7 +974,8 @@ public sealed class EyeShaderRenderTests
             bothSides: true,
             toneMapScale: 1f,
             overrideMaterial: overrideMaterial,
-            modelPath: "*1");
+            modelPath: "*1",
+            facePlanes: facePlanes);
     }
 
     internal static readonly float[] Identity4 =[1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];

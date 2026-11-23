@@ -649,6 +649,51 @@ public sealed partial class EntityModelSet
     /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 80).</summary>
     private readonly Dictionary<string, WorldVertex[]> _packedRebuilt = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>A brush entity's stored face planes in the order its packed vertices hold its faces (B803 review 6).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>One plane per packed face, or null for a model with none (a studio model) or not packed.</returns>
+    /// <remarks>
+    /// The packing groups a model's corners by material, so its faces reach the buffer in another order than the one
+    /// <see cref="PropModels.ModelFrames.FacePlanes"/> lists them in; a group keeps its corners' order, so a face stays whole.
+    /// Each corner's face is counted in corner order by the rule <see cref="FaceFan.Faces"/> applies to the buffer: a face
+    /// starts at each triangle whose first corner's edge is the polygon's. Then each face the buffer starts takes the plane
+    /// of the face its first corner belongs to.
+    /// </remarks>
+    public IReadOnlyList<StoredPlane>? PackedFacePlanes(string modelPath)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
+            !_packedOrder.TryGetValue(modelPath, out int[]? order) ||
+            !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model) ||
+            model.FacePlanes is not { } planes)
+        {
+            return null;
+        }
+
+        int[] faceOf = new int[corners.Count];
+        int face = -1;
+
+        for (int at = 0; at + 2 < corners.Count; at += 3)
+        {
+            face += face < 0 || corners[at].FaceEdge ? 1 : 0;
+            (faceOf[at], faceOf[at + 1], faceOf[at + 2]) = (face, face, face);
+        }
+
+        List<StoredPlane> packed = [];
+        int length = Math.Min(corners.Count, order.Length);
+
+        for (int at = 0; at + 2 < length; at += 3)
+        {
+            if (packed.Count == 0 || corners[order[at]].FaceEdge)
+            {
+                packed.Add(planes[faceOf[order[at]]]);
+            }
+        }
+
+        return packed;
+    }
+
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>
     /// <remarks>
     /// **Because "did it grow" was only ever asked of the CALL, and packing does not always happen

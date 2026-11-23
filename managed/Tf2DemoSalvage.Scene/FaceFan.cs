@@ -61,45 +61,79 @@ public static class FaceFan
 
     /// <summary>The faces a fanned triangle list was cut from, each with its plane, in order.</summary>
     /// <param name="vertices">The triangles, three corners each, marked as <see cref="IsFaceEdge"/> marks them.</param>
+    /// <param name="stored">
+    /// Each face's stored plane, in the same face order, or null where the vertices are all there is (a test's model).
+    /// </param>
     /// <returns>One plane per face: a face starts at each triangle whose first corner's edge is the polygon's.</returns>
     /// <remarks>
     /// **For the brush-model cull under <c>mat_wireframe 3</c>** (B803 review 1): `engine.dll` `FUN_1800dcb20` tests each
     /// surface's plane against the eye before drawing it and leaves a back-facing one out of the list `FUN_1800e6780`
-    /// outlines; a line list is never culled by the rasteriser, so the outline needs the plane. The plane is the face's
-    /// first triangle with area, on the side of its first corner's normal: a brush vertex's normal is the face's, or
-    /// smoothed from it, so the two agree in sign where the winding would need the camera's handedness to read.
+    /// outlines; a line list is never culled by the rasteriser, so the outline needs the plane.
     ///
-    /// **A face with no area still has a plane** (B803 review 2, Grok): the engine tests the plane each surface stores
-    /// (`FUN_1800df1a0` keeps the surface's plane pointer, `+4`, for `FUN_1800dcb20`'s test), whatever its area, so a
-    /// sliver seen from behind is culled like any face. With no triangle to take a plane from, it is the first corner's
-    /// normal through that corner, the nearest the vertices hold to the stored one. Only a corner with no normal either
-    /// gives a zero plane, which faces every eye.
+    /// **The plane is the surface's stored one** (B803 review 6, Fable): `FUN_1800df1a0` keeps the surface record's plane
+    /// pointer (`+4`) for `FUN_1800dcb20`'s test, and `FUN_1800dbdb0` the node's plane with the surface's plane-back flag
+    /// (`0x40`). A plane derived from the fan's triangles is wrong in exactly the case vbsp leaves: a T-junction corner up
+    /// to `OFF_EPSILON` 0.25 off its edge (`utils/vbsp/faces.cpp:31`, `:458`) as a brush entity's fan start, which only the
+    /// world re-triangulates (`:636-641`, `:652`, `entity_num == 0`), so the first triangle is a sliver at an arbitrary
+    /// angle about that edge, and no floor on its sine separates it from a real thin triangle. So
+    /// <paramref name="stored"/> decides wherever it is given, and a count that does not match the faces is refused.
+    ///
+    /// **Without it** the plane is the face's largest triangle, on its first corner's normal side; a face whose triangles
+    /// all have no area, or no side, gets the zero plane, drawn whole (the safe error, `WorldRenderer.ModelEye`'s rule).
     /// </remarks>
-    public static FacePlane[] Faces(IReadOnlyList<WorldVertex> vertices)
+    /// <exception cref="ArgumentException"><paramref name="stored"/> does not have one plane per face.</exception>
+    public static FacePlane[] Faces(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<StoredPlane>? stored = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
 
         List<FacePlane> faces = [];
-        bool open = false;
+        List<float> areas = [];
 
         for (int at = 0; at + 2 < vertices.Count; at += 3)
         {
-            FacePlane? triangle = PlaneOf(vertices[at], vertices[at + 1], vertices[at + 2], at);
+            // Nothing is derived where the stored planes are given: the triangles only say where each face starts.
+            (FacePlane triangle, float area) = stored is null
+                ? PlaneOf(vertices[at], vertices[at + 1], vertices[at + 2], at)
+                : (Undecided(at), 0f);
 
             if (faces.Count > 0 && !vertices[at].FaceEdge)
             {
                 FacePlane last = faces[^1];
 
-                // A face still on its corner's normal takes the first triangle of it that has area.
-                faces[^1] = open && triangle is { } better
-                    ? better with { First = last.First, Count = last.Count + 3 }
+                // The larger triangle's plane, the run the face's own.
+                faces[^1] = area > areas[^1]
+                    ? triangle with { First = last.First, Count = last.Count + 3 }
                     : last with { Count = last.Count + 3 };
-                open &= triangle is null;
+                areas[^1] = MathF.Max(area, areas[^1]);
                 continue;
             }
 
-            faces.Add(triangle ?? NormalPlane(vertices[at], at));
-            open = triangle is null;
+            faces.Add(triangle);
+            areas.Add(area);
+        }
+
+        if (stored is null)
+        {
+            return [.. faces];
+        }
+
+        if (stored.Count != faces.Count)
+        {
+            throw new ArgumentException($"{stored.Count} stored planes for {faces.Count} faces", nameof(stored));
+        }
+
+        for (int face = 0; face < faces.Count; face++)
+        {
+            StoredPlane plane = stored[face];
+
+            faces[face] = faces[face] with
+            {
+                NormalX = plane.NormalX,
+                NormalY = plane.NormalY,
+                NormalZ = plane.NormalZ,
+                Distance = plane.Distance,
+                PlaneBack = plane.PlaneBack,
+            };
         }
 
         return [.. faces];
@@ -180,15 +214,14 @@ public static class FaceFan
     }
 
     /// <summary>
-    /// A triangle's plane on its first corner's normal side; null only for one with no area; the zero plane, which faces
-    /// every eye, where the triangle has area but no side can be chosen (B803 review 3).
+    /// A triangle's plane on its first corner's normal side, with its area (its cross product's length); the zero plane,
+    /// which faces every eye, with no area, where it has none or no side can be chosen.
     /// </summary>
     /// <remarks>
     /// **An undecidable face is drawn whole, the safe error** (`WorldRenderer.ModelEye`'s rule): a normal lying along the
-    /// face (side 0), or a non-finite corner, gives no front. Taking the corner normal's plane there, as review 2 did,
-    /// stood a plane across a visible face and culled it from half of space; a NaN plane failed every test.
+    /// face (side 0), or a non-finite corner, gives no front (B803 review 3). Only where no stored plane is given.
     /// </remarks>
-    private static FacePlane? PlaneOf(WorldVertex a, WorldVertex b, WorldVertex c, int first)
+    private static (FacePlane Plane, float Area) PlaneOf(WorldVertex a, WorldVertex b, WorldVertex c, int first)
     {
         (float ux, float uy, float uz) = (b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
         (float vx, float vy, float vz) = (c.X - a.X, c.Y - a.Y, c.Depth - a.Depth);
@@ -196,65 +229,22 @@ public static class FaceFan
         float side = (nx * a.NormalX) + (ny * a.NormalY) + (nz * a.NormalZ);
         float length = MathF.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
 
-        if (!float.IsFinite(length) || !float.IsFinite(side))
+        if (!float.IsFinite(length) || !float.IsFinite(side) || length == 0f)
         {
-            return Undecided(first);
-        }
-
-        // **A sliver is no area** (B803 reviews 4-5, Fable): a first triangle along one edge, a T-junction's corner, has a
-        // cross product of rounding noise, and its direction is then a plane at a random angle about that edge, so the
-        // next triangle decides. Two floors, either enough: a sine of 1e-4 (0.006°), and a cross product within
-        // RoundingUlps units in the last place of the corners' largest coordinate times the two edges' lengths, which is
-        // the size each corner's rounding gives it (`|δu × v| + |u × δv|`): far from the origin a short edge's noise
-        // passes the sine floor alone (at 4096 an ulp is 4.9e-4, and a corner two units along an oblique edge reads a sine
-        // over 2e-4). The engine tests the face's stored plane (`FUN_1800dcb20` reads the surface's), which the packed
-        // vertices do not carry.
-        float uLength = MathF.Sqrt((ux * ux) + (uy * uy) + (uz * uz));
-        float vLength = MathF.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
-        float largest = MathF.Max(Largest(a), MathF.Max(Largest(b), Largest(c)));
-        float ulp = MathF.BitIncrement(largest) - largest;
-
-        if (length <= SliverSine * uLength * vLength || length <= RoundingUlps * ulp * (uLength + vLength))
-        {
-            return null;
+            return (Undecided(first), 0f);
         }
 
         if (side == 0f)
         {
-            return Undecided(first);
+            return (Undecided(first), length);
         }
 
         float scale = MathF.CopySign(1f / length, side);
 
         (nx, ny, nz) = (nx * scale, ny * scale, nz * scale);
 
-        return Finite(new FacePlane(first, 3, nx, ny, nz, (nx * a.X) + (ny * a.Y) + (nz * a.Depth)));
+        return (Finite(new FacePlane(first, 3, nx, ny, nz, (nx * a.X) + (ny * a.Y) + (nz * a.Depth))), length);
     }
-
-    /// <summary>The plane through a corner along its own normal; the zero plane for a corner with none.</summary>
-    private static FacePlane NormalPlane(WorldVertex corner, int first)
-    {
-        float length = MathF.Sqrt((corner.NormalX * corner.NormalX) + (corner.NormalY * corner.NormalY) + (corner.NormalZ * corner.NormalZ));
-
-        if (length == 0f || !float.IsFinite(length))
-        {
-            return Undecided(first);
-        }
-
-        (float nx, float ny, float nz) = (corner.NormalX / length, corner.NormalY / length, corner.NormalZ / length);
-
-        return Finite(new FacePlane(first, 3, nx, ny, nz, (nx * corner.X) + (ny * corner.Y) + (nz * corner.Depth)));
-    }
-
-    /// <summary>The sine of a triangle's angle below which its cross product is taken for rounding, not a direction.</summary>
-    private const float SliverSine = 1e-4f;
-
-    /// <summary>How many units in the last place of a corner's coordinates its rounding is allowed, a few for the subtractions.</summary>
-    private const float RoundingUlps = 4f;
-
-    /// <summary>A corner's largest coordinate, unsigned.</summary>
-    private static float Largest(WorldVertex corner) =>
-        MathF.Max(MathF.Abs(corner.X), MathF.Max(MathF.Abs(corner.Y), MathF.Abs(corner.Depth)));
 
     /// <summary>The zero plane, which faces every eye: a face drawn whole.</summary>
     private static FacePlane Undecided(int first) => new(first, 3, 0f, 0f, 0f, 0f);
@@ -266,14 +256,27 @@ public static class FaceFan
             : Undecided(plane.First);
 }
 
+/// <summary>A BSP face's stored plane, as the engine's surface record holds it (B803 review 6).</summary>
+/// <param name="NormalX">
+/// The plane's normal: `dplane_t` by the face's `planenum`, which vbsp writes as the face's own plane, facing out
+/// (`writebsp.cpp:465-467`); measured: the triangles' plane agrees with it on every brush face of two maps.
+/// </param>
+/// <param name="NormalY">The plane's normal.</param>
+/// <param name="NormalZ">The plane's normal.</param>
+/// <param name="Distance">The plane's `dist`.</param>
+/// <param name="PlaneBack">The face's `side`: it lies on the back of its plane, the surface's `0x40` flag.</param>
+public readonly record struct StoredPlane(float NormalX, float NormalY, float NormalZ, float Distance, bool PlaneBack);
+
 /// <summary>One fanned face: its run of vertices and its plane (B803 review 1).</summary>
 /// <param name="First">Its first vertex.</param>
 /// <param name="Count">How many vertices its triangles take.</param>
-/// <param name="NormalX">The plane's unit normal, on the face's front.</param>
+/// <param name="NormalX">The plane's unit normal, facing out of the face: its stored plane's, else its triangles'.</param>
 /// <param name="NormalY">The plane's unit normal.</param>
 /// <param name="NormalZ">The plane's unit normal.</param>
 /// <param name="Distance">The plane's distance from the origin along the normal.</param>
-public readonly record struct FacePlane(int First, int Count, float NormalX, float NormalY, float NormalZ, float Distance)
+/// <param name="PlaneBack">Whether the face lies on the back of that plane (`0x40`); never for a derived plane.</param>
+public readonly record struct FacePlane(
+    int First, int Count, float NormalX, float NormalY, float NormalZ, float Distance, bool PlaneBack = false)
 {
     /// <summary>Whether an eye sees the face's front, as `engine.dll` `FUN_1800dcb20` tests a brush-model surface.</summary>
     /// <param name="x">The eye, in the face's own space.</param>
@@ -294,13 +297,25 @@ public readonly record struct FacePlane(int First, int Count, float NormalX, flo
     /// plane-back flag (`0x40`) matches the eye's side of its node's plane, `dist &lt; 0`: no tolerance, NOCULL exempt.
     /// </returns>
     /// <remarks>
-    /// The plane here is the face's front, so the plane-back comparison reads as the eye at or ahead of it. A face whose
-    /// node plane points away from it (plane-back) is kept only strictly ahead, which this cannot tell from at: the two
-    /// differ only for an eye exactly on the plane (*interpolated* as negligible).
+    /// The plane is the face's own, as stored: vbsp writes `planenum` as the face's plane and `side` as its low bit
+    /// (`utils/vbsp/writebsp.cpp:465-467`), so a plane-back face's stored plane is its node's flipped. The opaque test
+    /// reads it as is. The translucent walk measures the eye against the NODE's plane and keeps a face whose plane-back
+    /// flag equals `dist &lt; 0`; the node's distance is the face's, negated for a plane-back face, so the two agree except
+    /// for an eye exactly on the plane, which a plane-back face does not keep. That a face's node plane is its plane's
+    /// even twin is *interpolated* (vbsp's split planes, not read for this).
     /// </remarks>
-    public bool OutlinedFrom(float x, float y, float z, bool translucent, bool noCull) =>
-        translucent ? noCull || Ahead(x, y, z) >= 0f : FacesEye(x, y, z);
+    public bool OutlinedFrom(float x, float y, float z, bool translucent, bool noCull)
+    {
+        if (!translucent)
+        {
+            return FacesEye(x, y, z);
+        }
 
-    /// <summary>The eye's signed distance ahead of the face, along its front normal.</summary>
+        float node = PlaneBack ? -Ahead(x, y, z) : Ahead(x, y, z);
+
+        return noCull || PlaneBack == (node < 0f);
+    }
+
+    /// <summary>The eye's signed distance from the plane, along its normal.</summary>
     private float Ahead(float x, float y, float z) => (NormalX * x) + (NormalY * y) + (NormalZ * z) - Distance;
 }

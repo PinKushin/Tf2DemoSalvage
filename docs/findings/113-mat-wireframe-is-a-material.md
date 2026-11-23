@@ -231,8 +231,18 @@ the same probe: `cp_process_final` 101 models, 1,584 vertices, 12,672 bytes of o
 (6,000 bytes managed, plus an array header each); `cp_granary` 14 models, 912 vertices, 7,296 bytes and 134 planes
 (3,216 bytes). Review 4 counted again through the model set's packing and the upload's slice, the same 250 and 134,
 and measured the first triangle each face's plane is taken from: none on either map has a sine under 1e-3 (5 on
-`cp_granary` under 1e-2), so no plane there comes from a rounding-sized cross product; a triangle under 1e-4 is now
-passed over for the next.
+`cp_granary` under 1e-2), so no plane there comes from a rounding-sized cross product.
+
+**A wrong turn, kept: deriving the plane at all** (reviews 4-6). Reviews 4 and 5 put floors under the first triangle's
+sine (1e-4, then an ulp-sized one) to skip a T-junction sliver. They modelled the wrong noise: vbsp keeps a T-junction
+corner up to `OFF_EPSILON` 0.25 off its edge (`utils/vbsp/faces.cpp:31`, `:458`), and on a brush entity, which vbsp does
+not re-triangulate (`:636-641`, `:652`), that corner can start the fan; 0.1 off a 512 edge at 4096 is a sine of 1.6e-3,
+which no floor tells from a real thin triangle. The engine never derives the plane: it reads the surface's stored one.
+So since review 6 each brush face carries `dplane_t[planenum]` and its `side` from `BrushModels` through the packing to
+the outline (`EntityModelSet.PackedFacePlanes`, `PackedModel.FacePlanes`), and nothing is derived where it exists. vbsp
+writes `planenum` as the face's own plane (`utils/vbsp/writebsp.cpp:465-467`), so it faces out of the face; *measured*:
+the largest triangle's plane is within 0.8° of the stored one on every brush face of `cp_process_final` (250, 133 of
+them plane-back) and `cp_granary` (134, 49 plane-back).
 
 ## Tests
 
