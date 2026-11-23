@@ -912,6 +912,61 @@ public sealed class EyeShaderRenderTests
         (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
+    /// <remarks>
+    /// **Stored planes that do not fit a model's faces fail no upload** (B803 review 7, Sonnet, Fable, Grok): the outline's
+    /// faces are made at every brush entity's upload whatever the value, and a throw there left the model half registered
+    /// and every brush entity undrawn. Two stored planes for one face, or none at all: the model draws, its front face is
+    /// outlined under 3 by its triangles' plane, and the render log says so once.
+    /// </remarks>
+    [TestCase(2)]
+    [TestCase(-1)]
+    public void DrawModelPose_ABrushEntityWhoseStoredPlanesDoNotFit_DrawsOnItsTrianglesAndSaysSo(int planes)
+    {
+        using RecordingLoggerFactory loggers = new();
+        using OffscreenTarget target = OffscreenTarget.TryCreate(Size, Size, loggers) ?? throw new InconclusiveException("no Direct3D on this machine");
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            facePlanes: planes < 0 ? null : [.. Enumerable.Repeat(new StoredPlane(0f, -1f, 0f, 0f, false), planes)]);
+
+        OutlinePixels(target, 20, 44).ShouldBeGreaterThan(0);
+        loggers.From("render").Count(line => line.Contains("*1:", StringComparison.Ordinal) && line.Contains("triangles' planes", StringComparison.Ordinal))
+            .ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A translucent face with the odd bit is measured against its node's plane** (B803 review 7, Grok): `FUN_1800dbdb0`
+    /// keeps it when the `0x40` flag equals `node dist &lt; 0` (*read*); the node's plane is taken as the even twin
+    /// (*interpolated*). A translucent quad facing the camera, its stored plane facing it, (0, −1, 0), with the bit: outlined
+    /// under 3, since the node's distance, −300, is below 0, as the flag says it must be. Reading the face's own distance
+    /// as the node's drops it.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ATranslucentBrushFaceWithTheOddBit_IsOutlinedByItsNodesSide()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true },
+            facePlanes: [new StoredPlane(0f, -1f, 0f, 0f, PlaneBack: true)]);
+
+        OutlinePixels(target, 20, 44).ShouldBeGreaterThan(0);
+    }
+
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
     internal static WorldVertex[] BrushFace(float x, float half, bool front)
     {

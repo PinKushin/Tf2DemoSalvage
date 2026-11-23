@@ -10,9 +10,11 @@ public sealed class PackedFacePlanesTests
 
     /// <remarks>
     /// **The packing groups by material, and each face keeps its own stored plane through it** (`engine.dll`
-    /// `FUN_1800df1a0` keeps each surface record's plane, `+4`). Three one-triangle faces of materials 5, 7 and 5, planes
-    /// p0, p1 and p2 in corner order: packed, the material-5 faces come first, so the planes read p0, p2, p1. The control:
-    /// the packing did reorder the corners.
+    /// `FUN_1800df1a0` keeps each surface record's plane, `+4`). A two-triangle face of material 5, then one-triangle faces
+    /// of materials 7 and 5, planes p0, p1 and p2 in corner order: packed, the material-5 faces come first, so the planes
+    /// read p0, p2, p1. The two-triangle face is the case a face index of corner ÷ 3 gets wrong (review 7); its second
+    /// triangle opens on the fan's diagonal, so its first corner's edge is not the polygon's. The control: the packing did
+    /// reorder the corners.
     /// </remarks>
     [Test]
     public void PackedFacePlanes_OfFacesThePackingReorders_FollowTheirFaces()
@@ -21,14 +23,15 @@ public sealed class PackedFacePlanesTests
         StoredPlane p1 = new(0f, 1f, 0f, 2f, true);
         StoredPlane p2 = new(0f, 0f, 1f, 3f, false);
 
-        PropVertex Corner(float x, int material) => new(x, 0f, 0f, 0f, 0f, material);
+        PropVertex Corner(float x, int material, bool faceEdge = true) => new(x, 0f, 0f, 0f, 0f, material, FaceEdge: faceEdge);
 
         PropModels.ModelFrames Brush(string _) =>
             new(
                 [
                     new PropVertex[]
                     {
-                        Corner(0f, 5), Corner(1f, 5), Corner(2f, 5),
+                        Corner(0f, 5), Corner(1f, 5), Corner(2f, 5, false),
+                        Corner(0f, 5, false), Corner(2f, 5), Corner(3f, 5),
                         Corner(10f, 7), Corner(11f, 7), Corner(12f, 7),
                         Corner(20f, 5), Corner(21f, 5), Corner(22f, 5),
                     },
@@ -42,8 +45,33 @@ public sealed class PackedFacePlanesTests
 
         models.Precache([Path]);
 
-        models.Vertices.Select(vertex => vertex.X).ShouldBe([0f, 1f, 2f, 20f, 21f, 22f, 10f, 11f, 12f], "the control: the packing reordered the faces");
+        models.Vertices.Select(vertex => vertex.X).ShouldBe(
+            [0f, 1f, 2f, 0f, 2f, 3f, 20f, 21f, 22f, 10f, 11f, 12f], "the control: the packing reordered the faces");
         models.PackedFacePlanes(Path).ShouldBe([p0, p2, p1]);
+    }
+
+    /// <remarks>
+    /// **A model whose planes do not fit its faces has none, never a misfit list** (review 7): two planes for three faces.
+    /// The upload then reports it and outlines the model by its triangles' planes.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_FewerThanTheFaces_AreNone()
+    {
+        PropVertex Corner(float x) => new(x, 0f, 0f, 0f, 0f, 5);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new PropVertex[] { Corner(0f), Corner(1f), Corner(2f), Corner(3f), Corner(4f), Corner(5f), Corner(6f), Corner(7f), Corner(8f) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [new StoredPlane(1f, 0f, 0f, 0f, false), new StoredPlane(0f, 1f, 0f, 0f, false)]),
+        };
+
+        models.Precache([Path]);
+
+        models.PackedFacePlanes(Path).ShouldBeNull();
     }
 
     /// <remarks>A studio model has no faces' planes: none, and the outline derives nothing for it, since it draws none.</remarks>

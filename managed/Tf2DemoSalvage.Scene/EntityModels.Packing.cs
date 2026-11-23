@@ -671,6 +671,13 @@ public sealed partial class EntityModelSet
             return null;
         }
 
+        // A model whose packing or planes do not match its corners has none, which the upload reports (review 7): never a
+        // list that pairs a face with another's plane.
+        if (order.Length != corners.Count)
+        {
+            return null;
+        }
+
         int[] faceOf = new int[corners.Count];
         int face = -1;
 
@@ -680,10 +687,14 @@ public sealed partial class EntityModelSet
             (faceOf[at], faceOf[at + 1], faceOf[at + 2]) = (face, face, face);
         }
 
-        List<StoredPlane> packed = [];
-        int length = Math.Min(corners.Count, order.Length);
+        if (face + 1 != planes.Count)
+        {
+            return null;
+        }
 
-        for (int at = 0; at + 2 < length; at += 3)
+        List<StoredPlane> packed = [];
+
+        for (int at = 0; at + 2 < order.Length; at += 3)
         {
             if (packed.Count == 0 || corners[order[at]].FaceEdge)
             {

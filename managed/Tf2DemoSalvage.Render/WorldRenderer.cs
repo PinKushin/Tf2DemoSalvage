@@ -8427,6 +8427,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
+            // A brush entity's outline faces, made before anything of the model is registered (review 7), so nothing
+            // about them can leave a model half uploaded.
+            FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
+
             // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
             // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
             // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
@@ -8465,14 +8469,45 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // A brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps
             // to `debugmrmwireframe` instead (B788) and needs none.
-            if (path.StartsWith(BrushModels.SubmodelPrefix))
+            if (faces is not null)
             {
-                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), FaceFan.Faces(model.Vertices, model.FacePlanes));
+                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), faces);
             }
         }
 
         _modelBatches = batches;
     }
+
+    /// <summary>A brush entity's outline faces, on its stored planes where they fit its faces (B803 reviews 6-7).</summary>
+    /// <param name="path">The model's <c>*N</c> path, for the report.</param>
+    /// <param name="model">Its vertices and stored planes.</param>
+    /// <returns>The faces; on the triangles' planes, reported once a map, where the stored planes are absent or do not fit.</returns>
+    /// <remarks>
+    /// Never throws (review 7): this runs at every brush entity's upload whatever <c>mat_wireframe</c> is, and a throw
+    /// there stopped every brush entity drawing. <see cref="FaceFan.Faces"/> keeps the invariant, and is handed the
+    /// planes only when they fit.
+    /// </remarks>
+    private FacePlane[] OutlineFaces(string path, PackedModel model)
+    {
+        if (model.FacePlanes is { } stored && stored.Count == FaceFan.CountFaces(model.Vertices))
+        {
+            return FaceFan.Faces(model.Vertices, stored);
+        }
+
+        if (!_derivedPlanesReported)
+        {
+            _derivedPlanesReported = true;
+            _render.LogWarning(
+                "{Message}",
+                $"{path}: {(model.FacePlanes is null ? "no stored face planes" : $"{model.FacePlanes.Count} stored face planes for {FaceFan.CountFaces(model.Vertices)} faces")}, "
+                + "so mat_wireframe 3 culls its outline by its triangles' planes; any more in this map are not reported");
+        }
+
+        return FaceFan.Faces(model.Vertices);
+    }
+
+    /// <summary>Whether this map has already said a brush entity's outline fell back to its triangles' planes.</summary>
+    private bool _derivedPlanesReported;
 
     /// <summary>Forgets every uploaded model, so the next upload rebuilds them.</summary>
     /// <remarks>

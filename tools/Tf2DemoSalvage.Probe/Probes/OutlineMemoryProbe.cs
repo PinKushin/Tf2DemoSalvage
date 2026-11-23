@@ -77,20 +77,23 @@ public sealed class OutlineMemoryProbe : IProbe
 
         set.Precache(brush.Keys);
 
-        // Review 6: the planes are the stored ones the upload hands over (EntityModelSet.PackedFacePlanes, as Device3D
-        // passes them), and beside them what the triangles alone would have said (the largest one's plane, FaceFan.Faces
-        // without them), to count where the two disagree: the cases a derived plane got wrong.
+        // Reviews 6-7: the planes are the stored ones the upload hands over (EntityModelSet.PackedFacePlanes, as Device3D
+        // passes them), each checked against its face's own corners, not against anything made from the same plane: how far
+        // every corner lies off it (a plane belonging to another face, or a wrong dist, puts them off), and which way the
+        // face's largest triangle WINDS against its normal (the cross product of its edges, not a corner normal, which
+        // MapWorldBuilder.Frame may itself take from the plane). And the brush faces on no node, which FUN_1800dbdb0's
+        // walk of each node's own face range never reaches.
         long brushVertices = 0;
         long faces = 0;
         int submodels = 0;
-        (int Stored, int PlaneBack, int Disagree, int FirstSliver) count = (0, 0, 0, 0);
+        (int Stored, int PlaneBack, int OffPlane, int Along, int Against, int FirstSliver) count = (0, 0, 0, 0, 0, 0);
+        float farthest = 0f;
 
         foreach (string model in brush.Keys)
         {
             List<WorldVertex> run = Uploaded(set, model);
             IReadOnlyList<StoredPlane>? planes = set.PackedFacePlanes(model);
             FacePlane[] used = FaceFan.Faces(run, planes);
-            FacePlane[] derived = FaceFan.Faces(run);
 
             submodels++;
             brushVertices += run.Count;
@@ -99,15 +102,44 @@ public sealed class OutlineMemoryProbe : IProbe
             for (int face = 0; planes is not null && face < used.Length; face++)
             {
                 FacePlane plane = used[face];
-                float agreement = (plane.NormalX * derived[face].NormalX) + (plane.NormalY * derived[face].NormalY) + (plane.NormalZ * derived[face].NormalZ);
-                float sine = Sine(run[plane.First], run[plane.First + 1], run[plane.First + 2]);
+                System.Numerics.Vector3 normal = new(plane.NormalX, plane.NormalY, plane.NormalZ);
+                float off = 0f;
+                System.Numerics.Vector3 winding = default;
 
+                for (int at = plane.First; at < plane.First + plane.Count; at++)
+                {
+                    off = MathF.Max(off, MathF.Abs(System.Numerics.Vector3.Dot(normal, Position(run[at])) - plane.Distance));
+                }
+
+                for (int at = plane.First; at < plane.First + plane.Count; at += 3)
+                {
+                    System.Numerics.Vector3 cross = System.Numerics.Vector3.Cross(
+                        Position(run[at + 1]) - Position(run[at]), Position(run[at + 2]) - Position(run[at]));
+
+                    winding = cross.Length() > winding.Length() ? cross : winding;
+                }
+
+                float sine = Sine(run[plane.First], run[plane.First + 1], run[plane.First + 2]);
+                float along = System.Numerics.Vector3.Dot(winding, normal);
+
+                farthest = MathF.Max(farthest, off);
                 count = (
                     count.Stored + 1,
                     count.PlaneBack + (plane.PlaneBack ? 1 : 0),
-                    count.Disagree + (agreement < 0.9999f ? 1 : 0),
+                    count.OffPlane + (off > 0.25f ? 1 : 0),
+                    count.Along + (along > 0f ? 1 : 0),
+                    count.Against + (along < 0f ? 1 : 0),
                     count.FirstSliver + (plane.Count > 3 && sine < 1e-2f ? 1 : 0));
             }
+        }
+
+        int onNoNode = 0;
+
+        foreach (BspModel submodel in (level.BrushModels ?? []).Skip(1))
+        {
+            onNoNode += level.Surfaces.Count(surface =>
+                surface.FaceIndex >= submodel.FirstFace && surface.FaceIndex < submodel.FirstFace + submodel.FaceCount &&
+                surface.IsVisible && surface.Vertices.Count >= 3 && !surface.OnNode);
         }
 
         int planeSize = Unsafe.SizeOf<FacePlane>();
@@ -116,10 +148,15 @@ public sealed class OutlineMemoryProbe : IProbe
             $"{submodels} brush entities, {brushVertices:N0} vertices: outlines {brushVertices * 2 * sizeof(uint):N0} bytes on the GPU; "
             + $"{faces:N0} face planes of {planeSize} bytes, {faces * planeSize:N0} bytes managed (plus an array header each)");
         output.WriteLine(
-            $"stored planes: {count.Stored} (the control: one per face), {count.PlaneBack} plane-back; "
-            + $"{count.Disagree} where the largest triangle's plane is more than 0.8° off the stored one; "
-            + $"{count.FirstSliver} faces of more than one triangle whose first triangle's sine is under 1e-2");
+            $"stored planes: {count.Stored} (the control: one per face), {count.PlaneBack} with the odd bit; "
+            + $"{count.OffPlane} with a corner more than 0.25 off its plane (farthest {farthest:0.####}); "
+            + $"largest triangle's winding (b-a)x(c-a): {count.Along} along the stored normal, {count.Against} against; "
+            + $"{count.FirstSliver} faces of more than one triangle whose first triangle's sine is under 1e-2; "
+            + $"{onNoNode} drawn brush-entity faces on no node");
     }
+
+    /// <summary>A vertex's position.</summary>
+    private static System.Numerics.Vector3 Position(WorldVertex vertex) => new(vertex.X, vertex.Y, vertex.Depth);
 
     /// <summary>A model's vertices as the upload slices them from the set (Device3D.UploadModels).</summary>
     private static List<WorldVertex> Uploaded(EntityModelSet set, string path)

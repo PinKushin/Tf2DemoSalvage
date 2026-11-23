@@ -182,6 +182,7 @@ internal sealed unsafe partial class WorldRenderer
     private void ReleaseWorldOutline()
     {
         _partialOutlineReported = false;
+        _derivedPlanesReported = false;
 
         if (_worldOutline.Handle is not null)
         {

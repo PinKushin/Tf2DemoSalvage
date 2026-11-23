@@ -66,19 +66,23 @@ public sealed class BrushModelsTests
     }
 
     /// <remarks>
-    /// **Each face carries its stored plane, unflipped, with its side as the plane-back flag** (B803 review 6): the engine's
-    /// outline cull reads the surface record's plane (`engine.dll` `FUN_1800df1a0`, `+4`). Two faces: one on the front of
-    /// its plane (+z, dist 3000), one on the back of its plane (−x, dist −1000; its side flips the normal to +x).
+    /// **Each face carries its stored plane and the plane's odd bit** (B803 review 6): the engine's outline cull reads the
+    /// surface record's plane (`engine.dll` `FUN_1800df1a0`, `+4`). Faces 1 and 3 are fanned: +z at 3000, even; −x at
+    /// −1000 with `side` set (its `Normal` the plane's flip). Face 2 between them has two corners, no triangle and no
+    /// plane, so the planes stay one per fanned face (review 7).
     /// </remarks>
     [Test]
-    public void Build_TwoFaces_CarryTheirStoredPlanesAndSides()
+    public void Build_FacesWithAndWithoutTriangles_CarryAPlanePerFannedFace()
     {
+        BspSurface sliver = Face(2, material: 4);
+
         IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
-            [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 2)],
+            [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 3)],
             [
                 Face(0, material: 1),
                 Face(1, material: 2) with { PlaneNormal = (0f, 0f, 1f), PlaneDistance = 3000f },
-                Face(2, material: 3, corners: 4) with { Normal = (1f, 0f, 0f), PlaneNormal = (-1f, 0f, 0f), PlaneDistance = -1000f },
+                sliver with { Vertices = [sliver.Vertices[0], sliver.Vertices[1]], PlaneNormal = (0f, 1f, 0f), PlaneDistance = 9f },
+                Face(3, material: 3, corners: 4) with { Normal = (1f, 0f, 0f), PlaneNormal = (-1f, 0f, 0f), PlaneDistance = -1000f },
             ]);
 
         built["*1"].FacePlanes.ShouldBe([new StoredPlane(0f, 0f, 1f, 3000f, false), new StoredPlane(-1f, 0f, 0f, -1000f, true)]);

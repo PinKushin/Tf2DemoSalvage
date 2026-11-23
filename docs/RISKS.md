@@ -43274,6 +43274,7 @@ the ConVar's integer; they now assert 0 for off and 1 for on, the same claims.
 3. **The override test's control** (Fable, Grok). A front face under the same override is now a case, outlined; the
    back face's 0 has its positive beside it.
 4. **The off-path list, exactly** (Fable, Sonnet; read from the code, *not measured*; supersedes review 4's item 4).
+   *Not exact: corrected by review 6, item 3, and extended by review 7, item 8.*
    With `mat_wireframe` 0, over main:
    - per call of `DrawOpaqueBatches` (the world's opaque pass and the props', which share it), per batch: one enum
      comparison (terrain) and, for a terrain batch, one integer (`EngineWireframe`); one integer
@@ -43348,6 +43349,59 @@ On `fix/b803-wireframe-3-r1` at `41518469e` (rebased onto main). Same rules.
    The rest of review 5's list stands.
 4. **Review 4 item 7** — marked superseded by review 5 item 6.
 5. **The capture test** (Fable). Nothing changed in it; the gate's phase 2 runs it.
+
+*Item 1's "the stored plane faces out" was circular as measured here (the derived sign came from a corner normal that
+may itself come from the plane) and cited the wrong lines; review 7, items 2 and 3, measure and cite it.*
+
+### Review 7 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `94d1a7bca`, then main (`b7d49a06d`, B820) merged in. Same rules.
+
+1. **A stored-plane mismatch failed every brush entity's upload** (Sonnet, Fable, Grok). *Fixed*: the outline's faces
+   are made before anything of the model is registered (`WorldRenderer.OutlineFaces`), and stored planes that are absent
+   or do not number the faces (`FaceFan.CountFaces`) are reported once a map, naming the model, and the outline falls
+   back to the triangles' planes; `FaceFan.Faces` keeps its throw as the invariant, pinned for too many and too few.
+   `EntityModelSet.PackedFacePlanes` answers none, never a misfit list, when the packing order or the planes do not fit
+   the corners (its `Math.Min` is gone). `BrushModels.Build` adds a plane only for a face that fans: a face of three or
+   more corners always emits a triangle (the loop runs `corners − 2` times), and a smaller one is skipped with its plane
+   before the loop, so Grok's case does not arise; pinned by a two-corner face between two fanned ones. Tests:
+   `EyeShaderRenderTests.DrawModelPose_ABrushEntityWhoseStoredPlanesDoNotFit_DrawsOnItsTrianglesAndSaysSo` (two planes
+   for one face: red, an `ArgumentException` out of the upload, with the count check gone; no planes: red with the log
+   suppressed), `PackedFacePlanesTests.PackedFacePlanes_FewerThanTheFaces_AreNone` (red with the planes' count check
+   gone), `BrushModelsTests.Build_FacesWithAndWithoutTriangles_CarryAPlanePerFannedFace`,
+   `FaceFanTests.Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws(0, 2)` and `CountFaces_…`.
+2. **The probe measures, not restates** (Fable, Sonnet, Grok). The `outline-memory` probe now checks each stored plane
+   against its face's own corners: the farthest corner off it, and the face's largest triangle's winding,
+   `(b − a) × (c − a)`, against its normal (no corner normal involved). *Measured*: `cp_process_final`, 250 faces, none
+   with a corner more than 0.25 off (farthest 0), every winding against the normal (0 along, 250 against);
+   `cp_granary`, 134 faces, none off (farthest 0.0045), 0 along and 134 against. The engine's front is clockwise
+   (`MATERIAL_CULLMODE_CCW` culls counter-clockwise, `imaterialsystem.h:180`), whose cross product in this right-handed
+   space points away from the viewer, so every stored plane faces out of its face's front: *measured* now, on both maps.
+   No brush-entity face lies on no node (0 and 0).
+3. **The citation, and the water case** (Sonnet). *Read*: for a brush entity vbsp writes the brush side's own plane,
+   "the brush model renderer doesn't use PLANEBACK, so write the real plane" (`utils/vbsp/faces.cpp:1334-1346`), so
+   `side` is only that plane's odd bit, not that the face lies on its back; the wording is corrected in `StoredPlane`,
+   `FacePlane`, `BrushModels` and the tests. A face inside water or slime takes the portal's plane on the face's side and
+   "can be flipped" (`:1338-1341`): its stored plane may face away from what is drawn. The engine culls by the stored
+   plane as is, and so does this; the probe's winding count found none facing the other way on either map. Recorded,
+   not tested: no specimen has such a face.
+4. **`OnNode`** (Sonnet). *Read*: `FUN_1800dbdb0` walks only each node's own face range (first face at byte `+0x58`,
+   count at `+0x5a`), so a face on no node never reaches the translucent walk. *Interpolated*: that every brush-entity
+   face lies on a node (vbsp emits them from node portals); *measured*: none lies on no node on either map. Flagged in
+   `OutlinedFrom`'s remark, the plane-back test's remark and the commit.
+5. **A non-finite stored plane** (Fable). *Fixed*: drawn whole. Test: `Faces_WithANonFiniteStoredPlane_AreSeenFromEverywhere`
+   (red with the finite test weakened to all-four).
+6. **A real `*N` with no stored planes** (Sonnet). *Fixed*: reported once a map (item 1's line).
+7. **Tests** (Fable, Grok, Sonnet). The stored-plane test's planes are now ones no triangle derives, (0.6, 0, 0.8) and
+   (0, 0.6, −0.8). `PackedFacePlanesTests` has a two-triangle face ahead of the reordered ones (red with a face index
+   of corner ÷ 3). Grok's "never sets FaceEdge": `PropVertex.FaceEdge` defaults true, so each one-triangle corner set was
+   its own face and the test returned three planes, not [p0]; the new face sets the marks it needs. The count test has
+   too few. A render test sets the odd bit: `DrawModelPose_ATranslucentBrushFaceWithTheOddBit_IsOutlinedByItsNodesSide`
+   (red with the node's negation removed).
+8. **New costs of reviews 6-7** (Sonnet): at each brush entity's pack, `PackedFacePlanes`' `int[]` of its corners and its
+   list of planes; at the map's build, `BrushModels`' `List<StoredPlane>` per brush entity, kept on `ModelFrames`; at
+   upload, `PackedModel.FacePlanes` kept on the device's cached `PackedModel` and one `FaceFan.CountFaces` walk per
+   brush entity. 28 bytes a plane (`FacePlane`; `StoredPlane` 20): 250 and 134 planes on the two maps.
 
 *As found (2026-11-21):*
 

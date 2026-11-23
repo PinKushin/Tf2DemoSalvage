@@ -239,10 +239,15 @@ corner up to `OFF_EPSILON` 0.25 off its edge (`utils/vbsp/faces.cpp:31`, `:458`)
 not re-triangulate (`:636-641`, `:652`), that corner can start the fan; 0.1 off a 512 edge at 4096 is a sine of 1.6e-3,
 which no floor tells from a real thin triangle. The engine never derives the plane: it reads the surface's stored one.
 So since review 6 each brush face carries `dplane_t[planenum]` and its `side` from `BrushModels` through the packing to
-the outline (`EntityModelSet.PackedFacePlanes`, `PackedModel.FacePlanes`), and nothing is derived where it exists. vbsp
-writes `planenum` as the face's own plane (`utils/vbsp/writebsp.cpp:465-467`), so it faces out of the face; *measured*:
-the largest triangle's plane is within 0.8° of the stored one on every brush face of `cp_process_final` (250, 133 of
-them plane-back) and `cp_granary` (134, 49 plane-back).
+the outline (`EntityModelSet.PackedFacePlanes`, `PackedModel.FacePlanes`), and nothing is derived where it exists. For a
+brush entity vbsp writes the brush side's own plane, "the brush model renderer doesn't use PLANEBACK, so write the real
+plane" (`utils/vbsp/faces.cpp:1334-1346`), so `side` is only that plane's odd bit (`writebsp.cpp:465-467`); a face
+inside water or slime takes the portal's plane on its side, which "can be flipped" (`:1338-1341`), and is culled by it as
+stored, as the engine does. *Measured* (review 7, against each face's own corners, not against anything made from the
+plane): on `cp_process_final` (250 faces, 133 with the odd bit) and `cp_granary` (134, 49) no corner lies more than 0.25
+off its stored plane (farthest 0.0045), and every face's largest triangle winds clockwise about the stored normal, the
+engine's front (`MATERIAL_CULLMODE_CCW`), so the stored plane faces out of every face. An earlier version of this
+paragraph said so from a comparison that took its sign from the same plane; it proved nothing.
 
 ## Tests
 

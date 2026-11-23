@@ -136,7 +136,8 @@ public sealed class FaceFanTests
     ///   `utils/vbsp/faces.cpp:31`; kept on a brush entity, `:652`), whose first triangle's sine is 1.6e-3, a plane at an
     ///   arbitrary angle about that edge;
     /// - a real thin face, a sine of 1e-3.
-    /// Each takes its stored plane exactly, plane-back flag included, and neither takes a triangle's.
+    /// Each takes its stored plane exactly, odd bit included, and neither takes a triangle's: the stored planes here are
+    /// ones no triangle of either face derives, (0.6, 0, 0.8) and (0, 0.6, −0.8), so only reading them passes (review 7).
     /// </remarks>
     [Test]
     public void Faces_WithStoredPlanes_TakeThemAndNotTheTriangles()
@@ -159,8 +160,8 @@ public sealed class FaceFanTests
 
         sine.ShouldBeInRange(1.4e-3f, 1.8e-3f, "the premise: the T-junction triangle's sine is about 1.6e-3");
 
-        StoredPlane tJunction = new(0f, 0f, 1f, 0f, PlaneBack: false);
-        StoredPlane thin = new(0f, 0f, -1f, -7f, PlaneBack: true);
+        StoredPlane tJunction = new(0.6f, 0f, 0.8f, 1.5f, PlaneBack: false);
+        StoredPlane thin = new(0f, 0.6f, -0.8f, -7f, PlaneBack: true);
 
         FacePlane[] faces = FaceFan.Faces(
             [
@@ -169,22 +170,52 @@ public sealed class FaceFanTests
             ],
             [tJunction, thin]);
 
-        faces.ShouldBe([new FacePlane(0, 6, 0f, 0f, 1f, 0f), new FacePlane(6, 3, 0f, 0f, -1f, -7f, PlaneBack: true)]);
+        faces.ShouldBe([new FacePlane(0, 6, 0.6f, 0f, 0.8f, 1.5f), new FacePlane(6, 3, 0f, 0.6f, -0.8f, -7f, PlaneBack: true)]);
     }
 
-    /// <remarks>A stored plane list that is not one per face is refused, not matched by position.</remarks>
-    [Test]
-    public void Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws() =>
+    /// <remarks>
+    /// A stored plane list that is not one per face is refused, too many or too few, not matched by position. The upload
+    /// never hands one over (it checks <see cref="FaceFan.CountFaces"/> first, review 7); this pins the invariant.
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(2)]
+    public void Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws(int planes) =>
         Should.Throw<ArgumentException>(() => FaceFan.Faces(
             [new WorldVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f)],
-            [new StoredPlane(0f, 0f, 1f, 0f, false), new StoredPlane(0f, 0f, 1f, 0f, false)]));
+            [.. Enumerable.Repeat(new StoredPlane(0f, 0f, 1f, 0f, false), planes)]));
 
     /// <remarks>
-    /// **The translucent rule measures against the node's plane, which is a plane-back face's own flipped** (`FUN_1800dbdb0`:
-    /// kept when the plane-back flag equals `node dist &lt; 0`; vbsp writes the face's own plane, `writebsp.cpp:465-467`). A
-    /// face on z = 0 facing +z: an eye above sees it and one below does not, plane-back or not, translucent or opaque. The
-    /// flag shows only for an eye exactly on the plane: a translucent plane-back face is not kept there (its node distance
-    /// is −0, not below 0), a translucent plain one is, and the opaque test (−0.01) keeps both.
+    /// **A non-finite stored plane draws its face whole** (B803 review 7, Fable): a corrupt plane lump's NaN would fail
+    /// every test and lose the face; it gets the zero plane, seen from above and below.
+    /// </remarks>
+    [Test]
+    public void Faces_WithANonFiniteStoredPlane_AreSeenFromEverywhere()
+    {
+        FacePlane face = FaceFan.Faces(
+            [new WorldVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f), new WorldVertex(0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f)],
+            [new StoredPlane(0f, float.NaN, 1f, 0f, false)]).ShouldHaveSingleItem();
+
+        (face.FacesEye(0f, 0f, 5f), face.FacesEye(0f, 0f, -5f)).ShouldBe((true, true));
+    }
+
+    /// <remarks>The count the stored planes must match: a fanned quad and a triangle are two faces, by the fan's rule.</remarks>
+    [Test]
+    public void CountFaces_OfAFannedQuadAndATriangle_IsTwo()
+    {
+        WorldVertex Corner(bool faceEdge) => new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, FaceEdge: faceEdge);
+
+        FaceFan.CountFaces([Corner(true), Corner(true), Corner(false), Corner(false), Corner(true), Corner(true), Corner(true), Corner(true), Corner(true)])
+            .ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **The translucent rule measures against the node's plane** (`FUN_1800dbdb0`: kept when the `0x40` flag equals
+    /// `node dist &lt; 0`, *read*). The flag is the stored plane's odd bit (`writebsp.cpp:465-467`), and the node's plane is
+    /// taken as the even twin, so a flagged face's node distance is its own negated: *interpolated*, vbsp's split planes not
+    /// read, as is that the face lies on a node at all (the probe counts none that do not). A face on z = 0 facing +z: an
+    /// eye above sees it and one below does not, flagged or not, translucent or opaque. The flag shows only for an eye
+    /// exactly on the plane: a translucent flagged face is not kept there (node distance −0, not below 0), a translucent
+    /// plain one is, and the opaque test (−0.01) keeps both.
     /// </remarks>
     [TestCase(1f, true, true, true)]
     [TestCase(-1f, true, true, false)]

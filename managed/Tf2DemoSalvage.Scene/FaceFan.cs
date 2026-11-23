@@ -126,6 +126,14 @@ public static class FaceFan
         {
             StoredPlane plane = stored[face];
 
+            // A non-finite stored plane (a corrupt lump) would fail every test and lose the face: drawn whole instead
+            // (review 7), the zero plane already there.
+            if (!float.IsFinite(plane.NormalX) || !float.IsFinite(plane.NormalY) || !float.IsFinite(plane.NormalZ) ||
+                !float.IsFinite(plane.Distance))
+            {
+                continue;
+            }
+
             faces[face] = faces[face] with
             {
                 NormalX = plane.NormalX,
@@ -137,6 +145,23 @@ public static class FaceFan
         }
 
         return [.. faces];
+    }
+
+    /// <summary>How many faces a fanned triangle list holds, by <see cref="Faces"/>' rule, deriving no plane.</summary>
+    /// <param name="vertices">The triangles.</param>
+    /// <returns>The count a stored plane list for them must have.</returns>
+    public static int CountFaces(IReadOnlyList<WorldVertex> vertices)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+
+        int faces = 0;
+
+        for (int at = 0; at + 2 < vertices.Count; at += 3)
+        {
+            faces += faces == 0 || vertices[at].FaceEdge ? 1 : 0;
+        }
+
+        return faces;
     }
 
     /// <summary>The ranges of a run's vertices whose faces reach the outline from an eye, for a line-list draw.</summary>
@@ -258,13 +283,18 @@ public static class FaceFan
 
 /// <summary>A BSP face's stored plane, as the engine's surface record holds it (B803 review 6).</summary>
 /// <param name="NormalX">
-/// The plane's normal: `dplane_t` by the face's `planenum`, which vbsp writes as the face's own plane, facing out
-/// (`writebsp.cpp:465-467`); measured: the triangles' plane agrees with it on every brush face of two maps.
+/// The plane's normal: `dplane_t` by the face's `planenum`. For a brush entity vbsp writes its brush side's own plane,
+/// "the brush model renderer doesn't use PLANEBACK, so write the real plane" (`utils/vbsp/faces.cpp:1334-1346`), except a
+/// face inside water or slime, which takes the portal's plane on the face's side and "can be flipped" (`:1338-1341`).
 /// </param>
 /// <param name="NormalY">The plane's normal.</param>
 /// <param name="NormalZ">The plane's normal.</param>
 /// <param name="Distance">The plane's `dist`.</param>
-/// <param name="PlaneBack">The face's `side`: it lies on the back of its plane, the surface's `0x40` flag.</param>
+/// <param name="PlaneBack">
+/// The face's `side`, the surface's `0x40` flag: the low bit of `planenum` (`writebsp.cpp:465-467`), so whether the stored
+/// plane is the odd one of its pair. On a brush entity it says which twin the brush side's plane is, not that the face
+/// lies on the plane's back.
+/// </param>
 public readonly record struct StoredPlane(float NormalX, float NormalY, float NormalZ, float Distance, bool PlaneBack);
 
 /// <summary>One fanned face: its run of vertices and its plane (B803 review 1).</summary>
@@ -274,7 +304,7 @@ public readonly record struct StoredPlane(float NormalX, float NormalY, float No
 /// <param name="NormalY">The plane's unit normal.</param>
 /// <param name="NormalZ">The plane's unit normal.</param>
 /// <param name="Distance">The plane's distance from the origin along the normal.</param>
-/// <param name="PlaneBack">Whether the face lies on the back of that plane (`0x40`); never for a derived plane.</param>
+/// <param name="PlaneBack">The stored plane's odd bit, the surface's `0x40` (<see cref="StoredPlane.PlaneBack"/>); never for a derived plane.</param>
 public readonly record struct FacePlane(
     int First, int Count, float NormalX, float NormalY, float NormalZ, float Distance, bool PlaneBack = false)
 {
@@ -297,12 +327,13 @@ public readonly record struct FacePlane(
     /// plane-back flag (`0x40`) matches the eye's side of its node's plane, `dist &lt; 0`: no tolerance, NOCULL exempt.
     /// </returns>
     /// <remarks>
-    /// The plane is the face's own, as stored: vbsp writes `planenum` as the face's plane and `side` as its low bit
-    /// (`utils/vbsp/writebsp.cpp:465-467`), so a plane-back face's stored plane is its node's flipped. The opaque test
-    /// reads it as is. The translucent walk measures the eye against the NODE's plane and keeps a face whose plane-back
-    /// flag equals `dist &lt; 0`; the node's distance is the face's, negated for a plane-back face, so the two agree except
-    /// for an eye exactly on the plane, which a plane-back face does not keep. That a face's node plane is its plane's
-    /// even twin is *interpolated* (vbsp's split planes, not read for this).
+    /// The plane is the face's own, as stored (<see cref="StoredPlane"/>), and `side` its low bit (`writebsp.cpp:465-467`),
+    /// so a face with the flag has the odd twin of its pair. The opaque test reads the plane as is. The translucent walk
+    /// measures the eye against the NODE's plane and keeps a face whose flag equals `dist &lt; 0`; taking the node's plane as
+    /// the even twin, its distance is the face's, negated for a flagged face, so the two agree except for an eye exactly
+    /// on the plane, which a flagged face does not keep. *Interpolated*, not read: that a node's plane is the even twin
+    /// (vbsp's split planes), and that every brush-entity face lies on a node, `FUN_1800dbdb0` walking only each node's own
+    /// face range (first face at byte `+0x58`, count at `+0x5a`), so a face on no node never reaches that walk; the probe counts such faces.
     /// </remarks>
     public bool OutlinedFrom(float x, float y, float z, bool translucent, bool noCull)
     {
