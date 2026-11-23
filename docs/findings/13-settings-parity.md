@@ -272,7 +272,11 @@ reader). Believed in review 6: a CRLF line's CR counts toward the length, becaus
 killed it, in review 7: the CR never reaches the buffer. The reader copies a line until any control byte but tab, caps it
 at 1023 bytes (the rest is the next line), skips everything not above 0x1f as a signed `char` before the next line (so
 leading tabs and non-ASCII bytes there go), unescapes `\"` and `\\` on every line that is not a `bind`, and hands each line
-to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, not of the file.
+to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, not of the file. Reviews 8 and 9 read the
+rest: the copy compares the sign-extended byte UNSIGNED (`JA`), so a non-ASCII byte continues a line, while the skip
+compares it SIGNED (`JGE`); a NUL ends the file, after the line it stopped runs, and a file beginning with one runs nothing
+(`Cmd_Exec_f` loops while the line's `strlen` is above 0). The launch line is not a file: `stuffcmds` hands it to
+`Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
 
 **What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;
 `exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in

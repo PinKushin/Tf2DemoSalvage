@@ -518,6 +518,13 @@ public sealed class ConfigConsole
         const int MaximumLine = 0x3ff;
         int at = 0;
 
+        // `Cmd_Exec_f` runs lines while one's `strlen` is above 0, and the first byte is copied whatever it is, so a file that
+        // begins with a NUL runs nothing (B820 review 9, Fable).
+        if (text.Length > 0 && text[0] == '\0')
+        {
+            yield break;
+        }
+
         while (at < text.Length)
         {
             System.Text.StringBuilder line = new();

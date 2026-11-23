@@ -44656,6 +44656,19 @@ load):
    bytes on the line and skips the rest; a .NET string cannot hold half a character, and it needs a 1023-byte line ending
    mid-character (Fable, Sonnet, Grok).
 
+**Review 9** (Sonnet merge; Fable merge after one fix; Gemini pending at writing; Grok request changes):
+
+1. **A file beginning with a NUL ran the rest** (Fable, Grok): `Cmd_Exec_f` loops while the line's `strlen` is above 0,
+   and the first byte is copied whatever it is, so such a file runs nothing. Fixed. Test:
+   `Load_AFileThatBeginsWithANul_RunsNothing`, red without the check.
+2. **Grok: the line a NUL stops is not run.** Not so: `Cmd_Exec_f` adds and executes the line in the buffer, then reads
+   the next from the returned pointer; null empties the buffer and ends the loop (Fable read the same). Pinned:
+   `Load_ANulInsideALine_RunsTheLineBeforeItAndNothingAfter`.
+3. **Nothing asserted that `RunTheLaunchLine` uses `Stuff`** (Sonnet): `Build_ALaunchValueWithTwoBackslashes_ReachesTheConVarWhole`
+   (control: the same value from the autoexec loses one), red with `Load` put back. And **`Stuff`'s startup flags**
+   (Fable): `Stuff_AOneShot_IsIdleAsAtStartup` (control: a key's one-shot fires).
+4. The findings section now carries review 8's and 9's reads (Fable).
+
 ## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
 
 Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it

@@ -1424,6 +1424,53 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A file that begins with a NUL runs nothing** (B820 review 9, Fable): `Cmd_Exec_f` loops while a line's `strlen` is
+    /// above 0, and its first line is the NUL copied whatever it is.
+    /// </remarks>
+    [Test]
+    public void Load_AFileThatBeginsWithANul_RunsNothing()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"\0\n{Alpha} 1");
+
+        console.ConVar(Alpha).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A NUL that stops a line's copy ends the file after that line runs** (B820 review 9): `Cmd_Exec_f` adds and executes
+    /// the line in the buffer, then the reader's null return makes the next line empty and the loop ends.
+    /// </remarks>
+    [Test]
+    public void Load_ANulInsideALine_RunsTheLineBeforeItAndNothingAfter()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1\0{Alpha} 2\n{Alpha} 3");
+
+        console.ConVar(Alpha).ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The launch line is startup text** (B820 review 9, Fable): `Stuff` takes `Load`'s startup flags, so a launch one-shot
+    /// is idle, as TF2's `stuffcmds` runs before a demo plays. The control: the same one-shot from a key fires.
+    /// </remarks>
+    [Test]
+    public void Stuff_AOneShot_IsIdleAsAtStartup()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Stuff("screenshot");
+        fired.ShouldBeEmpty();
+
+        console.Load("bind k screenshot");
+        console.KeyDown("k");
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
     /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
     /// a launch value stays two backslashes where a config line's would become one.
     /// </remarks>
