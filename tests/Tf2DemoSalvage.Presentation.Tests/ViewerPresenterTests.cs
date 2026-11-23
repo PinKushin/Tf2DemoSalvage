@@ -82,7 +82,7 @@ public sealed class ViewerPresenterTests
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null) =>
-        Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings()), spectateWho);
+        Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings(), Path.Combine(_folder, "settings.cfg")), spectateWho);
 
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(SettingsPresenter settingsOwner, string? spectateWho = null)
     {

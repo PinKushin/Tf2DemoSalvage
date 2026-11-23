@@ -44190,6 +44190,40 @@ Everything here is the viewer's own threading, not engine parity.
    is in flight. The in-flight row is renamed
    `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`.
 
+**The gate on the merged head (f50c61ec6) failed twice, and both failures were this branch's.** The viewer's own code is
+behind both, so neither is engine parity.
+
+1. *Viewer3D.Tests `HudMenu_WithNoHudsInstalled_HasOnlyTf2Default`: TF2's stock HUD was not checked.* **Cause: B779's
+   own tests wrote the owner's settings file.**
+   - `ViewerPresenterTests.Loader` built its `SettingsPresenter` with no path. `SetChosenHud` then saved to
+     `ViewerSettings.Path`, the user's `settings.cfg` under LocalApplicationData.
+   - The HUD rows added in reviews 20-24 (`SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice` and the
+     others) therefore overwrote that file with a test's settings and `hud_chosen "custom/after"`.
+   - `new MainForm()` in Viewer3D.Tests reads the same file, saw a chosen HUD, and left the stock entry unchecked.
+     Measured: the file's line 89 was `hud_chosen "custom/after"`, last written 2026-11-22 21:36.
+   - **Fixed at the cause and guarded.** `Loader` now passes a path in the test's own folder. Both Presentation.Tests
+     and Viewer3D.Tests now have an assembly-wide `SettingsFilePolicy` that points `TF2VIEW_SETTINGS` at a fresh temp
+     file (the UI tests' D210 seam), so no unit test reads or writes the owner's file again.
+   - *Proof*: the gate run was red. After the change it is green, and the owner's file kept its 21:36 timestamp through
+     a full Presentation run.
+   - **Not repaired here: the owner's file.** It still holds the test's record, so his own settings from before
+     2026-11-22 are lost to it, unless he has a copy. Repairing it is his call.
+   - *Another writer, still live*: the owner's file was written again at 21:52:40, during this branch's Viewer3D run.
+     That run's own temp file was written at 21:52:49, so this branch's tests did not write it. The new content clears
+     `hud_chosen`, which fits a menu test choosing the stock HUD in a run without this fix: main's own Viewer3D tests,
+     or another worktree's. Until this fix merges, any such run still writes the owner's file.
+2. *UI `TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`: no "entity models:" line.* **A lost log line, not lost
+   geometry.**
+   - Review 16 (6889c9bb5) added `MomentScene.UploadGrown`, the upload after the HUD's overlay. It uploaded without the
+     line, which only the moment's own `Pack` wrote.
+   - When the overlay's upload ran first, `Pack` found the device already holding the set and returned before its
+     line.
+   - The geometry was there: the UI rows that need drawn models (`TheOpaqueModels_…`) passed in the same run.
+   - **Fixed**: the line, and the names under it, are now written by `UploadNow`, so every upload reports, whoever
+     asked for it.
+   - *Test*: `MomentSceneTests.UploadGrown_AfterAPanelsLoad_SaysHowMuchItUploaded`. It was red first (count 0) and is
+     green after the fix. The UI row is in the gate rerun.
+
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
    thread, serialized with the last load's decrement marshal (`MainForm.OnUi` invokes onto that thread), or on the read's

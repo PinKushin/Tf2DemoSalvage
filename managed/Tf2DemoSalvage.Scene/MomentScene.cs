@@ -1444,6 +1444,31 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             // Stryker restore all
         }
+
+        // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
+        // separate the two: no vertices means the packing failed, and vertices with no instances means the posing did.
+        // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
+        // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
+        // packed.
+        _render.LogDebug(
+            "{Message}",
+            $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
+
+        if (!_render.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        // **Named, not counted.** A count says how many arrived and nothing about which are missing,
+        // and "the health packs are not drawing" is a question about names.
+        foreach (string path in _models.Paths)
+        {
+            string indices = string.Join(
+                ", ",
+                _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
+
+            _render.LogDebug("{Message}", $"  packed {path}: {indices}");
+        }
     }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
@@ -1539,30 +1564,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
+        // The count and the names are said by the upload itself (`UploadNow`), on every route.
         UploadNow(upload);
-
-        // **Logged because a model that draws nothing looks exactly like one that was never
-        // uploaded.** The counts separate the two: no vertices means the packing failed, and
-        // vertices with no instances means the posing did.
-        _render.LogDebug(
-            "{Message}",
-            $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
-
-        if (!_render.IsEnabled(LogLevel.Debug))
-        {
-            return;
-        }
-
-        // **Named, not counted.** A count says how many arrived and nothing about which are missing,
-        // and "the health packs are not drawing" is a question about names.
-        foreach (string path in _models.Paths)
-        {
-            string indices = string.Join(
-                ", ",
-                _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
-
-            _render.LogDebug("{Message}", $"  packed {path}: {indices}");
-        }
     }
 
     /// <summary>The main viewmodel's bob state — `CTFViewModel::m_BobState` — stepped as frames advance (B525).</summary>

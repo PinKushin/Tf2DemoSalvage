@@ -1341,6 +1341,29 @@ public sealed class MomentSceneTests
         log.Count("no model upload").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Every upload says how much it handed over, whoever asked for it** (B779 gate): the HUD's overlay uploads a grown
+    /// set through `UploadGrown` (review 16), and that route wrote no "entity models: N packed" line — so when it ran
+    /// first, the moment's own pass found the device already holding the set and returned before its line, and a load's
+    /// log said nothing of the geometry it packed (`WiringUiTests.TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`).
+    /// Here a panel's load grows the set and the overlay's upload hands it over: one line, with the count. The control:
+    /// the upload happened.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_AfterAPanelsLoad_SaysHowMuchItUploaded()
+    {
+        RecordingLogger log = new();
+        Uploads upload = new();
+        EntityModelSet models = new() { Geometry = OneTriangle };
+        MomentScene scene = new(models, new ViewmodelScene(), log) { Upload = upload };
+
+        models.LoadMdl("models/props/crate.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+
+        models.Grown.ShouldBeFalse("the control: the set was handed over");
+        log.Count("entity models: 1 packed").ShouldBe(1);
+    }
+
     [Test]
     public void Build_WithNothingToPackAndNoUpload_SaysNothing()
     {
