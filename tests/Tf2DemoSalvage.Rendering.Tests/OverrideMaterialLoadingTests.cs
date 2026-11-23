@@ -138,7 +138,9 @@ public sealed class OverrideMaterialLoadingTests
     {
         MapAssets assets = MapCache.Load();
 
-        WireframeMaterial wireframe = assets.EngineWireframes[path];
+        // Named, so a path that did not load fails saying which (B803 review 1) rather than with a KeyNotFoundException.
+        assets.EngineWireframes.TryGetValue(path, out WireframeMaterial wireframe)
+            .ShouldBeTrue($"{path} did not load; loaded: {string.Join(", ", assets.EngineWireframes.Keys)}");
         MapTexture texture = assets.Textures[wireframe.Material].ShouldNotBeNull();
 
         (assets.Materials[wireframe.Material].Name, assets.Shaders[wireframe.Material], wireframe.IgnoresZ)

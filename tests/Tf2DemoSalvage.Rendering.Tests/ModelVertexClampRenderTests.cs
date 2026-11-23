@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
@@ -143,6 +144,65 @@ public sealed class ModelVertexClampRenderTests
         loggers.From("render").Where(line => line.StartsWith("posed submitted:", System.StringComparison.Ordinal))
             .ShouldHaveSingleItem()
             .ShouldContain("2 batches/6 vertices -> 2 batches/3 vertices");
+    }
+
+    /// <remarks>
+    /// **A brush entity's `mat_wireframe` outline takes the cap its solid draw took** (B803 review 1, Sonnet). One six-vertex
+    /// face of `*1`, front-facing, under a cap of 3: the solid draw submits 3, the redraw under 1 another 3, and the
+    /// outline under 3 two indices for each of those 3 vertices, 6. A cap of 0 submits nothing at all; no cap is the
+    /// control, 6 and 6, or 6 and 12. Before review 1 the queued draws ignored the cap: 9 under 1 and 15 under 3.
+    /// </remarks>
+    [TestCase(1, null, 12ul)]
+    [TestCase(1, 3, 6ul)]
+    [TestCase(1, 0, 0ul)]
+    [TestCase(3, null, 18ul)]
+    [TestCase(3, 3, 9ul)]
+    [TestCase(3, 0, 0ul)]
+    public void DrawModel_ABrushEntityUnderWireframeAndACap_CapsItsOutlineToo(int wireframe, int? cap, ulong expected)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                new MapTexture(4, 4, 4, 4, TextureImage.Rgba(Enumerable.Repeat((byte)255, 64).ToArray()), IsTransparent: false),
+                new MapTexture(4, 4, 4, 4, TextureImage.Rgba(Enumerable.Repeat((byte)255, 64).ToArray()), IsTransparent: false) with
+                {
+                    Modulation = (0.9f, 0.5f, 0.5f, 1f),
+                    IsDecal = true,
+                },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+
+        target.Wireframe = wireframe;
+        target.ModelVertexCap = cap;
+
+        // Wound clockwise from the camera at y -300, its normal toward it: one face, its diagonal marked.
+        List<WorldVertex> face = [.. Quad().AsEnumerable().Reverse().Select(corner => corner with { NormalY = -1f, NormalZ = 0f })];
+        bool[] loop = [true, false, true, true, true, false];
+
+        for (int at = 0; at < face.Count; at++)
+        {
+            face[at] = face[at] with { FaceEdge = loop[at] };
+        }
+
+        ulong vertices = target.InputVertices(() =>
+            target.DrawModelPose(
+                face,
+                [new WorldBatch(0, 0, 6)],
+                new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix(),
+                [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f],
+                assets,
+                bothSides: true,
+                modelPath: "*1"));
+
+        vertices.ShouldBe(expected);
     }
 
     /// <summary>One model draw under <paramref name="cap"/>, counted; null when there is no device or no game.</summary>

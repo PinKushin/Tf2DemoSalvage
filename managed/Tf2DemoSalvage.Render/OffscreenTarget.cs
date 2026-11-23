@@ -177,7 +177,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// </param>
     /// <param name="bicubicLightmap">`r_lightmap_bicubic` for this draw (B679); every draw sets it, so none inherits it.</param>
     /// <param name="specular">Valve's <c>mat_specular</c> for this draw (B720 part 5 review).</param>
-    /// <param name="shotDecals">The game's decals for this draw, as <c>Device3D</c> uploads them, or none (B803).</param>
+    /// <param name="shotDecals">
+    /// The game's decals for this draw, as <c>Device3D</c> uploads them, or none (B803). Every draw sets them, null to none,
+    /// so no draw inherits the last one's; the world renderer is this target's own, so no other renderer's are touched.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than

@@ -15,8 +15,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// into two triangles along its diagonal. Materials, as the engine's VMTs ship them (`platform_misc`): 0 the face, red
 /// UnlitGeneric; 1 `debugworldwireframe`, `Wireframe` `$color [0.9 0.5 0.5]` `$ignorez 1` `$decal 1`; 2
 /// `debugworldwireframezbuffer`, `[0 1 .5]`, `$ignorez 0`; 3 `debugwireframe`, `[1 1 1]`, `$ignorez 0` `$decal 1`; 4
-/// `debugdecalwireframe`, `[1 1 0]`, `$ignorez 1` `$decal 1`; 5 a nearer blue face; 6 a blue `$decal`. The `Wireframe` shader is
-/// VertexLitGeneric's helper run unlit over a white base (B788), so an edge is `$color` itself.
+/// `debugdecalwireframe`, `[1 1 0]`, `$ignorez 1` `$decal 1`; 5 a nearer blue face; 6 a blue `$decal`; 7 a map's own `Wireframe`
+/// material, white; 8 a translucent green. The `Wireframe` shader is VertexLitGeneric's helper run unlit over a white base
+/// (B788), so an edge is `$color` itself.
 /// </remarks>
 public sealed class WorldWireframeConformanceTests
 {
@@ -132,14 +133,15 @@ public sealed class WorldWireframeConformanceTests
     /// <remarks>
     /// **The fill is the drawn material's own flag** (B808): the `Wireframe` shader sets `MATERIAL_VAR_WIREFRAME`
     /// (`wireframe_dx9.cpp:37`), so a face whose own material is `Wireframe` draws edges only with `mat_wireframe` 0 — and
-    /// a face's own red stays solid under `mat_wireframe` 1 (the test above).
+    /// a face's own red stays solid under `mat_wireframe` 1 (the test above). The face's material is the map's own (7), not
+    /// one of the debug ones, which have table entries of their own in production and draw only under the switch.
     /// </remarks>
     [Test]
     public void DrawWorld_AFaceWhoseOwnMaterialIsWireframe_DrawsInLineFillWithoutMatWireframe()
     {
         using OffscreenTarget target = Target();
 
-        DrawFace(target, wireframe: 0, faceMaterial: 3);
+        DrawFace(target, wireframe: 0, faceMaterial: 7);
 
         (target.PixelAt(Edge.X, Edge.Y), target.PixelAt(Inside.X, Inside.Y)).ShouldBe((White, Black));
     }
@@ -186,6 +188,80 @@ public sealed class WorldWireframeConformanceTests
 
         (target.PixelAt(Edge.X, Edge.Y), target.PixelAt(PolygonInside.X, PolygonInside.Y)).ShouldBe((White, Black));
     }
+
+    /// <remarks>
+    /// **A run that starts past the buffer's first vertex outlines its own face** (B803 review 1, Sonnet): the outline is two
+    /// indices a vertex, so the run at vertex 6 starts at index 12. A face out of view fills vertices 0 to 5; the fanned
+    /// square is the second run, and its diagonal (32, 32) is the face's red and its left (16, 32) and right (47, 32) edges
+    /// the outline's colour. The right edge is the run's last triangle's: an index offset of 6 instead of 12 draws the
+    /// run's first half from the face before it and stops short of it.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_UnderWireframeThreeOnASecondRun_OutlinesThatRunsOwnFace()
+    {
+        using OffscreenTarget target = Target();
+        FreeCamera camera = new() { Origin = (0f, 0f, 10f), Angles = (90f, 0f, 0f), Aspect = 1f };
+        WorldVertex[] away = [.. Face(100f, 110f, 0f, alongDiagonal: true).Select(corner => corner with { FaceEdge = true })];
+
+        target.Clear(0f, 0f, 0f);
+        target.Wireframe = 3;
+        target.DrawWorld([.. away, .. FannedSquare()], [new WorldBatch(0, 0, 6), new WorldBatch(0, 6, 6)], camera.ToMatrix(), Assets());
+        Dump(target);
+
+        Near(target.PixelAt(Edge.X, Edge.Y), Red, "the second run's diagonal, its face's own red");
+        Near(target.PixelAt(PolygonEdge.X, PolygonEdge.Y), World, "the second run's left edge");
+        Near(target.PixelAt(47, 32), World, "the second run's right edge, its last triangle's, which an offset of 6 leaves out");
+    }
+
+    /// <remarks>
+    /// **A translucent displacement draws `debug/debugwireframe` alone too** (B803 review 1, Sonnet): the translucent path
+    /// `FUN_1800e61d0` hands its displacements to `FUN_1800c73a0`, which reaches the same `FUN_1800c2140` as the opaque ones,
+    /// and its outline list is the surfaces alone. So the translucent green displacement is white edges over the clear
+    /// black, with no green and no pink.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_ATranslucentDisplacementUnderWireframe_DrawsOnlyTheWhiteWireframe()
+    {
+        using OffscreenTarget target = Target();
+
+        DrawFace(target, wireframe: 1, category: SurfaceCategory.Terrain, faceMaterial: 8);
+
+        (target.PixelAt(Edge.X, Edge.Y), target.PixelAt(Inside.X, Inside.Y)).ShouldBe((White, Black));
+    }
+
+    /// <remarks>
+    /// **Each debug wireframe draws with its own material's rasteriser, not a decal pass's** (B803 review 1): shaderlib's
+    /// `SetInitialShadowState` (`stdshader_dx9.dll` `0x180063340`) gives a `$decal` material `SHADER_POLYOFFSET_DECAL` and
+    /// any other none. A face sloping one unit up per unit across has a blue face 0.05 nearer over it, along the other
+    /// diagonal; the probe lies on the far face's diagonal. `debugworldwireframezbuffer` (2, no `$decal`) is depth-tested with
+    /// no bias, so the nearer blue hides it; `debugwireframe` (a displacement under 1, `$decal 1`) takes the decal offset,
+    /// which pulls a sloped edge 0.05 forward, so it shows white. The value 0 is the control: blue. Before review 1 every
+    /// queued run took the overlays' slope bias, and the edge under 2 showed through green.
+    /// </remarks>
+    [TestCase(0, SurfaceCategory.Brush, 0, 0, 255)]
+    [TestCase(2, SurfaceCategory.Brush, 0, 0, 255)]
+    [TestCase(1, SurfaceCategory.Terrain, 255, 255, 255)]
+    public void DrawWorld_ASlopedEdgeJustBehindANearerFace_TakesItsOwnMaterialsOffset(
+        int wireframe, SurfaceCategory category, int red, int green, int blue)
+    {
+        using OffscreenTarget target = Target();
+        FreeCamera camera = new() { Origin = (0f, 0f, 10f), Angles = (90f, 0f, 0f), Aspect = 1f };
+
+        target.Clear(0f, 0f, 0f);
+        target.Wireframe = wireframe;
+        target.DrawWorld(
+            [.. Sloped(-4f, 4f, 0f, alongDiagonal: true), .. Sloped(-3f, 3f, 0.05f, alongDiagonal: false)],
+            [new WorldBatch(0, 0, 6, Category: category), new WorldBatch(5, 6, 6)],
+            camera.ToMatrix(),
+            Assets());
+        Dump(target);
+
+        Near(target.PixelAt(Covered.X, Covered.Y), (red, green, blue), "the far face's diagonal under the nearer face");
+    }
+
+    /// <summary>A square face rising one unit per unit east, lifted, split along either diagonal as <see cref="Face"/> is.</summary>
+    private static WorldVertex[] Sloped(float low, float high, float lift, bool alongDiagonal) =>
+        [.. Face(low, high, 0f, alongDiagonal).Select(corner => corner with { Depth = corner.X + lift })];
 
     /// <summary>A square whose edges fall on pixel centres 16 and 47, fanned from its first corner as a BSP face is.</summary>
     /// <remarks>
@@ -277,8 +353,10 @@ public sealed class WorldWireframeConformanceTests
                 Uniform(255, 255, 255) with { Modulation = (1f, 1f, 0f, 1f), IsDecal = true },
                 Uniform(0, 0, 255),
                 Uniform(0, 0, 255) with { IsDecal = true },
+                Uniform(255, 255, 255),
+                Uniform(0, 255, 0) with { IsTranslucent = true },
             ],
-            ["UnlitGeneric", "Wireframe", "Wireframe", "Wireframe", "Wireframe", "UnlitGeneric", "UnlitGeneric"],
+            ["UnlitGeneric", "Wireframe", "Wireframe", "Wireframe", "Wireframe", "UnlitGeneric", "UnlitGeneric", "Wireframe", "UnlitGeneric"],
             engineWireframes: new Dictionary<string, WireframeMaterial>
             {
                 [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true),

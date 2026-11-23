@@ -5986,14 +5986,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <inheritdoc/>
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts => _setCameraParts;
 
-    /// <summary>Whether the world draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
+    /// <summary>Valve's <c>mat_wireframe</c>: the ConVar's value, 0 off (B803).</summary>
     /// <remarks>
-    /// **Separates "never drawn" from "drawn and invisible", which nothing else here can.** Both
-    /// produce an absent surface, and every other instrument in this renderer answers only one of
-    /// them: a face count says what was submitted, a material ledger says what it was submitted
-    /// with, and neither says whether an edge reached the screen.
-    ///
-    /// The ConVar's value, 0 off (B803): <see cref="WorldRenderer.Wireframe"/> says what each draws.
+    /// **The engine's debug view, not this renderer's instrument** (B803 review 1). Until B803 it put every pass in line
+    /// fill (D75), which separated "never drawn" from "drawn and invisible" for any surface; it now binds the debug
+    /// materials the engine binds, over a solid world, so a surface drawn invisibly keeps its own look and only its
+    /// outline shows. <see cref="WorldRenderer.Wireframe"/> says what each value draws.
     /// </remarks>
     public int Wireframe
     {

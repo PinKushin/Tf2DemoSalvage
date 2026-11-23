@@ -712,6 +712,103 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **A brush entity's face seen from behind is outlined by no value** (B803 review 1, Fable): `R_DrawBrushModel`'s path
+    /// `FUN_1800dcb20` tests each surface's plane against the eye, `dot − dist ≥ −0.01`, and builds the list it hands
+    /// `FUN_1800dc720` from the surfaces that pass, so under 3 `FUN_1800e6780` never sees a back face; under 1 the redraw's
+    /// back-face cull takes it too. The quad faces away from the camera (its normal +y, the camera at y −300, wound
+    /// counter-clockwise on screen) and is drawn both-sided, so its solid shows; its left edge (18, 30) under 1 and 3 is the
+    /// pixel the value 0 draws there. The front-facing quad of the test above is the control that the probe lies on the
+    /// outline. Before review 1 the line list under 3 was never culled, and the edge was pink.
+    /// </remarks>
+    [TestCase(1)]
+    [TestCase(3)]
+    public void DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined(int wireframe)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+        bool[] loop = [true, true, false, false, true, true];
+
+        target.Wireframe = 0;
+        Draw(target, assets, null, modelPath: "*1", faceEdges: loop, normalY: 1f);
+        (int R, int G, int B) unlined = target.PixelAt(18, 30);
+
+        target.Wireframe = wireframe;
+        Draw(target, assets, null, modelPath: "*1", faceEdges: loop, normalY: 1f);
+
+        TestContext.Out.WriteLine($"mat_wireframe {wireframe} on a back face: edge {target.PixelAt(18, 30)}, unlined {unlined}");
+        target.PixelAt(18, 30).ShouldBe(unlined);
+    }
+
+    /// <remarks>
+    /// **A model's own decal keeps its material under `mat_wireframe`** (B803 review 1, Sonnet): `studiorender.dll`'s decal
+    /// draw (`FUN_180007d20`) binds `debugmrmwireframe` (`+0x8a8`) in the decal's place only when the config's byte
+    /// `+0x25` has `0x20`, `bWireframeDecals`, which `engine.dll`'s `UpdateStudioRenderConfig` (`FUN_1800f56c0`) sets from
+    /// `r_modelwireframedecal` (the ConVar at `0x18069eec0`, constructed at `FUN_180007020`), not from `mat_wireframe`. The
+    /// world decal's `debugdecalwireframe` swap does not reach a model either. A blue decal over the red model, the model
+    /// not swapped (no studio wireframe material loaded), is the same pixel under 1 as under 0.
+    /// </remarks>
+    [Test]
+    public void DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(0, 0, 255, 255) with { IsDecal = true },
+                Uniform4(255, 255, 255, 255) with { Modulation = (1f, 1f, 0f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.DecalWireframePath] = new(2, IgnoresZ: true) });
+
+        (int R, int G, int B) Decalled(int wireframe)
+        {
+            target.Wireframe = wireframe;
+            Draw(target, assets, null);
+            target.DrawPosedModelDecals(DecalQuad(), [new WorldBatch(1, 0, 6)]);
+
+            return target.PixelAt(20, 20);
+        }
+
+        (int R, int G, int B) off = Decalled(0);
+        (int R, int G, int B) on = Decalled(1);
+
+        TestContext.Out.WriteLine($"a model decal: {off} under 0, {on} under 1");
+        off.B.ShouldBeGreaterThan(0, "the control: the decal draws blue over the red");
+        on.ShouldBe(off);
+    }
+
+    /// <summary>The quad <see cref="Draw"/> draws, as a decal's corners over it, wound to face the camera (a decal culls).</summary>
+    private static List<WorldVertex> DecalQuad()
+    {
+        WorldVertex Corner(float x, float z, float u, float v) =>
+            new(x, 0f, z, u, v, 0f, 0f, 0f) { NormalY = -1f, NormalZ = 0f, TangentX = 1f, TangentW = 1f };
+
+        return
+        [
+            Corner(-Half, Half, 0f, 1f), Corner(Half, Half, 1f, 1f), Corner(-Half, -Half, 0f, 0f),
+            Corner(Half, Half, 1f, 1f), Corner(Half, -Half, 1f, 0f), Corner(-Half, -Half, 0f, 0f),
+        ];
+    }
+
+    /// <remarks>
     /// **The wireframe material binds its own texture, not the swapped-out material's animation frame** (B788 review 1,
     /// Sonnet): `R_StudioSetupSkinAndLighting` replaces the material before any proxy or bind, so the frame the model's
     /// own `$basetexture` would animate to is never read. Material 0 animates red frames; the wireframe's white times
@@ -1194,13 +1291,14 @@ public sealed class EyeShaderRenderTests
         string modelPath = "offscreen/posed.mdl",
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
         bool frontFacing = false,
-        bool[]? faceEdges = null)
+        bool[]? faceEdges = null,
+        float normalY = -1f)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
             {
                 NormalX = 0f,
-                NormalY = -1f,
+                NormalY = normalY,
                 NormalZ = 0f,
                 TangentX = 1f,
                 TangentY = 0f,

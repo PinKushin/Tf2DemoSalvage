@@ -776,7 +776,10 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, WireframeMaterial> EngineWireframes { get; init; } =
         new Dictionary<string, WireframeMaterial>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Overlaid on every world and brush surface under <c>mat_wireframe</c> 1 (and any value but 0, 2 and 3), `0x18069b3e0`.</summary>
+    /// <summary>
+    /// Overlaid on every world and brush surface under every non-zero <c>mat_wireframe</c> but 2, `0x18069b3e0`: as their
+    /// triangles, or under 3 as each face's own outline (`FUN_1800e6780` binds it too).
+    /// </summary>
     public const string WorldWireframePath = "debug/debugworldwireframe";
 
     /// <summary>Overlaid in its place under <c>mat_wireframe</c> 2, `0x18069b3e8` (`FUN_1800dc720`).</summary>
@@ -1046,7 +1049,10 @@ public sealed class MapAssets
 
         if (material.Texture is not { } texture || archives.Read(path) is not { } vmt)
         {
-            assets.LogInformation("{Message}", $"{name} not found: what it draws under mat_wireframe keeps its own material");
+            // A warning, one per material at load (B803 review 1): mat_wireframe then does nothing where it would bind this
+            // one, and that reads as the switch being broken. Every install ships all five in `platform_misc`.
+            assets.LogWarning(
+                "{Message}", $"{name} did not load: mat_wireframe draws nothing in its place, and what it replaces keeps its own material");
             return null;
         }
 
