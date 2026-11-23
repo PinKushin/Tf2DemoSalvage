@@ -605,10 +605,10 @@ public sealed partial class ViewerPresenter : IDisposable
         {
             bool drawn = ReadDemoMap(mapName).Drawn;
 
-            // The open demo's level set up again, as its load did (B814).
+            // The open demo's level set up again, as its load did (B814), keeping the schedule it made.
             if (_demo is not null && _timeline is { } timeline)
             {
-                SetUpTheDemosLevel(timeline);
+                PrecacheTheDemosLevel(timeline);
             }
 
             return drawn;
@@ -619,28 +619,33 @@ public sealed partial class ViewerPresenter : IDisposable
         }
     }
 
+    /// <summary>The sounds the client emits for the open demo, kept from its load so a reload can precache them again.</summary>
+    private IReadOnlyList<SceneSound> _emitted = [];
+
+    /// <summary>The open demo's sound schedule, so a test can see a reload keep it (B814 review 1).</summary>
+    internal SoundSchedule? SoundSchedule => _sound.Schedule;
+
     /// <summary>
-    /// What the open demo asks of the level once its map is read: its models packed, its effect sounds scheduled and its
-    /// sounds precached, and its corpses recorded.
+    /// What the open demo asks of the level once its map is read: its models packed, its sounds precached, and its corpses
+    /// recorded.
     /// </summary>
     /// <param name="timeline">The open demo.</param>
     /// <remarks>
-    /// **Run by every load and by the reload after a lost world** (B814): the reload's `ClearMap` shuts the level's systems
-    /// down, which forgets the packed models, the sound schedule and cache and the corpse record, and the map read restores
-    /// only the map's own. Before, a lost-device reload left the demo's models to pack on sight and its client-made sounds
-    /// unscheduled.
+    /// **Run by every load and by the reload after a lost world** (B814): the reload's `ClearMap` shuts the level's
+    /// systems down, which resets the packed models (`EntityModelSet` at level shutdown) and the sound cache's list
+    /// (`SoundCache.Level`), and its map read drops the corpse record (`ReadMapNamed`); the read restores only the map's
+    /// own. **The schedule is the demo's and survives** (B228: `DemoSystems.Open` owns it), so the effect sounds are
+    /// scheduled by the load alone, before this, and never here: a new schedule would restart every sound in flight
+    /// mid-playback (B814 review 1, Fable, Gemini, Sonnet). Not the engine's shape: Source's precache tables outlive a
+    /// device reset, and this re-precache answers this viewer's reload re-reading the whole level.
     /// </remarks>
-    private void SetUpTheDemosLevel(DemoTimeline? timeline)
+    private void PrecacheTheDemosLevel(DemoTimeline? timeline)
     {
         DemoModels.Precache(_models, timeline, _game, _renderLog);
 
-        // **Every explosion's sound, which the client emits and no demo carries** (B415). After the map read,
-        // because that is what opens the install whose scripts name them.
-        IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, timeline));
-
         // Cheap to call twice: `SoundCache.Precache` skips every name an earlier precache of this level listed, evicted or
         // not, so on the async path this decodes only the emitted ones, which the worker could not know yet (B570).
-        DemoSounds.Precache(_sounds, timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries, _models.AnimationEvents());
+        DemoSounds.Precache(_sounds, timeline, _game, _soundscape, _audioLog, _emitted, _sound.Scripts?.Entries, _models.AnimationEvents());
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
         // bones come from its model.
@@ -1420,7 +1425,11 @@ public sealed partial class ViewerPresenter : IDisposable
         // path — `read ?? ReadDemoMap(...)` — so there is no single call whose result could carry it.
         // The comment above is the whole of the guarantee here, which is exactly why the other call
         // site was changed to carry it structurally instead.
-        SetUpTheDemosLevel(_timeline);
+        //
+        // **Every explosion's sound, which the client emits and no demo carries** (B415), scheduled here by the load alone
+        // (B814 review 1): after the map read, because that is what opens the install whose scripts name them.
+        _emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, _timeline));
+        PrecacheTheDemosLevel(_timeline);
 
         // **Where the memory is, once everything is loaded** (B407): the process held ~16 GB after a map load and nobody could say
         // whether that was the managed heap or native memory (textures, the device). The two numbers answer it.

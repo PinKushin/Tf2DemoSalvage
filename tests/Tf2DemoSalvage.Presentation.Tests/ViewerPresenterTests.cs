@@ -821,11 +821,19 @@ public sealed class ViewerPresenterTests
 
             loader.LoadDemo(WriteDemo("open")).Loaded.ShouldBeTrue();
             int afterLoad = log.Count("precached models in ");
-            afterLoad.ShouldBeGreaterThan(0);
+            int soundsAfterLoad = log.Count("sounds ");
+            SoundSchedule? schedule = loader.SoundSchedule;
+            afterLoad.ShouldBe(1);
+            schedule.ShouldNotBeNull("the control: the load made the demo's schedule");
 
             loader.LoadMap(Map);
 
             log.Count("precached models in ").ShouldBe(afterLoad + 1);
+            log.Count("sounds ").ShouldBeGreaterThan(soundsAfterLoad, "the sounds precached again");
+            // The demo's schedule survives the reload (B228). Without an install the effect sounds schedule nothing, so this
+            // holds the demo's own schedule (`DemoSystems.Open`); the install's replacement is kept off the reload by
+            // `LoadMap` not calling `AddEffectSounds` at all.
+            loader.SoundSchedule.ShouldBeSameAs(schedule);
         }
     }
 

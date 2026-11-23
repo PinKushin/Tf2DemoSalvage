@@ -44336,12 +44336,24 @@ Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it
 
 ## B814 — a lost-device reload forgets the demo's precached models (2026-11-22) — FIXED 2026-11-23
 
-**Fixed, and wider than filed.** The reload's `ClearMap` shuts every level system down, which forgets the packed models,
-the sound schedule (`DemoSystems.AddEffectSounds` sets it), the sound cache's precache and the corpse record, not only
-the models. What a demo's load runs once its map is read is now one method, `ViewerPresenter.SetUpTheDemosLevel`, called
-by the load and by `LoadMap` when a demo is open. Test `ViewerPresenterTests.LoadMap_WithADemoOpen_PrecachesTheDemoAgain`
-(control: a reload with no demo open runs no demo precache; sabotage: gating the call on no demo open reddens it). Not
-verified by looking: no lost device was provoked.
+**Fixed, and wider than filed.** The reload's `ClearMap` resets the packed models (`EntityModelSet` at level shutdown)
+and the sound cache's list (`SoundCache.Level`), and its map read drops the corpse record (`ReadMapNamed`), not only the
+models. What a demo's load precaches once its map is read is now one method, `ViewerPresenter.PrecacheTheDemosLevel`
+(models, sounds including the client's effect sounds, the corpse record), called by the load and by `LoadMap` when a
+demo is open. The **sound schedule is not rebuilt**: it is the demo's (B228) and survives the reload, so the effect
+sounds are scheduled by the load alone and their list kept for the reload's precache. Not the engine's shape: Source's
+precache tables outlive a device reset; this answers the viewer's reload re-reading the whole level. Test
+`ViewerPresenterTests.LoadMap_WithADemoOpen_PrecachesTheDemoAgain`: models and sounds precached again, the schedule the
+same object (control: a reload with no demo open runs no demo precache; sabotage: gating the call on no demo open, and
+replacing the schedule on reload, each redden it). The fixture has no install, so a schedule the install's effect sounds
+would replace is kept off the reload by `LoadMap` not calling `AddEffectSounds`, not by the test; and it has no corpses,
+so the record's restart is unasserted. Not verified by looking: no lost device was provoked.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok): the first fix re-ran `AddEffectSounds` on the reload, which replaced the
+demo's live schedule and restarted every sound mid-playback (`SoundPresenter.Schedule`'s setter resets the cursor; the
+next pass stops every channel and re-deals the wave deck). Its remarks also claimed `ClearMap` forgets the schedule and
+the corpse record, which B228 and `ReadMapNamed` contradict. Both fixed above. Not done, and why: the setup still runs
+after a failed map read, as the load's own does (a demo whose map fails still opens, D224).
 
 **As filed:**
 
