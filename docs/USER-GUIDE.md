@@ -187,7 +187,8 @@ the CPU), and `r_glint_alwaysdraw 1` draws it on every eye however small on scre
 - **A model forced to another material**, such as a gold corpse, keeps that material and draws solid.
 - **The map's walls, floors and doors** draw normally, with pink edges drawn over them that also show through walls.
 - **Displacement terrain** draws as white edges only.
-- **Bullet holes and other decals** draw as yellow edges.
+- **Bullet holes and other decals on the map** draw as yellow edges. Decals on players and props keep their own look,
+  as in TF2.
 
 `mat_wireframe 2` draws the map's edges green, and only where the surface itself is in view. Models stay cyan and show
 through walls, as in TF2. `mat_wireframe 3` draws pink outlines of each of the map's faces, without the lines that split a

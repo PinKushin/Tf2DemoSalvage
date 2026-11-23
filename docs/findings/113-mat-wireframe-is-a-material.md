@@ -38,7 +38,7 @@ pass, does not.
 `sv_cheats` and `mat_wireframe` are both non-zero, or when `r_drawworld` is 2 (`DAT_18069d398`; the ConVar's
 constructor at `FUN_1800066b0` names it). `DAT_18069d9c5` is set when any surface debug view is on. `R_DrawBrushModel`
 (`FUN_1800e05d0`) also forces the flag on for `r_drawbrushmodels 2` (`FUN_180007c50` names that ConVar). Both are
-cheats (flag `0x4000`), and neither is ported. Not filed.
+cheats (flag `0x4000`), and neither is ported: filed as B817.
 
 ## World and brush surfaces: drawn solid, then outlined
 
@@ -73,9 +73,11 @@ line fill under `mat_wireframe`:
 3. The engine draws `mat_wireframe` at a dozen sites by binding these debug materials. It would not need them if the
    material system forced the fill itself.
 
-What stays *interpolated*: that shaderlib's `SetInitialShadowState` (closed, compiled into the shader DLLs) turns
-`MATERIAL_VAR_WIREFRAME` into `PolyMode( LINE )` and nothing else does. So **a model with a forced material draws solid
-under `mat_wireframe`.** A gold corpse is gold, filled. The studio render's own swap needs no forced material
+What was *interpolated* here, and is now *read* (review 1, below): shaderlib's `SetInitialShadowState`, compiled into
+`stdshader_dx9.dll`, turns `MATERIAL_VAR_WIREFRAME` into `PolyMode( FRONT_AND_BACK, LINE )`. So **a model with a forced
+material draws solid under `mat_wireframe`.** A VMT may also set the flag itself with `$wireframe 1`: of the 31,020 VMTs
+in the install's archives none does, where the same search finds 3,113 declaring `$ignorez` (the `vmt-param` probe,
+2026-11-23; a map's pakfile was not searched). A gold corpse is gold, filled. The studio render's own swap needs no forced material
 (`0x1800041f2`, B788), so there is no line fill anywhere on that model.
 
 ## Displacements: the wireframe alone
@@ -125,8 +127,11 @@ draws it whatever the value. Tests: `WorldWireframeConformanceTests` (the world 
 `BrushModelsTests`, and `FaceFanTests` and the packing in Scene.
 
 *Measured*, the frame below under 1 and then 3: pink-hued pixels went from 77,362 to 54,240. Looked at, the walls and
-floors under 3 are outlined as whole polygons with no fan across them. A line list is not culled, so a face seen from
-behind is outlined under 3 and not under 1. That this matches the engine is *interpolated*. Not compared against TF2.
+floors under 3 are outlined as whole polygons with no fan across them. Not compared against TF2.
+
+**A wrong conclusion, kept:** this section said a line list is not culled, so a face seen from behind is outlined under 3
+and not under 1, and called that the engine's (*interpolated*). Review 1 read the lists instead (below): no back face
+reaches `FUN_1800e6780` but a `$nocull` world surface, so the engine outlines no other.
 
 ## Studio models under 2 and 3
 
@@ -158,6 +163,51 @@ Looked at, value 1 shows the walls solid with pink edges through them. Value 2 s
 is in view, and the models are cyan through everything in both. **Not compared against TF2 itself:** no TF2 capture of
 this frame was taken.
 
+## Review 1: four more reads (2026-11-23)
+
+The review of the port asked four questions only the binaries could answer. Same `engine.dll`; `studiorender.dll` and
+`stdshader_dx9.dll` from the same install (both analysed in the same Ghidra project for this).
+
+**Which surfaces reach the outline.** The world's are the walk's: `R_DrawLeaf` keeps a surface whose plane the eye is in
+front of, or a NOCULL one (`VisibleWorld.Surfaces` ports it). A brush entity's are `FUN_1800dcb20`'s, which before any
+draw tests every surface's plane against the eye in the model's own space, `dot − dist ≥ −0.01`, sets a bit for each
+that fails, and leaves the flagged ones out of both the solid draw and the list it hands `FUN_1800dc720` (*read*). So no
+back-facing brush-entity face is ever outlined, under any value. The viewer's lines are never culled by the rasteriser,
+so each `*N` model now keeps its faces' planes (`FaceFan.Faces`) and its outline draws only the faces whose front the
+eye sees (`FacePlane.FacesEye`, the engine's test and tolerance).
+
+**Translucent displacements.** The translucent path `FUN_1800e61d0` builds each sort group's surface list, draws it, hands
+it to `FUN_1800dc720`, and only then adds the group's displacements and passes them to `FUN_1800c73a0` with its last
+argument 0. That asks `FUN_1800c1240` for the debug flag and calls the same `FUN_1800c2140` as the opaque pass, which
+draws `debugwireframe` alone under `mat_wireframe` (*read*). So a translucent displacement is white edges with no solid
+and no pink outline, as an opaque one is. The viewer had drawn it solid and outlined.
+
+**The material's own render state.** `stdshader_dx9.dll` `0x180063340` is shaderlib's `SetInitialShadowState`: it reads
+the material's flags word and calls `IShaderShadow` slots by bit (*read*; the slots in `ishadershadow.h`'s order):
+
+| flag | bit | call |
+|---|---|---|
+| `MATERIAL_VAR_IGNOREZ` | 15 | `EnableDepthTest( false )`, `EnableDepthWrites( false )` |
+| `MATERIAL_VAR_DECAL` | 16 | `EnablePolyOffset( SHADER_POLYOFFSET_DECAL )`, `EnableDepthWrites( false )` |
+| `MATERIAL_VAR_NOCULL` | 13 | `EnableCulling( false )` |
+| `MATERIAL_VAR_ZNEARER` | 10 | `DepthFunc( 1 )` |
+| `MATERIAL_VAR_WIREFRAME` | 28 | `PolyMode( FRONT_AND_BACK, LINE )` |
+
+So each debug wireframe material culls its back faces, takes the decal polygon offset if its VMT says `$decal 1`, and
+nothing else. The viewer had drawn every queued run with the overlay pass's slope-only bias; each now takes its own.
+**Not acted on here, and worth the lead's attention:** the `$decal` row says shaderlib adds the decal offset to *any*
+material with `$decal 1`, whatever its shader. `DecalState.ConstantBias` rests on the opposite reading, that "a polygon
+offset in Source is a property of the shader" and an overlay's `LightmappedGeneric` never asks for one.
+
+**A model's own decals.** `studiorender.dll`'s decal draw `FUN_180007d20` swaps `debugmrmwireframe` in only under the
+config's `bWireframeDecals` (byte `+0x25`, `0x20`), which `UpdateStudioRenderConfig` (`engine.dll` `FUN_1800f56c0`) sets
+from `r_modelwireframedecal`, not `mat_wireframe` (*read*; B817). So a model's decals keep their own material under
+`mat_wireframe`, which the viewer already did and a test now pins.
+
+**What the outline costs** (*measured*, the `outline-memory` probe, 2026-11-23): `cp_process_final` 158,550 world
+vertices, a 1.21 MiB index buffer; `cp_granary` 190,260 and 1.45 MiB. The `FaceEdge` mark grows `WorldVertex` from 124
+bytes to 128, 0.6 and 0.8 MB on those lists while they are held.
+
 ## Tests
 
 In `Tf2DemoSalvage.Rendering.Tests`:
@@ -168,6 +218,14 @@ In `Tf2DemoSalvage.Rendering.Tests`:
 - **`EyeShaderRenderTests`:** `…_UnderWireframe_OutlinesABrushEntityAndSwapsAStudioModel`, and
   `…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOneSolid` for B808.
 - **`OverrideMaterialLoadingTests.EngineWireframes_…`:** the four VMTs from a real install.
+- **Review 1:** a brush entity's back face outlined by no value; a translucent displacement as white edges alone; each
+  debug material's own offset (a sloped edge just behind a nearer face); a model decal keeping its material; the cap on
+  the outline; a second run's outline offset; the outlines released on a second upload. Every one is listed, with the
+  sabotage that reddened it, in RISKS B803 "Review 1".
+
+In `Tf2DemoSalvage.Scene.Tests`: `FaceFanTests` (the faces' planes, the engine's back-face tolerance, a partial triangle
+refused). In `Tf2DemoSalvage.Viewer3D.UiTests`: `CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink`,
+the output-level assertion on a corpus demo.
 
 In `Tf2DemoSalvage.Presentation.Tests`: `ViewerSessionTests` checks that the value, not the tick, reaches the device
 (`…MatWireframeTwoAfterOne_TellsTheDeviceTwo`).

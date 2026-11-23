@@ -42902,8 +42902,15 @@ Found reading B803. Beside the engine's passes (findings 113), the client swaps 
 `glow_overlay.cpp:368` `debug/debugwireframevertexcolor` (*read*). Ours draws all of them with their own materials
 under `mat_wireframe`. Also not ported from the same read: `r_drawworld 2` and `r_drawbrushmodels 2` turning the
 surface wireframe on (`FUN_1800e1e00`, `FUN_1800e05d0`), the decal wireframe's third ConVar (`0x1806a5348` equal to
-2, `FUN_18011aa60`, name not read), and what the studio render does with a model's own decals under `bWireframe`
-(`DrawModelDecals`, not read). *Read; nothing ported.*
+2, `FUN_18011aa60`, name not read), and `r_modelwireframedecal`, below. *Read; nothing ported.*
+
+**A model's own decals, read in B803's review 1** (2026-11-23): `mat_wireframe` leaves them alone. `studiorender.dll`'s
+decal draw (`FUN_180007d20`) binds `debugmrmwireframe` (`+0x8a8`) in a decal's place only when the config's byte `+0x25`
+has `0x20`, `bWireframeDecals`. `engine.dll`'s `UpdateStudioRenderConfig` (`FUN_1800f56c0`) sets that bit from the ConVar
+at `0x18069eec0`, `r_modelwireframedecal` (constructed at `FUN_180007020`, a cheat), while `bWireframe` (`+0x24`, bit 7) is
+`sv_cheats && mat_wireframe`. So ours keeping a model decal's material under `mat_wireframe` is the engine's;
+`r_modelwireframedecal` itself is not ported (*read*). Pinned by
+`EyeShaderRenderTests.DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial`.
 
 ## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — FIXED (2026-11-23)
 
@@ -43014,9 +43021,83 @@ Each reddened under its own sabotage: the outline ignoring the mark, the packing
 the pink hue fell from 77,362 under 1 to 54,240 under 3. Looked at side by side, the value 3 shows each face as its own
 polygon, with no fan of diagonals across walls and floors. Lines are never culled, so a face seen from behind is
 outlined under 3, where under 1 its wireframe redraw is culled. That follows from `MATERIAL_LINES` (*interpolated*:
-shaderapi's line cull is closed). Not compared against TF2.
+shaderapi's line cull is closed). Not compared against TF2. *Superseded by review 1, item 1: the engine's lists hold no
+such face.*
 
 The client's own wireframe materials are B817.
+
+### Review 1 (2026-11-23)
+
+Fable, Sonnet and Grok (findings), Gemini (pass), on `fix/b803-wireframe-3` at `242c54fdc`; fixed on
+`fix/b803-wireframe-3-r1`. The four new engine reads are in findings 113, "Review 1". Each test below was written after
+its fix and shown red by reverting that fix (the sabotage named); each sabotage was restored with a precise inverse edit.
+
+1. **Back faces under 3** (Fable). *Read*: `FUN_1800dcb20` plane-tests every brush-entity surface (`dot − dist ≥ −0.01`)
+   and leaves the failures out of the list `FUN_1800e6780` outlines; the world's walk does the same (`R_DrawLeaf`,
+   `VisibleWorld`), keeping NOCULL. *Fixed*: each `*N` model keeps its faces' planes (`FaceFan.Faces`, `FacePlane`), and
+   its outline draws only the faces the eye sees, in the model's space (`ModelEye`). The world needs nothing. Tests:
+   `EyeShaderRenderTests.DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined` (1 the control, 3 red with
+   the faces ignored); `FaceFanTests.Faces_…` and `FacesEye_…` (red with the fan merge, the normal's side and the
+   tolerance each broken).
+2. **Translucent displacements** (Sonnet). *Read*: `FUN_1800e61d0` → `FUN_1800c73a0` (last argument 0) →
+   `FUN_1800c2140`, after the list it outlines. *Fixed* in `DrawBlendedBatch`: a terrain run queues `debugwireframe`
+   alone. Test: `WorldWireframeConformanceTests.DrawWorld_ATranslucentDisplacementUnderWireframe_DrawsOnlyTheWhiteWireframe`
+   (red with the branch disabled).
+3. **The decal rasteriser on queued wireframes** (Fable, Sonnet, Grok). *Read*: shaderlib's `SetInitialShadowState`
+   (`stdshader_dx9.dll` `0x180063340`): `$decal` gives `SHADER_POLYOFFSET_DECAL`, nothing gives the slope-only overlay
+   bias, nothing turns culling off. *Fixed*: `WireframeRaster`, the decal offset for a `$decal` material and the plain
+   back cull otherwise; `DrawDecalBatch`'s binding split into `BindDecalRun` so the queue binds its own; the stale
+   comment rewritten. Test: `…DrawWorld_ASlopedEdgeJustBehindANearerFace_TakesItsOwnMaterialsOffset` (0 the control; 2
+   red with the old overlay bias, the edge green (0, 255, 129) through the nearer face; the `$decal` case red with no
+   offset at all). **For the lead, not acted on:** the same read says shaderlib adds the decal offset to any `$decal 1`
+   material, which is the opposite of `DecalState.ConstantBias`'s premise for overlays.
+4. **Model decals** (Sonnet). *Read*: `studiorender.dll` `FUN_180007d20` swaps under `bWireframeDecals`, set from
+   `r_modelwireframedecal` (`engine.dll` `FUN_1800f56c0`), not `mat_wireframe`; B817. The code was right and USER-GUIDE
+   wrong: *fixed the guide* (map decals yellow, model decals their own). Test:
+   `EyeShaderRenderTests.DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial` (red with the world decal swap
+   applied to model decals).
+5. **The cap** (Sonnet). *Fixed*: the model pass hands `ModelVertexCap` to its queued wireframes, triangles and outline.
+   Test: `ModelVertexClampRenderTests.DrawModel_ABrushEntityUnderWireframeAndACap_CapsItsOutlineToo` (six cases; the
+   four capped ones red with no cap passed).
+6. **Off-path cost** (owner rule, above 0.01 ms counts). *Fixed* to the comparisons before B803: `Raster` and the opaque
+   pass read `_lineFill` only under `mat_wireframe` or when a map's own material is `Wireframe` (`DrawsLines`,
+   `_mapLineFill`); the depth bind reads `_wireframeIgnoresZ` only under the switch; `QueueSurfaceWireframe` returns on
+   one comparison; the model pass looks the outline up only with a queue. *Not measured*: the guards restore the old
+   short-circuits, which no `--measure` run here compared. `DrawsLines`' second term is held by the B808 face test (red
+   without `_mapLineFill`, whose fixture now uses a map material, as production's debug materials have their own
+   table entries).
+7. **Memory** (*measured*, the `outline-memory` probe): the outline is 1.21 MiB on `cp_process_final` (158,550 world
+   vertices) and 1.45 MiB on `cp_granary` (190,260); the `FaceEdge` mark grows `WorldVertex` 124 to 128 bytes, 0.6 and
+   0.8 MB on those lists while held. Built eagerly still: a lazy build would have to keep every map's managed vertices
+   until a value 3 that most sessions never set.
+8. **The leak** (Grok). *Not a leak*: `UploadGeometry` calls `ReleaseGeometry` (which releases the outline) first, and a
+   model's outline is made only beside a model buffer the upload does not hold, the two released together. Test, the
+   control on that claim: `OffscreenTargetReleaseTests.Dispose_AfterDrawingTheWorldAndABrushEntityTwiceUnderWireframeThree_LeavesNoDeviceReference`
+   (red, with the existing world one, when `ReleaseWorldOutline` stops disposing).
+9. **`2 × FirstVertex`** (Sonnet). Test:
+   `WorldWireframeConformanceTests.DrawWorld_UnderWireframeThreeOnASecondRun_OutlinesThatRunsOwnFace` (red with the
+   offset not doubled, the right edge (47, 32) the face's red). Its first version probed only the left edge, which the
+   halved offset still drew: it passed under the sabotage until the right edge was added.
+10. **An output-level assertion** (Fable). Test: `CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink`,
+    the production path from the command line to the PNG on `tf2-2008-build3420-spec-stv-cp_granary.dem` tick 1000:
+    *measured* 441 pink-hued pixels under 0 and 2,580 under 1, the same on two runs; the bound is a rise above 1,000.
+    Red with `QueueSurfaceWireframe` disabled: 0 under 1 (the 441 are *interpolated* to be on models, which the switch turns cyan). Not
+    looked at; the counts are the only evidence.
+11. **`EngineWireframes_…`** (Sonnet). *Fixed*: a path that did not load fails naming it and the paths that did. Red with
+    `debugdecalwireframe` dropped from the load: "debug/debugdecalwireframe did not load; loaded: …".
+12. **`FaceFan.Outline` on a partial triangle** (Fable). *Fixed*: throws `ArgumentException`. Test:
+    `FaceFanTests.Outline_OfAVertexCountThatIsNotWholeTriangles_Throws` (4 and 5; red with the guard disabled).
+13. **A debug VMT that fails to load** (Sonnet, Grok). The load already logged one line naming it, at information;
+    *raised to a warning* with a message that says the switch does nothing there. *No test*: the archives would need a
+    fake without `platform_misc`, and the line's level is the whole change.
+14. **Finding 113's "Not filed"** — now names B817.
+15. **"No shipped material declares `$wireframe 1`"** — *measured* with a control: the `vmt-param` probe read 31,020
+    VMTs, 0 declaring `$wireframe`, 3,113 declaring `$ignorez`. A map's pakfile was not searched; said where it is stated.
+16. **`Device3D.Wireframe`'s remark** — rewritten: it is the engine's debug view, not D75's all-pass line fill.
+17. **`WorldWireframePath`'s comment** — now every non-zero value but 2, as triangles or under 3 as the face outline.
+18. **`OffscreenTarget.DrawWorld`'s decal upload** (Grok). *Not a defect*: the target's world renderer is its own,
+    never `Device3D`'s, so an offscreen draw cannot clear the viewer's decals; within the target every draw sets them,
+    null to none, so none inherits the last. Said in the parameter's doc.
 
 *As found (2026-11-21):*
 
