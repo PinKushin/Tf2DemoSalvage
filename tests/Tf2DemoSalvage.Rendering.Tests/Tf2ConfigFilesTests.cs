@@ -273,8 +273,31 @@ public sealed class Tf2ConfigFilesTests
         }
     }
 
-    /// <remarks>A name the path API rejects is a missing file, not an exception out of a key press (B820 review 1, Fable, Sonnet).</remarks>
-    /// <remarks>The wildcard and pipe cases are B820 review 2's (Grok): a character a file name cannot hold is a missing file too.</remarks>
+    /// <remarks>
+    /// **A flat file over the cap is read only to one byte past it** (B820 review 3, Fable), enough to be refused, rather than
+    /// whole.
+    /// </remarks>
+    [Test]
+    public void Finder_AFlatFileWellOverTheCap_IsReadOnlyToOneBytePast()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-huge-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "autoexec.cfg"), new string(' ', 2 * Tf2ConfigFiles.MaximumBytes));
+
+        try
+        {
+            Tf2ConfigFiles.Finder(null, ownCustomRoot: root)("cfg/autoexec.cfg")!.Length.ShouldBe(Tf2ConfigFiles.MaximumBytes + 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// A name the path API rejects is a missing file, not an exception out of a key press (B820 review 1, Fable, Sonnet). The
+    /// wildcard and pipe cases are review 2's (Grok): a character a file name cannot hold is a missing file too.
+    /// </remarks>
     [TestCase("cfg/a\0b.cfg")]
     [TestCase("cfg/a*.cfg")]
     [TestCase("cfg/a?.cfg")]
@@ -288,7 +311,12 @@ public sealed class Tf2ConfigFilesTests
 
         try
         {
-            Tf2ConfigFiles.Finder(null, ownCustomRoot: root)(name).ShouldBeNull();
+            // The control (B820 review 3, Grok): a file the same lookup can find is found, so null above is the name's.
+            File.WriteAllText(Path.Combine(root, "ok.cfg"), "bind e +use");
+            Func<string, byte[]?> find = Tf2ConfigFiles.Finder(null, ownCustomRoot: root);
+
+            find("cfg/ok.cfg").ShouldNotBeNull();
+            find(name).ShouldBeNull();
         }
         finally
         {

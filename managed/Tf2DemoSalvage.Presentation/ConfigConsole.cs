@@ -394,7 +394,8 @@ public sealed class ConfigConsole
     {
         // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
         // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
-        bool loading = _loading;
+        // The budgets too: a load from a handler must not hand the outer command fresh ones (B820 review 3, Fable, Sonnet).
+        (bool loading, int execs, int aliasRuns) = (_loading, _execs, _aliasRuns);
         _loading = true;
 
         try
@@ -403,7 +404,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _loading = loading;
+            (_loading, _execs, _aliasRuns) = (loading, execs, aliasRuns);
         }
     }
 
@@ -412,6 +413,9 @@ public sealed class ConfigConsole
     {
         foreach (string line in text.Split('\n'))
         {
+            // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
+            // whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+            _aliasRuns = 0;
             _ = Run(line, key: null, depth);
         }
     }
@@ -904,11 +908,14 @@ public sealed class ConfigConsole
     /// <summary>Files `exec`ed since the last line run at depth 0 (a file's line or a key); see <see cref="MaximumExecs"/>.</summary>
     private int _execs;
 
-    /// <summary>How many aliases one command at depth 0 may run in all, nested ones included.</summary>
-    /// <remarks>*Interpolated* (B820 review 2): the engine's bound is not read. Far past a real script, which runs tens.</remarks>
+    /// <summary>How many aliases one line may run in all, nested ones included: a key's line, or one line of a file.</summary>
+    /// <remarks>
+    /// *Interpolated* (B820 reviews 2 and 3): the engine's bound is not read. Far past a real script, which runs tens per line;
+    /// per file line rather than per command, so one `exec` of a whole config tree does not share one budget.
+    /// </remarks>
     public const int MaximumAliasRuns = 4096;
 
-    /// <summary>Aliases run since the last line run at depth 0; see <see cref="MaximumAliasRuns"/>.</summary>
+    /// <summary>Aliases run since the last line began; see <see cref="MaximumAliasRuns"/>.</summary>
     private int _aliasRuns;
 
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
@@ -1305,7 +1312,7 @@ public sealed class ConfigConsole
                 {
                     if (_aliasRuns == MaximumAliasRuns + 1)
                     {
-                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one command; not running the rest.");
+                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
                     }
 
                     acted = true;
@@ -1437,9 +1444,17 @@ public sealed class ConfigConsole
     /// Used only for the static projection and the applied count. The runtime expands as it goes,
     /// because by then the alias table may have changed.
     /// </remarks>
-    private List<ViewerAction> Expand(string commandLine, int depth)
+    /// <param name="commandLine">The command line.</param>
+    /// <param name="depth">How deep the expansion is.</param>
+    /// <param name="walked">
+    /// The aliases already expanded in this projection. Each is walked once, because the answer is a set of actions and
+    /// the table does not change while it is read: `alias a "a;a;a;a"` bound to a key is otherwise 4^20 calls from
+    /// <see cref="CommandFor"/> (B820 review 3, Sonnet).
+    /// </param>
+    private List<ViewerAction> Expand(string commandLine, int depth, HashSet<string>? walked = null)
     {
         List<ViewerAction> found = [];
+        walked ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (depth >= MaximumExpansion)
         {
@@ -1459,7 +1474,11 @@ public sealed class ConfigConsole
             // The dispatcher's order (B820): see `Run`.
             if (ConsultsAlias(tokens[0]) && _aliases.TryGetValue(tokens[0], out string? body))
             {
-                found.AddRange(Expand(body, depth + 1));
+                if (walked.Add(tokens[0]))
+                {
+                    found.AddRange(Expand(body, depth + 1, walked).Where(action => !found.Contains(action)));
+                }
+
                 continue;
             }
 

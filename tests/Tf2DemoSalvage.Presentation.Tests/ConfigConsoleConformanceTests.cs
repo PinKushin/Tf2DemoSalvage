@@ -1085,7 +1085,7 @@ public sealed class ConfigConsoleConformanceTests
     /// `exec` takes exactly one argument; the path is refused when it holds `\\`, `:`, `..`, CR or LF (FUN_180176d10), or
     /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read,
     /// and so is a single backslash. Each refusal is TF2's own line (B820 review 1, Fable, Grok: reading nothing alone
-    /// passed with `exec` not dispatched). CR and LF cannot reach a path here: a line ends at either.
+    /// passed with `exec` not dispatched). CR and LF cannot reach a path here: a line ends at LF and the tokenizer trims a CR (`exec a\r` above).
     /// </remarks>
     [TestCase("exec", "exec <filename>: execute a script file")]
     [TestCase("exec a b", "exec <filename>: execute a script file")]
@@ -1197,16 +1197,55 @@ public sealed class ConfigConsoleConformanceTests
     {
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        List<string> sets = [];
+        console.ConVarSet += (_, e) => sets.Add(e.Value);
 
-        console.Load($"alias a \"a;a\"\na\n{Alpha} 8");
+        console.Load($"alias a \"a;a;{Alpha} 1\"\na\n{Alpha} 8");
 
-        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one command").ShouldBe(1);
-        console.ConVar(Alpha).ShouldBe("8");
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
+        sets.Count.ShouldBeInRange(2, ConfigConsole.MaximumAliasRuns + 1, "the stop itself (B820 review 3, Fable): 2^19 sets without it");
+        sets[^1].ShouldBe("8", "the next line runs");
     }
 
     /// <remarks>
-    /// **A load inside a load leaves the outer one a load** (B820 review 2, Sonnet, Fable): a handler that loads a config while
-    /// one is loading must not end the outer load's quiet one-shots.
+    /// **The alias budget is per line of an exec'd file too** (B820 review 3, Fable, Sonnet): one `exec` of a config tree does
+    /// not share one budget among all its lines. Two lines of one file that each exhaust it say so twice.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileWhoseTwoLinesEachExhaustTheAliasBudget_GivesEachLineItsOwn()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/fan.cfg", "a\na"));
+        console.Log = log;
+
+        console.Load("alias a \"a;a\"\nexec fan");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **The static projection walks each alias once** (B820 review 3, Sonnet, Fable): `alias a "a;a;a;a"` bound to a key was
+    /// 4^20 calls from `Applied` at load and from the key's lookup on every press, on `main` too.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundToAnAliasThatFansOut_EndsPromptly()
+    {
+        ConfigConsole console = new();
+        console.Load("alias a \"a;a;a;a;+forward\"\nbind x a");
+
+        Should.CompleteIn(
+            () =>
+            {
+                console.Applied.ShouldBe(1);
+                console.KeyDown("x");
+            },
+            TimeSpan.FromSeconds(10));
+    }
+
+    /// <remarks>
+    /// **A load inside a load leaves the outer one a load** (B820 reviews 2 and 3, Sonnet, Fable): a handler that loads a
+    /// config while one is loading must not end the outer load's quiet one-shots. The control: the handler ran.
     /// </remarks>
     [Test]
     public void Load_ALoadFromAHandlerDuringALoad_LeavesTheOuterOneShotsIdle()
@@ -1214,12 +1253,35 @@ public sealed class ConfigConsoleConformanceTests
         ConfigConsole console = new();
         console.ReadSettingsFrom(_ => null);
         List<ViewerAction> fired = [];
+        int handled = 0;
         console.Triggered += (_, e) => fired.Add(e.Action);
-        console.ConVarSet += (_, _) => console.Load(string.Empty);
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load(string.Empty);
+        };
 
         console.Load($"{Alpha} 1\nscreenshot");
 
+        handled.ShouldBe(1);
         fired.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **…nor hand the outer command fresh budgets** (B820 review 3, Fable, Sonnet): a file that execs itself twice and sets a
+    /// ConVar on each line, with a handler that loads on every set, still stops at <see cref="ConfigConsole.MaximumExecs"/>.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideAnExecTree_KeepsTheOuterBudget()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", $"{Alpha} 1\nexec loop\nexec loop"));
+        console.ReadSettingsFrom(_ => null);
+        console.ConVarSet += (_, _) => console.Load(string.Empty);
+
+        Should.CompleteIn(() => console.Load("exec loop"), TimeSpan.FromSeconds(10));
+
+        asked.Count.ShouldBe(ConfigConsole.MaximumExecs);
     }
 
     [Test]

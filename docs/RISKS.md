@@ -44532,6 +44532,25 @@ is about a file pasted directly into `custom/`, and the engine finds a nested na
    keeps its `\r` into the path** — measured false: `exec a\r` reads `cfg/a.cfg` (a case of
    `Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension`). Both are tests now.
 
+**Review 3** (Fable, Gemini merge; Sonnet, Grok request changes):
+
+1. **The static projection had no fan-out bound** (Sonnet, Fable; on `main` too): `alias a "a;a;a;a"` bound to a key was
+   4^20 calls from `Applied` at load and from `CommandFor` on every press. Fixed exactly rather than by a budget:
+   `Expand` walks each alias once per projection, as its answer is a set of actions and the table is fixed while read.
+   Test: `KeyDown_AKeyBoundToAnAliasThatFansOut_EndsPromptly`, red (10 s timeout) with the walked set ignored.
+2. **The alias budget was shared by a whole `exec` tree** (Fable, Sonnet): one autoexec line `exec comfig/comfig` gave
+   every line of mastercomfig one 4096. Fixed: the alias budget is per file line; the `exec` budget stays per command.
+   Test: `Exec_AFileWhoseTwoLinesEachExhaustTheAliasBudget_GivesEachLineItsOwn`, red with the per-line reset removed.
+3. **A load from a handler reset the outer command's budgets** (Fable, Sonnet). Fixed: `Load` restores them with the
+   flag. Test: `Load_ALoadFromAHandlerInsideAnExecTree_KeepsTheOuterBudget`, red when they are not restored.
+4. **Test strength** (Fable, Sonnet, Grok): the alias budget test now counts the sets (2^19 without the stop), the nested
+   load test has a control that its handler ran, the odd-name test a control that a valid name resolves from the same
+   folder, and `Finder_AFlatFileWellOverTheCap_IsReadOnlyToOneBytePast` pins the bounded read (red with a whole read).
+5. **Grok, "high": a NUL throws out of `ReadFlat`.** False: `InsideFolder` answers null for a NUL before `GetFullPath`
+   (review 1 item 5); the diff Grok was given began after that commit.
+6. **Not fixed, recorded:** a loose `tf/cfg/` or `custom/*/cfg/` file is still read whole by `GameArchives.Read` before
+   `Exec` checks its size (Fable). A memory cost on the player's own files, not a hang or an escape; the cap itself holds.
+
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
