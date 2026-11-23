@@ -205,6 +205,39 @@ public sealed class ModelVertexClampRenderTests
         vertices.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **The outline of a later run starts at that run** (B803 review 2, Fable): the four-quad brush entity of
+    /// <c>EyeShaderRenderTests.DrawModelPose_ABrushEntityOfFrontAndBackFacesInTwoRuns_OutlinesOnlyItsFronts</c>, front,
+    /// back, front in run one and a front in run two, counted rather than looked at, because a later run's outline that
+    /// also redraws an earlier run's faces lands on the same pixels in the same colour. Under 3: the solid draw's 24
+    /// vertices, then two indices for each vertex of the three front faces, 36: 60. Starting the second run's search
+    /// from the first face redraws run one's fronts in it, 84.
+    /// </remarks>
+    [Test]
+    public void DrawModel_ABrushEntitysSecondRunUnderWireframeThree_OutlinesOnlyThatRunsFaces()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        List<WorldVertex> vertices =
+        [
+            .. EyeShaderRenderTests.BrushFace(-210f, 50f, front: true),
+            .. EyeShaderRenderTests.BrushFace(-70f, 50f, front: false),
+            .. EyeShaderRenderTests.BrushFace(70f, 50f, front: true),
+            .. EyeShaderRenderTests.BrushFace(210f, 50f, front: true),
+        ];
+
+        target.Wireframe = 3;
+
+        target.InputVertices(() => EyeShaderRenderTests.DrawBrush(
+            target, vertices, [new WorldBatch(0, 0, 18), new WorldBatch(0, 18, 6)], EyeShaderRenderTests.Identity4)).ShouldBe(60ul);
+    }
+
     /// <summary>One model draw under <paramref name="cap"/>, counted; null when there is no device or no game.</summary>
     private static (long Draws, ulong Vertices)? DrawModel(int? cap)
     {

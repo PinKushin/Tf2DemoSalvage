@@ -4712,7 +4712,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float[] data = Pack(vertices);
 
         CreateVertexBuffer(device, data);
-        _worldOutline = CreateOutline(device, vertices);
+        _worldOutline = CreateOutline(device, vertices, "the world");
 
         _batches = batches;
 
@@ -7825,7 +7825,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<ID3D11Buffer> outline,
         FacePlane[]? faces = null,
-        System.Numerics.Vector3 eye = default,
+        System.Numerics.Vector3? eye = null,
         int? cap = null)
     {
         if (_wireframeQueue.Count == 0)
@@ -8442,7 +8442,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // to `debugmrmwireframe` instead (B788) and needs none.
             if (path.StartsWith(BrushModels.SubmodelPrefix))
             {
-                _modelOutlines[path] = (CreateOutline(device, model.Vertices), FaceFan.Faces(model.Vertices));
+                _modelOutlines[path] = (CreateOutline(device, model.Vertices, path), FaceFan.Faces(model.Vertices));
             }
         }
 
@@ -8860,7 +8860,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // **A brush entity is outlined after its surfaces, as the world is** (B803): `R_DrawBrushModel`'s paths
             // (`FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`) end in `FUN_1800dc720`. A studio model swapped instead (B788).
-            if (modelPath.StartsWith('*'))
+            // The integer first, so the off path costs one comparison per batch (B803 review 2).
+            if (Wireframe != 0 && modelPath.StartsWith('*'))
             {
                 QueueSurfaceWireframe(batch);
             }
@@ -9190,7 +9191,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             (ComPtr<ID3D11Buffer> outline, FacePlane[]? faces) = _modelOutlines.GetValueOrDefault(modelPath);
 
-            DrawQueuedWireframes(context, outline, faces, ModelEye(matrix), ModelVertexCap);
+            DrawQueuedWireframes(context, outline, faces, ModelEye(matrix, _eye), ModelVertexCap);
         }
 
         // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches

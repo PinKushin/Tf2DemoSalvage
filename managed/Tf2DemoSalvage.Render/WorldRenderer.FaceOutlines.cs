@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Microsoft.Extensions.Logging;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 
@@ -23,13 +25,25 @@ internal sealed unsafe partial class WorldRenderer
     /// <see cref="WorldVertex.FaceEdge"/> still says which edges were the polygon's. Eight bytes a vertex, for a value most
     /// sessions never set; the engine holds the loop for every surface anyway (its vertex-index table). What that costs on
     /// a real map is in RISKS B803, "Review 1".
+    ///
+    /// **A buffer that is not whole triangles gets none, and says so** (B803 review 2): the outline is built at every
+    /// upload whatever <c>mat_wireframe</c> is, so refusing it must not fail the map. Its runs then draw their triangles
+    /// under 3, as under 1.
     /// </remarks>
-    private static ComPtr<ID3D11Buffer> CreateOutline(ComPtr<ID3D11Device> device, IReadOnlyList<WorldVertex> vertices)
+    private ComPtr<ID3D11Buffer> CreateOutline(ComPtr<ID3D11Device> device, IReadOnlyList<WorldVertex> vertices, string owner)
     {
         ComPtr<ID3D11Buffer> buffer = default;
 
         if (vertices.Count == 0)
         {
+            return buffer;
+        }
+
+        if (vertices.Count % 3 != 0)
+        {
+            _render.LogWarning(
+                "{Message}",
+                $"{owner}: {vertices.Count} vertices are not whole triangles, so mat_wireframe 3 draws its triangles, not its faces' outline");
             return buffer;
         }
 
@@ -65,7 +79,7 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="batch">The run, as many vertices as the cap leaves of it.</param>
     /// <param name="outline">The bound vertex buffer's outline.</param>
     /// <param name="faces">The buffer's faces, to leave out those whose back the eye sees, or null to draw every one.</param>
-    /// <param name="eye">The eye in the buffer's own space; read only with <paramref name="faces"/>.</param>
+    /// <param name="eye">The eye in the buffer's own space, read only with <paramref name="faces"/>; null draws every face.</param>
     /// <param name="cap">The B597 vertex cap, as the run's solid draw takes it; null draws the run whole.</param>
     /// <remarks>
     /// The engine's `MATERIAL_LINES` (primitive type 1 at `FUN_1800e6780`'s mesh setup). Two indices per vertex, so the run's
@@ -83,7 +97,7 @@ internal sealed unsafe partial class WorldRenderer
         WorldBatch batch,
         ComPtr<ID3D11Buffer> outline,
         FacePlane[]? faces,
-        Vector3 eye,
+        Vector3? eye,
         int? cap)
     {
         int first = batch.FirstVertex;
@@ -92,7 +106,7 @@ internal sealed unsafe partial class WorldRenderer
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyLinelist);
         context.IASetIndexBuffer(outline, Silk.NET.DXGI.Format.FormatR32Uint, 0);
 
-        if (faces is null)
+        if (faces is null || eye is not { } seenFrom)
         {
             DrawLines(context, first, end);
         }
@@ -103,11 +117,13 @@ internal sealed unsafe partial class WorldRenderer
             for (int at = FirstFaceEnding(faces, first); at < faces.Length && faces[at].First < end; at++)
             {
                 FacePlane face = faces[at];
-                bool seen = face.FacesEye(eye.X, eye.Y, eye.Z);
+                bool seen = face.FacesEye(seenFrom.X, seenFrom.Y, seenFrom.Z);
 
+                // A run is whole faces, so the first face found starts at the run's first vertex: the search decides
+                // where the lines start, and what it returns is the only thing that keeps an earlier run's faces out.
                 if (seen && start < 0)
                 {
-                    start = Math.Max(face.First, first);
+                    start = face.First;
                 }
                 else if (!seen && start >= 0)
                 {
@@ -128,6 +144,12 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The lines of the vertices from <paramref name="first"/> to before <paramref name="end"/>.</summary>
     private static void DrawLines(ComPtr<ID3D11DeviceContext> context, int first, int end)
     {
+        // An empty range, as a cap of the run's first vertices can leave, draws nothing rather than a wrapped count.
+        if (end <= first)
+        {
+            return;
+        }
+
         SubmitCounters.Draw(); context.DrawIndexed((uint)(2 * (end - first)), (uint)(2 * first), 0);
     }
 
@@ -156,17 +178,27 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>The eye in a model's own space, from its placement: the space its faces' planes are in.</summary>
     /// <param name="matrix">The model's placement, sixteen floats row major, row vectors.</param>
-    /// <returns>The eye moved by the placement's inverse; the world eye itself for a placement with none.</returns>
-    private Vector3 ModelEye(float[] matrix)
+    /// <param name="eye">The eye in the world, or null before any camera was set.</param>
+    /// <returns>
+    /// The eye moved by the placement's inverse, or null where it cannot be known — no eye, or a placement with no
+    /// inverse — and then no face is left out (B803 review 2): an outline drawn whole is the safe error, a face lost is not.
+    /// </returns>
+    internal static Vector3? ModelEye(float[] matrix, (float X, float Y, float Z)? eye)
     {
-        Vector3 eye = _eye is { } at ? new Vector3(at.X, at.Y, at.Z) : Vector3.Zero;
+        ArgumentNullException.ThrowIfNull(matrix);
+
+        if (eye is not { } at)
+        {
+            return null;
+        }
+
         Matrix4x4 placement = new(
             matrix[0], matrix[1], matrix[2], matrix[3],
             matrix[4], matrix[5], matrix[6], matrix[7],
             matrix[8], matrix[9], matrix[10], matrix[11],
             matrix[12], matrix[13], matrix[14], matrix[15]);
 
-        return Matrix4x4.Invert(placement, out Matrix4x4 inverse) ? Vector3.Transform(eye, inverse) : eye;
+        return Matrix4x4.Invert(placement, out Matrix4x4 inverse) ? Vector3.Transform(new Vector3(at.X, at.Y, at.Z), inverse) : null;
     }
 
     /// <summary>Releases the world's outline with its buffer.</summary>

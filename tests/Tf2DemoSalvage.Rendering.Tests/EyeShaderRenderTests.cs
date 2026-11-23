@@ -719,10 +719,17 @@ public sealed class EyeShaderRenderTests
     /// counter-clockwise on screen) and is drawn both-sided, so its solid shows; its left edge (18, 30) under 1 and 3 is the
     /// pixel the value 0 draws there. The front-facing quad of the test above is the control that the probe lies on the
     /// outline. Before review 1 the line list under 3 was never culled, and the edge was pink.
+    ///
+    /// **`$nocull` makes no exception** (B803 review 2, Fable, Sonnet): the cull's list comes from `FUN_1800df1a0`, which
+    /// skips only surfaces with `0x20` in their flag byte (*interpolated* to be `SURFDRAW_TRANS`, the header being
+    /// unpublished; the translucent brush path is `FUN_1800de800`), and `FUN_1800dcb20` tests every
+    /// plane in it with no flag read, so a `$nocull` brush-entity face seen from behind is culled and not outlined. The
+    /// world's walk is the one that keeps NOCULL (`R_DrawLeaf`, `0x200`).
     /// </remarks>
-    [TestCase(1)]
-    [TestCase(3)]
-    public void DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined(int wireframe)
+    [TestCase(1, false)]
+    [TestCase(3, false)]
+    [TestCase(3, true)]
+    public void DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined(int wireframe, bool noCull)
     {
         using OffscreenTarget? target = Target();
 
@@ -733,7 +740,7 @@ public sealed class EyeShaderRenderTests
 
         MapAssets assets = MapAssets.ForMaterials(
             [
-                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 0, 0, 255) with { IsNoCull = noCull },
                 Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
             ],
             ["VertexLitGeneric", "Wireframe"],
@@ -749,6 +756,154 @@ public sealed class EyeShaderRenderTests
 
         TestContext.Out.WriteLine($"mat_wireframe {wireframe} on a back face: edge {target.PixelAt(18, 30)}, unlined {unlined}");
         target.PixelAt(18, 30).ShouldBe(unlined);
+    }
+
+    /// <remarks>
+    /// **A brush entity like a real one: several faces to a run, front and back mixed, and a second run** (B803 review 2,
+    /// Fable). Four quads side by side, each its own polygon: run one is front, back, front (vertices 0 to 17), run two
+    /// one more front (18 to 23). Under 3 the three fronts are outlined and the back one is not, which needs the outline
+    /// to split a run around a back face, to find a later run's first face, and to offset that run's lines. Each quad's
+    /// columns are searched for `debugworldwireframe`'s (230, 128, 128).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ABrushEntityOfFrontAndBackFacesInTwoRuns_OutlinesOnlyItsFronts()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        List<WorldVertex> vertices =
+        [
+            .. BrushFace(-210f, 50f, front: true),
+            .. BrushFace(-70f, 50f, front: false),
+            .. BrushFace(70f, 50f, front: true),
+            .. BrushFace(210f, 50f, front: true),
+        ];
+
+        target.Wireframe = 3;
+        DrawBrush(target, vertices, [new WorldBatch(0, 0, 18), new WorldBatch(0, 18, 6)], Identity4);
+
+        int[] outlined = [.. new[] { (3, 15), (19, 30), (34, 45), (49, 61) }.Select(columns => OutlinePixels(target, columns.Item1, columns.Item2))];
+
+        TestContext.Out.WriteLine($"outline pixels per quad: {string.Join(", ", outlined)}");
+        outlined.Select(count => count > 0).ShouldBe([true, false, true, true]);
+    }
+
+    /// <remarks>
+    /// **The back-face test runs in the model's own space** (B803 review 2, Fable, Sonnet): a `*N` model turned a quarter
+    /// about z and moved (40, 30, 0), one quad at the centre facing the camera or away from it. The front one is outlined
+    /// under 3 and the back one is not. Testing against the world eye unmoved, or the placement read transposed, puts the
+    /// eye on the wrong side of both planes and swaps the answers.
+    /// </remarks>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void DrawModelPose_ATurnedAndMovedBrushEntityUnderWireframeThree_OutlinesItsFrontFaceOnly(bool front, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        float[] placement = [0f, 1f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 40f, 30f, 0f, 1f];
+
+        // Each corner moved into the model's space by the placement's inverse: x from y less 30, y from 40 less x.
+        List<WorldVertex> model =
+        [
+            .. BrushFace(0f, 50f, front).Select(corner => corner with
+            {
+                X = corner.Y - 30f,
+                Y = 40f - corner.X,
+                NormalX = corner.NormalY,
+                NormalY = -corner.NormalX,
+                TangentX = corner.TangentY,
+                TangentY = -corner.TangentX,
+            }),
+        ];
+
+        target.Wireframe = 3;
+        DrawBrush(target, model, [new WorldBatch(0, 0, 6)], placement);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
+    internal static WorldVertex[] BrushFace(float x, float half, bool front)
+    {
+        WorldVertex Corner(float dx, float z, bool edge) =>
+            new(x + dx, 0f, z, 0f, 0f, 0f, 0f, 0f)
+            {
+                NormalX = 0f,
+                NormalY = front ? -1f : 1f,
+                NormalZ = 0f,
+                TangentX = 1f,
+                TangentW = 1f,
+                FaceEdge = edge,
+            };
+
+        // Clockwise on screen for the front, as Draw's frontFacing, and counter-clockwise for the back; the diagonal unmarked.
+        return front
+            ?
+            [
+                Corner(-half, half, true), Corner(half, half, false), Corner(-half, -half, true),
+                Corner(half, half, true), Corner(half, -half, true), Corner(-half, -half, false),
+            ]
+            :
+            [
+                Corner(-half, -half, true), Corner(half, -half, true), Corner(half, half, false),
+                Corner(-half, -half, false), Corner(half, half, true), Corner(-half, half, true),
+            ];
+    }
+
+    /// <summary>Draws <c>*1</c> both-sided, as <see cref="Draw"/> does, with a red face and <c>debugworldwireframe</c> loaded.</summary>
+    internal static void DrawBrush(OffscreenTarget target, List<WorldVertex> vertices, WorldBatch[] batches, float[] placement)
+    {
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawModelPose(
+            vertices,
+            batches,
+            new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f, NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f) }.ToMatrix(),
+            placement,
+            assets,
+            light: Uniform,
+            bothSides: true,
+            toneMapScale: 1f,
+            modelPath: "*1");
+    }
+
+    internal static readonly float[] Identity4 =[1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
+
+    /// <summary>How many pixels in a band of columns are <c>debugworldwireframe</c>'s colour, within a level.</summary>
+    private static int OutlinePixels(OffscreenTarget target, int fromColumn, int toColumn)
+    {
+        int count = 0;
+
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = fromColumn; x <= toColumn; x++)
+            {
+                (int r, int g, int b) = target.PixelAt(x, y);
+
+                if (Math.Abs(r - 230) <= 1 && Math.Abs(g - 128) <= 1 && Math.Abs(b - 128) <= 1)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
     }
 
     /// <remarks>

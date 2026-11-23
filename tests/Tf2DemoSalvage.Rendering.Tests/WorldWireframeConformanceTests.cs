@@ -214,6 +214,27 @@ public sealed class WorldWireframeConformanceTests
     }
 
     /// <remarks>
+    /// **A buffer that is not whole triangles fails no load** (B803 review 2, Fable, Sonnet): the outline is built at every
+    /// upload, whatever the value, and `FaceFan.Outline` refuses a partial triangle. The upload builds none and says so,
+    /// and under 3 the run draws its triangles instead: the fanned square with one stray vertex after it draws, and its
+    /// diagonal (32, 32) is outlined as under 1.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_UnderWireframeThreeWithAPartialTriangle_DrawsItsTrianglesInstead()
+    {
+        using OffscreenTarget target = Target();
+        FreeCamera camera = new() { Origin = (0f, 0f, 10f), Angles = (90f, 0f, 0f), Aspect = 1f };
+        WorldVertex[] square = FannedSquare();
+
+        target.Clear(0f, 0f, 0f);
+        target.Wireframe = 3;
+        target.DrawWorld([.. square, square[0]], [new WorldBatch(0, 0, 6)], camera.ToMatrix(), Assets());
+
+        Near(target.PixelAt(Edge.X, Edge.Y), World, "the diagonal, drawn as a triangle edge");
+        target.PixelAt(PolygonInside.X, PolygonInside.Y).ShouldBe(Red, "the face itself, solid");
+    }
+
+    /// <remarks>
     /// **A translucent displacement draws `debug/debugwireframe` alone too** (B803 review 1, Sonnet): the translucent path
     /// `FUN_1800e61d0` hands its displacements to `FUN_1800c73a0`, which reaches the same `FUN_1800c2140` as the opaque ones,
     /// and its outline list is the surfaces alone. So the translucent green displacement is white edges over the clear

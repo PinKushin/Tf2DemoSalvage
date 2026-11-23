@@ -64,5 +64,30 @@ public sealed class OutlineMemoryProbe : IProbe
         output.WriteLine($"{name}: {vertices:N0} world vertices (the control: nonzero)");
         output.WriteLine($"outline index buffer: {outline:N0} bytes ({outline / (1024.0 * 1024.0):0.00} MiB) on the GPU");
         output.WriteLine($"WorldVertex: {vertexSize} bytes, {Before} before the mark; {(long)(vertexSize - Before) * vertices:N0} bytes more for this list");
+
+        // The brush entities' outlines and face planes (review 2): a face starts at each triangle whose first corner's
+        // edge is the polygon's, which is how FaceFan.Faces counts them.
+        long brushVertices = 0;
+        long faces = 0;
+        int submodels = 0;
+
+        foreach (PropModels.ModelFrames model in BrushModels.Build(level.BrushModels ?? [], level.Surfaces, assets.Lightmaps).Values)
+        {
+            IReadOnlyList<PropVertex> corners = model.Geometry[0];
+
+            submodels++;
+            brushVertices += corners.Count;
+
+            for (int at = 0; at + 2 < corners.Count; at += 3)
+            {
+                faces += corners[at].FaceEdge ? 1 : 0;
+            }
+        }
+
+        int planeSize = Unsafe.SizeOf<FacePlane>();
+
+        output.WriteLine(
+            $"{submodels} brush entities, {brushVertices:N0} vertices: outlines {brushVertices * 2 * sizeof(uint):N0} bytes on the GPU; "
+            + $"{faces:N0} face planes of {planeSize} bytes, {faces * planeSize:N0} bytes managed (plus an array header each)");
     }
 }

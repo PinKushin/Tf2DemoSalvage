@@ -5990,8 +5990,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <remarks>
     /// **The engine's debug view, not this renderer's instrument** (B803 review 1). Until B803 it put every pass in line
     /// fill (D75), which separated "never drawn" from "drawn and invisible" for any surface; it now binds the debug
-    /// materials the engine binds, over a solid world, so a surface drawn invisibly keeps its own look and only its
-    /// outline shows. <see cref="WorldRenderer.Wireframe"/> says what each value draws.
+    /// materials the engine binds: over a solid world and its brush entities, and in place of a displacement (opaque or
+    /// translucent), a world decal and a studio model's own materials. A world surface drawn invisibly keeps its own look
+    /// and only its outline shows. <see cref="WorldRenderer.Wireframe"/> says what each value draws.
     /// </remarks>
     public int Wireframe
     {

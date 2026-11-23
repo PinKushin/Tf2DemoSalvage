@@ -69,8 +69,9 @@ public sealed class FaceFanTests
     /// <remarks>
     /// **A face starts at each triangle whose first corner's edge is the polygon's** (B803 review 1): a fan's later triangles
     /// open on a diagonal. A quad in the plane z = 2, wound so its cross product points down, and a triangle in x = 5 wound
-    /// so it points along −x, each with its vertex normal the other way: the plane takes the vertex normal's side, unit
-    /// length, and its distance from the origin along it.
+    /// so it points along −x (corners (5, 0, 0), (5, 0, 4), (5, 4, 0)), each with its vertex normal the other way: the plane
+    /// takes the vertex normal's side, unit length, and its distance from the origin along it. Review 2 corrected the
+    /// triangle, which had been wound along +x and so covered no flip.
     /// </remarks>
     [Test]
     public void Faces_OfAFannedQuadAndATriangle_AreTwoPlanesOnTheirNormalsSide()
@@ -85,10 +86,45 @@ public sealed class FaceFanTests
         [
             Corner(0f, 0f, 2f, true, up), Corner(0f, 4f, 2f, true, up), Corner(4f, 4f, 2f, false, up),
             Corner(0f, 0f, 2f, false, up), Corner(4f, 4f, 2f, true, up), Corner(4f, 0f, 2f, true, up),
-            Corner(5f, 0f, 0f, true, east), Corner(5f, 4f, 0f, true, east), Corner(5f, 0f, 4f, true, east),
+            Corner(5f, 0f, 0f, true, east), Corner(5f, 0f, 4f, true, east), Corner(5f, 4f, 0f, true, east),
         ]);
 
         faces.ShouldBe([new FacePlane(0, 6, 0f, 0f, 1f, 2f), new FacePlane(6, 3, 1f, 0f, 0f, 5f)]);
+    }
+
+    /// <remarks>
+    /// **A face whose first triangle has no area takes its plane from the next that has** (B803 review 2, Grok): the
+    /// engine tests the plane each surface stores, whatever the fan. The first triangle's corners lie on one line in
+    /// z = 3; the second spans the face. The corners' normal is smoothed, (0, 0.6, 0.8), so a plane left on it reads
+    /// apart from the triangle's (0, 0, 1).
+    /// </remarks>
+    [Test]
+    public void Faces_WhoseFirstTriangleHasNoArea_TakeThePlaneOfTheNextThatHas()
+    {
+        WorldVertex Corner(float x, float y, bool faceEdge) =>
+            new(x, y, 3f, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0.6f, NormalZ: 0.8f, FaceEdge: faceEdge);
+
+        FacePlane[] faces = FaceFan.Faces(
+        [
+            Corner(0f, 0f, true), Corner(1f, 0f, true), Corner(2f, 0f, false),
+            Corner(0f, 0f, false), Corner(2f, 0f, true), Corner(2f, 2f, true),
+        ]);
+
+        faces.ShouldBe([new FacePlane(0, 6, 0f, 0f, 1f, 3f)]);
+    }
+
+    /// <remarks>
+    /// **A face with no area at all keeps a plane, its corner's normal through that corner** (B803 review 2), so an eye
+    /// behind it does not see it: three corners on one line in z = 3, normal +z, an eye at z = 0 below.
+    /// </remarks>
+    [Test]
+    public void Faces_OfAFaceWithNoArea_AreItsCornersNormalPlaneAndCullFromBehind()
+    {
+        WorldVertex Corner(float x) => new(x, 0f, 3f, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0f, NormalZ: 2f);
+
+        FacePlane face = FaceFan.Faces([Corner(0f), Corner(1f), Corner(2f)]).ShouldHaveSingleItem();
+
+        (face, face.FacesEye(1f, 0f, 0f), face.FacesEye(1f, 0f, 6f)).ShouldBe((new FacePlane(0, 3, 0f, 0f, 1f, 3f), false, true));
     }
 
     /// <remarks>

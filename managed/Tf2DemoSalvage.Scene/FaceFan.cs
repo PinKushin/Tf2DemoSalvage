@@ -65,33 +65,48 @@ public static class FaceFan
     /// <remarks>
     /// **For the brush-model cull under <c>mat_wireframe 3</c>** (B803 review 1): `engine.dll` `FUN_1800dcb20` tests each
     /// surface's plane against the eye before drawing it and leaves a back-facing one out of the list `FUN_1800e6780`
-    /// outlines; a line list is never culled by the rasteriser, so the outline needs the plane. The plane is the first
-    /// triangle's, on the side of its first corner's normal: a brush vertex's normal is the face's, or smoothed from it,
-    /// so the two agree in sign where the winding would need the camera's handedness to read. A triangle with no area, or
-    /// a normal along the face, gives a zero normal, which faces every eye.
+    /// outlines; a line list is never culled by the rasteriser, so the outline needs the plane. The plane is the face's
+    /// first triangle with area, on the side of its first corner's normal: a brush vertex's normal is the face's, or
+    /// smoothed from it, so the two agree in sign where the winding would need the camera's handedness to read.
+    ///
+    /// **A face with no area still has a plane** (B803 review 2, Grok): the engine tests the plane each surface stores
+    /// (`FUN_1800df1a0` keeps the surface's plane pointer, `+4`, for `FUN_1800dcb20`'s test), whatever its area, so a
+    /// sliver seen from behind is culled like any face. With no triangle to take a plane from, it is the first corner's
+    /// normal through that corner, the nearest the vertices hold to the stored one. Only a corner with no normal either
+    /// gives a zero plane, which faces every eye.
     /// </remarks>
     public static FacePlane[] Faces(IReadOnlyList<WorldVertex> vertices)
     {
         ArgumentNullException.ThrowIfNull(vertices);
 
         List<FacePlane> faces = [];
+        bool open = false;
 
         for (int at = 0; at + 2 < vertices.Count; at += 3)
         {
+            FacePlane? triangle = PlaneOf(vertices[at], vertices[at + 1], vertices[at + 2], at);
+
             if (faces.Count > 0 && !vertices[at].FaceEdge)
             {
-                FacePlane open = faces[^1];
-                faces[^1] = open with { Count = open.Count + 3 };
+                FacePlane last = faces[^1];
+
+                // A face still on its corner's normal takes the first triangle of it that has area.
+                faces[^1] = open && triangle is { } better
+                    ? better with { First = last.First, Count = last.Count + 3 }
+                    : last with { Count = last.Count + 3 };
+                open &= triangle is null;
                 continue;
             }
 
-            faces.Add(PlaneOf(vertices[at], vertices[at + 1], vertices[at + 2], at));
+            faces.Add(triangle ?? NormalPlane(vertices[at], at));
+            open = triangle is null;
         }
 
         return [.. faces];
     }
 
-    private static FacePlane PlaneOf(WorldVertex a, WorldVertex b, WorldVertex c, int first)
+    /// <summary>A triangle's plane on its first corner's normal side, or null for one with no area or a normal along it.</summary>
+    private static FacePlane? PlaneOf(WorldVertex a, WorldVertex b, WorldVertex c, int first)
     {
         (float ux, float uy, float uz) = (b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
         (float vx, float vy, float vz) = (c.X - a.X, c.Y - a.Y, c.Depth - a.Depth);
@@ -101,7 +116,7 @@ public static class FaceFan
 
         if (side == 0f || length == 0f)
         {
-            return new FacePlane(first, 3, 0f, 0f, 0f, 0f);
+            return null;
         }
 
         float scale = MathF.CopySign(1f / length, side);
@@ -109,6 +124,21 @@ public static class FaceFan
         (nx, ny, nz) = (nx * scale, ny * scale, nz * scale);
 
         return new FacePlane(first, 3, nx, ny, nz, (nx * a.X) + (ny * a.Y) + (nz * a.Depth));
+    }
+
+    /// <summary>The plane through a corner along its own normal; a zero plane for a corner with none.</summary>
+    private static FacePlane NormalPlane(WorldVertex corner, int first)
+    {
+        float length = MathF.Sqrt((corner.NormalX * corner.NormalX) + (corner.NormalY * corner.NormalY) + (corner.NormalZ * corner.NormalZ));
+
+        if (length == 0f)
+        {
+            return new FacePlane(first, 3, 0f, 0f, 0f, 0f);
+        }
+
+        (float nx, float ny, float nz) = (corner.NormalX / length, corner.NormalY / length, corner.NormalZ / length);
+
+        return new FacePlane(first, 3, nx, ny, nz, (nx * corner.X) + (ny * corner.Y) + (nz * corner.Depth));
     }
 }
 
