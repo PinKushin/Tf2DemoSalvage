@@ -134,8 +134,8 @@ public sealed partial class ViewerPresenter
             // `ProjectMap` already does nothing but mark the world while a worker reads, so this is reached then only by the
             // read's own projection, whose assets are fresh. Otherwise — a load still decoding, one queued and not yet
             // raised, a superseded load's gap — a reload here would read the old demo's map only for the next load to
-            // clear it. So mark the world and wait, saying nothing (review 28 item 3): the first frame with no load in
-            // flight projects, the upload answers that the world is lost, and this reads the map again **synchronously, on
+            // clear it. So the reload waits, setting no status (review 28 item 3): once no load is in flight the world is
+            // marked, the next frame projects, the upload answers that the world is lost, and this reads the map again **synchronously, on
             // the UI thread** — a full map read, 13 to 18 seconds on a large map (B146), with the window not pumping. That
             // is the cost of recovering a lost device; the read in flight does not recover it, because it uploaded to the
             // device that was lost (review 27 item 3).
@@ -146,10 +146,16 @@ public sealed partial class ViewerPresenter
             // to finish marks it once (`LoadDemoAsync`'s last marshal).
             if (reloadWaits)
             {
-                if (!_reloadPending)
+                if (System.Threading.Interlocked.Exchange(ref _reloadPending, 1) == 0)
                 {
-                    _reloadPending = true;
                     _log.LogInformation("{Message}", $"world textures lost while a load is in flight; reading {open.MapName} again after it");
+                }
+
+                // The last load may have finished between the check above and the flag (review 30 item 1): if none is in
+                // flight now, take the reload here rather than leave it pending into a later load.
+                if (!LoadInFlight)
+                {
+                    TakePendingReload();
                 }
 
                 return;

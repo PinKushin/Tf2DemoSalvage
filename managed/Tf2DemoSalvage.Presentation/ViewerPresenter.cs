@@ -1032,15 +1032,11 @@ public sealed partial class ViewerPresenter : IDisposable
                 // its overlay to the one it superseded.
                 if (Interlocked.Decrement(ref _loadsInFlight) == 0)
                 {
-                    _view.HideLoading();
-
                     // A world lost while loads were in flight waited for them, marked once (review 29 item 1): the next
-                    // frame projects it, and if it is still lost the reload reads the map now.
-                    if (_reloadPending)
-                    {
-                        _reloadPending = false;
-                        _world.Invalidate();
-                    }
+                    // frame projects it, and if it is still lost the reload reads the map now. **Before the window's
+                    // step** (review 30 item 2), so a throw there cannot leave the reload pending and the world unmarked.
+                    TakePendingReload();
+                    _view.HideLoading();
                 }
 
                 return 0;
@@ -1075,9 +1071,23 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>
     /// A world was lost while loads were in flight, and its reload waits for the last to finish (review 29 item 1): set
-    /// once by the skip, and turned into one mark on the world when the count reaches zero.
+    /// once by the skip (1), and turned into one mark on the world when the count reaches zero. An int, so both sides take
+    /// it with one exchange (review 30 item 1).
     /// </summary>
-    private volatile bool _reloadPending;
+    private int _reloadPending;
+
+    /// <summary>
+    /// Takes a pending reload, if one is there, and marks the world so the next frame projects it (reviews 29-30). Called
+    /// by the last load to finish, and by the skip after it sets the flag, in case the last load finished in between: a
+    /// mark made twice is harmless, a mark never made loses the reload.
+    /// </summary>
+    private void TakePendingReload()
+    {
+        if (Interlocked.Exchange(ref _reloadPending, 0) == 1)
+        {
+            _world.Invalidate();
+        }
+    }
 
     /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
     /// <param name="ticket">The load's ticket.</param>

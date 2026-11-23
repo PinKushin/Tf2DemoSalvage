@@ -32,7 +32,21 @@ internal sealed class FakeViewerWindow : IViewerWindow
     }
 
     /// <inheritdoc/>
-    public (int Width, int Height) Viewport { get; set; } = (1280, 720);
+    public (int Width, int Height) Viewport
+    {
+        get
+        {
+            ViewportReads++;
+            return _viewport;
+        }
+
+        set => _viewport = value;
+    }
+
+    private (int Width, int Height) _viewport = (1280, 720);
+
+    /// <summary>How many times the viewport's size was asked for: a projection asks once (B779 review 30).</summary>
+    public int ViewportReads { get; private set; }
 
     /// <inheritdoc/>
     public bool IsActiveApp { get; set; } = true;

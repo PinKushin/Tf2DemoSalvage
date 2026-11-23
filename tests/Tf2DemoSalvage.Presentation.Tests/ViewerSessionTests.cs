@@ -1076,20 +1076,26 @@ public sealed class ViewerSessionTests
     /// **The window's own map-read projection says it is the read's** (B779 review 29 item 2): `ILoadView.MapRead` passes
     /// `fromTheRead`, so the barrier's guard lets it project. Without it the read's own projection would be held off like a
     /// window's mid-read projection — and with a real map the world would wait for a frame instead of going up with the
-    /// read. Here a session with a device opens a demo through the playlist (the async load): the read's projection is
-    /// not held off. The control: a projection made while a map reads, from outside the read, is held off and says so.
+    /// read. Here a session with a device opens a demo through the playlist (the async load): the read's projection
+    /// **ran** — it asked the window for the viewport's size, inside the read, before the read reported its models
+    /// (review 30 item 3) — and was not held off. The control: a projection made while a map reads, from outside the read,
+    /// is held off and says so.
     /// </remarks>
     [Test]
-    public async Task Activate_ADemoWithItsMap_TheReadsOwnProjectionIsNotHeldOff()
+    public async Task Activate_ADemoWithItsMap_TheReadsOwnProjectionRunsAndIsNotHeldOff()
     {
         string demo = WriteDemo("projected");
         using Rig rig = Build().WithDevice();
         bool? controlHeldOff = null;
+        int readsBefore = rig.Window.ViewportReads;
+        int? readsInTheRead = null;
+        rig.Window.ProjectingDuringMapRead = () => readsInTheRead = rig.Window.ViewportReads - readsBefore;
 
         rig.Session.Activate(demo);
         (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
 
-        rig.Log.Count(ViewerPresenter.HeldOffWhileAMapReads).ShouldBe(0, "the read's own projection ran");
+        readsInTheRead.ShouldBe(1, "the read's own projection ran: one viewport size asked, by `MapRead`");
+        rig.Log.Count(ViewerPresenter.HeldOffWhileAMapReads).ShouldBe(0, "and was not held off");
 
         // The control: the same projection made from outside a read in flight is held off, and the line is written.
         string second = WriteDemo("control");
@@ -1102,6 +1108,31 @@ public sealed class ViewerSessionTests
         (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
 
         controlHeldOff.ShouldBe(true);
+    }
+
+    /// <remarks>
+    /// **A world lost during a load says so once** (B779 review 30 item 3): the reload waits for the load, and two frames'
+    /// "lost" answers during it write one line, not one a frame. Here a session with a demo open, a second load, and two
+    /// such answers while it reads. The control: the line was written at all.
+    /// </remarks>
+    [Test]
+    public async Task Activate_AWorldLostTwiceDuringALoad_SaysSoOnce()
+    {
+        using Rig rig = Build().WithDevice();
+        rig.Session.Activate(WriteDemo("open"));
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        Scene.WorldUpload lost = new(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
+        rig.Window.ProjectingDuringMapRead = () =>
+        {
+            Scene.LoadedMap map = rig.Session.Presenter.Map.ShouldNotBeNull();
+            rig.Session.Presenter.FollowUpload(lost, map);
+            rig.Session.Presenter.FollowUpload(lost, map);
+        };
+
+        rig.Session.Activate(WriteDemo("second"));
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Log.Count("world textures lost while a load is in flight").ShouldBe(1);
     }
 
     [Test]

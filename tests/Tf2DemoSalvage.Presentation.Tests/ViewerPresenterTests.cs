@@ -595,7 +595,7 @@ public sealed class ViewerPresenterTests
     /// <param name="whileDecoding">Whether the answer comes before the load is queued — decoded, the map not yet fetched (else once it is queued).</param>
     [TestCase(true)]
     [TestCase(false)]
-    public async Task FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing(bool whileDecoding)
+    public async Task FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce(bool whileDecoding)
     {
         WriteMap();
         (ViewerPresenter loader, FakeLoadView view, _) = Loader();
@@ -675,6 +675,54 @@ public sealed class ViewerPresenterTests
             loader.WorldProjected();
             loader.FollowUpload(Lost, loader.Map.ShouldNotBeNull());
             view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeReload + 1, "then the reload reads the map");
+
+            // **And the pending reload is spent** (review 30 item 3): a plain load after it, with no world lost, ends with
+            // the world unmarked — the last load marks only when a reload is pending, and this one was taken.
+            loader.WorldProjected();
+            view.Loads = 3;
+            (await loader.LoadDemoAsync(WriteDemo("plain")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            loader.WorldNeedsProjecting.ShouldBeFalse("no reload pending, no mark");
+        }
+    }
+
+    /// <remarks>
+    /// **The last load marks a pending reload before the window's step** (B779 review 30 item 2): hiding the loading
+    /// overlay can throw, and a throw there must not leave the reload pending with the world unmarked. Here a world lost
+    /// during a load, and the overlay's hide throwing at its end: the load throws it on, and the world is marked. The
+    /// control: the world was unmarked while the load ran.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AHideThatThrowsWithAReloadPending_StillMarksTheWorld()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            LoadedMap map = loader.Map.ShouldNotBeNull();
+            bool? markedDuring = null;
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading the map" && markedDuring is null)
+                {
+                    loader.WorldProjected();
+                    loader.FollowUpload(Lost, map);
+                    markedDuring = loader.WorldNeedsProjecting;
+                }
+
+                if (name == nameof(ILoadView.HideLoading))
+                {
+                    throw new InvalidOperationException("a hide that fails");
+                }
+            };
+
+            await Should.ThrowAsync<InvalidOperationException>(() => loader.LoadDemoAsync(WriteDemo("second"))).ConfigureAwait(false);
+            view.Asked = null;
+
+            markedDuring.ShouldBe(false, "the control: unmarked while the load ran");
+            loader.WorldNeedsProjecting.ShouldBeTrue();
         }
     }
 

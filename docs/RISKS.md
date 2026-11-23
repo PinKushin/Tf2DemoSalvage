@@ -43763,7 +43763,8 @@ here is the viewer's own threading, not engine parity.
    - The skip now records a pending reload once (`_reloadPending`, which logs once) and leaves the world unmarked.
    - The last load to finish (the count reaching zero in `LoadDemoAsync`'s last marshal) marks it once. The next frame
      then projects, and a world still lost is read again.
-   - *Test*: `FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing`, two cases. Two
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing` (renamed in review
+     30 to `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`), two cases. Two
      "lost" answers in a row during a load leave the world unmarked, so no frame re-projects. After the load the world
      is marked once, and the same answer reads the map.
    - *Sabotage*: marking on every skip reddens both cases. Dropping the end-of-loads mark reddens both cases (nothing
@@ -43788,6 +43789,34 @@ here is the viewer's own threading, not engine parity.
 4. *Mixed atomics on the count*: **true**. It is counted on the UI thread, or inline off it before the window's handle
    exists, and read from the map read's worker as well. So it now uses `Interlocked` on both sides, with
    `Volatile.Read` for reads.
+
+**Review 30** (Fable and Sonnet OK, no defects; Grok one high; Gemini still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The pending flag was set apart from the count* (Grok): **closed, though unreachable in practice**. Sonnet traced
+   both sides to the UI thread.
+   - The flag is now an int that both sides take with one `Interlocked.Exchange`.
+   - After setting it, the skip reads the count again. If the count is zero (the last load finished in between), the
+     skip takes the reload itself and marks the world. A double mark is harmless; a missing mark loses the reload.
+   - *Not tested*: the interleaving needs the decrement off the UI thread, which nothing in the code does.
+2. *The window's step ran before the mark* (Fable, Grok): **true, fixed**. The last load now takes the pending reload
+   before it hides the loading overlay.
+   - *Test*: `LoadDemoAsync_AHideThatThrowsWithAReloadPending_StillMarksTheWorld`.
+   - *Sabotage*: hiding first reddens it.
+3. *Tests*: **added**.
+   - *Clearing the flag*: the in-flight row runs a plain load after its reload and asserts the world ends unmarked,
+     which also pins "mark only when a reload is pending". *Sabotage*: marking at every last load reddens it.
+   - *Log once*: `ViewerSessionTests.Activate_AWorldLostTwiceDuringALoad_SaysSoOnce` gives two "lost" answers during a
+     session's load and expects one line. *Sabotage*: logging on every skip reddens it.
+   - *The read's projection ran* (Grok): the session row is now
+     `Activate_ADemoWithItsMap_TheReadsOwnProjectionRunsAndIsNotHeldOff`. Inside the read, before it reports its
+     models, the window was asked for the viewport's size exactly once, which is the read's projection. *Sabotage*: a
+     `MapRead` that does not ask the window reddens it.
+   - *Limit*: a synthetic map has no outline, so the read's projection returns before any upload. The viewport ask is
+     the trace it leaves.
+4. *Stale text*: **true**. "So mark the world and wait" now says the reload waits and the world is marked once no load
+   is in flight. The in-flight row is renamed
+   `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`.
 
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
