@@ -42804,6 +42804,14 @@ same line under an autoexec without cheats is refused; sabotage: not replaying t
 4. *Found, B816's*: the line's non-cheat ConVars are stored when it is read, not replayed, so after a folder reload a
    config's `fps_max` beats the line's. Added to B816, where moving the configs after `Attach` makes it matter at startup.
 
+**Review 4** (Fable, Sonnet, Grok, Gemini; Gemini approved): the reload's typed `sv_cheats 0` reverted every cheat,
+including a value `settings.cfg` or the menu held, which a fresh start keeps (`settings.cfg` `mat_fullbright 1` with
+`+sv_cheats 1` went solid for the run). `ConfigConsole.StartCheatsOff` now sets the console's `sv_cheats` to 0 without
+reverting. Test `GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue` (sabotage: the typed `sv_cheats 0`
+reddens it). Review 3's test now asserts the folder was taken, the exact unset value and both refusals, so it cannot pass
+on a rejected folder. Item 1 of review 3 above no longer reverts anything. USER-GUIDE's replicated-cheat sentence
+corrected: the viewer does not use one either way.
+
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
    stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,

@@ -1634,12 +1634,44 @@ public sealed class ViewerSessionTests
             _gameFolder = null;
         }
 
+        string? unset;
+
+        using (Rig plain = Build())
+        {
+            unset = plain.Settings.Current.ConVarText("mat_fullbright");
+        }
+
         using Rig rig = Build("+mat_fullbright", "1", "+sv_cheats", "1");
 
         _gameFolder = tf;
         rig.Session.GameFolderChosen(tf);
 
-        rig.Settings.Current.ConVarText("mat_fullbright").ShouldNotBe("1");
+        rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe(unset);
+        rig.Log.Count("Can't use cheat cvar mat_fullbright").ShouldBe(2, "refused at startup and again after the folder");
+    }
+
+    /// <remarks>
+    /// **A cheat the saved settings hold survives a folder chosen later, as it survives a fresh start** (B811 review 4, all
+    /// four): `settings.cfg`'s `mat_fullbright 1` with `+sv_cheats 1` on the line; the reload's `sv_cheats` starts at 0
+    /// without reverting it. The control: the same settings without the reload are fullbright too.
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_WithASavedCheatAndCheatsOn_KeepsTheSavedValue()
+    {
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "cl_showfps 0\n");
+
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0 }.Set("mat_fullbright", "1"), 0.5, "+sv_cheats", "1");
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1", "the control: the saved value at startup");
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
     }
 
     [Test]

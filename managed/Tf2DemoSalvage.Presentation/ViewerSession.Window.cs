@@ -379,8 +379,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         {
             // **From `sv_cheats 0`, as a fresh start is** (B811 review 3, Fable, Sonnet): left at what the line's replay
             // ended on, a cheat the line put before its own `+sv_cheats 1` would be admitted now and refused at the next
-            // launch. Going to 0 reverts every cheat ConVar, which the configs and the line then set again.
-            _console.Load("sv_cheats 0");
+            // launch. Set without reverting (review 4, all four): a typed `sv_cheats 0` put back every cheat the saved
+            // settings or the menu held, which a fresh start keeps.
+            _console.StartCheatsOff();
             LoadUserConfig();
 
             // The configs ran again, so the line's cheats run after them again, as `stuffcmds` follows `exec` (B811

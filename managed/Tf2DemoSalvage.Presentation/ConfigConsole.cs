@@ -914,6 +914,13 @@ public sealed class ConfigConsole
     /// <summary>The ConVar that allows cheat ConVars.</summary>
     private const string CheatsConVar = "sv_cheats";
 
+    /// <summary>
+    /// <c>sv_cheats</c> back to 0 as a fresh start has it, reverting nothing: for the configs and the launch line run again
+    /// after a game folder is chosen (B811 review 4). A typed <c>sv_cheats 0</c> would revert every cheat, including a
+    /// value the viewer's own settings or menu hold, which a fresh start keeps.
+    /// </summary>
+    public void StartCheatsOff() => _conVars[CheatsConVar] = "0";
+
     /// <summary>Whether <c>sv_cheats</c> allows cheats now; 0, its default, until set.</summary>
     private bool CheatsOn => _conVars.TryGetValue(CheatsConVar, out string? cheats) && CheatsAllowed(cheats);
 
