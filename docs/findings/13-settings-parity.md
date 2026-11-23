@@ -233,3 +233,31 @@ WorldVertexTransition's too). TF2's `stdshader_dx9.dll` tests the config bit (+0
 **The same pass answered `$envmapmasktransform`:** the VertexLitGeneric helper declares it and reads it nowhere; the mask
 samples at the base coordinate, as TF2's shipped `vertexlit_and_unlit_generic_ps20b` does (`texld r2, t0, s4` beside
 `texld r4, t0, s0`). *Evidence class: published source, confirmed in shipped bytecode.*
+
+## A config line, a key and an alias body are one dispatcher, and `exec` is one of its commands (B820, 2026-11-23)
+
+**Believed first:** `exec` could be left out. `ConfigConsole`'s own header listed it under "deliberately does not
+implement", beside `wait`, on the reasoning that the viewer reads `config.cfg` and `autoexec.cfg` itself. That reading
+treats a config as two files; a real one is a tree. The owner's own `autoexec.cfg` ends in `exec ultra`, 116 settings
+the viewer never saw, and a mastercomfig autoexec is almost nothing but `exec` and aliases.
+
+**What the console also did wrong, found in the same read:** a config line went through one method (`Define`: bind,
+unbind, unbindall, alias, a ConVar) and a key or an alias body through another (`Run`: alias, ConVar, toggle, button). So
+a config line naming an alias did nothing, and an alias whose body binds a key did nothing.
+
+**What the engine does** (*disassembly*, `engine.dll` on the 2026-11 install, `cmd.cpp` by its assert paths):
+
+- `Cmd_ExecuteCommand` (`FUN_1801678a0`) runs every line, whatever its source. An alias is consulted only when
+  `FindCommandBase` finds no command or ConVar of the name, **or** the name starts with `+` or `-` (`(c - '+') & 0xfd`).
+  So an alias cannot shadow `fps_max`, and can shadow `+forward`.
+- `Cmd_Exec_f` (`FUN_1801672f0`) reads `//MOD/cfg/<name>`, appends `.cfg` only when the last segment has no dot
+  (`V_DefaultExtension`), refuses a path holding `\\`, `:`, `..`, CR or LF and one holding any of twelve file types
+  (case-sensitive substrings, so `A.VPK` passes), refuses a file over 0x100000 bytes, and is silent about a missing file
+  only when the argument as typed contains `autoexec.cfg`, `joystick.cfg` or `game.cfg` (`V_stristr`) — so
+  `exec autoexec` without the extension does print `'autoexec' not present; not executing.` Each line is executed
+  before the next is read, so a nested file runs where its `exec` stood.
+
+**What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;
+`exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in
+`Cmd_Exec_f` counts depth, so the engine's bound on a file that execs itself is not read; the viewer stops at the alias
+expansion limit.

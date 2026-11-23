@@ -243,7 +243,10 @@ public sealed class GameArchives
     /// The prefix compared ends in a separator: without it `tf_custom/x` passed as inside `tf`. A rooted path is
     /// refused outright, as `Path.Combine` did by dropping the folder and failing the prefix.
     /// </remarks>
-    private static string? InsideFolder(string folder, string path)
+    /// <param name="folder">The folder the file must be inside.</param>
+    /// <param name="path">The path below it, from untrusted data.</param>
+    /// <returns>The full path, or null.</returns>
+    public static string? InsideFolder(string folder, string path)
     {
         if (Path.IsPathRooted(path))
         {

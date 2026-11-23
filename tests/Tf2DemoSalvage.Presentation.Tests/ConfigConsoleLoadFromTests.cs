@@ -181,6 +181,35 @@ public sealed class ConfigConsoleLoadFromTests
         bindings.ShouldNotBeNull();
     }
 
+    /// <remarks>
+    /// **An autoexec's `exec` reads the same search path the autoexec came from** (B820): `//MOD/cfg/&lt;name&gt;` in the engine,
+    /// so a file in the game's `cfg/` runs, and a copy in an addon folder of the program's own `custom/` replaces it (D193).
+    /// The first load is the control for the second: the game's copy alone binds `h` forward.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AnAutoexecThatExecsANestedFile_RunsTheFirstCopyOnTheSearchPath()
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg", "comfig"));
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec comfig/comfig\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "comfig", "comfig.cfg"), "bind h +forward\n");
+        string ownCustom = TempFolder();
+        Directory.CreateDirectory(Path.Combine(ownCustom, "mine", "cfg", "comfig"));
+        File.WriteAllText(Path.Combine(ownCustom, "mine", "cfg", "comfig", "comfig.cfg"), "bind h +back\n");
+
+        ConfigConsole gameOnly = new();
+        gameOnly.LoadFrom(game, NullLoggerFactory.Instance, new RecordingLogger(), NowhereFolder());
+        gameOnly.KeyDown("h");
+
+        ConfigConsole withOwn = new();
+        withOwn.LoadFrom(game, NullLoggerFactory.Instance, new RecordingLogger(), ownCustom);
+        withOwn.KeyDown("h");
+
+        gameOnly.IsHeld(ViewerAction.FlyForward).ShouldBeTrue("the game's copy runs");
+        withOwn.IsHeld(ViewerAction.FlyBack).ShouldBeTrue("the program's own copy is found first");
+        withOwn.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
+    }
+
     [Test]
     public void LoadFrom_WithoutALogger_Refuses()
     {

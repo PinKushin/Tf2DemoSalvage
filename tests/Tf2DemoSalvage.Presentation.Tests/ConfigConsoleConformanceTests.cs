@@ -1019,4 +1019,212 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyUp("TAB");
         console.IsHeld(ViewerAction.ShowScores).ShouldBeFalse("the second press takes it down");
     }
+
+    // ---- B820: one dispatcher, and `exec` ----------------------------------------------------------------------------
+    // Read from engine.dll (Ghidra): `Cmd_ExecuteCommand` (FUN_1801678a0) runs every line, from a file, a key or an alias
+    // body, and `Cmd_Exec_f` (FUN_1801672f0) reads `//MOD/cfg/<name>`. The full read is B820 in docs/RISKS.md.
+
+    /// <summary>A client ConVar no test elsewhere depends on, set by the files below.</summary>
+    private const string Alpha = "tf_hud_target_id_alpha";
+
+    /// <summary>A console whose `exec` reads from the given files, recording each path it asked for.</summary>
+    private static ConfigConsole WithFiles(List<string> asked, params (string Path, string Text)[] files)
+    {
+        Dictionary<string, string> byPath = new(StringComparer.Ordinal);
+
+        foreach ((string path, string text) in files)
+        {
+            byPath[path] = text;
+        }
+
+        return new ConfigConsole
+        {
+            FindConfig = path =>
+            {
+                asked.Add(path);
+                return byPath.TryGetValue(path, out string? text) ? System.Text.Encoding.UTF8.GetBytes(text) : null;
+            },
+        };
+    }
+
+    /// <remarks>Each line of the file is executed before the next is read, so a nested file runs where its `exec` stood.</remarks>
+    [Test]
+    public void Load_AnExecLine_RunsTheFileWhereTheLineStands()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 100"));
+
+        console.Load($"{Alpha} 50\nexec a");
+        console.ConVar(Alpha).ShouldBe("100");
+
+        console.Load($"exec a\n{Alpha} 50");
+        console.ConVar(Alpha).ShouldBe("50");
+
+        asked.ShouldBe(["cfg/a.cfg", "cfg/a.cfg"]);
+    }
+
+    /// <remarks>`V_DefaultExtension` (FUN_180282920) appends `.cfg` only when the last path segment has no dot.</remarks>
+    [TestCase("exec comfig/comfig", "cfg/comfig/comfig.cfg")]
+    [TestCase("exec a.txt", "cfg/a.txt")]
+    [TestCase("exec a.b/c", "cfg/a.b/c.cfg")]
+    [TestCase("exec A.VPK", "cfg/A.VPK")]
+    public void Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension(string line, string path)
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked);
+
+        console.Load(line);
+
+        asked.ShouldBe([path]);
+    }
+
+    /// <remarks>
+    /// `exec` takes exactly one argument; the path is refused when it holds `\\`, `:`, `..`, CR or LF (FUN_180176d10), or
+    /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read.
+    /// </remarks>
+    [TestCase("exec")]
+    [TestCase("exec a b")]
+    [TestCase("exec ../a")]
+    [TestCase("exec \"c:a\"")]
+    [TestCase("exec \"a\\\\b\"")]
+    [TestCase("exec a.vpk")]
+    [TestCase("exec a.dll.cfg")]
+    [TestCase("exec a.exe")]
+    [TestCase("exec a.vbs")]
+    [TestCase("exec a.com")]
+    [TestCase("exec a.bat")]
+    [TestCase("exec a.ini")]
+    [TestCase("exec a.gcf")]
+    [TestCase("exec a.sys")]
+    [TestCase("exec a.zip")]
+    [TestCase("exec a.blob")]
+    [TestCase("exec a.scr")]
+    public void Exec_ARefusedLine_ReadsNothing(string line)
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked);
+
+        console.Load(line);
+
+        asked.ShouldBeEmpty();
+    }
+
+    /// <remarks>A file over 1,048,576 bytes is refused: `exec %s: file size larger than 1 MB!`.</remarks>
+    [TestCase(1_048_576, "7")]
+    [TestCase(1_048_577, null)]
+    public void Exec_AFileAtAndOverOneMegabyte_RunsOnlyAtTheLimit(int size, string? expected)
+    {
+        string line = $"{Alpha} 7\n";
+        string text = line + new string(' ', size - line.Length);
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/big.cfg", text));
+
+        console.Load("exec big");
+
+        console.ConVar(Alpha).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// `'%s' not present; not executing.` for a missing file, except when the argument AS TYPED holds `autoexec.cfg`,
+    /// `joystick.cfg` or `game.cfg` (`V_stristr`, FUN_1802845d0): `exec autoexec` says it, `exec MyGame.CFG` does not.
+    /// </remarks>
+    [TestCase("exec missing", 1)]
+    [TestCase("exec autoexec", 1)]
+    [TestCase("exec autoexec.cfg", 0)]
+    [TestCase("exec joystick.cfg", 0)]
+    [TestCase("exec MyGame.CFG", 0)]
+    public void Exec_AMissingFile_SaysSoUnlessItIsOneOfTheEnginesOptionalThree(string line, int said)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([]);
+        console.Log = log;
+
+        console.Load(line);
+
+        log.Count("not present; not executing.").ShouldBe(said);
+    }
+
+    /// <remarks>*Interpolated* bound: nothing in `Cmd_Exec_f` counts depth; this console stops a self-`exec` rather than hang.</remarks>
+    [Test]
+    public void Exec_AFileThatExecsItself_Ends()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", "exec loop"));
+
+        console.Load("exec loop");
+
+        asked.Count.ShouldBe(ConfigConsole.MaximumExpansion);
+    }
+
+    [Test]
+    public void KeyDown_AKeyBoundToExec_RunsTheFile()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 33"));
+        console.Load("bind k \"exec a\"");
+
+        console.KeyDown("k");
+
+        console.ConVar(Alpha).ShouldBe("33");
+    }
+
+    /// <remarks>A config line is dispatched as a key's is: a name with no command of its own runs its alias.</remarks>
+    [Test]
+    public void Load_ALineNamingAnAlias_RunsIt()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias set_alpha \"{Alpha} 70\"\nset_alpha");
+
+        console.ConVar(Alpha).ShouldBe("70");
+    }
+
+    /// <remarks>`bind`, `unbind` and `unbindall` are ConCommands, so an alias body reaches them as a file line does.</remarks>
+    [Test]
+    public void KeyDown_AnAliasThatBinds_BindsTheKey()
+    {
+        ConfigConsole console = new();
+        console.Load("alias rebind \"bind k +forward\"\nbind j rebind");
+
+        console.KeyDown("j");
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
+    }
+
+    [Test]
+    public void KeyDown_AnAliasThatUnbinds_UnbindsTheKey()
+    {
+        ConfigConsole console = new();
+        console.Load("bind k +forward\nalias drop \"unbind k\"\nbind j drop");
+
+        console.KeyDown("j");
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
+    }
+
+    /// <remarks>An alias is consulted only when no command or ConVar has the name, so it cannot shadow a ConVar.</remarks>
+    [Test]
+    public void Load_AnAliasNamedAsAConVar_DoesNotShadowIt()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias {Alpha} \"{Alpha} 5\"\n{Alpha} 60");
+
+        console.ConVar(Alpha).ShouldBe("60");
+    }
+
+    /// <remarks>…except a `+` or `-` name, where the alias wins: `alias +forward` replaces the button.</remarks>
+    [Test]
+    public void KeyDown_AnAliasNamedAsAPlusCommand_ShadowsIt()
+    {
+        ConfigConsole console = new();
+        console.Load("alias +forward +back\nbind w +forward");
+
+        console.KeyDown("w");
+
+        console.IsHeld(ViewerAction.FlyBack).ShouldBeTrue();
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
+    }
 }

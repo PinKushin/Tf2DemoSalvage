@@ -44424,6 +44424,63 @@ behind both, so neither is engine parity.
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
 
+## B820 — a config's `exec` is skipped, and a config line, a key and an alias body each reach a different subset of the console's commands (2026-11-23) — FIXED 2026-11-23
+
+**Fixed.** `ConfigConsole.Run` is the one dispatcher: `Load` runs each line through it, as keys and alias bodies already
+did; it consults an alias only for a `+`/`-` name or one no built-in, ConVar or action command has (`IsCommand`), and
+`Define` now holds the console's own ConCommands, `exec` added. `exec` reads `ConfigConsole.FindConfig`, which `LoadFrom`
+sets to `Tf2ConfigFiles.Finder`, the search path the startup configs come from (opened once for both); a flat file in the
+program's own `custom/` is looked up below `cfg/` and only inside that folder (`GameArchives.InsideFolder`, now shared).
+The 1 MB cap applies to the startup configs too, which `valve.rc` reaches through `exec`. Tests: 36 cases in
+`ConfigConsoleConformanceTests` under "B820" and `ConfigConsoleLoadFromTests.LoadFrom_AnAutoexecThatExecsANestedFile_RunsTheFirstCopyOnTheSearchPath`
+(control: the game's copy alone). No red-first run was possible (the tests name `FindConfig`, new), so each was
+sabotaged instead: alias order ignoring ConVars reddens `Load_AnAliasNamedAsAConVar_DoesNotShadowIt`; `exec` not
+dispatched reddens 11; the path and type guards off redden every refused case (`exec c:a` unquoted is split at `:` by
+the tokenizer, so the case is quoted); built-ins skipped in alias bodies reddens the bind/unbind cases. On the
+owner's install `autoexec.cfg` line 161 is `exec ultra`, 116 settings the viewer now reaches (read from the files; the
+viewer was not run against them).
+
+Found while reviewing B816 (Grok, round 6: "`ConfigConsole` still has no `exec`"). D69's requirement is that a real
+config works as is, mastercomfig's `.vpk` named by the owner. A mastercomfig autoexec is mostly `exec` and aliases that
+run other aliases; this viewer runs none of it.
+
+**What the engine does** (read from `engine.dll`, the build in `F:`, disassembly through Ghidra; `cmd.cpp` by its own
+assert paths):
+
+1. **One dispatcher for every line** (`FUN_1801678a0`, `Cmd_ExecuteCommand`). A line from a file, from a key's bind, or
+   from an alias's body goes through the same function. `bind`, `unbind`, `unbindall`, `alias` and `exec` are ordinary
+   ConCommands found there by name.
+2. **An alias is consulted only when no command or ConVar has that name, or when the name starts with `+` or `-`**
+   (`(c - '+') & 0xfd == 0`). A match inserts the alias's value into the command buffer (`Cbuf_InsertText`) and the
+   dispatch ends. So `alias fps_max "…"` does not shadow the ConVar, and `alias +forward "…"` does shadow the button.
+   The name compare is case-insensitive.
+3. **`exec <name>`** (`FUN_1801672f0`, `Cmd_Exec_f`):
+   - other than exactly one argument prints `exec <filename>: execute a script file`;
+   - the path is `//MOD/cfg/<name>`, and `.cfg` is appended only when the last path segment has no `.`
+     (`FUN_180282920`, `V_DefaultExtension`);
+   - a path holding `\\`, `:`, `..`, a line feed or a carriage return is refused: `exec %s: invalid path.`
+     (`FUN_180176d10`, case-sensitive substring tests);
+   - a path holding `.exe`, `.vbs`, `.com`, `.bat`, `.dll`, `.ini`, `.gcf`, `.sys`, `.zip`, `.vpk`, `.blob` or `.scr`
+     anywhere is refused: `exec %s: invalid file type.`;
+   - a missing file prints `'%s' not present; not executing.`, except `autoexec.cfg`, `joystick.cfg` and `game.cfg`,
+     which are silent;
+   - a file over 1,048,576 bytes prints `exec %s: file size larger than 1 MB!`;
+   - otherwise each line is added to the buffer and executed before the next is read, so a nested file runs inline,
+     where the `exec` stood.
+
+**What this viewer does.** `ConfigConsole.Define` (a config line) handles `unbindall`, `unbind`, `alias`, `bind` and a
+ConVar; everything else, an alias name and `exec` included, is skipped. `ConfigConsole.Run` (a key, or an alias body)
+runs an alias, a ConVar, `toggle`/`incrementvar`/`multvar` and a button, but not `bind`, `unbind`, `unbindall` or
+`exec`, and it consults the alias table before the ConVar for every name.
+
+Measured consequences (synthetic, by reading the code): an autoexec line `exec comfig/comfig` does nothing; a config
+line naming an alias does nothing; `alias toggle_crosshair "bind MOUSE2 +attack2"` bound to a key does nothing.
+
+Fix shape: one dispatcher, used by `Load`, `KeyDown`/`KeyUp` and an alias body, in the engine's order; `exec` through a
+lookup on the same search path `Tf2ConfigFiles` reads (our `custom/`, then the game's mounts). *Interpolated*: the
+engine's self-`exec` bound is not read (nothing in `Cmd_Exec_f` counts depth); this viewer stops at
+`MaximumExpansion`, as its alias expansion already does, so a looping config cannot hang startup.
+
 ## B818 — a replicated cheat ConVar's refusal is decided by the launch line alone (2026-11-23) — OPEN
 
 Found in B811 reviews 3-5 (Sonnet, Grok, Fable). `LaunchOptionsReader` refuses `+cl_forwardspeed 500` with TF2's cheat

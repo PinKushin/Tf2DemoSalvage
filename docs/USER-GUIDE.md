@@ -107,6 +107,10 @@ folder beside `tf2demoview.exe`, which is searched first. There you can use the 
 `config.cfg` or `autoexec.cfg` straight into `custom`. A file that is missing is normal. If none is found, the
 built-in bindings apply. The log lists the files read and each bind it applied.
 
+A config's `exec` runs the named file from the same places (`exec comfig/comfig` reads `cfg/comfig/comfig.cfg`), so a
+config split across files, as mastercomfig's is, runs whole. Aliases work from a config line, a key and another alias
+alike, as in TF2.
+
 A command the viewer does not implement is ignored, and the key stays free for whatever else uses it. A key you
 bind to a command the viewer does not implement loses its default action.
 

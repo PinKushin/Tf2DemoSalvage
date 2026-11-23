@@ -41,7 +41,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// including by `toggle`, `incrementvar` and `multvar`. Once <see cref="ReadSettingsFrom"/> attaches the viewer's
 /// settings, every client ConVar is read from them and no longer kept here.
 ///
-/// **What it deliberately does not implement**: `exec`, `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
+/// **One dispatcher runs every line** (B820, `engine.dll` `Cmd_ExecuteCommand`): a config's line, a key's bind and an
+/// alias's body reach the same commands, `exec` among them, which reads <see cref="FindConfig"/>.
+///
+/// **What it deliberately does not implement**: `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
 /// file. <see cref="Applied"/> counts what actually landed so a caller can tell "your config loaded
 /// and bound nothing" from "your config did not load", which otherwise look identical.
@@ -94,6 +97,16 @@ public sealed class ConfigConsole
 
     /// <summary>Raised when a command run by a key sets a client ConVar (D215).</summary>
     public event EventHandler<ConVarSetEventArgs>? ConVarSet;
+
+    /// <summary>Where `exec` reads a <c>cfg/…</c> path: its bytes, or null when missing. Null reads nothing.</summary>
+    /// <remarks><see cref="LoadFrom"/> sets it to the search path its configs came from (<see cref="Tf2ConfigFiles.Finder"/>).</remarks>
+    public Func<string, byte[]?>? FindConfig { get; set; }
+
+    /// <summary>Where the console prints what TF2 prints to its own: `exec`'s refusals.</summary>
+    public ILogger Log { get; set; } = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+    /// <summary>Whether a config file is being run, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
+    private bool _loading;
 
     /// <summary>How many binds name something this viewer implements.</summary>
     /// <remarks>
@@ -376,14 +389,24 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text)
+    public void Load(string? text) => RunFile(text, depth: 0);
+
+    /// <summary>Runs a file's lines through the one dispatcher, each before the next is read, as `Cmd_Exec_f` does (B820).</summary>
+    private void RunFile(string? text, int depth)
     {
-        foreach (string line in (text ?? string.Empty).Split('\n'))
+        bool loading = _loading;
+        _loading = true;
+
+        try
         {
-            foreach (string clause in SourceConfig.Clauses(line))
+            foreach (string line in (text ?? string.Empty).Split('\n'))
             {
-                Define(clause);
+                _ = Run(line, key: null, depth);
             }
+        }
+        finally
+        {
+            _loading = loading;
         }
     }
 
@@ -639,7 +662,11 @@ public sealed class ConfigConsole
             // a config a player pasted in there does not depend on the game being installed at all.
             // `Tf2ConfigFiles.ReadFiles` already treats a null/empty gameFolder as "nothing from the
             // game", so passing `game` through unconditionally is enough.
-            IReadOnlyList<(string Path, string Text)> configs = Tf2ConfigFiles.ReadFiles(game, loggers.LogTo(), ownCustomRoot);
+            // **`exec` reads the same search path** (B820), opened once for both.
+            Func<string, byte[]?> find = Tf2ConfigFiles.Finder(game, loggers.LogTo(), ownCustomRoot);
+            IReadOnlyList<(string Path, string Text)> configs = Tf2ConfigFiles.ReadFiles(find, loggers.LogTo());
+            FindConfig = find;
+            Log = config;
 
             if (configs.Count == 0)
             {
@@ -779,56 +806,147 @@ public sealed class ConfigConsole
         return new KeyBindings(bound, commands);
     }
 
-    /// <summary>Acts on one config clause.</summary>
-    private void Define(string clause)
+    /// <summary>The ConCommands this console implements itself, found by name before any alias is (B820).</summary>
+    private static readonly HashSet<string> BuiltIns =
+        new(["unbindall", "unbind", "alias", "bind", "exec", "toggle", "incrementvar", "multvar"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether `Cmd_ExecuteCommand` would find a command or ConVar by this name before it looked at the aliases (B820).
+    /// </summary>
+    /// <remarks>
+    /// The engine consults an alias only when `FindCommandBase` finds nothing, or when the name starts with `+` or `-`
+    /// (`engine.dll` FUN_1801678a0). Known here: this console's own ConCommands, every declared ConVar, and every command
+    /// a viewer action is spelled as. *Interpolated*: a TF2 ConCommand this viewer does not know (`say`, say) is
+    /// shadowed by an alias of its name here and is not in TF2; that alias's command does nothing here either way.
+    /// </remarks>
+    private static bool IsCommand(string name) =>
+        BuiltIns.Contains(name) || EngineConVars.TryByConsoleName(name, out _) || KeyBindings.ActionOf(name) is not null;
+
+    /// <summary>Runs one of this console's own ConCommands: binds, aliases and `exec`.</summary>
+    /// <returns>Whether the clause named one, whatever its arguments.</returns>
+    private bool Define(IReadOnlyList<string> tokens, int depth)
     {
-        IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
-
-        if (tokens.Count == 0)
-        {
-            return;
-        }
-
         if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
         {
             _binds.Clear();
             Bound = 0;
             _claimed = null;
-            return;
+            return true;
         }
 
-        if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 2)
+        if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
         {
-            _binds.Remove(tokens[1]);
-            _claimed = null;
-            return;
+            if (tokens.Count >= 2)
+            {
+                _binds.Remove(tokens[1]);
+                _claimed = null;
+            }
+
+            return true;
         }
 
-        if (tokens[0].Equals("alias", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 2)
+        if (tokens[0].Equals("alias", StringComparison.OrdinalIgnoreCase))
         {
             // `alias name` with no body clears it, and an empty body is legal — the null-cancel
             // script defines `alias none ""` precisely so a name can mean "do nothing".
             // **Every argument after the name, joined by spaces** — *interpolated*: Quake's `Cmd_Alias_f`, which the
             // closed engine's descends from, copies "the rest of the command line"; `alias x say hi` is `say hi`.
-            _aliases[tokens[1]] = string.Join(' ', tokens.Skip(2));
+            if (tokens.Count >= 2)
+            {
+                _aliases[tokens[1]] = string.Join(' ', tokens.Skip(2));
+            }
+
+            return true;
+        }
+
+        if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase))
+        {
+            if (tokens.Count >= 3)
+            {
+                _binds[tokens[1]] = tokens[2];
+                Bound++;
+                _claimed = null;
+            }
+
+            return true;
+        }
+
+        if (tokens[0].Equals("exec", StringComparison.OrdinalIgnoreCase))
+        {
+            Exec(tokens, depth);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` FUN_1801672f0).</summary>
+    private static readonly string[] RefusedFileTypes =
+        [".exe", ".vbs", ".com", ".bat", ".dll", ".ini", ".gcf", ".sys", ".zip", ".vpk", ".blob", ".scr"];
+
+    /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
+    private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
+
+    /// <summary>The missing files `Cmd_Exec_f` says nothing about, matched in the argument as typed, ignoring case.</summary>
+    private static readonly string[] QuietWhenMissing = ["autoexec.cfg", "joystick.cfg", "game.cfg"];
+
+    /// <summary>`exec &lt;name&gt;`: runs <c>cfg/&lt;name&gt;</c> where the line stands, as `Cmd_Exec_f` (B820).</summary>
+    /// <remarks>
+    /// Messages are TF2's, from `engine.dll` FUN_1801672f0; the path in the two refusals is `//MOD/cfg/…` there and
+    /// `cfg/…` here, the search path being <see cref="FindConfig"/>'s. *Interpolated*: nothing in `Cmd_Exec_f` bounds a
+    /// file that execs itself; this stops at <see cref="MaximumExpansion"/>, as an alias does.
+    /// </remarks>
+    private void Exec(IReadOnlyList<string> tokens, int depth)
+    {
+        if (tokens.Count != 2)
+        {
+            Log.LogInformation("{Message}", "exec <filename>: execute a script file");
             return;
         }
 
-        if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 3)
+        string name = tokens[1];
+        string path = "cfg/" + name;
+
+        // `V_DefaultExtension`: `.cfg` only when the last segment has no dot (FUN_180282920).
+        if (path.IndexOf('.', path.LastIndexOfAny(['/', '\\']) + 1) < 0)
         {
-            _binds[tokens[1]] = tokens[2];
-            Bound++;
-            _claimed = null;
+            path += ".cfg";
+        }
+
+        if (RefusedPathParts.Any(part => path.Contains(part, StringComparison.Ordinal)))
+        {
+            Log.LogInformation("{Message}", $"exec {path}: invalid path.");
             return;
         }
 
-        // Everything else is a cvar, an exec, or a game command; only a cvar is kept. Once the settings are attached
-        // they are its one copy (D215), so a config line read after that reaches them as a run-time set does.
-        // TF2's saved configs excepted (D264): their lines stay here, below the viewer's own saved settings.
-        if (SetConVar(tokens) && _settingValue is not null && !_savedLayer)
+        if (RefusedFileTypes.Any(type => path.Contains(type, StringComparison.Ordinal)))
         {
-            ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
+            Log.LogInformation("{Message}", $"exec {path}: invalid file type.");
+            return;
         }
+
+        if (FindConfig?.Invoke(path) is not { } bytes)
+        {
+            if (!QuietWhenMissing.Any(quiet => name.Contains(quiet, StringComparison.OrdinalIgnoreCase)))
+            {
+                Log.LogInformation("{Message}", $"'{name}' not present; not executing.");
+            }
+
+            return;
+        }
+
+        if (bytes.Length > Tf2ConfigFiles.MaximumBytes)
+        {
+            Log.LogInformation("{Message}", $"exec {name}: file size larger than 1 MB!");
+            return;
+        }
+
+        if (depth + 1 >= MaximumExpansion)
+        {
+            return;
+        }
+
+        RunFile(Tf2ConfigFiles.Decode(bytes), depth + 1);
     }
 
     /// <summary>A typed ConVar name as the ConVar spells it, or as typed when nothing declares it (B791 review 9).</summary>
@@ -1131,20 +1249,23 @@ public sealed class ConfigConsole
 
             string command = tokens[0];
 
-            // A nested `alias` DEFINES rather than runs, and this is the state machine's whole
-            // mechanism: `+mfwd` ends with `alias checkfwd +forward`, so releasing the other key
-            // later finds a different meaning than it would have found before.
-            if (command.Equals("alias", StringComparison.OrdinalIgnoreCase))
+            // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
+            // where the name is a `+`/`-` button, which an alias may replace.
+            if ((command.StartsWith('+') || command.StartsWith('-') || !IsCommand(command)) &&
+                _aliases.TryGetValue(command, out string? body))
             {
-                Define(clause);
+                // No key, deliberately — see the remark above.
+                _ = Run(body, key: null, depth + 1);
                 acted = true;
                 continue;
             }
 
-            if (_aliases.TryGetValue(command, out string? body))
+            // A nested `alias` DEFINES rather than runs, and this is the state machine's whole
+            // mechanism: `+mfwd` ends with `alias checkfwd +forward`, so releasing the other key
+            // later finds a different meaning than it would have found before. `bind` and `exec` are ConCommands as
+            // `alias` is, so a file line, a key and an alias body all reach them (B820).
+            if (Define(tokens, depth))
             {
-                // No key, deliberately — see the remark above.
-                _ = Run(body, key: null, depth + 1);
                 acted = true;
                 continue;
             }
@@ -1158,9 +1279,14 @@ public sealed class ConfigConsole
             if (SetConVar(tokens))
             {
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
-                // after startup is announced for the host to apply (D215). A config line at load is not.
+                // after startup is announced for the host to apply (D215). A config line before the settings attach is
+                // not, and nor is one from TF2's saved configs, which stays here below the viewer's saved settings (D264).
                 // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
+                if (!_loading || (_settingValue is not null && !_savedLayer))
+                {
+                    ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
+                }
+
                 acted = true;
                 continue;
             }
@@ -1263,7 +1389,9 @@ public sealed class ConfigConsole
                 continue;
             }
 
-            if (_aliases.TryGetValue(tokens[0], out string? body))
+            // The dispatcher's order (B820): see `Run`.
+            if ((tokens[0].StartsWith('+') || tokens[0].StartsWith('-') || !IsCommand(tokens[0])) &&
+                _aliases.TryGetValue(tokens[0], out string? body))
             {
                 found.AddRange(Expand(body, depth + 1));
                 continue;

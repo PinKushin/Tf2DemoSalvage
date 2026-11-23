@@ -65,24 +65,36 @@ public static class Tf2ConfigFiles
     /// (<see cref="IsSaved"/>, D264).
     /// </remarks>
     public static IReadOnlyList<(string Path, string Text)> ReadFiles(
-        string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
-    {
-        List<(string Path, string Text)> configs = [];
+        string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null) =>
+        ReadFiles(Finder(gameFolder, log, ownCustomRoot), log);
 
-        // **Our own custom/ is one more search path, above the game's (D193).** `exec` reads the FIRST match on the
-        // search path, so a config there replaces the game's copy of that file rather than running after it.
-        GameArchives archives = GameArchives.Open(gameFolder, log).WithOwnCustom(ownCustomRoot);
+    /// <summary>Reads whichever of the player's configs <paramref name="find"/> has, each with its path from <see cref="Order"/>.</summary>
+    /// <param name="find">A <see cref="Finder"/>, shared with the console's `exec` so the search path is opened once.</param>
+    /// <param name="log">Where to report what was found, or null.</param>
+    /// <returns>The configs in exec order.</returns>
+    public static IReadOnlyList<(string Path, string Text)> ReadFiles(Func<string, byte[]?> find, Action<string, string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(find);
+
+        List<(string Path, string Text)> configs = [];
 
         foreach (string path in Order)
         {
-            // Stryker disable once : a mutant that empties the guard body leaves 'text'
+            // Stryker disable once : a mutant that empties the guard body leaves 'bytes'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            // A config dropped straight into our custom/, with no cfg/ folder, counts as that file too (D193: "check both").
-            if ((ReadFlat(ownCustomRoot, path) ?? Read(archives, path)) is not { } text)
+            if (find(path) is not { Length: > 0 } bytes)
             {
                 continue;
             }
 
+            // `Cmd_Exec_f`'s cap holds for these too: `valve.rc` reaches them through `exec` (B820).
+            if (bytes.Length > MaximumBytes)
+            {
+                log?.Invoke("config", $"exec {path}: file size larger than 1 MB!");
+                continue;
+            }
+
+            string text = Decode(bytes);
             configs.Add((path, text));
             log?.Invoke("config", $"{path}: {text.Length} characters");
         }
@@ -90,19 +102,44 @@ public static class Tf2ConfigFiles
         return configs;
     }
 
-    /// <summary>`custom/&lt;name&gt;.cfg`, loose in our own folder, or null.</summary>
-    private static string? ReadFlat(string? ownCustomRoot, string path)
+    /// <summary>The largest config `exec` runs: `Cmd_Exec_f` refuses a file over 0x100000 bytes (B820, `engine.dll` FUN_1801672f0).</summary>
+    public const int MaximumBytes = 0x100000;
+
+    /// <summary>A lookup of one <c>cfg/…</c> path on the player's search path, as `exec`'s <c>//MOD/cfg/&lt;name&gt;</c>.</summary>
+    /// <param name="gameFolder">The <c>tf</c> folder, or null for none.</param>
+    /// <param name="log">Where the archives report, or null.</param>
+    /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null.</param>
+    /// <returns>The file's bytes, or null when no search path has it.</returns>
+    /// <remarks>
+    /// **Our own custom/ is one more search path, above the game's (D193).** `exec` reads the FIRST match on the search
+    /// path, so a config there replaces the game's copy of that file rather than running after it. A config dropped
+    /// straight into our custom/, with no cfg/ folder, counts as that file too (D193: "check both").
+    /// </remarks>
+    public static Func<string, byte[]?> Finder(string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
+    {
+        GameArchives archives = GameArchives.Open(gameFolder, log).WithOwnCustom(ownCustomRoot);
+
+        return path => ReadFlat(ownCustomRoot, path) ?? archives.Read(path);
+    }
+
+    /// <summary>`custom/&lt;path below cfg/&gt;`, loose in our own folder, or null.</summary>
+    private static byte[]? ReadFlat(string? ownCustomRoot, string path)
     {
         if (string.IsNullOrWhiteSpace(ownCustomRoot))
         {
             return null;
         }
 
-        string file = Path.Combine(ownCustomRoot, Path.GetFileName(path));
+        // Below `cfg/`, so `exec comfig/comfig` finds `custom/comfig/comfig.cfg` and not another folder's `comfig.cfg`.
+        // A name `exec` passes is a config's text, so only a file inside the folder is read (D32).
+        if (GameArchives.InsideFolder(ownCustomRoot, path.StartsWith("cfg/", StringComparison.Ordinal) ? path[4..] : path) is not { } file)
+        {
+            return null;
+        }
 
         try
         {
-            return File.Exists(file) && File.ReadAllBytes(file) is { Length: > 0 } bytes ? Decode(bytes) : null;
+            return File.Exists(file) ? File.ReadAllBytes(file) : null;
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
@@ -111,7 +148,7 @@ public static class Tf2ConfigFiles
         }
     }
 
-    /// <summary>One config's text, or null when it is not there.</summary>
+    /// <summary>Decodes a config's bytes to text.</summary>
     /// <remarks>
     /// **Decoded as UTF-8 with the BOM stripped rather than as ASCII.** A config carries player
     /// names, `say` binds and server addresses, and this project has been bitten before by an ASCII
@@ -122,15 +159,7 @@ public static class Tf2ConfigFiles
     /// is a file the engine still reads; losing one character from a `say` bind costs nothing, and
     /// refusing the file would cost the player every binding in it.
     /// </remarks>
-    private static string? Read(GameArchives archives, string path)
-    {
-        byte[]? bytes = archives.Read(path);
-
-        return bytes is null || bytes.Length == 0 ? null : Decode(bytes);
-    }
-
-    /// <summary>Decodes a config's bytes to text, shared by <see cref="Read(GameArchives, string)"/> and <see cref="ReadFlat"/>.</summary>
-    private static string Decode(byte[] bytes)
+    public static string Decode(byte[] bytes)
     {
         ReadOnlySpan<byte> span = bytes;
 
