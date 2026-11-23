@@ -376,12 +376,27 @@ public sealed class LaunchOptionsTests
     [TestCase("1\"; bind q quit; \"")]
     [TestCase("1\nbind q quit")]
     [TestCase("1\rbind q quit")]
+    [TestCase("1\0bind q quit")]
     public void Read_ACheatValueThatBreaksItsQuotes_IsRefused(string value)
     {
         Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs
             .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""], "the control: a plain value");
 
         Read("+sv_cheats", "1", "+mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+    }
+
+    /// <remarks>
+    /// **The guard holds on every branch, not only the cheat one** (B811 review 11, Fable, Sonnet): `+sv_cheats` and a
+    /// non-cheat value with a line break are refused too. The controls: their plain values pass.
+    /// </remarks>
+    [Test]
+    public void Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused()
+    {
+        Read("+sv_cheats", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""], "the control: sv_cheats passes");
+        Read("+sv_cheats", "1\nbind q quit", "a.dem").AfterConfigs.ShouldBeNull();
+
+        Read("+cl_showfps", "1", "a.dem").Settings.ConVarText("cl_showfps").ShouldBe("1", "the control: a non-cheat is stored");
+        Read("+cl_showfps", "1\nbind q quit", "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe("1\nbind q quit");
     }
 
     /// <remarks>

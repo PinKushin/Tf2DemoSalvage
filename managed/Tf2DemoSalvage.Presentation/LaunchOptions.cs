@@ -220,10 +220,11 @@ public static class LaunchOptionsReader
 
                 // **A value is one argument, so it may not close its own quotes or start another line** (B811 review 10,
                 // Sonnet): it is handed to the console as `name "value"`, and a `"`, `\r` or `\n` inside would become
-                // further console lines, from a `--like` sidecar as much as a typed line. Refused, and said so.
-                if (value.AsSpan().IndexOfAny("\"\r\n") >= 0)
+                // further console lines, from a `--like` sidecar as much as a typed line; a NUL would cut the value short
+                // (review 11, Fable). Refused, and said so.
+                if (value.AsSpan().IndexOfAny("\"\r\n\0") >= 0)
                 {
-                    log.LogWarning("{Message}", $"+{command}: a value holding a quote or a line break is refused");
+                    log.LogWarning("{Message}", $"+{command}: a value holding a quote, a line break or a NUL is refused");
                     continue;
                 }
 
