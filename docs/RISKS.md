@@ -44334,7 +44334,16 @@ Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it
   for the load is the load's. Not fixed on B779's branch: it adds a route and moves when the upload happens, which is
   more than a log fix.
 
-## B814 — a lost-device reload forgets the demo's precached models (2026-11-22) — OPEN
+## B814 — a lost-device reload forgets the demo's precached models (2026-11-22) — FIXED 2026-11-23
+
+**Fixed, and wider than filed.** The reload's `ClearMap` shuts every level system down, which forgets the packed models,
+the sound schedule (`DemoSystems.AddEffectSounds` sets it), the sound cache's precache and the corpse record, not only
+the models. What a demo's load runs once its map is read is now one method, `ViewerPresenter.SetUpTheDemosLevel`, called
+by the load and by `LoadMap` when a demo is open. Test `ViewerPresenterTests.LoadMap_WithADemoOpen_PrecachesTheDemoAgain`
+(control: a reload with no demo open runs no demo precache; sabotage: gating the call on no demo open reddens it). Not
+verified by looking: no lost device was provoked.
+
+**As filed:**
 
 Found in B779 review 27 (Sonnet), filed in review 28. Pre-existing.
 - **The route.** When the world is lost after its pixels were released, `FollowUpload` reads the map again through

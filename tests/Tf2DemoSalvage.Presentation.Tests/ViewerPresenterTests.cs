@@ -84,7 +84,8 @@ public sealed class ViewerPresenterTests
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null) =>
         Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings(), Path.Combine(_folder, "settings.cfg")), spectateWho);
 
-    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(SettingsPresenter settingsOwner, string? spectateWho = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(
+        SettingsPresenter settingsOwner, string? spectateWho = null, Microsoft.Extensions.Logging.ILoggerFactory? loggers = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -98,7 +99,7 @@ public sealed class ViewerPresenterTests
 
         ViewerPresenter loader = new(
             view,
-            NullLoggerFactory.Instance,
+            loggers ?? NullLoggerFactory.Instance,
             view,
             () => view.Window,
             () => spectateWho,
@@ -795,6 +796,36 @@ public sealed class ViewerPresenterTests
             loader.FollowUpload(Lost, SyntheticMap.Read());
 
             view.Status.ShouldBe("Could not open broken.dem");
+        }
+    }
+
+    /// <remarks>
+    /// **The reload after a lost world sets the open demo's level up again** (B814): `LoadMap`'s `ClearMap` shuts the
+    /// level's systems down, which forgets the packed models, the sound schedule and the corpse record, so the reload runs
+    /// the demo's precache again, as its load did. The control: a reload with no demo open runs none.
+    /// </remarks>
+    [Test]
+    public void LoadMap_WithADemoOpen_PrecachesTheDemoAgain()
+    {
+        WriteMap();
+        using RecordingLoggers log = new();
+        (ViewerPresenter loader, _, _) = Loader(
+            new SettingsPresenter(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg")),
+            loggers: log);
+
+        using (loader)
+        {
+            loader.LoadMap(Map);
+            int withNoDemo = log.Count("precached models in ");
+            withNoDemo.ShouldBe(0, "the control: no demo open, no demo precache");
+
+            loader.LoadDemo(WriteDemo("open")).Loaded.ShouldBeTrue();
+            int afterLoad = log.Count("precached models in ");
+            afterLoad.ShouldBeGreaterThan(0);
+
+            loader.LoadMap(Map);
+
+            log.Count("precached models in ").ShouldBe(afterLoad + 1);
         }
     }
 
