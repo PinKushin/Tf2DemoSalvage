@@ -42892,7 +42892,7 @@ order is not read), so TF2 would accept it. Pre-existing for every cheat ConVar 
 `mat_wireframe`. Next: read the order `stuffcmds` runs in (the startup script or the engine's call), then gate the launch
 line after the configs. *Not fixed*.
 
-## B816 — the client's own `mat_wireframe` materials (sprites, beams, particles, detail props, glows) are not ported (2026-11-23) — OPEN
+## B817 — the client's own `mat_wireframe` materials (sprites, beams, particles, detail props, glows) are not ported (2026-11-23) — OPEN
 
 Found reading B803. Beside the engine's passes (findings 113), the client swaps a material of its own wherever
 `ShouldDrawInWireFrameMode()` holds (`view.h:81`, `sv_cheats && mat_wireframe != 0`), read with clangd's references
@@ -42991,7 +42991,7 @@ swap, the depth rule and the session's route.
 **Still open, the value 3.** `FUN_1800e6780` draws each face's own polygon edges as one line list with
 `debugworldwireframe`, and no triangulation diagonals. Ours outlines the triangles under 3 as it does under 1, so the
 fan's diagonals show as well. Porting it needs each face's boundary kept past upload, for the world and brush-entity
-buffers both, because the draw-time batches hold only triangles. The client's own wireframe materials are B816.
+buffers both, because the draw-time batches hold only triangles. The client's own wireframe materials are B817.
 
 *As found (2026-11-21):*
 
