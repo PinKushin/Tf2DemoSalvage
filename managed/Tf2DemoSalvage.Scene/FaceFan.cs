@@ -105,7 +105,89 @@ public static class FaceFan
         return [.. faces];
     }
 
-    /// <summary>A triangle's plane on its first corner's normal side, or null for one with no area or a normal along it.</summary>
+    /// <summary>The ranges of a run's vertices whose faces reach the outline from an eye, for a line-list draw.</summary>
+    /// <param name="faces">The buffer's faces, in vertex order (<see cref="Faces"/>).</param>
+    /// <param name="first">The run's first vertex.</param>
+    /// <param name="end">One past its last, after any cap.</param>
+    /// <param name="eye">The eye, in the faces' space.</param>
+    /// <param name="translucent">Whether the run draws in the translucent pass (<see cref="FacePlane.OutlinedFrom"/>).</param>
+    /// <param name="noCull">Whether its material is <c>$nocull</c>.</param>
+    /// <param name="into">Cleared, then filled with each range, first to end, consecutive outlined faces merged.</param>
+    /// <remarks>
+    /// **Every range is inside the run and not empty** (B803 review 3, Grok): a face that starts before the run (a run cut
+    /// mid-face, as the vertex cap can leave the one before it) contributes only its part inside, and one that ends past
+    /// the cap only its part before it, so a later run never resubmits an earlier run's lines and a draw is never handed a
+    /// count that wraps. The faces are found by a binary search for the first ending after <paramref name="first"/>.
+    /// </remarks>
+    public static void Runs(
+        FacePlane[] faces,
+        int first,
+        int end,
+        (float X, float Y, float Z) eye,
+        bool translucent,
+        bool noCull,
+        ICollection<(int First, int End)> into)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        int start = -1;
+
+        for (int at = FirstEnding(faces, first); at < faces.Length && faces[at].First < end; at++)
+        {
+            FacePlane face = faces[at];
+
+            if (face.OutlinedFrom(eye.X, eye.Y, eye.Z, translucent, noCull))
+            {
+                start = start < 0 ? Math.Max(face.First, first) : start;
+            }
+            else if (start >= 0)
+            {
+                into.Add((start, face.First));
+                start = -1;
+            }
+        }
+
+        if (start >= 0)
+        {
+            into.Add((start, end));
+        }
+    }
+
+    /// <summary>The first face, in vertex order, that ends after <paramref name="vertex"/>.</summary>
+    private static int FirstEnding(FacePlane[] faces, int vertex)
+    {
+        int low = 0;
+        int high = faces.Length;
+
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+
+            if (faces[middle].First + faces[middle].Count <= vertex)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
+    }
+
+    /// <summary>
+    /// A triangle's plane on its first corner's normal side; null only for one with no area; the zero plane, which faces
+    /// every eye, where the triangle has area but no side can be chosen (B803 review 3).
+    /// </summary>
+    /// <remarks>
+    /// **An undecidable face is drawn whole, the safe error** (`WorldRenderer.ModelEye`'s rule): a normal lying along the
+    /// face (side 0), or a non-finite corner, gives no front. Taking the corner normal's plane there, as review 2 did,
+    /// stood a plane across a visible face and culled it from half of space; a NaN plane failed every test.
+    /// </remarks>
     private static FacePlane? PlaneOf(WorldVertex a, WorldVertex b, WorldVertex c, int first)
     {
         (float ux, float uy, float uz) = (b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
@@ -114,32 +196,51 @@ public static class FaceFan
         float side = (nx * a.NormalX) + (ny * a.NormalY) + (nz * a.NormalZ);
         float length = MathF.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
 
-        if (side == 0f || length == 0f)
+        if (!float.IsFinite(length) || !float.IsFinite(side))
+        {
+            return Undecided(first);
+        }
+
+        if (length == 0f)
         {
             return null;
+        }
+
+        if (side == 0f)
+        {
+            return Undecided(first);
         }
 
         float scale = MathF.CopySign(1f / length, side);
 
         (nx, ny, nz) = (nx * scale, ny * scale, nz * scale);
 
-        return new FacePlane(first, 3, nx, ny, nz, (nx * a.X) + (ny * a.Y) + (nz * a.Depth));
+        return Finite(new FacePlane(first, 3, nx, ny, nz, (nx * a.X) + (ny * a.Y) + (nz * a.Depth)));
     }
 
-    /// <summary>The plane through a corner along its own normal; a zero plane for a corner with none.</summary>
+    /// <summary>The plane through a corner along its own normal; the zero plane for a corner with none.</summary>
     private static FacePlane NormalPlane(WorldVertex corner, int first)
     {
         float length = MathF.Sqrt((corner.NormalX * corner.NormalX) + (corner.NormalY * corner.NormalY) + (corner.NormalZ * corner.NormalZ));
 
-        if (length == 0f)
+        if (length == 0f || !float.IsFinite(length))
         {
-            return new FacePlane(first, 3, 0f, 0f, 0f, 0f);
+            return Undecided(first);
         }
 
         (float nx, float ny, float nz) = (corner.NormalX / length, corner.NormalY / length, corner.NormalZ / length);
 
-        return new FacePlane(first, 3, nx, ny, nz, (nx * corner.X) + (ny * corner.Y) + (nz * corner.Depth));
+        return Finite(new FacePlane(first, 3, nx, ny, nz, (nx * corner.X) + (ny * corner.Y) + (nz * corner.Depth)));
     }
+
+    /// <summary>The zero plane, which faces every eye: a face drawn whole.</summary>
+    private static FacePlane Undecided(int first) => new(first, 3, 0f, 0f, 0f, 0f);
+
+    /// <summary>The plane, or the zero plane where any term is not finite (a NaN corner, B803 review 3).</summary>
+    private static FacePlane Finite(FacePlane plane) =>
+        float.IsFinite(plane.NormalX) && float.IsFinite(plane.NormalY) && float.IsFinite(plane.NormalZ) && float.IsFinite(plane.Distance)
+            ? plane
+            : Undecided(plane.First);
 }
 
 /// <summary>One fanned face: its run of vertices and its plane (B803 review 1).</summary>
@@ -156,6 +257,27 @@ public readonly record struct FacePlane(int First, int Count, float NormalX, flo
     /// <param name="y">The eye.</param>
     /// <param name="z">The eye.</param>
     /// <returns><c>dot(normal, eye) − distance ≥ −0.01</c>: the engine's tolerance, the `-0.01` that surface loop compares against.</returns>
-    public bool FacesEye(float x, float y, float z) =>
-        (NormalX * x) + (NormalY * y) + (NormalZ * z) - Distance >= -0.01f;
+    public bool FacesEye(float x, float y, float z) => Ahead(x, y, z) >= -0.01f;
+
+    /// <summary>Whether a brush entity's face reaches the outline from this eye, by the pass that draws it (B803 review 3).</summary>
+    /// <param name="x">The eye, in the face's own space.</param>
+    /// <param name="y">The eye.</param>
+    /// <param name="z">The eye.</param>
+    /// <param name="translucent">Whether the face draws in the translucent pass.</param>
+    /// <param name="noCull">Whether its material is <c>$nocull</c>.</param>
+    /// <returns>
+    /// An opaque face: <see cref="FacesEye"/>, `FUN_1800dcb20`'s test, no flag read. A translucent one: `FUN_1800dbdb0`'s,
+    /// which walks the model's node tree back to front and keeps a translucent surface that is NOCULL (`0x200`) or whose
+    /// plane-back flag (`0x40`) matches the eye's side of its node's plane, `dist &lt; 0`: no tolerance, NOCULL exempt.
+    /// </returns>
+    /// <remarks>
+    /// The plane here is the face's front, so the plane-back comparison reads as the eye at or ahead of it. A face whose
+    /// node plane points away from it (plane-back) is kept only strictly ahead, which this cannot tell from at: the two
+    /// differ only for an eye exactly on the plane (*interpolated* as negligible).
+    /// </remarks>
+    public bool OutlinedFrom(float x, float y, float z, bool translucent, bool noCull) =>
+        translucent ? noCull || Ahead(x, y, z) >= 0f : FacesEye(x, y, z);
+
+    /// <summary>The eye's signed distance ahead of the face, along its front normal.</summary>
+    private float Ahead(float x, float y, float z) => (NormalX * x) + (NormalY * y) + (NormalZ * z) - Distance;
 }

@@ -3590,9 +3590,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="material">The material, or -1.</param>
     /// <returns>True for a <c>Wireframe</c> material that can reach a draw now.</returns>
     /// <remarks>
-    /// **The off path costs the comparison it did before B803** (review 1, cost): the debug materials draw only under
-    /// <c>mat_wireframe</c>, so with it 0 the set is read only when a map's own material is <c>Wireframe</c>
-    /// (<see cref="_mapLineFill"/>), which no shipped map is known to have.
+    /// **The off path reads two fields, not the set** (review 1, corrected in review 3: before B803 it was one): the debug
+    /// materials draw only under <c>mat_wireframe</c>, so with it 0 the set is read only when a map's own material is
+    /// <c>Wireframe</c> (<see cref="_mapLineFill"/>), which no shipped map is known to have.
     /// </remarks>
     private bool DrawsLines(int material) => (Wireframe != 0 || _mapLineFill) && _lineFill.Contains(material);
 
@@ -5040,7 +5040,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // returns without queuing its own draw (`FUN_1800c73a0`). Every other surface draws solid, outlined after the pass.
             if (batch.Category is SurfaceCategory.Terrain && EngineWireframe(MapAssets.DisplacementWireframePath) is { } terrain)
             {
-                _wireframeQueue.Add(batch with { MaterialIndex = terrain });
+                _wireframeQueue.Add((batch with { MaterialIndex = terrain }, batch.MaterialIndex));
                 continue;
             }
 
@@ -7804,7 +7804,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // The off path is this one comparison per surface (B803 review 1, cost).
         if (Wireframe != 0 && SurfaceWireframe() is { } wire)
         {
-            _wireframeQueue.Add(batch with { MaterialIndex = wire });
+            _wireframeQueue.Add((batch with { MaterialIndex = wire }, batch.MaterialIndex));
         }
     }
 
@@ -7819,13 +7819,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="context">The device context.</param>
     /// <param name="outline">The bound vertex buffer's face outline, or a null handle where it has none.</param>
     /// <param name="faces">The buffer's faces, to leave a brush entity's back faces out of its outline, or null.</param>
-    /// <param name="eye">The eye in the buffer's own space, read only with <paramref name="faces"/>.</param>
+    /// <param name="placement">The model's placement, to move the eye into the faces' space; read only with <paramref name="faces"/>.</param>
     /// <param name="cap">The B597 vertex cap the pass's own draws took, or null.</param>
+    /// <remarks>
+    /// The eye is moved into the model's space once, and only when an outline with faces draws (review 3, Grok): the
+    /// inverse is a 4×4 one, and the values 1 and 2, and every run without an outline, need none.
+    /// </remarks>
     private void DrawQueuedWireframes(
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<ID3D11Buffer> outline,
         FacePlane[]? faces = null,
-        System.Numerics.Vector3? eye = null,
+        float[]? placement = null,
         int? cap = null)
     {
         if (_wireframeQueue.Count == 0)
@@ -7833,7 +7837,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return;
         }
 
-        foreach (WorldBatch batch in _wireframeQueue)
+        System.Numerics.Vector3? eye = null;
+        bool eyeRead = false;
+
+        foreach ((WorldBatch batch, int source) in _wireframeQueue)
         {
             if (!BindDecalRun(context, batch, WireframeRaster(batch.MaterialIndex), 1f) || ModelVertexClamp.Suppresses(cap))
             {
@@ -7844,7 +7851,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if (DrawsOutline(batch) && outline.Handle is not null)
             {
-                DrawOutline(context, batch, outline, faces, eye, cap);
+                if (!eyeRead && faces is not null && placement is not null)
+                {
+                    eye = ModelEye(placement, _eye);
+                    eyeRead = true;
+                }
+
+                DrawOutline(context, batch, outline, faces, eye, cap, IsBlendedMaterial(source), _noCull.Contains(source));
             }
             else
             {
@@ -7861,8 +7874,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.RSSetState(Raster(_bothSides));
     }
 
-    /// <summary>The runs <see cref="DrawQueuedWireframes"/> draws next, each already carrying its wireframe material.</summary>
-    private readonly List<WorldBatch> _wireframeQueue = [];
+    /// <summary>
+    /// The runs <see cref="DrawQueuedWireframes"/> draws next, each already carrying its wireframe material, beside the
+    /// material it was drawn with (review 3: a translucent or <c>$nocull</c> face is culled by the other rule).
+    /// </summary>
+    private readonly List<(WorldBatch Run, int Source)> _wireframeQueue = [];
 
     /// <summary>The rasteriser a debug wireframe material draws with: its own shader's, not a decal pass's (B803 review 1).</summary>
     /// <param name="material">The debug wireframe material.</param>
@@ -7982,7 +7998,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // The surfaces it hands `FUN_1800dc720` are its list before the displacements are added, so no outline either.
         if (batch.Category is SurfaceCategory.Terrain && EngineWireframe(MapAssets.DisplacementWireframePath) is { } terrain)
         {
-            _wireframeQueue.Add(batch with { MaterialIndex = terrain });
+            _wireframeQueue.Add((batch with { MaterialIndex = terrain }, batch.MaterialIndex));
             return;
         }
 
@@ -9191,7 +9207,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             (ComPtr<ID3D11Buffer> outline, FacePlane[]? faces) = _modelOutlines.GetValueOrDefault(modelPath);
 
-            DrawQueuedWireframes(context, outline, faces, ModelEye(matrix, _eye), ModelVertexCap);
+            DrawQueuedWireframes(context, outline, faces, matrix, ModelVertexCap);
         }
 
         // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches

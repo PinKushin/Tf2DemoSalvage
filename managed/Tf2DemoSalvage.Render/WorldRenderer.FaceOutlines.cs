@@ -41,9 +41,16 @@ internal sealed unsafe partial class WorldRenderer
 
         if (vertices.Count % 3 != 0)
         {
-            _render.LogWarning(
-                "{Message}",
-                $"{owner}: {vertices.Count} vertices are not whole triangles, so mat_wireframe 3 draws its triangles, not its faces' outline");
+            // Once per map, not per brush entity (review 3, Sonnet): one cause, a builder bug, would name every model.
+            if (!_partialOutlineReported)
+            {
+                _partialOutlineReported = true;
+                _render.LogWarning(
+                    "{Message}",
+                    $"{owner}: {vertices.Count} vertices are not whole triangles, so mat_wireframe 3 draws its triangles, not "
+                    + "its faces' outline; any more in this map are not reported");
+            }
+
             return buffer;
         }
 
@@ -81,24 +88,32 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="faces">The buffer's faces, to leave out those whose back the eye sees, or null to draw every one.</param>
     /// <param name="eye">The eye in the buffer's own space, read only with <paramref name="faces"/>; null draws every face.</param>
     /// <param name="cap">The B597 vertex cap, as the run's solid draw takes it; null draws the run whole.</param>
+    /// <param name="translucent">Whether the run's own material draws in the translucent pass.</param>
+    /// <param name="noCull">Whether the run's own material is <c>$nocull</c>.</param>
     /// <remarks>
     /// The engine's `MATERIAL_LINES` (primitive type 1 at `FUN_1800e6780`'s mesh setup). Two indices per vertex, so the run's
     /// lines are <c>2 × first</c> for <c>2 × count</c> in the outline.
     ///
-    /// **A brush entity's back faces are left out by their planes** (B803 review 1, Fable): `R_DrawBrushModel`'s path
-    /// `FUN_1800dcb20` tests every surface's plane against the eye, `dot − dist ≥ −0.01`, marks the rest culled, and builds
-    /// the list it hands `FUN_1800dc720` from the unculled ones only. A line is never culled by the rasteriser, so without
-    /// the planes a door seen from behind was outlined under 3 and not under 1 or 2, whose triangles the back-face cull
-    /// takes. The world needs none: its walk already leaves out a surface whose plane the eye is behind
-    /// (<c>VisibleWorld.Surfaces</c>, `R_DrawLeaf`), keeping a NOCULL one, which the engine outlines from behind too.
+    /// **A brush entity's back faces are left out by their planes, by the rule of the pass that draws them** (B803 reviews
+    /// 1-3), `FacePlane.OutlinedFrom`. *Read*: the opaque path `FUN_1800dcb20` tests the plane of each surface on
+    /// `FUN_1800df1a0`'s list (every surface without flag `0x20`), `dot − dist ≥ −0.01`, no flag read; the translucent path
+    /// `FUN_1800de800` collects through `FUN_1800dbdb0`, a back-to-front walk of the model's nodes that keeps a surface with
+    /// flag `0x20` that is NOCULL (`0x200`) or whose plane-back flag (`0x40`) matches the eye's side of its node, no
+    /// tolerance; both lists reach `FUN_1800dc720`. *Interpolated*: that flag `0x20` is the viewer's blended materials
+    /// (`IsBlendedMaterial`), that a face's node plane is its own, and that an eye exactly on a plane-back face's plane is
+    /// negligible. A line is never culled by the rasteriser, so without the planes a door seen from behind was outlined
+    /// under 3 and not under 1 or 2. The world needs none: its walk already leaves out a surface whose plane the eye is
+    /// behind (<c>VisibleWorld.Surfaces</c>, `R_DrawLeaf`), keeping a NOCULL one.
     /// </remarks>
-    private static void DrawOutline(
+    private void DrawOutline(
         ComPtr<ID3D11DeviceContext> context,
         WorldBatch batch,
         ComPtr<ID3D11Buffer> outline,
         FacePlane[]? faces,
         Vector3? eye,
-        int? cap)
+        int? cap,
+        bool translucent,
+        bool noCull)
     {
         int first = batch.FirstVertex;
         int end = first + ModelVertexClamp.Apply(batch.VertexCount, cap);
@@ -112,68 +127,25 @@ internal sealed unsafe partial class WorldRenderer
         }
         else
         {
-            int start = -1;
+            FaceFan.Runs(faces, first, end, (seenFrom.X, seenFrom.Y, seenFrom.Z), translucent, noCull, _outlineRuns);
 
-            for (int at = FirstFaceEnding(faces, first); at < faces.Length && faces[at].First < end; at++)
+            foreach ((int from, int to) in _outlineRuns)
             {
-                FacePlane face = faces[at];
-                bool seen = face.FacesEye(seenFrom.X, seenFrom.Y, seenFrom.Z);
-
-                // A run is whole faces, so the first face found starts at the run's first vertex: the search decides
-                // where the lines start, and what it returns is the only thing that keeps an earlier run's faces out.
-                if (seen && start < 0)
-                {
-                    start = face.First;
-                }
-                else if (!seen && start >= 0)
-                {
-                    DrawLines(context, start, face.First);
-                    start = -1;
-                }
-            }
-
-            if (start >= 0)
-            {
-                DrawLines(context, start, end);
+                DrawLines(context, from, to);
             }
         }
 
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
     }
 
+    /// <summary>The ranges <see cref="FaceFan.Runs"/> fills for the outline being drawn, kept so a draw allocates nothing.</summary>
+    private readonly List<(int First, int End)> _outlineRuns = [];
+
     /// <summary>The lines of the vertices from <paramref name="first"/> to before <paramref name="end"/>.</summary>
+    /// <remarks>Never handed a reversed range: <see cref="FaceFan.Runs"/> yields none, and a whole run's count is not negative.</remarks>
     private static void DrawLines(ComPtr<ID3D11DeviceContext> context, int first, int end)
     {
-        // An empty range, as a cap of the run's first vertices can leave, draws nothing rather than a wrapped count.
-        if (end <= first)
-        {
-            return;
-        }
-
         SubmitCounters.Draw(); context.DrawIndexed((uint)(2 * (end - first)), (uint)(2 * first), 0);
-    }
-
-    /// <summary>The first face, in vertex order, that ends after <paramref name="vertex"/>.</summary>
-    private static int FirstFaceEnding(FacePlane[] faces, int vertex)
-    {
-        int low = 0;
-        int high = faces.Length;
-
-        while (low < high)
-        {
-            int middle = (low + high) / 2;
-
-            if (faces[middle].First + faces[middle].Count <= vertex)
-            {
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle;
-            }
-        }
-
-        return low;
     }
 
     /// <summary>The eye in a model's own space, from its placement: the space its faces' planes are in.</summary>
@@ -201,9 +173,14 @@ internal sealed unsafe partial class WorldRenderer
         return Matrix4x4.Invert(placement, out Matrix4x4 inverse) ? Vector3.Transform(new Vector3(at.X, at.Y, at.Z), inverse) : null;
     }
 
-    /// <summary>Releases the world's outline with its buffer.</summary>
+    /// <summary>Whether this map's upload has already said a buffer was not whole triangles.</summary>
+    private bool _partialOutlineReported;
+
+    /// <summary>Releases the world's outline with its buffer, and lets the next map report a partial triangle again.</summary>
     private void ReleaseWorldOutline()
     {
+        _partialOutlineReported = false;
+
         if (_worldOutline.Handle is not null)
         {
             _worldOutline.Dispose();
@@ -212,11 +189,18 @@ internal sealed unsafe partial class WorldRenderer
     }
 
     /// <summary>Releases every brush entity's outline with the model buffers.</summary>
+    /// <remarks>
+    /// A model with no outline (a partial triangle, review 2) holds a null handle, skipped as the world's is (review 3).
+    /// Silk's <c>Dispose</c> of a null handle was measured a no-op too: the release test stays green with the check removed.
+    /// </remarks>
     private void ReleaseModelOutlines()
     {
         foreach ((ComPtr<ID3D11Buffer> outline, _) in _modelOutlines.Values)
         {
-            outline.Dispose();
+            if (outline.Handle is not null)
+            {
+                outline.Dispose();
+            }
         }
 
         _modelOutlines.Clear();

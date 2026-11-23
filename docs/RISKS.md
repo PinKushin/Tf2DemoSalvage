@@ -43130,7 +43130,7 @@ a precise inverse edit. The reads are in findings 113, "Review 1", under "No NOC
    test, `QueueSurfaceWireframe`) and per blended one, two boolean reads per opaque batch (`DrawsLines`), one integer
    comparison per world and entity decal (`WireframeDecal`), one per model batch, and a queue-count check per pass and
    per model; at upload, the outline buffers and the brush entities' face planes (item 8). Read from the code, *not
-   measured*.
+   measured*. *Superseded by review 3, item 2*, which has the exact list.
 5. **A partial triangle fails no load** (Fable, Sonnet). *Fixed*: `CreateOutline` logs a warning naming the buffer and
    builds no outline, and the run draws its triangles under 3. `FaceFan.Outline` still throws, and its test stays. Test:
    `WorldWireframeConformanceTests.DrawWorld_UnderWireframeThreeWithAPartialTriangle_DrawsItsTrianglesInstead` (red, an
@@ -43147,6 +43147,60 @@ a precise inverse edit. The reads are in findings 113, "Review 1", under "No NOC
    912 vertices, 7,296 bytes). Built at every upload whatever the value, as the outlines are.
 9. **`Device3D.Wireframe`'s remark** (Grok). *Fixed*: the debug materials go over the world and its brush entities, and
    in place of a displacement (opaque or translucent), a world decal and a studio model's materials.
+
+### Review 3 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `29768b1c3`. Same rules. New reads in findings 113 ("Translucent brush faces").
+
+1. **Translucent brush faces** (Fable, Sonnet; Gemini disagreed). *Checked*: a translucent `*N` batch is queued in
+   whichever model pass draws it (`EntireModel`, or `TranslucentOnly`), so they do reach the outline; Gemini's claim does
+   not hold for the default pass. *Read*: `FUN_1800de800` → `FUN_1800dbdb0`, a back-to-front walk of the model's node
+   tree that keeps a surface with flag `0x20` if it is NOCULL (`0x200`) or its plane-back flag (`0x40`) matches the
+   eye's side of the node's plane, no tolerance; then `FUN_1800ddca0`. *Fixed*: the queue keeps each run's own
+   material, and `FacePlane.OutlinedFrom` culls a blended run by that rule (NOCULL exempt, no tolerance) and an opaque
+   one by `FUN_1800dcb20`'s. *Interpolated*, and said in `DrawOutline`'s remark: flag `0x20` as the viewer's blended
+   materials, a face's node plane as its own, and an eye exactly on a plane-back face's plane. Tests:
+   `FaceFanTests.OutlinedFrom_AnOpaqueOrTranslucentFace_TakesItsPassesRule` (the translucent cases red with the opaque
+   rule for all) and `EyeShaderRenderTests.DrawModelPose_ATranslucentBrushBackFaceUnderWireframeThree_IsOutlinedOnlyIfNoCull`
+   (the `$nocull` case red with the run's translucency dropped).
+2. **The invert on the off path** (Grok). The call already sat inside the queue-count check, so the off path never
+   inverted; but every run of 1 or 2 did. *Fixed*: `DrawQueuedWireframes` takes the placement and inverts once, only
+   when an outline with faces draws. **The off path over main, exactly, read from the code** (*not measured*): per
+   opaque world batch, an enum comparison (terrain), an integer comparison (`QueueSurfaceWireframe`), and an integer
+   and a boolean (`DrawsLines`); per blended world batch, the enum and the integer; per `Raster` call, the integer and
+   the boolean; per material bind, an integer (the depth guard); per world or entity decal batch, an integer
+   (`WireframeDecal`); per kept model batch, an integer; per model, a queue count; per world pass that ends in
+   `DrawQueuedWireframes`, a queue count. At upload: the outline buffers and the brush entities' face planes (review 2,
+   item 8).
+3. **A face with area and no side** (Fable, Grok). *Fixed*: such a triangle gets the zero plane, drawn whole (the
+   `ModelEye` rule); the corner-normal plane is only for a face with no area. Test:
+   `FaceFanTests.Faces_WithAreaButANormalAlongTheFace_AreSeenFromEverywhere` (red with review 2's null).
+4. **A NaN corner** (Sonnet). *Fixed*: a non-finite plane is the zero plane. Test:
+   `FaceFanTests.Faces_WithANaNCorner_AreSeenFromEverywhere` (red with the finite checks off).
+5. **A partial-triangle `*N` model's release** (Fable). *Guarded*, as the world's. Test:
+   `OffscreenTargetReleaseTests.Dispose_AfterDrawingABrushEntityOfAPartialTriangleUnderWireframeThree_LeavesNoDeviceReference`.
+   **It did not redden with the check removed**: Silk's `Dispose` of a null handle is a no-op, so the guard is symmetry,
+   not a fix; the test pins the draw-and-release path for a partial `*N` model, which nothing covered.
+6. **The probe's face count** (Fable, B243). *Fixed*: it counts `FaceFan.Faces` over each model's corners packed by
+   `EntityModelSet.Packed` (made internal; the probe has the assembly's internals). Re-measured: the same 250 planes on
+   `cp_process_final` and 134 on `cp_granary`.
+7. **`DrawsLines`' remark** (Fable). *Fixed*: it reads two fields where main read one.
+8. **Reversed ranges and a run cut mid-face** (Grok). *Fixed*: the range logic is `FaceFan.Runs`, which clamps each
+   range to the run (a face starting before it contributes its part inside), so a later run never resubmits an earlier
+   run's lines; `DrawLines` lost its empty-range return, since no caller can hand it one. Test:
+   `FaceFanTests.Runs_OfARunAmongFaces_StayInsideIt` (five runs; red with the clamp removed, and with the face search
+   returning 0, which now yields a reversed range rather than nothing visible).
+9. **The cap ends an outline mid-face** (Sonnet). *Pinned as intended*: the cap is a development control and draws what
+   it keeps, so the outline is of what was drawn. `Runs_…(0, 3)`: the first face's partial outline.
+10. **The partial-triangle warning per model** (Sonnet). *Fixed*: once per world upload, saying that any more are not
+    reported. No test: a log's count, from a path no shipped map takes.
+11. **`return` on a null target** (Grok, Sonnet). *Not a defect*: `EyeShaderRenderTests.Target()` calls
+    `Assert.Ignore` when there is no device, so the `return` after it is never reached and a headless run reports the
+    test ignored, not passed. The new tests follow the file's own pattern.
+12. **The eye for another camera** (Sonnet). *Checked, correct*: `WorldRenderer._eye` is recovered from the matrix at
+    every `SetCamera`, and the water views (`WorldRenderer.Water.cs`, reflection and refraction), the monitors
+    (`WorldRenderer.Monitor.cs`) and the 3D sky each set their own camera through it, so a model pass in those views
+    tests its faces against that view's eye; a reflection's is the mirrored one, as the engine's model origin is there.
 
 *As found (2026-11-21):*
 

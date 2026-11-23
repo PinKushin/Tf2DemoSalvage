@@ -831,6 +831,35 @@ public sealed class EyeShaderRenderTests
         (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
+    /// <remarks>
+    /// **A translucent brush face is culled by the translucent path's rule** (B803 review 3, Fable, Sonnet). `FUN_1800de800`
+    /// collects a model's translucent surfaces through `FUN_1800dbdb0`, which keeps one that is NOCULL or whose plane-back
+    /// flag matches the eye's side of its node's plane; `FUN_1800dcb20`, the opaque rule, reads no flag. So a translucent
+    /// face seen from behind is outlined under 3 when its material is `$nocull` and not otherwise. Review 2 applied the
+    /// opaque rule to it, and the `$nocull` one was not outlined.
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void DrawModelPose_ATranslucentBrushBackFaceUnderWireframeThree_IsOutlinedOnlyIfNoCull(bool noCull, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: false)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true, IsNoCull = noCull });
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
     internal static WorldVertex[] BrushFace(float x, float half, bool front)
     {
@@ -860,11 +889,12 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <summary>Draws <c>*1</c> both-sided, as <see cref="Draw"/> does, with a red face and <c>debugworldwireframe</c> loaded.</summary>
-    internal static void DrawBrush(OffscreenTarget target, List<WorldVertex> vertices, WorldBatch[] batches, float[] placement)
+    internal static void DrawBrush(
+        OffscreenTarget target, List<WorldVertex> vertices, WorldBatch[] batches, float[] placement, MapTexture? face = null)
     {
         MapAssets assets = MapAssets.ForMaterials(
             [
-                Uniform4(255, 0, 0, 255),
+                face ?? Uniform4(255, 0, 0, 255),
                 Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
             ],
             ["VertexLitGeneric", "Wireframe"],

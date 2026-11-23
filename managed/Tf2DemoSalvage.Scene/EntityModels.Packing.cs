@@ -581,7 +581,7 @@ public sealed partial class EntityModelSet
     /// the bones are the only thing that stands it up; a vertex with no weights stays where the artist modelled it, which
     /// for a player is lying along Y.
     /// </remarks>
-    private static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
+    internal static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
         new(
             corner.X, corner.Y, corner.Z, corner.U, corner.V,
             corner.LightU, corner.LightV, 0f,

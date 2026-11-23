@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -65,8 +66,8 @@ public sealed class OutlineMemoryProbe : IProbe
         output.WriteLine($"outline index buffer: {outline:N0} bytes ({outline / (1024.0 * 1024.0):0.00} MiB) on the GPU");
         output.WriteLine($"WorldVertex: {vertexSize} bytes, {Before} before the mark; {(long)(vertexSize - Before) * vertices:N0} bytes more for this list");
 
-        // The brush entities' outlines and face planes (review 2): a face starts at each triangle whose first corner's
-        // edge is the polygon's, which is how FaceFan.Faces counts them.
+        // The brush entities' outlines and face planes (review 2): each model's corners packed as the upload packs them
+        // (EntityModelSet.Packed) and its planes the array FaceFan.Faces returns, the one the renderer keeps (review 3, B243).
         long brushVertices = 0;
         long faces = 0;
         int submodels = 0;
@@ -77,11 +78,7 @@ public sealed class OutlineMemoryProbe : IProbe
 
             submodels++;
             brushVertices += corners.Count;
-
-            for (int at = 0; at + 2 < corners.Count; at += 3)
-            {
-                faces += corners[at].FaceEdge ? 1 : 0;
-            }
+            faces += FaceFan.Faces([.. corners.Select(corner => EntityModelSet.Packed(corner, corner))]).Length;
         }
 
         int planeSize = Unsafe.SizeOf<FacePlane>();

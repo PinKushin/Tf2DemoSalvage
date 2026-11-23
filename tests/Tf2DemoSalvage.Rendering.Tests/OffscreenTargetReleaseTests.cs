@@ -97,6 +97,38 @@ public sealed class OffscreenTargetReleaseTests
         target.DeviceReferencesLeft.ShouldBe(0u);
     }
 
+    /// <remarks>
+    /// **A brush entity that is not whole triangles draws, keeps no outline, and releases cleanly** (B803 review 3, Fable):
+    /// its upload stores a null outline handle (review 2), which the release skips. Four vertices of `*1` drawn under 3,
+    /// then the target released: no exception and nothing left on the device.
+    /// </remarks>
+    [Test]
+    public void Dispose_AfterDrawingABrushEntityOfAPartialTriangleUnderWireframeThree_LeavesNoDeviceReference()
+    {
+        OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(8, 8), "no Direct3D on this machine");
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                new MapTexture(4, 4, 4, 4, TextureImage.Rgba(new byte[64]), IsTransparent: false),
+                new MapTexture(4, 4, 4, 4, TextureImage.Rgba(new byte[64]), IsTransparent: false),
+            ],
+            ["UnlitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+        List<WorldVertex> corners =
+        [
+            new(-1f, -1f, 0.5f, 0f, 0f, 0.5f, 0.5f, 0f, 1f, 1f, 1f),
+            new(1f, 1f, 0.5f, 1f, 1f, 0.5f, 0.5f, 0f, 1f, 1f, 1f),
+            new(1f, -1f, 0.5f, 1f, 0f, 0.5f, 0.5f, 0f, 1f, 1f, 1f),
+            new(-1f, 1f, 0.5f, 0f, 1f, 0.5f, 0.5f, 0f, 1f, 1f, 1f),
+        ];
+
+        target.Wireframe = 3;
+        target.DrawModelPose(corners, [new WorldBatch(0, 0, 3)], Identity, Identity, assets, modelPath: "*1");
+
+        target.Dispose();
+
+        target.DeviceReferencesLeft.ShouldBe(0u);
+    }
+
     /// <remarks>A skinned model draw, which makes the bone buffer on first use.</remarks>
     [Test]
     public void Dispose_AfterDrawingASkinnedModel_LeavesNoDeviceReference()

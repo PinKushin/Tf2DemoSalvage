@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -125,6 +126,74 @@ public sealed class FaceFanTests
         FacePlane face = FaceFan.Faces([Corner(0f), Corner(1f), Corner(2f)]).ShouldHaveSingleItem();
 
         (face, face.FacesEye(1f, 0f, 0f), face.FacesEye(1f, 0f, 6f)).ShouldBe((new FacePlane(0, 3, 0f, 0f, 1f, 3f), false, true));
+    }
+
+    /// <remarks>
+    /// **A face with area but no side to choose is drawn whole** (B803 review 3, Fable, Grok): a triangle in z = 0 whose
+    /// corner normal lies along it, (1, 0, 0), has no front. It gets the zero plane, which every eye sees, above or below;
+    /// review 2's corner-normal plane stood across it and hid it from every eye at x &lt; 0.
+    /// </remarks>
+    [Test]
+    public void Faces_WithAreaButANormalAlongTheFace_AreSeenFromEverywhere()
+    {
+        WorldVertex Corner(float x, float y) => new(x, y, 0f, 0f, 0f, 0f, 0f, 0f, NormalX: 1f, NormalY: 0f, NormalZ: 0f);
+
+        FacePlane face = FaceFan.Faces([Corner(0f, 0f), Corner(0f, 4f), Corner(4f, 0f)]).ShouldHaveSingleItem();
+
+        (face.FacesEye(-5f, 1f, 3f), face.FacesEye(-5f, 1f, -3f), face.FacesEye(5f, 1f, 3f)).ShouldBe((true, true, true));
+    }
+
+    /// <remarks>
+    /// **A non-finite corner gives a face drawn whole, not one never drawn** (B803 review 3, Sonnet): a NaN made every term
+    /// of the plane NaN, and every comparison with NaN false.
+    /// </remarks>
+    [Test]
+    public void Faces_WithANaNCorner_AreSeenFromEverywhere()
+    {
+        WorldVertex Corner(float x, float y) => new(x, y, 0f, 0f, 0f, 0f, 0f, 0f, NormalZ: 1f);
+
+        FacePlane face = FaceFan.Faces([Corner(0f, 0f), Corner(float.NaN, 4f), Corner(4f, 0f)]).ShouldHaveSingleItem();
+
+        (face.FacesEye(1f, 1f, 3f), face.FacesEye(1f, 1f, -3f)).ShouldBe((true, true));
+    }
+
+    /// <remarks>
+    /// **Each pass culls by its own rule** (B803 review 3, `engine.dll`): an opaque brush face by `FUN_1800dcb20`'s
+    /// `≥ −0.01`, no flag read; a translucent one by `FUN_1800dbdb0`'s side of its node's plane, no tolerance, NOCULL
+    /// exempt. The plane z = 0 facing up, eyes above, just below (−0.005) and well below.
+    /// </remarks>
+    [TestCase(1f, false, false, true)]
+    [TestCase(-0.005f, false, false, true)]
+    [TestCase(-10f, false, true, false)]
+    [TestCase(1f, true, false, true)]
+    [TestCase(-0.005f, true, false, false)]
+    [TestCase(-10f, true, true, true)]
+    public void OutlinedFrom_AnOpaqueOrTranslucentFace_TakesItsPassesRule(float z, bool translucent, bool noCull, bool expected) =>
+        new FacePlane(0, 3, 0f, 0f, 1f, 0f).OutlinedFrom(0f, 0f, z, translucent, noCull).ShouldBe(expected);
+
+    /// <remarks>
+    /// **A run's outline ranges stay inside it** (B803 review 3, Grok, Sonnet). Faces of six vertices at 0, 6, 12 and 18;
+    /// all lie in z = −1, below the eye at the origin, and the second faces down, away from it:
+    /// - a whole run of three faces, front, back, front: (0, 6) and (12, 18);
+    /// - a later run from 18: (18, 24), nothing of the faces before it;
+    /// - a run cut mid-face, from 15 (as a cap on the run before can leave it): (15, 24), the face at 12 only from 15;
+    /// - a run capped mid-face, to 9: (0, 6) only, the back face's part dropped; to 3, (0, 3), a partial outline of the
+    ///   first face, which is what was drawn of it (the cap is a development control and draws what it keeps).
+    /// </remarks>
+    [TestCase(0, 18, new[] { 0, 6, 12, 18 })]
+    [TestCase(18, 24, new[] { 18, 24 })]
+    [TestCase(15, 24, new[] { 15, 24 })]
+    [TestCase(0, 9, new[] { 0, 6 })]
+    [TestCase(0, 3, new[] { 0, 3 })]
+    public void Runs_OfARunAmongFaces_StayInsideIt(int first, int end, int[] expected)
+    {
+        FacePlane Up(int at) => new(at, 6, 0f, 0f, 1f, -1f);
+        FacePlane Down(int at) => new(at, 6, 0f, 0f, -1f, 1f);
+        List<(int First, int End)> runs = [];
+
+        FaceFan.Runs([Up(0), Down(6), Up(12), Up(18)], first, end, (0f, 0f, 0f), translucent: false, noCull: false, runs);
+
+        runs.SelectMany(run => new[] { run.First, run.End }).ShouldBe(expected);
     }
 
     /// <remarks>

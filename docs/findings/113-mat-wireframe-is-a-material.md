@@ -181,10 +181,20 @@ builds a model's list once: it walks the model's surfaces, skips only those with
 (*interpolated* to be `SURFDRAW_TRANS`; the engine's surface flags are unpublished, and the brush path's translucent draw
 is `FUN_1800de800`), and keeps each surface's plane pointer (`+4`), shared where surfaces share a plane. `FUN_1800dcb20`
 then tests every plane with no flag read at all; only its last argument (non-zero for a pass that skips the cull) passes
-them all (*read*). So a `$nocull` face on a door is culled from behind like any other, where the world's walk keeps a
+them all (*read*). So an opaque `$nocull` face on a door is culled from behind like any other (a translucent one is
+not: review 3, below), where the world's walk keeps a
 NOCULL surface (`R_DrawLeaf`, `0x200`). The viewer's plane test has no exemption, which matches. And the plane is the
 surface's stored one whatever its area, so a face with no area is culled from behind too; with no triangle to read it
 from, the viewer takes the face's corner normal (`FaceFan.Faces`).
+
+**Translucent brush faces** (review 3). `R_DrawBrushModel`'s translucent path `FUN_1800de800` collects the model's
+translucent surfaces with `FUN_1800dbdb0`: a back-to-front walk of the model's node tree that, at each node, takes the
+eye's signed distance to the node's plane, recurses into the far side, and keeps each of the node's surfaces that has flag
+`0x20` and is NOCULL (`0x200`) or whose plane-back flag (`0x40`) equals `distance < 0` (*read*). Then `FUN_1800ddca0`
+draws them, ending in `FUN_1800dc720`. So a translucent face's cull differs from an opaque one's in two ways: NOCULL
+exempts it, and the test has no `−0.01` tolerance. The viewer culls each brush run by its own material's pass
+(`FacePlane.OutlinedFrom`); that `0x20` is the viewer's blended set, that a face's node plane is its own plane, and that
+the plane-back case's strict comparison matters only for an eye exactly on the plane are *interpolated*.
 
 **Translucent displacements.** The translucent path `FUN_1800e61d0` builds each sort group's surface list, draws it, hands
 it to `FUN_1800dc720`, and only then adds the group's displacements and passes them to `FUN_1800c73a0` with its last
