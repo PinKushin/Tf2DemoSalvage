@@ -901,6 +901,29 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A folder chosen before any map reads its autoexec's `mat_hdr_level` into the lighting too** (B816 review 2, Grok):
+    /// no map has been read, so the first one must take the new value. The control: before the folder, the saved level.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void GameFolderChosen_WhoseAutoexecSetsMatHdrLevel_IsTheLightingTheLoadersTake()
+    {
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "mat_hdr_level 0\n");
+        using Rig rig = Build();
+
+        Content.Bsp.BspHdr.MatHdrLevel.ShouldNotBe(0, "the control: the saved level before the folder");
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
+        Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
     /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
     /// </remarks>

@@ -44453,7 +44453,7 @@ the configs (`LaunchOptions.AfterConfigs`), so the line wins as `stuffcmds` afte
 the non-cheat on reddens it and the reader's test). Every `autoexec.cfg` ConVar now logs `(set at run time)` once at
 startup, as the folder reload's already did, and each launch ConVar logs twice (read, then run). Not verified by looking.
 
-**Review 1** (Fable, Sonnet; Gemini, Grok pending at the time of writing):
+**Review 1** (Fable, Sonnet; then Gemini, approved with the comment fixes below, and Grok):
 1. *TF2's `config.cfg` overrode the viewer's saved menu choices on every start* (Fable, high): it is executed too, and
    holds every ConVar TF2 archives. Owner's pick, D264: the viewer's saved settings take `config.cfg`'s place, so its
    ConVars and `config_default.cfg`'s stay in the console's list below them; `autoexec.cfg` and the line win.
@@ -44464,9 +44464,25 @@ startup, as the folder reload's already did, and each launch ConVar logs twice (
    `ViewerPresenter.ApplyTheStartingSettings` reads them after the configs and the line. Test
    `Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake` (sabotage: applying them when the line is read reddens it).
 3. Stale comments corrected (the folder reload now replays the whole line; `SettingsPresenter.Attach`'s order).
-4. Recorded, no change: every non-cheat `+name value` now reaches the console as `stuffcmds` would run it, so
-   `+toggle cl_showfps` flips it and `+alias a b` clears alias `a` (only `a` is taken); an autoexec's `sv_cheats 1` then
-   `0` reverts the saved cheats for the run, as TF2's would revert its own.
+4. Recorded, no change: every non-cheat `+name value` now reaches the console, so `+alias a b` clears alias `a` (only
+   `a` is taken); `+toggle x` does nothing, since a loaded line is defined, not run (`Define` never calls
+   `CvarCommand`; corrected in review 2, Fable); an autoexec's `sv_cheats 1` then `0` reverts the saved cheats for the
+   run, as TF2's would revert its own. `Triggered` is now subscribed after the configs; `Define` never raises it, so this
+   guards nothing that happens today (review 2, Fable, Sonnet).
+
+**Review 2** (Fable, Sonnet, Grok find; Gemini pending at the time of writing):
+1. *A game folder chosen later re-ran the configs but not what startup reads once* (all three, medium): an autoexec's
+   `mat_hdr_level` or `spec_autodirector` reached the settings and not the lighting or the spectator, and no map has been
+   read yet then. `ViewerPresenter.ApplyTheConfiguredSettings` (the director, leaving whom it follows, and the lighting)
+   now runs after the reload's line too. Test `GameFolderChosen_WhoseAutoexecSetsMatHdrLevel_IsTheLightingTheLoadersTake`
+   (sabotage: not calling it reddens it).
+2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
+   LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
+   `autoexec.cfg`; an untyped ConVar stays readable from the console) and
+   `LoadFrom_SvCheatsOnThenOffWithASavedCheat_RevertsItOnlyFromAutoexec`. Dropping `|| _savedLayer` from either branch
+   reddens them.
+3. USER-GUIDE corrected: a typed ConVar in `config.cfg` never takes effect, since the settings answer it with the saved
+   value or the default; an untyped one is still read from it. `ReadLaunch`'s summary corrected.
 
 **As filed:**
 

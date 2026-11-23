@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -71,6 +72,59 @@ public sealed class ConfigConsoleLoadFromTests
         alone.Count(Refusal).ShouldBe(1);
         told.ShouldBe(1, "the control: the listener is told, so it can print it");
         heard.Count(Refusal).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **TF2's saved configs keep their ConVars below the attached settings** (D264; B816 review 2, Fable, Sonnet): a line
+    /// in `config.cfg` or `config_default.cfg` is kept in the console, where a reader of an untyped ConVar still finds it,
+    /// and is not announced to the settings. The control: the same line in `autoexec.cfg` is announced.
+    /// </remarks>
+    /// <param name="file">The config the line is in.</param>
+    /// <param name="announced">Whether the settings are told.</param>
+    [TestCase("config.cfg", 0)]
+    [TestCase("config_default.cfg", 0)]
+    [TestCase("autoexec.cfg", 1)]
+    public void LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec(string file, int announced)
+    {
+        string folder = TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder, "cfg"));
+        File.WriteAllText(Path.Combine(folder, "cfg", file), "cl_showfps 1\n");
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ReadSettingsFrom(_ => null);
+        int told = 0;
+        console.ConVarSet += (_, _) => told++;
+
+        console.LoadFrom(folder, NullLoggerFactory.Instance, new RecordingLogger(), NowhereFolder());
+
+        told.ShouldBe(announced);
+
+        if (announced == 0)
+        {
+            console.ConVar("cl_showfps").ShouldBe("1", "kept in the console, below the settings");
+        }
+    }
+
+    /// <remarks>
+    /// **A saved config's `sv_cheats 1` then `0` reverts only its own lines, not the settings' cheats** (D264; B816 review
+    /// 2, Sonnet): the settings hold `mat_fullbright 1`. The control: the same lines in `autoexec.cfg` revert it.
+    /// </remarks>
+    /// <param name="file">The config the lines are in.</param>
+    /// <param name="reverted">Whether the settings are told to put `mat_fullbright` back.</param>
+    [TestCase("config.cfg", false)]
+    [TestCase("autoexec.cfg", true)]
+    public void LoadFrom_SvCheatsOnThenOffWithASavedCheat_RevertsItOnlyFromAutoexec(string file, bool reverted)
+    {
+        string folder = TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder, "cfg"));
+        File.WriteAllText(Path.Combine(folder, "cfg", file), "sv_cheats 1\nsv_cheats 0\n");
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ReadSettingsFrom(name => name == "mat_fullbright" ? "1" : null);
+        List<string> told = [];
+        console.ConVarSet += (_, set) => told.Add($"{set.Name} {set.Value}");
+
+        console.LoadFrom(folder, NullLoggerFactory.Instance, new RecordingLogger(), NowhereFolder());
+
+        told.Contains("mat_fullbright 0").ShouldBe(reverted);
     }
 
     [Test]

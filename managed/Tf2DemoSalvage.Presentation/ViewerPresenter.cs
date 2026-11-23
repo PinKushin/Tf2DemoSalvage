@@ -430,7 +430,8 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The settings' owner, which the window talks to in plain values.</summary>
     public SettingsPresenter Settings => _settingsOwner;
 
-    /// <summary>Reads the command line and applies what it says of the settings, the spectator, the lighting and the HUD.</summary>
+    /// <summary>Reads the command line and applies what it says of the settings and the HUD; the spectator and the
+    /// lighting wait for the configs (<see cref="ApplyTheStartingSettings"/>).</summary>
     /// <param name="arguments">The command line.</param>
     /// <returns>What was asked for; the window keeps what is its own (the shot, the tick, the paths).</returns>
     public LaunchOptions ReadLaunch(IReadOnlyList<string> arguments)
@@ -460,8 +461,18 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </remarks>
     public void ApplyTheStartingSettings(LaunchOptions launch)
     {
-        // The watcher's `spec_autodirector` (B535).
+        // The watcher's `spec_autodirector` (B535), with `--spectate`'s choice of whom to follow.
         _camera.Spectate(launch.Spectate, _settings.AutoDirector);
+        ApplyTheConfiguredSettings();
+    }
+
+    /// <summary>
+    /// What the configs decide that is read once before any map: the director and the lighting, for a game folder chosen
+    /// before a map was read (B816 review 2, Grok, Fable, Sonnet). Whom the spectator follows is left as it is.
+    /// </summary>
+    public void ApplyTheConfiguredSettings()
+    {
+        _camera.UseAutoDirector(_settings.AutoDirector);
 
         // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
         Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;

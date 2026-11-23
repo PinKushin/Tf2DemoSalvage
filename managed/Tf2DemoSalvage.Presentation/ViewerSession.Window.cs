@@ -398,6 +398,10 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // B816): a launch option set before the folder was chosen, by the menu too, ends at the line's value, as the
             // next launch would.
             RunTheLaunchLine();
+
+            // No map has been read yet (no install was open), so what startup reads once is read again from the new configs
+            // (B816 review 2, Grok): the lighting the first map takes, and the spectator's director.
+            _presenter.ApplyTheConfiguredSettings();
             _window.ShowBindings(_bindings);
         }
     }
