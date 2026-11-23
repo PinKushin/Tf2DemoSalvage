@@ -66,12 +66,6 @@ public sealed partial class FramePresenter
     /// <summary>The overlay frame being built, for the methods <see cref="BuildOverlay"/> calls.</summary>
     private OverlayFrame _overlay;
 
-    /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). The HUD's files are remade the
-    /// next time they are asked for, which is every frame — no restart needed.
-    /// </summary>
-    public string? ChosenHud { get; set; }
-
     /// <summary>Whether the HUD exists yet, for a seek that would run its skip frames.</summary>
     public bool HasHud => _vguiHud is not null && _vguiHost is not null;
 
@@ -94,9 +88,6 @@ public sealed partial class FramePresenter
         return HudStateAt(view with { Scripts = _hudScripts, Hooks = _hudHooks }, worldToScreen, frame, window.Eye);
     }
 
-    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
-    private string? _panelModelsPrecached;
-
     /// <summary>The engine's tools panel and `CFPSPanel` on it, drawn through VGUI; null until the game's files are open.</summary>
     /// <remarks>
     /// **Its scheme is `platform/resource/SourceScheme.res`, read live from the install**, which D85's table allows:
@@ -110,10 +101,9 @@ public sealed partial class FramePresenter
     /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
     private VguiHud? _vguiHud;
 
-    // The HUD's stock view of the install, and the install it was made from.
-    private GameArchives? _hudArchives;
-    private GameContent? _hudArchivesOf;
-    private string? _hudArchivesFor;
+    /// <summary>The HUD, once built, for the tests of what the frame hands it.</summary>
+    internal VguiHud? Hud => _vguiHud;
+
 
     // Which game events the HUD has heard, so each fires once as playback crosses it.
     private readonly HudEventFeed _hudEvents = new();
@@ -156,23 +146,11 @@ public sealed partial class FramePresenter
             paint: false);
     }
 
-    /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
-    private GameArchives? HudArchives()
-    {
-        if (_game is null)
-        {
-            return null;
-        }
-
-        if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, ChosenHud, StringComparison.Ordinal))
-        {
-            _hudArchives = _game.Archives.WithHud(ChosenHud);
-            _hudArchivesOf = _game;
-            _hudArchivesFor = ChosenHud;
-        }
-
-        return _hudArchives;
-    }
+    /// <summary>
+    /// The files the HUD reads: the install's <see cref="GameContent.HudArchives"/> — the chosen HUD over the stock files, the
+    /// one view the level's preload reads too (B779 review 20 item 1) — remade there when the choice changes.
+    /// </summary>
+    private GameArchives? HudArchives() => _game?.HudArchives;
 
     /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
     /// <returns>The draw list.</returns>
@@ -272,16 +250,9 @@ public sealed partial class FramePresenter
         _vguiHud.Viewport.ParticleSystems = _overlay.Loaded?.Assets?.ParticleSystemsByName;
         _vguiHud.Viewport.ParticleMaterials = _overlay.Loaded?.Assets?.ParticleMaterials;
 
-        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
-        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
-        // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
-
-        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
-        {
-            _panelModelsPrecached = panelModels;
-            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
-        }
+        // No precache of the panels' models: each panel loads its own in the call, as the engine's do (`IMdlCache.LoadMdl`;
+        // basemodelpanel.cpp:407, mdlpanel.cpp:185; B779 review 15), and what the paint packs is uploaded at the overlay's
+        // end, before the draw (`MomentScene.UploadGrown`, below; review 16).
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
@@ -289,7 +260,7 @@ public sealed partial class FramePresenter
         _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
         _vguiHud.Viewport.SoundEmitter ??= PlayHudSound;
 
-        partAt = Part("hud precache", partAt);
+        partAt = Part("hud wiring", partAt);
         HudState hudState = HudStateAt(hudTick);
         partAt = Part("hud state", partAt);
 
@@ -317,7 +288,15 @@ public sealed partial class FramePresenter
             window.Position(),
             _overlay.MapName);
 
-        _overlayEndedAt = Part("hud tools", partAt);
+        partAt = Part("hud tools", partAt);
+
+        // **What the paint packed reaches the device before this frame draws** (B779 review 16): a panel loads its model in
+        // the call (`IMdlCache.LoadMdl`), as the engine's load and draw in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185),
+        // but the moment's upload (`MomentScene.Pack`) ran from the show, before this overlay, or not at all on a paused
+        // still frame. On the UI thread with nothing in flight: the camera stage waited for the last frame's draw
+        // (`FinishDrawBeforeEffects`), and `Device3D.UploadModels` takes the queue's lock itself.
+        _moment.UploadGrown();
+        _overlayEndedAt = Part("hud upload", partAt);
         _forkableLast = _vguiHud.ForkableTicks + _vguiTools.PaintTicks;
         Parts?.Add("hud forkable", _forkableLast);
 

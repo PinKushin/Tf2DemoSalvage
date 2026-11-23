@@ -72,6 +72,13 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// `vgui::MDLCache()` for a panel a `.res` file makes, which no constructor can hand one: the viewport's, asked on each
     /// use. Its owner is set after the base constructor, which needs a cache first.
     /// </summary>
+    /// <remarks>
+    /// **Answers nothing until the panel reaches a viewport** (B779 review 18 item 7), so a `SetMDL` before then would decide
+    /// the root invalid until the next `SetMDL` or level (`VguiMdlPanel.RootPath`). It cannot happen today: the `.res`
+    /// factory makes the panel unparented (`VguiEditablePanel`'s control table) and the layout parents it before any
+    /// setting is applied, and the only `SetMDL` with a name is the item's (`SetItem`'s model update), which its owner runs
+    /// from the HUD's frame on a panel already in the viewport's tree. `SetMDL(null)` decides nothing.
+    /// </remarks>
     private sealed class DeferredMdlCache : IMdlCache
     {
         public VguiPanel? Owner { get; set; }
@@ -79,6 +86,12 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         private IMdlCache? Cache => Owner is { } owner ? HudViewport.Of(owner)?.MdlCache : null;
 
         public PropModels.ModelFrames? FindMdl(string path) => Cache?.FindMdl(path);
+
+        public PropModels.ModelFrames? LoadMdl(string path) => Cache?.LoadMdl(path);
+
+        public int LoaderGeneration => Cache?.LoaderGeneration ?? 0;
+
+        public IReadOnlyList<int>? PackedOrder(string path) => Cache?.PackedOrder(path);
 
         public int FindBodygroup(string modelPath, string group) => Cache?.FindBodygroup(modelPath, group) ?? -1;
 
@@ -155,16 +168,14 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             return;
         }
 
-        // "the first class that can use it" (:330-341), and team 0 (:343).
-        int playerClass = FirstUsingClass(schema, item.DefinitionIndex);
-
-        if (schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, 0, item.Style(schema)) is not { Length: > 0 } model)
+        if (PanelModel(schema, item) is not { Length: > 0 } model)
         {
             return;
         }
 
         SetMDL(model);
 
+        // `SetMDL` above loaded it, as `FindMDL` does (mdlpanel.cpp:185; B779 review 15 follow-up).
         if (MdlCache.FindMdl(model) is { } frames)
         {
             // No pedestal: the camera at `icon_camera` (:376-380), then the style's bodygroup (:383-391).
@@ -215,6 +226,22 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <summary>`ShouldUseRenderTargetAsIcon` (:1053): festive, or "use_model_cache_icon".</summary>
     private bool ShouldUseRenderTargetAsIcon(ItemSchema schema, TfItemView item) =>
         _isFestivized || (item.Attribute(schema, "use_model_cache_icon") is { } cache && cache.Value != 0f);
+
+    /// <summary>
+    /// The model the item panel shows for an item: `GetPlayerDisplayModel( first class that can use it, 0 )` with its style
+    /// (item_model_panel.cpp:330-343).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="item">The item.</param>
+    /// <returns>The model's path, or null.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can show (`DemoModels`, B779 review 19).</remarks>
+    public static string? PanelModel(ItemSchema schema, TfItemView item)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(item);
+
+        return schema.PlayerDisplayModel(item.DefinitionIndex, FirstUsingClass(schema, item.DefinitionIndex), 0, item.Style(schema));
+    }
 
     /// <summary>
     /// The first set bit of `GetClassUsability()` (:331-340), 0 with none. The bits are the classes of `used_by_classes`,
@@ -269,7 +296,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     }
 
     /// <summary>`m_StatTrackModel`.</summary>
-    private VguiMdl StatTrack { get; } = new() { Disabled = true };
+    internal VguiMdl StatTrack { get; } = new() { Disabled = true };
 
     /// <summary>`m_flStatTrackScale`.</summary>
     private float StatTrackScale { get; set; } = 1f;
@@ -566,16 +593,10 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     }
 
     /// <inheritdoc/>
-    public override IEnumerable<string> ModelsToPrecache()
+    /// <remarks>The StatTrak module is a CMDL of its own, outside the merge list.</remarks>
+    public override void ForgetLevel()
     {
-        foreach (string path in base.ModelsToPrecache())
-        {
-            yield return path;
-        }
-
-        if (!StatTrack.Disabled && StatTrack.Path is { } module)
-        {
-            yield return module;
-        }
+        base.ForgetLevel();
+        StatTrack.MeshFlex.Release();
     }
 }

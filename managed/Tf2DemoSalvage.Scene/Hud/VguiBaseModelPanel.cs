@@ -360,7 +360,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
         // only the first — Valve's own loop keeps looking after a match.
         foreach (KeyValuesTree modelBlock in block.Children)
         {
-            if (string.Equals(modelBlock.Name, "model", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(modelBlock.Name, HudPanelModels.ModelBlock, StringComparison.OrdinalIgnoreCase))
             {
                 ParseModelResInfo(modelBlock);
             }
@@ -373,7 +373,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
     {
         ArgumentNullException.ThrowIfNull(modelBlock);
 
-        ResModelName = modelBlock.Find("modelname")?.Value;
+        ResModelName = modelBlock.Find(HudPanelModels.ModelName)?.Value;
         ResSkin = ResIntOrDefault(modelBlock, "skin", -1);
         UseSpotlight = ResIntOrDefault(modelBlock, "spotlight", 0) == 1;
 
@@ -598,7 +598,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
         ArgumentNullException.ThrowIfNull(attachBlock);
 
         _attachments.Add(new ModelPanelAttachment(
-            ModelName: attachBlock.Find("modelname")?.Value ?? string.Empty,
+            ModelName: attachBlock.Find(HudPanelModels.ModelName)?.Value ?? string.Empty,
             Skin: ResIntOrDefault(attachBlock, "skin", -1)));
     }
 

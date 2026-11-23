@@ -82,7 +82,7 @@ public sealed class ViewerPresenterTests
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null) =>
-        Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings()), spectateWho);
+        Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings(), Path.Combine(_folder, "settings.cfg")), spectateWho);
 
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(SettingsPresenter settingsOwner, string? spectateWho = null)
     {
@@ -167,6 +167,30 @@ public sealed class ViewerPresenterTests
             transport.DemoLength.ShouldBe(12345, "the demo's systems were opened with its length");
             loader.ReadingMap.ShouldBeFalse();
             loader.LoadsInFlight.ShouldBe(0, "a load on this thread is never in flight");
+        }
+    }
+
+    /// <remarks>
+    /// **The install holds the HUD choice the HUD and the level's preload both read** (B779 review 20 item 1;
+    /// `GameContent.ChosenHud`): a choice made before the install opens reaches it when it opens, and one made after reaches
+    /// the open install. The control: a different choice after the load replaced the first.
+    /// </remarks>
+    [Test]
+    public void SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            loader.SetChosenHud("custom/before");
+            loader.LoadDemo(WriteDemo("hud")).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            game.ChosenHud.ShouldBe("custom/before", "chosen before the install opened");
+
+            loader.SetChosenHud("custom/after");
+
+            game.ChosenHud.ShouldBe("custom/after");
         }
     }
 
@@ -282,6 +306,609 @@ public sealed class ViewerPresenterTests
                 (nameof(ILoadView.HideLoading), true, false),
             ]);
             loader.LoadsInFlight.ShouldBe(0);
+        }
+    }
+
+    /// <remarks>
+    /// **One map read at a time** (B779 review 22 item 1): a second load asked while the first is reading its map — the
+    /// user opening demo B mid-read — waits for the first's read, precache and `Apply` before it clears the map or touches
+    /// the entity set, as the engine loads one level at a time. Here demo B is started from inside A's read (its `MapRead`),
+    /// and A's read holds until B has either queued behind it or cleared the world. **And A's last marshal — the one that
+    /// lowers the barrier and runs its `Apply` — begins with B still waiting on it** (review 23 item 5): the queue is
+    /// released in that marshal, so B cannot clear the world before A's `Apply`. Then the window's barrier calls come in
+    /// two whole runs, A's then B's, each behind the barrier. The controls: B did start a read of its own (two clears), and
+    /// A was superseded by B.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_ASecondLoadDuringAMapRead_WaitsForTheFirstRead()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        string first = WriteDemo("first");
+        string second = WriteDemo("second");
+        view.Loads = 2;
+        Task<DemoLoadResult>? secondLoad = null;
+        int clearsWhenQueued = -1;
+        bool aReportedModels = false;
+        bool? bWaitingAtALastMarshal = null;
+
+        using (loader)
+        {
+            // A's last marshal is the first after its models report: the precaches between them ask the window nothing.
+            view.Marshalling = () =>
+            {
+                if (aReportedModels && bWaitingAtALastMarshal is null)
+                {
+                    bWaitingAtALastMarshal = loader.MapReadWaiting;
+                }
+            };
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading models and sounds" && secondLoad is not null)
+                {
+                    aReportedModels = true;
+                }
+
+                if (name != nameof(ILoadView.MapRead) || secondLoad is not null)
+                {
+                    return;
+                }
+
+                secondLoad = loader.LoadDemoAsync(second);
+                SpinWait.SpinUntil(
+                    () => loader.MapReadWaiting || view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)) > 1,
+                    TimeSpan.FromSeconds(30))
+                    .ShouldBeTrue("B queued behind A's read, or cleared the world beside it");
+                clearsWhenQueued = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            };
+
+            DemoLoadResult firstResult = await loader.LoadDemoAsync(first).ConfigureAwait(false);
+            DemoLoadResult secondResult = await secondLoad.ShouldNotBeNull().ConfigureAwait(false);
+            view.Asked = null;
+            view.Marshalling = null;
+
+            clearsWhenQueued.ShouldBe(1, "B did not clear the world while A read");
+            bWaitingAtALastMarshal.ShouldBe(true, "B still waited on A when A's Apply marshal began");
+            List<(string Name, bool OnUi, bool Reading)> barrier =
+            [
+                .. view.Calls.Where(static call => call.Name is nameof(ILoadView.ClearWorld) or nameof(ILoadView.MapRead)
+                    || call.Name == "Report: Loading models and sounds"),
+            ];
+            barrier.Select(static call => call.Name).ShouldBe(
+            [
+                nameof(ILoadView.ClearWorld), nameof(ILoadView.MapRead), "Report: Loading models and sounds",
+                nameof(ILoadView.ClearWorld), nameof(ILoadView.MapRead), "Report: Loading models and sounds",
+            ]);
+            barrier.ShouldAllBe(static call => call.Reading, "every barrier call behind the barrier");
+            (firstResult.Loaded, secondResult.Loaded).ShouldBe((false, true), "the control: A was superseded by B");
+        }
+    }
+
+    private const string DoorsA = "models/hud_a/doors.mdl";
+    private const string DoorsB = "models/hud_b/doors.mdl";
+
+    /// <summary>A HUD folder whose `HudMatchStatus.res` names these doors.</summary>
+    private string HudWithDoors(string name, string doors)
+    {
+        string ui = Directory.CreateDirectory(Path.Combine(_folder, name, "resource", "UI")).FullName;
+        File.WriteAllText(
+            Path.Combine(ui, "HudMatchStatus.res"),
+            $$"""
+            "Resource/UI/HudMatchStatus.res" { "MatchDoors" { "model" { "modelname" "{{doors}}" } } }
+            """);
+        return Path.Combine(_folder, name);
+    }
+
+    /// <remarks>
+    /// **A load's two model lists read the HUD it began with, and only while it runs** (B779 review 23 items 1 and 3):
+    /// every map read fixes the HUD view at its start — a map that reads, or one whose file fails to — and lets it go once
+    /// its `Apply` has run. Here HUD A chosen, a load, and HUD B chosen when the load reports its models (between `Needed` at
+    /// the map read and `ToPack` at the precache): both lists, asked then, name A's doors and not B's. After the load the
+    /// lists read B's. The control: the HUD did change mid-load (B is chosen at the end).
+    /// </remarks>
+    /// <param name="map">The demo's map: the one written here, or one whose file is held open so its read throws.</param>
+    [TestCase(Map)]
+    [TestCase("pl_locked")]
+    public async Task LoadDemoAsync_AHudChangedMidLoad_BothListsReadTheHudTheLoadBeganWith(string map)
+    {
+        WriteMap();
+        string locked = Path.Combine(_folder, "maps", "pl_locked.bsp");
+        await File.WriteAllBytesAsync(locked, new byte[] { 1, 2, 3, 4 }).ConfigureAwait(false);
+        using FileStream held = new(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            loader.SetChosenHud(hudA);
+            (bool NeededA, bool NeededB, bool ToPackA, bool ToPackB)? midLoad = null;
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading models and sounds")
+                {
+                    loader.SetChosenHud(hudB);
+                    HashSet<string> needed = DemoModels.Needed(null, game);
+                    HashSet<string> toPack = DemoModels.ToPack(null, game);
+                    midLoad = (needed.Contains(DoorsA), needed.Contains(DoorsB), toPack.Contains(DoorsA), toPack.Contains(DoorsB));
+                }
+            };
+
+            await loader.LoadDemoAsync(WriteDemo("changed", map)).ConfigureAwait(false);
+            view.Asked = null;
+
+            midLoad.ShouldBe((true, false, true, false));
+            game.ChosenHud.ShouldBe(hudB, "the control: the HUD changed mid-load");
+            DemoModels.Needed(null, game).Contains(DoorsB).ShouldBeTrue("after the load, the HUD as it is now");
+        }
+    }
+
+    /// <remarks>
+    /// **The barrier does not stay up when the load's first step fails** (B779 review 23 item 4): raising it, dropping the
+    /// skip and clearing the map are one marshal, inside the region that lowers it. Here the window's clear throws an I/O
+    /// error: the load ends saying it could not open the demo, and the barrier is down. The control: the clear was asked.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AClearThatThrows_LeavesTheBarrierDown()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        bool cleared = false;
+        view.Asked = name =>
+        {
+            if (name == nameof(ILoadView.ClearWorld))
+            {
+                cleared = true;
+                throw new IOException("a clear that fails");
+            }
+        };
+
+        using (loader)
+        {
+            DemoLoadResult result = await loader.LoadDemoAsync(WriteDemo("clear")).ConfigureAwait(false);
+            view.Asked = null;
+
+            cleared.ShouldBeTrue("the control");
+            result.Loaded.ShouldBeFalse();
+            loader.ReadingMap.ShouldBeFalse();
+        }
+    }
+
+    /// <remarks>
+    /// **A read that throws lowers the barrier and lets its fixed HUD go** (B779 review 23 item 6, review 24 item 4): the
+    /// worker's failure leaves through the region that raised it. Here HUD A chosen, and HUD B chosen as the report after
+    /// the map read throws: the load throws it on, the barrier is down, and the lists read B's doors. The controls: the
+    /// barrier was up when it threw, and the lists read A's then.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo()
+    {
+        WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        bool? upWhenThrown = null;
+        bool? aWhenThrown = null;
+        loader.SetChosenHud(hudA);
+        view.Asked = name =>
+        {
+            if (name == "Report: Loading models and sounds")
+            {
+                upWhenThrown = loader.ReadingMap;
+                loader.SetChosenHud(hudB);
+                aWhenThrown = DemoModels.Needed(null, loader.Game.ShouldNotBeNull()).Contains(DoorsA);
+                throw new InvalidOperationException("a read that fails");
+            }
+        };
+
+        using (loader)
+        {
+            await Should.ThrowAsync<InvalidOperationException>(() => loader.LoadDemoAsync(WriteDemo("throws"))).ConfigureAwait(false);
+            view.Asked = null;
+
+            (upWhenThrown, aWhenThrown).ShouldBe(((bool?)true, (bool?)true), "the controls");
+            loader.ReadingMap.ShouldBeFalse();
+            DemoModels.Needed(null, loader.Game.ShouldNotBeNull()).Contains(DoorsB).ShouldBeTrue("the load let its HUD go");
+        }
+    }
+
+    private static readonly WorldUpload Lost = new(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
+
+    /// <remarks>
+    /// **While a map reads, only the read's own projection projects; any other marks the world, and the mark outlives the
+    /// load** (B779 reviews 27-28). The window's `OpenDevice` projects with no barrier check; here it is `ProjectMap` during
+    /// a second load's map read, with the world's mark cleared first as the frame does. It projects nothing and marks the
+    /// world. The read's own projection, which says so (`fromTheRead`), runs (the control: it leaves the mark clear).
+    /// **After the load the mark is still set** — Grok's claim that the read's completion clears it is false. Then, with
+    /// the mark cleared as the frame clears it, an upload answer of "lost" (supplied here: no synthetic map loses its world
+    /// on its own) reads the map again and leaves no mark.
+    /// </remarks>
+    [Test]
+    public async Task ProjectMap_NotTheReadsOwnWhileAMapReads_MarksTheWorldAndTheMarkOutlivesTheLoad()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            bool asked = false;
+            bool? barrierUp = null;
+            bool? markedByTheReadsOwn = null;
+            bool? markedByTheWindow = null;
+            int clearsBefore = 0;
+            int clearsAfter = 0;
+            view.Asked = name =>
+            {
+                if (name != nameof(ILoadView.MapRead) || asked)
+                {
+                    return;
+                }
+
+                asked = true;
+                barrierUp = loader.ReadingMap;
+                clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+
+                loader.WorldProjected();
+                loader.ProjectMap(surfaceColours: false, (800, 600), fromTheRead: true);
+                markedByTheReadsOwn = loader.WorldNeedsProjecting;
+
+                // The window's: the same call without the signal, on any thread — this one included (review 28 item 1).
+                loader.WorldProjected();
+                loader.ProjectMap(surfaceColours: false, (800, 600));
+                markedByTheWindow = loader.WorldNeedsProjecting;
+                clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("second")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+
+            barrierUp.ShouldBe(true, "the control: a worker was reading");
+            markedByTheReadsOwn.ShouldBe(false, "the control: the read's own projection runs");
+            markedByTheWindow.ShouldBe(true, "the window's projection only marks the world");
+            clearsAfter.ShouldBe(clearsBefore, "nothing read beside the worker");
+            loader.WorldNeedsProjecting.ShouldBeTrue("the mark outlives the load");
+
+            // The first frame after the load: the mark cleared, then the upload's answer for a world the lost device took.
+            int clearsBeforeFrame = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            loader.WorldProjected();
+            loader.FollowUpload(Lost, loader.Map.ShouldNotBeNull());
+
+            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeFrame + 1, "the map read again");
+            loader.WorldNeedsProjecting.ShouldBeFalse("the reload leaves no mark");
+        }
+    }
+
+    /// <remarks>
+    /// **A lost world waits for every load in flight, without looping, and says nothing** (B779 reviews 27-29): a load
+    /// still decoding, or queued and not yet raised — a superseded load's gap is either — would have the reload read the
+    /// old demo's map only for the next load to clear it. Here the upload's answer "lost" twice, as two frames give it,
+    /// while a second load decodes (at its decode report) or at the start of its raising marshal: nothing is read, the
+    /// world is **not** marked again (a mark would have the next frame project and lose it again, a loop for the whole
+    /// decode), and the status is the load's own. After the load the world is marked once, and the same answer then reads
+    /// the map. The control: the barrier was down at the answers.
+    /// </remarks>
+    /// <param name="whileDecoding">Whether the answer comes before the load is queued — decoded, the map not yet fetched (else once it is queued).</param>
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce(bool whileDecoding)
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            LoadedMap map = loader.Map.ShouldNotBeNull();
+            bool armed = false;
+            bool asked = false;
+            bool? barrierUp = null;
+            bool? marked = null;
+            string? status = null;
+            int clearsBefore = 0;
+            int clearsAfter = 0;
+
+            void Lose()
+            {
+                asked = true;
+                barrierUp = loader.ReadingMap;
+                clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+                bool markedOnce = false;
+
+                // Two frames: each clears the mark, projects, and is told the world is lost.
+                for (int frame = 0; frame < 2; frame++)
+                {
+                    loader.WorldProjected();
+                    loader.FollowUpload(Lost, map);
+                    markedOnce |= loader.WorldNeedsProjecting;
+                }
+
+                marked = markedOnce;
+                status = view.Status;
+                clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            }
+
+            // Before the queue: at the report that the decode is done and the map comes next — counted, not yet queued (the
+            // test window notes the decode's own reports by count, so a late progress post can take the decode report's
+            // place; this report is always noted). Once queued: the first marshal after it, the raise.
+            view.Asked = name =>
+            {
+                if (name != "Report: Loading the map")
+                {
+                    return;
+                }
+
+                if (whileDecoding && !asked)
+                {
+                    Lose();
+                }
+                else if (!whileDecoding)
+                {
+                    armed = true;
+                }
+            };
+            view.Marshalling = () =>
+            {
+                if (armed && !asked)
+                {
+                    Lose();
+                }
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("queued")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+            view.Marshalling = null;
+
+            (asked, barrierUp).ShouldBe((true, (bool?)false), "the control: the barrier was down");
+            clearsAfter.ShouldBe(clearsBefore, "nothing read while the load was in flight");
+            marked.ShouldBe(false, "the frames waited rather than looping");
+            status.ShouldNotBe(Lost.Problem, "the load's own status stays");
+
+            loader.LoadsInFlight.ShouldBe(0);
+            loader.WorldNeedsProjecting.ShouldBeTrue("the last load to finish marked the world once");
+            int clearsBeforeReload = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            loader.WorldProjected();
+            loader.FollowUpload(Lost, loader.Map.ShouldNotBeNull());
+            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeReload + 1, "then the reload reads the map");
+
+            // **And the pending reload is spent** (review 30 item 3): a plain load after it, with no world lost, ends with
+            // the world unmarked — the last load marks only when a reload is pending, and this one was taken.
+            loader.WorldProjected();
+            view.Loads = 3;
+            (await loader.LoadDemoAsync(WriteDemo("plain")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            loader.WorldNeedsProjecting.ShouldBeFalse("no reload pending, no mark");
+        }
+    }
+
+    /// <remarks>
+    /// **The last load marks a pending reload before the window's step** (B779 review 30 item 2): hiding the loading
+    /// overlay can throw, and a throw there must not leave the reload pending with the world unmarked. Here a world lost
+    /// during a load, and the overlay's hide throwing at its end: the load throws it on, and the world is marked. The
+    /// control: the world was unmarked while the load ran.
+    /// </remarks>
+    [Test]
+    public async Task LoadDemoAsync_AHideThatThrowsWithAReloadPending_StillMarksTheWorld()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            LoadedMap map = loader.Map.ShouldNotBeNull();
+            bool? markedDuring = null;
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading the map" && markedDuring is null)
+                {
+                    loader.WorldProjected();
+                    loader.FollowUpload(Lost, map);
+                    markedDuring = loader.WorldNeedsProjecting;
+                }
+
+                if (name == nameof(ILoadView.HideLoading))
+                {
+                    throw new InvalidOperationException("a hide that fails");
+                }
+            };
+
+            await Should.ThrowAsync<InvalidOperationException>(() => loader.LoadDemoAsync(WriteDemo("second"))).ConfigureAwait(false);
+            view.Asked = null;
+
+            markedDuring.ShouldBe(false, "the control: unmarked while the load ran");
+            loader.WorldNeedsProjecting.ShouldBeTrue();
+        }
+    }
+
+    /// <remarks>
+    /// **A load is counted inside the region that counts it down** (B779 review 29 item 3): a decode report that throws,
+    /// a file that is no demo, and a read that throws each leave no load counted — a count left at one would hold a lost
+    /// world's reload for ever. The control: each load did fail.
+    /// </remarks>
+    /// <param name="failure">Where the load fails.</param>
+    [TestCase("report")]
+    [TestCase("decode")]
+    [TestCase("read")]
+    public async Task LoadDemoAsync_ALoadThatFails_LeavesNoLoadCounted(string failure)
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        string path = WriteDemo("fails");
+
+        if (failure == "decode")
+        {
+            await File.WriteAllTextAsync(path, "not a demo").ConfigureAwait(false);
+        }
+
+        view.Asked = name =>
+        {
+            if (failure == "report" && name == "Report: " + FakeLoadView.Decoding)
+            {
+                throw new IOException("a report that fails");
+            }
+
+            if (failure == "read" && name == "Report: Loading models and sounds")
+            {
+                throw new InvalidOperationException("a read that fails");
+            }
+        };
+
+        using (loader)
+        {
+            bool failed;
+
+            try
+            {
+                failed = !(await loader.LoadDemoAsync(path).ConfigureAwait(false)).Loaded;
+            }
+            catch (InvalidOperationException)
+            {
+                failed = true;
+            }
+
+            view.Asked = null;
+
+            failed.ShouldBeTrue("the control: the load failed");
+            loader.LoadsInFlight.ShouldBe(0);
+        }
+    }
+
+    /// <remarks>
+    /// **A lost world with no demo says nothing** (B779 review 27 item 5): "Reloading the map…" would overwrite the status —
+    /// often why the load failed — and nothing reloads with no demo. The control: the status the window had is kept.
+    /// </remarks>
+    [Test]
+    public void FollowUpload_AWorldLostWithNoDemo_LeavesTheStatus()
+    {
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+
+        using (loader)
+        {
+            view.Status = "Could not open broken.dem";
+
+            loader.FollowUpload(Lost, SyntheticMap.Read());
+
+            view.Status.ShouldBe("Could not open broken.dem");
+        }
+    }
+
+    /// <remarks>
+    /// **A synchronous load lets its fixed HUD view go** (B779 review 24 item 4): `LoadMap` and `LoadDemo` each end the load
+    /// they began, so afterwards the lists read the HUD as it is now. HUD A chosen, the load, HUD B chosen during its map
+    /// read; after it, the lists read B's doors. The control: during the read, they read A's.
+    /// </remarks>
+    /// <param name="loadMap">Whether the route is `LoadMap` (else `LoadDemo`).</param>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void LoadMapAndLoadDemo_AfterTheirRead_LetTheLoadsHudGo(bool loadMap)
+    {
+        WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("warm")).Loaded.ShouldBeTrue();
+            GameContent game = loader.Game.ShouldNotBeNull();
+            loader.SetChosenHud(hudA);
+            bool? duringA = null;
+            view.Asked = name =>
+            {
+                if (name == nameof(ILoadView.MapRead))
+                {
+                    loader.SetChosenHud(hudB);
+                    duringA = DemoModels.Needed(null, game).Contains(DoorsA);
+                }
+            };
+
+            if (loadMap)
+            {
+                loader.LoadMap(Map);
+            }
+            else
+            {
+                loader.LoadDemo(WriteDemo("sync")).Loaded.ShouldBeTrue();
+            }
+
+            view.Asked = null;
+
+            duringA.ShouldBe(true, "the control: during the read, the load's HUD");
+            DemoModels.Needed(null, game).Contains(DoorsB).ShouldBeTrue("after it, the HUD as it is now");
+        }
+    }
+
+    /// <remarks>
+    /// **The launch line's `--hud` wins over the remembered choice, which wins over stock** (D193; B779 review 21 item 10):
+    /// `ReadLaunch` hands the winner to the install the HUD and the preload read. Two presenters with the same remembered
+    /// HUD: one launched with `--hud`, one without. The control: the remembered one reaches the install when no flag is given.
+    /// </remarks>
+    [Test]
+    public void ReadLaunch_AHudFlagAndARememberedHud_TheFlagReachesTheInstall()
+    {
+        WriteMap();
+
+        foreach ((string[] arguments, string expected) in (ValueTuple<string[], string>[])
+            [(["a.dem", "--hud", "custom/flag"], "custom/flag"), (["a.dem"], "custom/remembered")])
+        {
+            (ViewerPresenter loader, _, _) = Loader(settings: new ViewerSettings { ChosenHud = "custom/remembered" });
+
+            using (loader)
+            {
+                loader.ReadLaunch(arguments);
+                loader.LoadDemo(WriteDemo("launch")).Loaded.ShouldBeTrue();
+
+                loader.Game.ShouldNotBeNull().ChosenHud.ShouldBe(expected, string.Join(' ', arguments));
+            }
+        }
+    }
+
+    /// <remarks>
+    /// **No moment is shown while a map reads** (B779 review 21 item 1): a scrub reaches `ShowMoment` from the UI thread
+    /// outside the frame (review 22 item 5), and a moment built then would pack models into the entity set
+    /// while the worker binds its loader and precaches into it. The engine's client draws no world during a level load.
+    /// Here a demo already open, a second load, and a `ShowMoment` asked when the map read reports itself (behind the
+    /// barrier). The controls: the barrier was up at that moment, and the same ask after the load shows the tick.
+    /// </remarks>
+    [Test]
+    public async Task ShowMoment_WhileAMapReads_ShowsNothing()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        Questions asked = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            view.Loads = 2;
+            (await loader.LoadDemoAsync(WriteDemo("first")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            int? shownDuringRead = null;
+            bool? barrierUp = null;
+            view.Asked = name =>
+            {
+                if (name == nameof(ILoadView.MapRead))
+                {
+                    barrierUp = loader.ReadingMap;
+                    int before = asked.Shown.Count;
+                    loader.ShowMoment(12d);
+                    shownDuringRead = asked.Shown.Count - before;
+                }
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("second")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+
+            barrierUp.ShouldBe(true, "the control: the ask came behind the barrier");
+            shownDuringRead.ShouldBe(0);
+            int after = asked.Shown.Count;
+            loader.ShowMoment(12d);
+            asked.Shown.Count.ShouldBeGreaterThan(after, "the control: after the load the same ask shows");
         }
     }
 
@@ -898,7 +1525,7 @@ public sealed class ViewerPresenterTests
     [Test]
     public void ApplyMaterialSwitches_AChangeThenTheSameValue_RemovesTheModelDecalsOnlyOnTheChange()
     {
-        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg"));
         (ViewerPresenter loader, _, _) = Loader(owner);
 
         using (loader)
@@ -927,7 +1554,7 @@ public sealed class ViewerPresenterTests
     [Test]
     public void ApplyMaterialSwitches_BumpMapSetAtRunTime_ReachesTheDevice()
     {
-        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg"));
         (ViewerPresenter loader, _, _) = Loader(owner);
         FakeViewerDevice device = new();
 

@@ -242,10 +242,13 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
         UpdatePanels();
     }
 
+    /// <summary>The layout <see cref="LoadResFileForCurrentItem"/> loads, whose model panel's block can name a model (`HudPanelModels`).</summary>
+    public const string ResFile = "Resource/UI/econ/ItemModelPanel.res";
+
     /// <summary>`LoadResFileForCurrentItem` (:1509), off the mouse-over panel: `ItemModelPanel.res` and the children it names.</summary>
     private void LoadResFileForCurrentItem(VguiContext context)
     {
-        LoadControlSettings("Resource/UI/econ/ItemModelPanel.res", context);
+        LoadControlSettings(ResFile, context);
         _hideModel = HideModelDefault;
 
         _modelPanel = FindChildByName("itemmodelpanel", true) as TfEmbeddedItemModelPanel;

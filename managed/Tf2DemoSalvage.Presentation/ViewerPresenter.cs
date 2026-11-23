@@ -446,7 +446,7 @@ public sealed partial class ViewerPresenter : IDisposable
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.
-        _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
+        ChooseHud(launch.Hud ?? _settings.ChosenHud);
 
         // `--windows` (D217 step 4): the window cache beside the whole timeline, for every demo this run opens.
         CheckWindows = launch.Windows;
@@ -459,10 +459,57 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <returns>What to say on the status line, or null for nothing.</returns>
     public string? SetChosenHud(string? hud)
     {
-        _effects.ChosenHud = hud;
+        ChooseHud(hud);
 
         return _settingsOwner.SetChosenHud(hud);
     }
+
+    /// <summary>The HUD the user chose, held until the install opens; the install's copy is what the HUD and the preload read.</summary>
+    private string? _chosenHud;
+
+    /// <summary>Records the chosen HUD and hands it to the open install (`GameContent.ChosenHud`, B779 review 20 item 1).</summary>
+    private void ChooseHud(string? hud)
+    {
+        lock (_hudChoice)
+        {
+            _chosenHud = hud;
+
+            if (_game is { } game)
+            {
+                game.ChosenHud = hud;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fixes the HUD this load's two model lists read (`GameContent.BeginLevelLoad`, B779 reviews 22-23): at the start of
+    /// every map read — found, missing or failing — with the choice handed over first, and outside <see cref="_hudChoice"/>
+    /// so opening the HUD never holds a choice up (review 23 item 10). <see cref="EndLevelHud"/> lets it go.
+    /// </summary>
+    private void BeginLevelHud()
+    {
+        GameContent installed = _levels.Install(_maps.GameFolder);
+
+        lock (_hudChoice)
+        {
+            installed.ChosenHud = _chosenHud;
+        }
+
+        installed.BeginLevelLoad();
+        _levelHud = installed;
+    }
+
+    /// <summary>Ends what <see cref="BeginLevelHud"/> fixed: once the load's `Apply` has run, or it failed.</summary>
+    private void EndLevelHud() => Interlocked.Exchange(ref _levelHud, null)?.EndLevelLoad();
+
+    /// <summary>The install whose HUD a load in progress fixed, or null outside a load.</summary>
+    private GameContent? _levelHud;
+
+    /// <summary>
+    /// Held while the choice and the install are read and written together: `ChooseHud` on the UI thread, the map read's
+    /// publish of the install on its worker. Whichever runs second writes the latest choice.
+    /// </summary>
+    private readonly System.Threading.Lock _hudChoice = new();
 
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;
@@ -483,7 +530,7 @@ public sealed partial class ViewerPresenter : IDisposable
     public bool ReadingMap => _readingMap;
 
     /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
-    public int LoadsInFlight => _loadsInFlight;
+    public int LoadsInFlight => Volatile.Read(ref _loadsInFlight);
 
     /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
     private ObserverRagdoll? CorpseOf(int player, int tick) =>
@@ -545,8 +592,24 @@ public sealed partial class ViewerPresenter : IDisposable
     /// **A missing or unreadable map is not an error.** A demo of a community map nobody has still
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
+    ///
+    /// **Never run beside a worker's read** (B779 reviews 26-28). Its one production caller is the reload after a lost
+    /// world (`FollowUpload`), reached through `ProjectMap` from the frame (held off by the barrier), the map read (fresh
+    /// assets: never a reload) and the window's `OpenDevice` (UI thread, no barrier). The guards sit on that route, not
+    /// here: `ProjectMap` only marks the world while a worker reads, unless the call is the read's own, and `FollowUpload`
+    /// skips the reload while any load is in flight.
     /// </remarks>
-    public bool LoadMap(string mapName) => ReadDemoMap(mapName).Drawn;
+    public bool LoadMap(string mapName)
+    {
+        try
+        {
+            return ReadDemoMap(mapName).Drawn;
+        }
+        finally
+        {
+            EndLevelHud();
+        }
+    }
 
     /// <summary><see cref="LoadMap"/>, with every reason the read gave about its map.</summary>
     private (bool Drawn, IReadOnlyList<string> Said) ReadDemoMap(string mapName)
@@ -651,11 +714,13 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </param>
     /// <returns>
     /// Whether the map drew, the install, and every reason this read said about its map, the map's own first (B556): the
-    /// load's last status names them. Returned rather than kept, because a superseded load's read can run beside a newer one.
+    /// load's last status names them. Returned rather than kept: the caller hands them to its own `Apply`.
     /// </returns>
     private (bool Drawn, GameContent? Game, IReadOnlyList<string> Said) ReadMapNamed(
         string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
     {
+        BeginLevelHud();
+
         List<string> said = [];
         MapSearch found = _maps.Find(mapName);
 
@@ -722,7 +787,15 @@ public sealed partial class ViewerPresenter : IDisposable
             // It is deferred because the folder is not knowable until the user points at it, NOT
             // because it is slow — which is what the comment here used to say, and is the difference
             // between "this could be made eager" and "there is nothing to hurry".
-            _game = _levels.Install(_maps.GameFolder);
+            GameContent installed = _levels.Install(_maps.GameFolder);
+
+            // Published with the HUD choice under the lock `ChooseHud` takes (B779 review 21 item 5): this runs on the worker,
+            // and a choice made on the UI thread between reading `_chosenHud` and writing it here would be overwritten.
+            lock (_hudChoice)
+            {
+                _game = installed;
+                installed.ChosenHud = _chosenHud;
+            }
 
             _world.TexturesAreCurrent = false;
 
@@ -778,6 +851,7 @@ public sealed partial class ViewerPresenter : IDisposable
             // geometry loader that reads them — a call here instead ran after something else had
             // already added the path with no geometry, and the packer skips a path it has seen.
 
+            // The window projects the map it was told of; its call says it is the read's own (`ProjectMap(…, fromTheRead: true)`).
             _view.MapRead();
             return !map.Outline.IsEmpty;
         }
@@ -797,6 +871,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// selection state needs a created window handle, so a form that was never shown reports no
     /// selection at all — which made the first version of this test fail for a reason that had
     /// nothing to do with loading.
+    ///
+    /// **Reached only from tests**: its one other caller, `MainForm.LoadDemo`, is itself called only by `Viewer3D.Tests`.
+    /// Whether it stays as a test seam or goes is B813.
     /// </remarks>
     public DemoLoadResult LoadDemo(string path)
     {
@@ -812,6 +889,10 @@ public sealed partial class ViewerPresenter : IDisposable
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
             return CouldNotOpen(path, failure);
+        }
+        finally
+        {
+            EndLevelHud();
         }
     }
 
@@ -836,20 +917,23 @@ public sealed partial class ViewerPresenter : IDisposable
     /// slower one must not overwrite the faster: each takes a ticket and only the newest is shown.
     /// Without that, opening a big demo and changing your mind leaves you looking at the big one.
     ///
-    /// **The synchronous <see cref="LoadDemo"/> stays** for the command line, the `--shot` capture
-    /// path and the tests, where there is no window to freeze and a caller that returns before the
-    /// demo exists is simply wrong.
+    /// **The synchronous <see cref="LoadDemo"/> stays** for the tests, where a caller that returns
+    /// before the demo exists is simply wrong. Every production route opens demos through this method:
+    /// the playlist, the command line and `--shot` (review 25 item 4).
     /// </remarks>
     public async Task<DemoLoadResult> LoadDemoAsync(string path)
     {
         int ticket = _loads.Take();
 
         _view.Status = DemoLoadResult.Opening(path);
-        _loadsInFlight++;
-        _view.ReportLoading(LoadingDecode, 0d);
 
         try
         {
+            // **Counted inside the region whose `finally` counts it down** (review 29 item 3): a report that throws must
+            // not leave a load counted for ever.
+            Interlocked.Increment(ref _loadsInFlight);
+            _view.ReportLoading(LoadingDecode, 0d);
+
             ILogger demoLog = _demoLog;
             Core.Net.ClientInterp interp = _settings.Interp;
 
@@ -908,77 +992,31 @@ public sealed partial class ViewerPresenter : IDisposable
                 return _view.OnUi(() => Superseded(_demoLog, path));
             }
 
-            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
-            // old map touches the device and stays here; finding and reading the new one touches
-            // nothing but files and arithmetic, and goes to a worker.
-            //
-            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
-            // goes, and the render loop reads them, so between the two the world is half replaced.
-            // The flag holds the loop off until the marshal back, which is also the barrier that
-            // publishes the writes.
-            _view.OnUi(() =>
+            // **One map read at a time** (B779 review 22 item 1), as the engine loads one level at a time. A read cannot be
+            // interrupted, so a newer load waits here for the one in flight to finish — its read, its precache and its
+            // `Apply` — before it clears the map or touches the entity set; two workers never share `_models`, and the one
+            // flag is never cleared under another read.
+            TaskCompletionSource mine = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task before;
+
+            lock (_mapReadsGate)
             {
-                _readingMap = true;
-
-                // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
-                _effects.DropSkip();
-                ClearMap();
-                return 0;
-            });
-
-            (bool Drawn, IReadOnlyList<string> Said) read;
+                before = _lastMapRead;
+                _lastMapRead = mine.Task;
+            }
 
             try
             {
-                read = await Task.Run(() =>
-                {
-                    // **The read comes first because it is what opens the install**, and both
-                    // precaches return silently without one (B208). That order used to be three
-                    // statements anyone could reorder into a silent no-op; it is now carried by
-                    // `game`, which does not exist until the read has produced it.
-                    (bool drawn, GameContent? game, IReadOnlyList<string> said) =
-                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
+                Volatile.Write(ref _awaited, before);
+                await before.WaitAsync(_shutdown).ConfigureAwait(false);
 
-                    _view.OnUi(() =>
-                    {
-                        _view.ReportLoading(LoadingAssets, fraction: null);
-                        return 0;
-                    });
-
-                    // **Packed here rather than when a prop first appears, which is what Valve
-                    // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
-                    // and warns on an out-of-order precache: the engine loads models at level load,
-                    // deliberately, so nothing is decoded mid-game.
-                    //
-                    // Ours was packing on sight, and it cost 385 ms in a single frame the first time
-                    // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
-                    // and before `_readingMap` is cleared, so it runs on the worker behind the
-                    // barrier that already holds the render loop off during a map read (B146).
-                    DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
-
-                    // Same timing, same reason, and the audio path is where the cost actually
-                    // landed once the model stalls were gone. **No emitted sounds yet**: those join
-                    // the schedule in `Apply`, which precaches them itself. **The scripts ARE here**:
-                    // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
-                    // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
-                    // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
-
-                    return (drawn, said);
-                }, _shutdown).ConfigureAwait(false);
+                return await ReadAndApply(ticket, path, decoded, prepared, mine).ConfigureAwait(false);
             }
             finally
             {
-                _view.OnUi(() =>
-                {
-                    _readingMap = false;
-                    return 0;
-                });
+                // Released in `ReadAndApply`'s last marshal on every path that reaches it; here for one that did not.
+                mine.TrySetResult();
             }
-
-            return _view.OnUi(() => _loads.IsCurrent(ticket)
-                ? Apply(decoded, read)
-                : Superseded(_demoLog, path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -992,14 +1030,179 @@ public sealed partial class ViewerPresenter : IDisposable
             {
                 // **Hidden only when no newer load is still running**, which would otherwise lose
                 // its overlay to the one it superseded.
-                if (--_loadsInFlight == 0)
+                if (Interlocked.Decrement(ref _loadsInFlight) == 0)
                 {
+                    // A world lost while loads were in flight waited for them, marked once (review 29 item 1): the next
+                    // frame projects it, and if it is still lost the reload reads the map now. **Before the window's
+                    // step** (review 30 item 2), so a throw there cannot leave the reload pending and the world unmarked.
+                    TakePendingReload();
                     _view.HideLoading();
                 }
 
                 return 0;
             });
         }
+    }
+
+    /// <summary>
+    /// The last map read queued: each read waits for the one before it to finish — from before it clears the map until
+    /// its `Apply` — so one runs at a time, in the order asked (review 22 item 1).
+    /// </summary>
+    private Task _lastMapRead = Task.CompletedTask;
+
+    private readonly System.Threading.Lock _mapReadsGate = new();
+
+    /// <summary>
+    /// The read the newest load waits on before its own. Whether that read is still in flight is what a test reads to see
+    /// a load queued behind another (review 23 items 5 and 9: the one test-facing fact kept, as a test cannot otherwise tell
+    /// "waiting" from "about to clear the world").
+    /// </summary>
+    internal bool MapReadWaiting => Volatile.Read(ref _awaited) is { IsCompleted: false };
+
+    private Task? _awaited;
+
+    /// <summary>
+    /// Whether an asynchronous load is in flight — decoding, fetching, queued, reading or applying (review 28 item 2): from
+    /// `LoadDemoAsync`'s start to its last marshal, which counts it down on every path. **Interlocked on both sides**
+    /// (review 29 item 4): it is counted on the UI thread, or inline off it before the window's handle exists, and read
+    /// from the map read's worker as well as the UI thread.
+    /// </summary>
+    private bool LoadInFlight => Volatile.Read(ref _loadsInFlight) > 0;
+
+    /// <summary>
+    /// A world was lost while loads were in flight, and its reload waits for the last to finish (review 29 item 1): set
+    /// once by the skip (1), and turned into one mark on the world when the count reaches zero. An int, so both sides take
+    /// it with one exchange (review 30 item 1).
+    /// </summary>
+    private int _reloadPending;
+
+    /// <summary>
+    /// Takes a pending reload, if one is there, and marks the world so the next frame projects it (reviews 29-30). Called
+    /// by the last load to finish, in its marshal (review 31: the skip's re-check was unreachable, D180).
+    /// </summary>
+    private void TakePendingReload()
+    {
+        if (Interlocked.Exchange(ref _reloadPending, 0) == 1)
+        {
+            _world.Invalidate();
+        }
+    }
+
+    /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
+    /// <param name="ticket">The load's ticket.</param>
+    /// <param name="path">The demo.</param>
+    /// <param name="decoded">The decoded demo.</param>
+    /// <param name="prepared">What the map fetch came back with.</param>
+    /// <param name="mine">This read's place in the queue, released in that same marshal, after `Apply`.</param>
+    private async Task<DemoLoadResult> ReadAndApply(
+        int ticket, string path, DecodedDemo decoded, MapFetch prepared, TaskCompletionSource mine)
+    {
+        // Superseded while it waited for the read before it: the newer load reads its own map.
+        if (!_loads.IsCurrent(ticket))
+        {
+            return _view.OnUi(() => Superseded(_demoLog, path));
+        }
+
+        (bool Drawn, IReadOnlyList<string> Said) read;
+
+        try
+        {
+            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
+            // old map touches the device and stays here; finding and reading the new one touches
+            // nothing but files and arithmetic, and goes to a worker.
+            //
+            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
+            // goes, and the render loop reads them, so between the two the world is half replaced.
+            // The flag holds the loop off until the marshal back, which is also the barrier that
+            // publishes the writes. **Raised inside the region that lowers it** (review 23 item 4): a skip or a
+            // clear that throws here must not leave the view dark.
+            _view.OnUi(() =>
+            {
+                _readingMap = true;
+
+                // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
+                _effects.DropSkip();
+                ClearMap();
+                return 0;
+            });
+
+            read = await Task.Run(() =>
+            {
+                // **The read comes first because it is what opens the install**, and both
+                // precaches return silently without one (B208). That order used to be three
+                // statements anyone could reorder into a silent no-op; it is now carried by
+                // `game`, which does not exist until the read has produced it.
+                (bool drawn, GameContent? game, IReadOnlyList<string> said) =
+                    ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
+
+                _view.OnUi(() =>
+                {
+                    _view.ReportLoading(LoadingAssets, fraction: null);
+                    return 0;
+                });
+
+                // **Packed here rather than when a prop first appears, which is what Valve
+                // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
+                // and warns on an out-of-order precache: the engine loads models at level load,
+                // deliberately, so nothing is decoded mid-game.
+                //
+                // Ours was packing on sight, and it cost 385 ms in a single frame the first time
+                // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
+                // and before `_readingMap` is cleared, so it runs on the worker behind the
+                // barrier that already holds the render loop off during a map read (B146).
+                DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
+
+                // Same timing, same reason, and the audio path is where the cost actually
+                // landed once the model stalls were gone. **No emitted sounds yet**: those join
+                // the schedule in `Apply`, which precaches them itself. **The scripts ARE here**:
+                // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
+                // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
+                // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
+                DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
+
+                return (drawn, said);
+            }, _shutdown).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A read that throws lowers the barrier on its way out, and lets its fixed HUD go — in the same UI marshal, as
+            // the success path does (review 25 item 2); the caller says why.
+            _view.OnUi(() =>
+            {
+                try
+                {
+                    _readingMap = false;
+                }
+                finally
+                {
+                    EndLevelHud();
+                }
+
+                return 0;
+            });
+            throw;
+        }
+
+        // **Lowered in the marshal that shows the demo** (review 22 item 3): a separate marshal before `Apply` left a
+        // gap in which a scrub built the old demo's moment against the new level's set. **And the queue is released in
+        // it, after `Apply` and after the load's HUD is let go** (review 23 item 5): the next read cannot clear the world
+        // before this demo is shown, nor fix its HUD before this load ends.
+        return _view.OnUi(() =>
+        {
+            _readingMap = false;
+
+            try
+            {
+                return _loads.IsCurrent(ticket)
+                    ? Apply(decoded, read)
+                    : Superseded(_demoLog, path);
+            }
+            finally
+            {
+                EndLevelHud();
+                mine.TrySetResult();
+            }
+        });
     }
 
     /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>
@@ -1157,13 +1360,14 @@ public sealed partial class ViewerPresenter : IDisposable
         // caller to write into.
 
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
-        // that and passes what it found; the synchronous path passes null and reads it here, which
-        // is what the command line, `--shot` and the tests want.
+        // that and passes what it found; the synchronous `LoadDemo`, which only tests call, passes null
+        // and reads it here.
         (bool haveMap, IReadOnlyList<string> mapSaid) = read ?? ReadDemoMap(_demo.MapName);
 
         // **Here as well as on the load worker, because there are TWO load paths and only one of
-        // them went through the worker.** `LoadDemoAsync` is the playlist's route; `LoadDemo` is the
-        // command line's, `--shot`'s and the tests', and it calls Apply directly. The first attempt
+        // them went through the worker.** `LoadDemoAsync` is every production route today — the
+        // playlist, the command line and `--shot`; `LoadDemo`, which only tests call, calls Apply directly
+        // (review 25 item 4: the command line used it when this was written). The first attempt
         // put the precache only in the async path, so launching with a demo on the command line
         // precached nothing at all and the 425 ms stall was still in the log — which is
         // `docs/memory/one-place-or-it-drifts.md`, and the log is what caught it.
@@ -1177,7 +1381,7 @@ public sealed partial class ViewerPresenter : IDisposable
         //
         // **This path reads `_game` rather than a returned value** (B208), unlike the one in
         // `LoadDemoAsync`, and the difference is real: here the map may have been read on either
-        // path — `read ?? LoadMap(...)` — so there is no single call whose result could carry it.
+        // path — `read ?? ReadDemoMap(...)` — so there is no single call whose result could carry it.
         // The comment above is the whole of the guarantee here, which is exactly why the other call
         // site was changed to carry it structurally instead.
         DemoModels.Precache(_models, _timeline, _game, _renderLog);

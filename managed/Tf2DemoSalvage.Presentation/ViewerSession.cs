@@ -238,7 +238,8 @@ public sealed partial class ViewerSession
     }
 
     /// <inheritdoc/>
-    void ILoadView.MapRead() => ProjectMap();
+    /// <remarks>The read's own projection, and it says so: only it projects while the read runs (B779 review 28 item 1).</remarks>
+    void ILoadView.MapRead() => _presenter.ProjectMap(_surfaceColours, _window.Viewport, fromTheRead: true);
 
     /// <summary>Projects the map: whether it needs uploading and what follows an upload are the load owner's; this window's part is its device, the surface-colour toggle and the viewport's size.</summary>
     private void ProjectMap() =>

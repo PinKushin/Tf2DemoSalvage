@@ -180,6 +180,100 @@ What the eye and teeth shaders are handed at the draw, read after the shaders th
   is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
   (*arithmetic*).
 
+## A panel's face is flexed by its draw, teeth or none (B779)
+
+What the B725 reading left: the panels computed the descriptor weights only for a mouth, and drew the mesh at rest.
+
+- **The rules run for every model with flex descriptors, and nothing else gates them.** In `CMDL::Draw` (TF2's x64
+  `client.dll`, *read* in the disassembly) the only test before the rules is `cmp [rdx+0x104], r15d` (`0x180937138`) —
+  the studio header's `numflexdesc` against zero. A wrong turn, kept: our port ran the TF panel's rules only for a model
+  with a mouthed Teeth material, reasoned as "nothing else reads them"; that held only because our panels flexed no mesh,
+  and the engine flexes it with the same weights.
+- **A CMDL's draw has no delayed weights.** `LockFlexWeights` is called with its third argument zeroed (`xor r9d, r9d`,
+  `0x180937167`; the call `0x180937173`), and `DrawModel` is handed a null delayed pointer (`[rsp+0x28] = r15 = 0`,
+  `0x1809371e8`; the call `0x1809371f2`). Taken to mean the delay is the weights themselves — *interpolated*: the null is
+  read, studiorender's handling of it is not.
+- **Which weights.** A CMDLPanel's (and its merges', and the StatTrak second-level merge's) are the rules at
+  `CMDL::CMDL`'s zero controls; a CTFPlayerModelPanel's root's, the rules at its per-paint decay
+  (`tf_playermodelpanel.cpp:2275-2361`); a `CModelPanelModel`'s, a C_BaseFlex's at rest (`c_baseflex.cpp:1220-1222`);
+  an attached C_BaseAnimating's (`basemodelpanel.cpp:468`), `LockFlexWeights`' zeros (*source*, the last as B513 read it).
+- **A C_BaseFlex's delayed weights are its own, and they start at zero — a review's catch.** The first port took every
+  panel's delayed weights as its current ones. A C_BaseFlex with `flex_smooth` on hands the mesh `m_flFlexDelayedWeight`
+  (`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`), zeroed whenever the model is
+  set (`:203-213`) and moved toward the weights each frame by `RunFlexDelay` (`:1265-1279`) — the first draw blends
+  nothing, since `m_flFlexDelayTime` is written only there (`:1310`). So a `CModelPanelModel`'s slow vertex animations
+  rise from rest over its first frames; ported (*source*). Ours steps the delay once per panel draw (once a paint); the
+  engine steps it once per draw of the entity — the same while a panel draws its model once a paint, *interpolated*. The world's resting C_BaseFlex has the same divergence, filed
+  as B805. Read on the way: a C_BaseFlex whose model has no flex controllers draws zero weights, delayed or not —
+  `SetupGlobalWeights` zeroes both and returns false before any rule (`:1198-1207`, `:1152-1155`) (*source*).
+- **A `CModelPanel` sets its model up again at every new map.** It listens for `game_newmap` from its constructor
+  (`basemodelpanel.cpp:56`) and marks itself dirty "to force the models to re-setup themselves" (:196-205), so the next
+  paint builds a new `CModelPanelModel` from the new level's model (*source*). Ours had no such event and kept the old
+  level's model, weights and all; ported.
+- **The model is gone before the event, released with the level** (*source*, B779 review 8). `CHLClient::LevelShutdown`
+  runs `cl_entitylist->Release()` (`cdll_client_int.cpp:1735`), and `CClientEntityList::Release` releases every entity
+  (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — so between the old level's end
+  and the next set-up `m_hModel.Get()` is null, and `SetSequence` or `SetBodyGroup` finds nothing. **But not at the first
+  load**: `LevelShutdown` returns at once while no level was initialised (:1714-1715; `g_bLevelInitialized`, set at
+  :1612), so the first map's load releases nothing and only the event marks the panel dirty (review 9). Why it
+  returns there is not in the source: its own comment (:1713) reads only "HACK: Bogus, but the logic is too
+  complicated in the engine". That the engine sets no model panel up before its first level is *interpolated*. Reviews
+  9-11 believed ours could have panel models before its first load, so a copy of the flag kept them while the model set
+  forgot: three placements of it each missed a route (*wrong turn*). Ours now shuts the panels down at every load and
+  releases exactly what they hold (review 12). **A divergence on paper, and unreachable** (reviews 13-14, read from our
+  code): a model set up before the first load would be released at our first load, where the engine's would be kept
+  until the dirty `SetupModel` replaces it (:395). But nothing sets one up then. With no demo there is no timeline, so
+  `HudStates.For` returns `default` (`HudStates.cs:39-42`). A `CModelPanel`'s `Paint` then returns before `UpdateModel`
+  (`VguiModelPanel.cs:628`), no game event reaches the doors or the sign, and the class panel's `TfPlayerModelPanel` is
+  set up only from a local player (`TfHudPlayerClass.Think`, :230). A skip needs a timeline, and both load routes run
+  `ClearMap` before a frame can show one (`ViewerPresenter.cs:554`, :925). The presenter's
+  `ClearMap_AfterAFrameBeforeAnyLoad_…` row sets the panel up by hand. **The engine's load is in the call, so a
+  bodygroup is never dropped** (*source*, review 14): `SetupModel` loads the model (`InitializeAsClientEntity`, :407),
+  and `SetBodyGroup` records into `m_mapBodygroupValues` only with a model held (:367-382), for every later set-up to
+  apply (:425-428). Ours precached the panels' models only in the drawn frame, after a skip's batches, so the opening
+  skip of a load that crossed the match doors or a round sign set it up with the default logo. Review 14 added a precache
+  on the skip's frame; review 15 found the HUD's first frame had the same gap (its layout loads inside `Think`, after the
+  precache), the third route a "precache before the caller" missed (*wrong turn*, the shape of reviews 9-11's flag).
+  **Ours now loads in the call too**: the set-up asks the model set to pack the model (`IMdlCache.LoadMdl`), as
+  `InitializeAsClientEntity` asks `modelinfo->GetModelIndex` (c_baseentity.cpp:1130-1153). *Interpolated*: that the
+  client's `GetModelIndex` loads an unprecached name, as a client-only model, is not in the SDK; nothing there precaches
+  the HUD's model names, which only its `.res` files carry. **A wrong turn,
+  kept** (review 7): reading the event handler alone — dirty, and `DeleteModelData` only at the next `SetupModel`
+  (:395) — the port kept the model until the set-up. True for the event, wrong for the level change our viewport's walk
+  is called at, where the shutdown has released it already. And the HUD's precache of the panels' models must not survive the level its
+  models die with — a guard that remembered "this list is already packed" across a level change left the same list
+  unpacked on the next map, drawing nothing (B779 review 2).
+- **A model only a panel draws is packed like any other.** It was filed as drawing unflexed, the set having never packed
+  it. Until B779 review 15 the HUD precached every panel's models into the world's model set each frame the list changed;
+  since then each panel packs its own when it reads it, as the engine loads in the call — a CMDL panel through
+  `FindMDL`/`GetStudioHdr` (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126), a `CModelPanel` through
+  `InitializeAsClientEntity` (basemodelpanel.cpp:407), an item's model when its load callback is asked
+  (tf_playermodelpanel.cpp:1129-1166). The load packs the model with its order, so the same paint's face has the buffer
+  order it needs (*measured* through the production set on a synthetic model,
+  `VguiModelPanelConformanceTests.Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`). The filing
+  was a deduction never checked. **A wrong turn, the same day** (review 16): packed is not on the device. The scene's
+  upload (`MomentScene.Pack`) runs from the moment's show, before the overlay whose paint packed the model, and not at
+  all on a paused frame with a still camera — so the first draw had the instance and no geometry ("posed before its
+  geometry was uploaded"), and a paused `--shot` kept it missing. The engine loads and draws in one frame
+  (basemodelpanel.cpp:407, mdlpanel.cpp:185); the overlay's end now uploads what its paint grew, before the draw
+  (`MomentScene.UploadGrown`). Review 15's claim "never drawn unflexed" was read off a draw list, which cannot see the
+  device. Two more of the engine's load-in-the-call shapes (review 17, *source*): it brings in that one model — so ours
+  packs the one path, not the level's static props that the moment's first pack takes (finding 83 item 1) — and a
+  `CMDLPanel` decides its root's validity once, at `SetMDL` (`FindMDL`, an error model `MDLHANDLE_INVALID`,
+  mdlpanel.cpp:185-190), so a root that failed is not drawn even if it could load later. **Not quite ours, and the
+  difference is not parity** (review 18, *read from our code*): the engine's `FindMDL` reads the install whatever the
+  level, but our load reads the LEVEL's preloaded models — `MapAssets.Geometry` is a lookup over what the map load read
+  from `DemoModels.Needed` (MapAssets.cs:988, LoadedMap.cs:361-365), and a mapless demo has `NoGeometry`
+  (LevelSystems.cs:313-315; ViewerPresenter.cs:690-694 returns before the level loads). So our failure can be the
+  level's, not the file's: decided once was a class portrait lost for good after one mapless demo. Ours decides once
+  a LEVEL — again at the first read after each level's end — which is the engine's verdict wherever our load can answer
+  as its can. What no preload names never loads at all, map or not — so every model a HUD panel can ask for is now on the
+  preload (B812, fixed in review 19): the HUD layouts' model blocks (the round sign's `banner.mdl`, the doors'
+  `versus_doors.mdl`), each class's stock weapon the class panel falls back to, and every carried item's panel models.
+  *Measured* with the `hud-model-loads` probe on two POV demos: one panel model missing on each before (the sign's banner;
+  the spy's stock `c_revolver.mdl`), none after.
+- *Not measured*: whether the flexed face closes any of the class portrait's deficit (B559) stays *interpolated*.
+
 ## The Eyes glint (B725, item 3)
 
 The `Eyes` shader adds a 32×32 render target the studio render draws for every eye draw (`studiorender.dll`

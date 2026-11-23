@@ -317,8 +317,9 @@ public sealed class LevelSystems
         // **The map's detail MODELS, packed here because this is where the loader arrives** (B363).
         // It is also the engine's own moment — `UnserializeModelDict` runs during level load
         // (`detailobjectsystem.cpp:1587`) — and it must be BEFORE anything demo-side packs, because
-        // the packer skips a path it has already seen: an entry added while the geometry loader was
-        // still `NoGeometry` stays empty for ever, and a later call cannot fill it in.
+        // the packer skips a path it has already seen. An entry added while the loader was still
+        // `NoGeometry` was empty for ever; since B779 review 20 binding a loader forgets such entries
+        // (`EntityModelSet.Geometry`), but anything packed before this line still packed nothing.
         if (map.Assets is { DetailModelNames.Count: > 0 } detail)
         {
             _models.Precache(detail.DetailModelNames);

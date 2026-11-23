@@ -309,6 +309,126 @@ public sealed class VguiModelPanelConformanceTests
         panel.Locals.Count.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// **A CMDL panel loads its models in the call** (B779 review 15 follow-up): `CMDLPanel::SetMDL` and `SetMergeMDL` take
+    /// their handle from `vgui::MDLCache()->FindMDL( pMDLName )` (mdlpanel.cpp:185, :868), the merge reads its header
+    /// through it at once (`GetStudioHdr`, :857), and the draw reads the header again (imdlcache.h:116-126). Here nothing
+    /// is loaded until the panel asks: the paint draws the root and the merge. The control: nothing was loaded before.
+    /// </remarks>
+    [Test]
+    public void Paint_ARootAndAMergeNothingLoaded_LoadsAndDrawsBoth()
+    {
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root"));
+        VguiMdlPanel panel = new(null, "model", cache) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        cache.Loaded.ShouldBeEmpty("the control");
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/weapons/c_models/c_stickybomb_launcher.mdl");
+        panel.Paint(surface, Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A merge model is loaded at once** (B779 review 16 item 3): `SetMergeMDL( pMDLName )` takes the handle from
+    /// `FindMDL` (mdlpanel.cpp:868) and the handle overload reads its header at once
+    /// (`new CStudioHdr( m_MDL.GetStudioHdr(), … )`, :857). The control: before the call the merge was not loaded.
+    /// </remarks>
+    [Test]
+    public void SetMergeMDL_AModelNothingLoaded_LoadsItAtOnce()
+    {
+        const string merge = "models/weapons/c_models/c_stickybomb_launcher.mdl";
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root"));
+        VguiMdlPanel panel = new(null, "model", cache);
+
+        panel.SetMDL("models/player/demo.mdl");
+        cache.Loaded.ShouldNotContain(merge, "the control");
+
+        panel.SetMergeMDL(merge).ShouldNotBeNull();
+
+        cache.Loaded.ShouldContain(merge);
+    }
+
+    /// <remarks>
+    /// **A read in the gap between levels does not decide the next level's root** (B779 review 20 item 5): after a level's end
+    /// the panel's root is undecided (review 18), and a read before the next map binds its loader would decide it invalid
+    /// for the whole level. The verdict is the bound loader's: binding the next one (`EntityModelSet.Geometry`) makes the
+    /// root decided again by the next read. Here a level, its end (`ForgetLevel`, the set's `LevelShutdown`, no loader), a
+    /// read in the gap, the next map's loader, a read. The control: the gap's read found no root.
+    /// </remarks>
+    [Test]
+    public void ModelName_ReadBetweenALevelsEndAndTheNextLoader_IsDecidedAgainByTheBoundLoader()
+    {
+        const string root = "models/player/demo.mdl";
+        PropModels.ModelFrames frames = new(
+            [[new PropVertex(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) }]],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithBones("root"));
+        EntityModelSet models = new() { Geometry = path => path == root ? frames : null };
+        VguiMdlPanel panel = new(null, "model", models);
+
+        panel.SetMDL(root);
+        panel.ForgetLevel();
+        models.LevelShutdown();
+        models.Geometry = EntityModelSet.NoGeometry;
+        panel.ModelName.ShouldBeNull("the control: the gap's read finds nothing");
+
+        models.Geometry = path => path == root ? frames : null;
+
+        panel.ModelName.ShouldBe(root);
+    }
+
+    /// <remarks>
+    /// **A root that fails at `SetMDL` stays invalid** (B779 review 17 item 4): `SetMDL( pMDLName )` decides once —
+    /// `FindMDL`, then an error model is `MDLHANDLE_INVALID` (mdlpanel.cpp:185-190) — and the draw (:417), the merge
+    /// (:836-837) and the header read the handle, never the name again. So a model that becomes loadable later is not drawn
+    /// and takes no merge until the next `SetMDL`. The controls: the model does load now, and a fresh `SetMDL` takes it.
+    /// </remarks>
+    [Test]
+    public void SetMDL_ARootThatFailsToLoad_StaysInvalidWhenItLaterCould()
+    {
+        const string root = "models/player/demo.mdl";
+        LoadOnAskCache cache = new(SyntheticSkinnedModel.WithBones("root")) { Available = false };
+        VguiMdlPanel panel = new(null, "model", cache) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        panel.SetMDL(root);
+        cache.Available = true;
+        cache.LoadMdl(root).ShouldNotBeNull("the control: the model loads now");
+
+        panel.Paint(surface, Context());
+        surface.Draws.ShouldBeEmpty();
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldBeNull();
+
+        panel.SetMDL(root);
+        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldNotBeNull("the control: a fresh SetMDL takes it");
+        panel.Paint(surface, Context());
+        surface.Draws.ShouldHaveSingleItem("the control: and draws it");
+    }
+
+    /// <remarks>
+    /// **A merge onto a root that is an error model is refused** (B779 review 16 item 3): `SetMDL( pMDLName )` makes an
+    /// error model `MDLHANDLE_INVALID` (mdlpanel.cpp:187-190), and `SetMergeMDL` refuses with no valid root (:836-837). The
+    /// root here names a model that does not load. The control: a root that loads takes the same merge.
+    /// </remarks>
+    [Test]
+    public void SetMergeMDL_ARootThatDoesNotLoad_IsRefused()
+    {
+        VguiMdlPanel failed = new(null, "model", Cache.None);
+        VguiMdlPanel loaded = new(null, "model", Cache.Of(_ => SyntheticSkinnedModel.WithBones("root")));
+
+        loaded.SetMDL("models/player/demo.mdl");
+        loaded.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldNotBeNull("the control");
+
+        failed.SetMDL("models/player/missing.mdl");
+
+        failed.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl").ShouldBeNull();
+        failed.MergeMdls.ShouldBeEmpty();
+    }
+
     [Test]
     public void Paint_WithLocalLights_CarriesThemOnEveryModelInstance()
     {
@@ -421,6 +541,201 @@ public sealed class VguiModelPanelConformanceTests
         mouth.Forward.X.ShouldBe(-1f, 1e-5f);
         mouth.Forward.Y.ShouldBe(0f, 1e-5f);
         mouth.Forward.Z.ShouldBe(0f, 1e-5f);
+    }
+
+    /// <remarks>
+    /// **A panel's models draw their meshes flexed by the weights their draw computes** (B779). `CMDL::Draw` (TF2
+    /// `client.dll` `0x180936f70`), for a model with flex descriptors (`numflexdesc`, tested at `0x180937138`), locks the
+    /// studio render's weights (`0x180937173`), runs the rules on `m_pFlexControls` into them (`0x18093718b`) and draws with
+    /// them (`0x1809371f2`) — with no teeth to read them. `CMDLPanel`'s `SetupFlexWeights` is empty (`mdlpanel.h:101`), so
+    /// the root's controls are `CMDL::CMDL`'s zeros (`0x180936e20`), and so are a merge's (B725 5g): the rule `jaw + 0.25`
+    /// over 0.5..1 gives 0.25, the vertex moves (0.5, 0, 0). A C_BaseFlex at rest would give 0.75, unflexed 0.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedAtZeroFlexControls(bool asMerge)
+    {
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames flexed = PanelMeshFlexFixture.Flexed(plain with
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+
+        VguiMdlPanel panel = new(
+            null, "model", new FramesCache(path => path.Contains("hat", StringComparison.Ordinal) == asMerge ? flexed : plain))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+        panel.Paint(surface, Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[asMerge ? 1 : 0], 0.25f);
+        surface.Draws[1].Models[asMerge ? 0 : 1].Flex.ShouldBeNull("the other has no flex");
+    }
+
+    /// <remarks>
+    /// **The face reaches the list the renderer draws from** (B779 review 1 item 9): the HUD paints into a
+    /// <see cref="VguiDrawList"/>, whose <see cref="VguiDrawList.Models"/> `VguiRenderer.Draw` hands one at a time to
+    /// `Device3D.DrawPanelModels`, which passes each instance's `Flex` and `FlexRange` to the model draw as they stand
+    /// (`Device3D.cs`, `flex: instance.Flex`). This is the production surface, not the recording one; the device call after
+    /// it is read, not run (it needs a device and a desktop).
+    /// </remarks>
+    [Test]
+    public void Paint_IntoTheDrawList_CarriesTheFlexedFaceToTheRenderersModelDraw()
+    {
+        PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => frames)) { Wide = 100, Tall = 100 };
+        VguiDrawList list = new(_ => (0, 0));
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.Paint(list, Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(list.Models.ShouldHaveSingleItem().Models.ShouldHaveSingleItem(), 0.25f);
+    }
+
+    /// <remarks>
+    /// **A path whose model is read again draws the new model's weights** (B779 review 2 item 3): the HUD's panels outlive a
+    /// level, and the next level can answer the same path with other frames — `LevelShutdown` forgets every model, and a
+    /// map's pakfile is read before the install. The first frames' rule is `jaw + 0.25` (the vertex 0.5 at zero controls),
+    /// the second's `jaw + 0.5` (1.0).
+    /// </remarks>
+    [Test]
+    public void Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights()
+    {
+        PropModels.ModelFrames first = Constant(0.25f);
+        PropModels.ModelFrames current = first;
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => current)) { Wide = 100, Tall = 100 };
+        RecordingModelSurface surface = new();
+
+        panel.SetMDL("models/player/demo.mdl");
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.25f);
+        Animation.Animating.AnimatingEntity firstEntity = panel.KeptEntity("models/player/demo.mdl").ShouldNotBeNull();
+
+        current = Constant(0.5f);
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 0.5f);
+
+        // Posed on a skeleton the new frames made, as the weights and the face are keyed on them (review 7 item 2).
+        panel.KeptEntity("models/player/demo.mdl").ShouldNotBeSameAs(firstEntity);
+
+        static PropModels.ModelFrames Constant(float constant) => PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, constant), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+    }
+
+    /// <remarks>
+    /// **A root switched to another model draws the new model's face** (B779 review 1, Gemini): the root CMDL keeps its
+    /// face across `SetMDL`, and here both models answer the same packed order and both draw at the zero-control weight
+    /// 0.25, so neither the order nor the weights tell them apart. The first model's ramp starts at 0 (0.25, the vertex
+    /// 0.5); the second's at −0.5 (0.75, the vertex 1.5).
+    /// </remarks>
+    [Test]
+    public void Paint_ARootSwitchedToAnotherModelWithEqualWeightsAndOrder_DrawsTheNewModelsFace()
+    {
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        };
+        PropModels.ModelFrames first = PanelMeshFlexFixture.Flexed(plain);
+        PropModels.ModelFrames second = PanelMeshFlexFixture.Flexed(plain, target0: -0.5f);
+
+        VguiMdlPanel panel = new(
+            null, "model", new FramesCache(path => path.Contains("second", StringComparison.Ordinal) ? second : first))
+        {
+            Wide = 100,
+            Tall = 100,
+        };
+
+        panel.SetMDL("models/player/first.mdl");
+        RecordingModelSurface surface = new();
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.25f);
+
+        panel.SetMDL("models/player/second.mdl");
+        panel.Paint(surface, Context());
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 0.75f);
+    }
+
+    /// <remarks>
+    /// **A model only a panel draws is flexed through the production cache on its first paint** (B779; review 15 follow-up):
+    /// no world prop wears it and nothing precaches it, so the set packs it when the panel reads it (`FindMDL`/`GetStudioHdr`,
+    /// mdlpanel.cpp:185, imdlcache.h:116-126) — with its packed order, before the same paint's draw spreads the face over it.
+    /// The set packs the two corners in order, [0, 1], so the moved vertex 1 is slot 1, where the fixture's own order puts
+    /// it in slot 0: the face follows the set's packing. The zero-control weight 0.25 moves it (0.5, 0, 0) in the first
+    /// paint's draw list. *Not seen here*: the device — that the frame uploads what the paint packed before it draws is
+    /// `FramePresenterHudTests.BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns` (review 16). The
+    /// control: nothing packed it before the panel.
+    /// </remarks>
+    [Test]
+    public void Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder()
+    {
+        const string path = "models/vgui/panel_only.mdl";
+        PropModels.ModelFrames frames = PanelMeshFlexFixture.Flexed(new PropModels.ModelFrames(
+            [
+                new PropVertex[]
+                {
+                    new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 7) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 5) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+
+        EntityModelSet models = new() { Geometry = requested => requested == path ? frames : null };
+        models.PackedOrder(path).ShouldBeNull("the control: nothing packed it before the panel");
+
+        VguiMdlPanel panel = new(null, "model", models) { Wide = 100, Tall = 100 };
+        panel.SetMDL(path);
+
+        RecordingModelSurface surface = new();
+        panel.Paint(surface, Context());
+
+        models.PackedOrder(path).ShouldBe([0, 1], "packed by the panel's own load, with its order");
+        ModelInstance drawn = surface.Draws.ShouldHaveSingleItem().Models[0];
+        float[] face = drawn.Flex.ShouldNotBeNull("CMDL::Draw flexes a model with flex descriptors");
+        face.ShouldBe([0f, 0f, 0f, 0f, 0f, 0f, 0.5f, 0f, 0f, 0f, 0f, 0.25f], 1e-5f);
+        drawn.FlexRange.ShouldBe(new FlexSlots(1, 1));
     }
 
     /// <remarks>
@@ -876,17 +1191,6 @@ public sealed class VguiModelPanelConformanceTests
         panel.MergeMdls.ShouldBeEmpty();
     }
 
-    [Test]
-    public void ModelsToPrecache_ARootAndMergeModels_YieldsRootFirst()
-    {
-        VguiMdlPanel panel = new(null, "model", Cache.None);
-
-        panel.SetMDL("models/player/scout.mdl");
-        panel.SetMergeMDL("models/weapons/c_models/c_scattergun.mdl");
-
-        panel.ModelsToPrecache().ShouldBe(
-            ["models/player/scout.mdl", "models/weapons/c_models/c_scattergun.mdl"]);
-    }
 
     [Test]
     public void ParseModelResInfo_AModelBlock_ReadsNameSkinAnglesAndOrigin()
@@ -1348,12 +1652,39 @@ public sealed class VguiModelPanelConformanceTests
         public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
+    /// <summary>One model for every path, found only once <see cref="LoadMdl"/> has loaded that path — and loadable only once <see cref="Available"/>.</summary>
+    private sealed class LoadOnAskCache(PropModels.SkinnedModel model) : IMdlCache
+    {
+        public HashSet<string> Loaded { get; } = new(StringComparer.Ordinal);
+
+        public bool Available { get; set; } = true;
+
+        public PropModels.ModelFrames? FindMdl(string path) =>
+            Loaded.Contains(path) ? new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            if (Available)
+            {
+                Loaded.Add(path);
+            }
+
+            return FindMdl(path);
+        }
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
     /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>, with its own render context target.</summary>
     private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
     {
         public StudioViewTarget ViewTarget { get; } = new();
 
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => -1;
 

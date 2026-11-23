@@ -36,7 +36,201 @@ public static class DemoModels
     /// </remarks>
     private static readonly string[] LevelLoadModels = [.. BoltImpacts.ArrowModels, Disguise.DispenserModel];
 
-    /// <summary><see cref="LevelLoadModels"/>, and the dispenser's break pieces, into one of the two sets.</summary>
+    /// <summary>
+    /// What the HUD's item panels can attach for any item a player carries (B779 review 19, B812): the class panel's
+    /// `EquipItem` model (`TfPlayerModelPanel.DisplayModel`) for every class and team, its world attachments, and a paint-kit
+    /// weapon's StatTrak module.
+    /// </summary>
+    /// <remarks>
+    /// **Carried, not held**: the class panel equips the first valid item of the loadout (`HoldFirstValidItem`), which can be
+    /// a weapon the player never drew, so no held-weapon walk (`WeaponModels.AllIn`) names it — measured with the
+    /// `hud-model-loads` probe on `20150119_2240_cp_process_final_(ovo)_blu.dem`: the recorder's spy revolver,
+    /// `c_revolver.mdl`, missing. The item panels (freeze panel, spectator) show an item a player carries too.
+    /// </remarks>
+    /// <param name="players">Every frame's players.</param>
+    /// <param name="schema">The schema.</param>
+    /// <param name="paths">The list.</param>
+    internal static void AddCarriedItemModels(IEnumerable<ScenePlayer> players, ItemSchema schema, HashSet<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(paths);
+
+        // **Each item instance read once**: a frame keeps the last frame's list and items when nothing changed (B433), so
+        // by reference most frames add nothing. **Each model-deciding item resolved once**, keyed only after the item view
+        // is made (review 19 item 4: a rejected row must not stand for its definition), on what decides the panels' models:
+        // the definition, its style, whether it is a paint kit and whether its strings come from the definition.
+        // **Each item list read once**, too: the same sharing hands most frames the last frame's list itself, so a list seen
+        // before is skipped whole (review 21: the per-item check over every frame was most of the walk's cost).
+        HashSet<SceneItem> visited = new(ReferenceEqualityComparer.Instance);
+        HashSet<IReadOnlyList<SceneItem>> lists = new(ReferenceEqualityComparer.Instance);
+        HashSet<(int Definition, int? Style, bool PaintKit, bool Iterates)> resolved = [];
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.Items is { } items && lists.Add(items))
+            {
+                foreach (SceneItem item in items)
+                {
+                    AddCarried(item, schema, visited, resolved, paths);
+                }
+            }
+
+            if (player.DisguiseWeaponItem is { } disguise)
+            {
+                AddCarried(disguise, schema, visited, resolved, paths);
+            }
+        }
+    }
+
+    private static void AddCarried(
+        SceneItem item,
+        ItemSchema schema,
+        HashSet<SceneItem> visited,
+        HashSet<(int, int?, bool, bool)> resolved,
+        HashSet<string> paths)
+    {
+        if (!visited.Add(item) || item.DefinitionIndex is null || Hud.TfItemView.From(item, schema) is not { } view
+            || !resolved.Add((view.DefinitionIndex, view.Style(schema), view.IsPaintKit(schema), view.IteratesDefinition)))
+        {
+            return;
+        }
+
+        AddItemModels(view, schema, paths);
+    }
+
+    /// <summary>
+    /// What a panel can ask for one item: the class panel's `EquipItem` model (`TfPlayerModelPanel.DisplayModel`) for every
+    /// class and team, its extra wearable, the item panel's model (`TfEmbeddedItemModelPanel.PanelModel`), the world
+    /// attachments (plain and festive — `AttachedModelsFor` with `festivized` is the plain list plus the festive one), and a
+    /// paint-kit weapon's StatTrak module.
+    /// </summary>
+    /// <param name="view">The item.</param>
+    /// <param name="schema">The schema.</param>
+    /// <param name="paths">The list.</param>
+    internal static void AddItemModels(Hud.TfItemView view, ItemSchema schema, HashSet<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(paths);
+
+        int definition = view.DefinitionIndex;
+
+        foreach (int team in CarriedTeams)
+        {
+            for (int playerClass = 0; playerClass <= LastClass; playerClass++)
+            {
+                AddPath(Hud.TfPlayerModelPanel.DisplayModel(schema, view, playerClass, team), paths);
+            }
+
+            foreach (AttachedModel attached in schema.AttachedModelsFor(definition, team, festivized: true))
+            {
+                if ((attached.DisplayFlags & AttachedModel.WorldModel) != 0)
+                {
+                    AddPath(attached.Model, paths);
+                }
+            }
+        }
+
+        AddPath(schema.ExtraWearableModel(definition), paths);
+        AddPath(Hud.TfEmbeddedItemModelPanel.PanelModel(schema, view), paths);
+        AddPath(view.StatTrakModule(schema), paths);
+    }
+
+    private static void AddPath(string? path, HashSet<string> paths)
+    {
+        if (path is { Length: > 0 })
+        {
+            paths.Add(path);
+        }
+    }
+
+    /// <summary>
+    /// Every model a HUD panel can ask for, in both of B195's lists alike (B779 reviews 19-20): the HUD layouts' models, each
+    /// class's stock weapon, and every carried item's panel models. One method, called the same way by both lists; within one
+    /// load — from <c>BeginLevelLoad</c> at the start of every map read, mapless and failing ones included, to
+    /// <c>EndLevelLoad</c> after its <c>Apply</c> — they read the same HUD view (<see cref="GameContent.LevelHudArchives"/>)
+    /// and the same carried walk, so they agree on it. Outside a load they read the HUD as it is at each call.
+    /// </summary>
+    private static void AddPanelModels(DemoTimeline? demo, GameContent game, HashSet<string> paths)
+    {
+        // **The HUD's own models, which no track names** (B812): the engine's panels load them from the install on demand
+        // (basemodelpanel.cpp:407, mdlpanel.cpp:185); ours read this preload. Read from the HUD the viewer draws — the chosen
+        // one over the stock files, as fixed for this level's load (`GameContent.LevelHudArchives`, reviews 20 and 22).
+        paths.UnionWith(Hud.HudPanelModels.Named(game.LevelHudArchives.Read));
+
+        if (game.Weapons.Items is not { } schema)
+        {
+            return;
+        }
+
+        // **Each class's stock weapon**, which the class panel holds when nothing carried can be held
+        // (`HoldFirstValidItem`, tf_playermodelpanel.cpp:290-298) — measured missing before: the spy's `c_revolver.mdl` on
+        // `20150119_2240_cp_process_final_(ovo)_blu.dem`, carried by nobody.
+        for (int playerClass = 1; playerClass <= LastClass; playerClass++)
+        {
+            if (Hud.TfPlayerModelPanel.FallbackItem(schema, playerClass) is { } stock)
+            {
+                AddItemModels(stock, schema, paths);
+            }
+        }
+
+        if (demo is not null)
+        {
+            paths.UnionWith(CarriedPanelModels(demo, schema));
+        }
+    }
+
+    /// <summary>
+    /// Every carried item's panel models over a demo, walked once per timeline and schema and handed to both of B195's lists
+    /// (review 21: `Needed` at the map read and `ToPack` at the precache each walked every frame — about 0.5 s of f12's load).
+    /// </summary>
+    /// <param name="demo">The decoded demo.</param>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The paths; the same set for every ask with this timeline and schema.</returns>
+    internal static IReadOnlySet<string> CarriedPanelModels(DemoTimeline demo, ItemSchema schema)
+    {
+        // A lock, so the map read and the precache never both walk: the second waits for the first's result.
+        lock (CarriedLock)
+        {
+            if (CarriedByTimeline.TryGetValue(demo, out CarriedWalk? known) && ReferenceEquals(known.Schema, schema))
+            {
+                return known.Paths;
+            }
+            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+            AddCarriedItemModels(demo.Frames.SelectMany(static frame => frame.Players), schema, paths);
+            CarriedByTimeline.AddOrUpdate(demo, new CarriedWalk(schema, paths));
+
+            return paths;
+        }
+    }
+
+    /// <summary>The walk held for a timeline, or null when none was made — what a test reads to see one walk serve both lists.</summary>
+    /// <param name="demo">The decoded demo.</param>
+    /// <returns>The held paths, or null.</returns>
+    internal static IReadOnlySet<string>? CarriedWalked(DemoTimeline demo)
+    {
+        lock (CarriedLock)
+        {
+            return CarriedByTimeline.TryGetValue(demo, out CarriedWalk? known) ? known.Paths : null;
+        }
+    }
+
+    /// <summary>One timeline's walk, and the schema it was walked with.</summary>
+    private sealed record CarriedWalk(ItemSchema Schema, IReadOnlySet<string> Paths);
+
+    /// <summary>The walks, held as long as their timeline is.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DemoTimeline, CarriedWalk> CarriedByTimeline = new();
+
+    private static readonly System.Threading.Lock CarriedLock = new();
+
+    /// <summary>No team (the item panels' `GetPlayerDisplayModel( class, 0 )`), RED and BLU.</summary>
+    private static readonly int[] CarriedTeams = [0, 2, 3];
+
+    /// <summary>The highest player class index; zero is "no class".</summary>
+    private const int LastClass = 9;
+
+    /// <summary><see cref="LevelLoadModels"/> and the dispenser's break pieces, into one of the two sets.</summary>
     private static void AddLevelLoadModels(GameContent game, HashSet<string> paths)
     {
         paths.UnionWith(LevelLoadModels);
@@ -172,6 +366,10 @@ public static class DemoModels
             AddLevelLoadModels(game, paths);
         }
 
+        // **Not under that guard** (B779 review 21 item 3): the engine's panels have no such condition, and this reads only
+        // the install's HUD files and schema, so it adds nothing without them. In both lists alike, the same way.
+        AddPanelModels(timeline, game, paths);
+
         if (timeline is not { } demo)
         {
             return paths;
@@ -256,7 +454,11 @@ public static class DemoModels
     /// and not the other either packs to nothing or hitches on first sight. Neither fails loudly.
     ///
     /// Kept as it was rather than unified here, because merging them changes which models are packed
-    /// and that wants its own measurement rather than riding along with a move.
+    /// and that wants its own measurement rather than riding along with a move. **One part IS shared**
+    /// (B779 reviews 19-21): every HUD panel's model comes from <see cref="AddPanelModels"/>, which both
+    /// lists call the same way, with one carried-item walk for both (<see cref="CarriedPanelModels"/>)
+    /// and, within a level's load, one HUD view (<see cref="GameContent.LevelHudArchives"/>, review 22
+    /// item 4) — so within a load they agree on those.
     ///
     /// **The class models are added because a player's model is chosen at runtime.** Nothing on the
     /// wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class script — so
@@ -292,6 +494,9 @@ public static class DemoModels
         {
             AddLevelLoadModels(game, paths);
         }
+
+        // Not under that guard, as in `Needed` (review 21 item 3).
+        AddPanelModels(timeline, game, paths);
 
         // **The extra models items hang on themselves**, which appear in no track and in no string
         // table: `attached_models` names them in the item schema, and the entity that carries them

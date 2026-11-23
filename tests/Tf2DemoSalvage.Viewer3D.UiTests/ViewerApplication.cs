@@ -637,6 +637,11 @@ internal sealed partial class ViewerApplication : IDisposable
     /// </remarks>
     public string? FirstLine(string line) => Lines().Find(each => each.Contains(line, StringComparison.Ordinal));
 
+    /// <summary>Every log line containing some text, in order.</summary>
+    /// <param name="line">The text to look for, as the viewer writes it.</param>
+    /// <returns>The whole lines.</returns>
+    public IReadOnlyList<string> AllLines(string line) => Lines().FindAll(each => each.Contains(line, StringComparison.Ordinal));
+
     /// <summary>Opens a demo the way a person does: find it in the playlist and activate it.</summary>
     /// <param name="demoName">Enough of the file name to single it out.</param>
     /// <exception cref="InvalidOperationException">No row matched.</exception>
