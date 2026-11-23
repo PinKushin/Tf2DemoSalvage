@@ -276,8 +276,9 @@ to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, no
 rest: the copy compares the sign-extended byte UNSIGNED (`JA`), so a non-ASCII byte continues a line, while the skip
 compares it SIGNED (`JGE`); a NUL ends the file, after the line it stopped runs, and a file beginning with one runs nothing
 (`Cmd_Exec_f` loops while the line's `strlen` is above 0). Because the first byte is copied whatever it is, a UTF-8 byte
-order mark joins the first command (*measured*, live TF2, 2026-11-23, B822: a file `EF BB BF` + two `echo` lines printed
-`Unknown command "�"` and then only the second line; a control without the mark printed both). The viewer strips the mark
+order mark joins the first command (*disassembly*). What was *measured* (live TF2, 2026-11-23, B822): a file `EF BB BF` +
+two `echo` lines printed `Unknown command "�"` and then only the second line, so the first line did not run; a control
+without the mark printed its line. The viewer strips the mark
 anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it to
 `Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
 

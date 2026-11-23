@@ -353,6 +353,7 @@ public sealed class Tf2ConfigFilesTests
     /// character, kept whole.
     /// </remarks>
     [TestCase(new byte[] { 0xEF, 0xBB, 0xBF }, "")]
+    [TestCase(new byte[] { 0xEF, 0xBB }, "�")]
     [TestCase(new byte[] { 0xEF, 0xBB, 0xA0, 0x61 }, "ﻠa")]
     [TestCase(new byte[] { 0xEF, 0xBA, 0xBF, 0x61 }, "ﺿa")]
     [TestCase(new byte[] { 0xEE, 0xBB, 0xBF, 0x61 }, "a")]

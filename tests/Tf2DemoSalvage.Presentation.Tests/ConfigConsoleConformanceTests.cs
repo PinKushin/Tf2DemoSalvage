@@ -1138,7 +1138,7 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// Above Valve (D265): TF2 runs a leading UTF-8 byte order mark as part of the first command (`Unknown command`, measured
-    /// live, B822); the viewer strips it on `exec` too, as mastercomfig's modules arrive that way. The control has no mark.
+    /// live, B822); the viewer strips it on `exec` too, not only on the startup configs. The control has no mark.
     /// </remarks>
     [Test]
     public void Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand()

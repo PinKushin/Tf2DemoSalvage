@@ -177,8 +177,8 @@ public static class Tf2ConfigFiles
     {
         ReadOnlySpan<byte> span = bytes;
 
-        // UTF-8 BOM. TF2 leaves it in place, so it becomes part of the first token and a leading
-        // `unbindall` is an `Unknown command` (measured on live TF2, B822). Stripping it is above Valve (D265).
+        // UTF-8 BOM. TF2 leaves it in place, so it joins the first token (engine.dll FUN_180177310), and the first
+        // line does not run: `Unknown command` (measured on live TF2, B822). Stripping it is above Valve (D265).
         if (span.Length >= 3 && span[0] == 0xEF && span[1] == 0xBB && span[2] == 0xBF)
         {
             span = span[3..];
