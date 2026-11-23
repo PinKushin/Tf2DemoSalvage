@@ -44516,7 +44516,7 @@ is about a file pasted directly into `custom/`, and the engine finds a nested na
 8. **Not fixed, filed:** the host's binding projection (`KeyBindings` from `LoadFrom`) is not refreshed by a bind an
    alias makes at run time (Sonnet): B821.
 
-**Review 2** (Fable, Sonnet merge; Grok request changes; Gemini pending at writing):
+**Review 2** (Fable, Sonnet, Gemini merge; Grok request changes):
 
 1. **Alias fan-out had no budget** (Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20 runs, now reachable at
    load. Fixed: `MaximumAliasRuns` (4096, *interpolated*) per line at depth 0, logged once. Test:
