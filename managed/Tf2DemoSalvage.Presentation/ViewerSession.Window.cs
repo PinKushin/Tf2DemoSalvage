@@ -207,16 +207,16 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         Paths = [.. _launch.Paths];
 
-        _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
         // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** Without it the
         // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
         // **After `Attach`** (B816): an `autoexec.cfg` ConVar then reaches the run's settings, where every reader looks, as
         // the console says a line read after attaching does (D215); before, the settings' own value shadowed it. TF2 runs
-        // `config.cfg`, then `autoexec.cfg`, then the line (`cfg/valve.rc`); the viewer's own saved settings play
-        // `config.cfg`'s part, so TF2's `config.cfg` and `config_default.cfg` stay below them (D264). The saved file is
-        // untouched (`SettingsPresenter.SetConVar` never saves). Before `OnConVarSet`, as the line is.
+        // `config.cfg` (the engine, at startup), then `autoexec.cfg` and the line (`cfg/valve.rc`); the viewer's own saved
+        // settings play `config.cfg`'s part, so TF2's `config.cfg` and `config_default.cfg` stay below them (D264). The
+        // saved file is untouched (`SettingsPresenter.SetConVar` never saves). Before `OnConVarSet`, as the line is, and
+        // before `Triggered` (B816 review 1, Grok): nothing a config runs reaches the window while it is being built.
         LoadUserConfig();
 
         // **After `Attach`** (B811 review 1): an admitted set reaches the run's settings through `ConVarSet`, where its
@@ -227,6 +227,8 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         // What is read once at startup, read now that the configs and the line have run (B816 review 1).
         _presenter.ApplyTheStartingSettings(_launch);
+
+        _console.Triggered += OnConsoleAction;
 
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;

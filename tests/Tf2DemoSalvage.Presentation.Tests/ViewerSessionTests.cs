@@ -836,16 +836,16 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **An autoexec's typed ConVars reach the run's settings, where their readers look** (B816): TF2 runs `config.cfg`
-    /// and then `autoexec.cfg` (`cfg/valve.rc`), so an autoexec's `fps_max 123` and, under its `sv_cheats 1`, `cl_drawhud 0`
-    /// are the run's values. The control: an autoexec that sets neither leaves both at their defaults.
+    /// **An autoexec's typed ConVars reach the run's settings, where their readers look** (B816): TF2 runs `autoexec.cfg`
+    /// (`cfg/valve.rc`), so an autoexec's `fps_max 123` and, under its `sv_cheats 1`, `cl_drawhud 0` are the run's values.
+    /// The control: an autoexec that sets neither leaves both at the rig's saved values.
     /// </remarks>
     [Test]
     public void Build_AnAutoexecsTypedConVars_ReachTheSettings()
     {
         using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
         {
-            control.Settings.Current.FrameRateLimit.ShouldNotBe(123, "the control: nothing sets it");
+            control.Settings.Current.FrameRateLimit.ShouldBe(0, "the control: the rig's saved value");
             control.Settings.Current.DrawHud.ShouldBeTrue("the control: nothing hides the HUD");
         }
 
