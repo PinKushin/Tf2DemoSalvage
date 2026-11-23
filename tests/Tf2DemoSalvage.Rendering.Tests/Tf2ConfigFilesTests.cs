@@ -348,6 +348,17 @@ public sealed class Tf2ConfigFilesTests
         }
     }
 
+    /// <remarks>
+    /// The mark is exactly `EF BB BF` at the start (D265): the mark alone is an empty config, and `EF BB A0` (U+FEE0) is a
+    /// character, kept whole.
+    /// </remarks>
+    [TestCase(new byte[] { 0xEF, 0xBB, 0xBF }, "")]
+    [TestCase(new byte[] { 0xEF, 0xBB, 0xA0, 0x61 }, "ﻠa")]
+    [TestCase(new byte[] { 0xEF, 0xBA, 0xBF, 0x61 }, "ﺿa")]
+    [TestCase(new byte[] { 0xEE, 0xBB, 0xBF, 0x61 }, "a")]
+    public void Decode_OnlyALeadingByteOrderMark_IsStripped(byte[] bytes, string expected) =>
+        Tf2ConfigFiles.Decode(bytes).ShouldBe(expected);
+
     [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()
     {
