@@ -1525,7 +1525,7 @@ public sealed class ViewerPresenterTests
     [Test]
     public void ApplyMaterialSwitches_AChangeThenTheSameValue_RemovesTheModelDecalsOnlyOnTheChange()
     {
-        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg"));
         (ViewerPresenter loader, _, _) = Loader(owner);
 
         using (loader)
@@ -1554,7 +1554,7 @@ public sealed class ViewerPresenterTests
     [Test]
     public void ApplyMaterialSwitches_BumpMapSetAtRunTime_ReachesTheDevice()
     {
-        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg"));
         (ViewerPresenter loader, _, _) = Loader(owner);
         FakeViewerDevice device = new();
 

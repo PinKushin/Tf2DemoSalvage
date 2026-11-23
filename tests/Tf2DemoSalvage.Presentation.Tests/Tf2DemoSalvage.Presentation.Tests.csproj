@@ -53,6 +53,7 @@
     <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SyntheticSkinnedModel.cs" Link="SyntheticSkinnedModel.cs" />
     <!-- The one-second animation `ModelFramesFixture.OneSecondLoop` skins, for a client-animated caster (B723). -->
     <Compile Include="..\Tf2DemoSalvage.Scene.Tests\AnimatedStudioBytes.cs" Link="AnimatedStudioBytes.cs" />
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SettingsFileRedirect.cs" Link="SettingsFileRedirect.cs" />
   </ItemGroup>
 
 </Project>

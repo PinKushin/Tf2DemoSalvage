@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -159,7 +160,18 @@ public sealed class WiringUiTests
         // Needs `+developer 1`, which this assembly passes, because the line is `Debug` — per-frame
         // and per-change diagnostics were moved off `Information` when B191 turned out to be one log
         // line taking a machine-wide lock.
-        Viewer.Count("entity models:").ShouldBeGreaterThan(0);
+        //
+        // **The line's VALUE, not its presence** (B779 review 32 item 5): every upload writes it now, a HUD paint's
+        // included, so a line alone no longer says the demo's geometry went up. At least one line must carry vertices —
+        // `entity models: N packed, V vertices`, V after the comma.
+        IReadOnlyList<string> lines = Viewer.AllLines("entity models:");
+        lines.ShouldNotBeEmpty("the control: some upload said what it handed over");
+
+        lines.Any(line =>
+            line[(line.LastIndexOf(',') + 1)..].Trim().Split(' ')[0] is var vertices
+            && int.TryParse(vertices, NumberStyles.None, CultureInfo.InvariantCulture, out int count)
+            && count > 0)
+            .ShouldBeTrue("an upload carried vertices: " + string.Join(" | ", lines));
     }
 
     [Test]

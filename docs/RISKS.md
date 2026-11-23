@@ -44201,17 +44201,22 @@ behind both, so neither is engine parity.
      others) therefore overwrote that file with a test's settings and `hud_chosen "custom/after"`.
    - `new MainForm()` in Viewer3D.Tests reads the same file, saw a chosen HUD, and left the stock entry unchecked.
      Measured: the file's line 89 was `hud_chosen "custom/after"`, last written 2026-11-22 21:36.
-   - **Fixed at the cause and guarded.** `Loader` now passes a path in the test's own folder. Both Presentation.Tests
-     and Viewer3D.Tests now have an assembly-wide `SettingsFilePolicy` that points `TF2VIEW_SETTINGS` at a fresh temp
-     file (the UI tests' D210 seam), so no unit test reads or writes the owner's file again.
-   - *Proof*: the gate run was red. After the change it is green, and the owner's file kept its 21:36 timestamp through
-     a full Presentation run.
-   - **Not repaired here: the owner's file.** It still holds the test's record, so his own settings from before
-     2026-11-22 are lost to it, unless he has a copy. Repairing it is his call.
-   - *Another writer, still live*: the owner's file was written again at 21:52:40, during this branch's Viewer3D run.
-     That run's own temp file was written at 21:52:49, so this branch's tests did not write it. The new content clears
-     `hud_chosen`, which fits a menu test choosing the stock HUD in a run without this fix: main's own Viewer3D tests,
-     or another worktree's. Until this fix merges, any such run still writes the owner's file.
+   - **Fixed at the cause and guarded.** `Loader` now passes a path in the test's own folder, and so do the two
+     `SetConVar` rows that built their own presenter (review 32 item 3).
+   - Every unit test assembly that reaches `ViewerSettings` — Scene.Tests, Rendering.Tests, Presentation.Tests and
+     Viewer3D.Tests — now has a `SettingsFilePolicy`. It points `TF2VIEW_SETTINGS` at a fresh temp file for the run (the
+     UI tests' D210 seam) and deletes the file afterwards. The redirect is one linked base, `SettingsFileRedirect`.
+   - Each assembly pins it: `SettingsFilePolicyTests.Path_InThisAssembly_IsARunsTempFileNotTheOwners`. *Sabotage*:
+     dropping the `[SetUpFixture]` in Scene.Tests reddens it.
+   - **What this covers, exactly** (review 32 item 4):
+     - no test in those assemblies writes the owner's file, and Presentation and Viewer3D tests do not read it;
+     - Content.Tests and Audio.Tests do not reference Scene, so they cannot reach `ViewerSettings` at all;
+     - Corpus.Tests is left as it is: it reads this machine's game folder (`cl_game_folder`) by design, read-only, as
+       the UI tests' map fetch does.
+   - *Proof*: the gate run was red. After the change it is green, and the owner's file kept its timestamp through full
+     Presentation, Scene, Viewer3D and Rendering runs.
+   - **The owner's file has been reset.** The coordinator restored it (`hud_chosen` back to the default). The 21:52
+     write was the coordinator's, not a test's.
 2. *UI `TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`: no "entity models:" line.* **A lost log line, not lost
    geometry.**
    - Review 16 (6889c9bb5) added `MomentScene.UploadGrown`, the upload after the HUD's overlay. It uploaded without the
@@ -44222,7 +44227,17 @@ behind both, so neither is engine parity.
    - **Fixed**: the line, and the names under it, are now written by `UploadNow`, so every upload reports, whoever
      asked for it.
    - *Test*: `MomentSceneTests.UploadGrown_AfterAPanelsLoad_SaysHowMuchItUploaded`. It was red first (count 0) and is
-     green after the fix. The UI row is in the gate rerun.
+     green after the fix.
+   - *Review 32*:
+     - The per-path names under the line are now the moment's own upload's only (item 6), so a HUD paint that adds a
+       model does not list the whole set again. The same Scene row asserts it; naming on every upload reddens it.
+     - The UI row now reads the line's value (item 5): at least one "entity models:" line must carry vertices, since
+       every upload, a HUD paint's included, writes the line.
+     - **That check found the line was misreporting**, and it was red on its first run. It wrote "911 packed,
+       0 vertices" because it counted after the upload, and once the world is up the set lets its copy go after each
+       upload (B407). The line now counts what is handed over, before the hand-over; so does the STALL warning, which
+       had the same fault. *Test*: `MomentSceneTests.UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver`
+       (red with the count read after the upload).
 
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI

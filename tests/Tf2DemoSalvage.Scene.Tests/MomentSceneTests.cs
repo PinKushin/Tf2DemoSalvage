@@ -1362,6 +1362,31 @@ public sealed class MomentSceneTests
 
         models.Grown.ShouldBeFalse("the control: the set was handed over");
         log.Count("entity models: 1 packed").ShouldBe(1);
+        log.Count("  packed models/").ShouldBe(0, "the per-path names are the moment's own upload's, not a HUD paint's (review 32 item 6)");
+    }
+
+    /// <remarks>
+    /// **The line counts what was handed over, not what is left after** (B779 review 32, the UI row's value check): once
+    /// the world is up the set lets its copy go after an upload (B407), so a count read after the upload said
+    /// "911 packed, 0 vertices" in the UI run for a set that had just gone up. Here release armed after a first upload,
+    /// then a second model loaded and uploaded: its line carries the vertices it handed over. The control: the copy was
+    /// let go after it.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver()
+    {
+        RecordingLogger log = new();
+        EntityModelSet models = new() { Geometry = OneTriangle };
+        MomentScene scene = new(models, new ViewmodelScene(), log) { Upload = new Uploads() };
+
+        models.LoadMdl("models/props/crate.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+        models.ReleaseUploaded();
+        models.LoadMdl("models/props/barrel.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+
+        models.Vertices.ShouldBeEmpty("the control: the set let its copy go after the second upload");
+        log.Count(", 0 vertices").ShouldBe(0);
     }
 
     [Test]

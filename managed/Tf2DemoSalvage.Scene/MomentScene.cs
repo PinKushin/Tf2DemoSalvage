@@ -1413,13 +1413,21 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        UploadNow(upload);
+        UploadNow(upload, namePaths: false);
     }
 
-    /// <summary>Uploads the whole set and marks it uploaded, reporting a stall.</summary>
-    private void UploadNow(IModelUpload upload)
+    /// <summary>Uploads the whole set and marks it uploaded, reporting a stall and the count.</summary>
+    /// <param name="upload">The device.</param>
+    /// <param name="namePaths">Whether to name every packed path under the count: the moment's own upload only, so a HUD
+    /// paint that grows the set by one model does not list the whole set again (review 32 item 6).</param>
+    private void UploadNow(IModelUpload upload, bool namePaths)
     {
         long uploadedAt = Stopwatch.GetTimestamp();
+
+        // What is handed over, counted before the hand-over: once the world is up the set lets its copy go after an
+        // upload (B407), so a count read afterwards says 0 vertices for a set that just uploaded hundreds of models.
+        int models = _models.Count;
+        int vertices = _models.Vertices.Count;
 
         upload.UploadModels(_models);
 
@@ -1439,8 +1447,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"STALL uploading {_models.Vertices.Count} vertices took " +
-                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
+                    $"STALL uploading {vertices} vertices took " +
+                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {models}"));
 
             // Stryker restore all
         }
@@ -1452,9 +1460,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // packed.
         _render.LogDebug(
             "{Message}",
-            $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
+            $"entity models: {models} packed, {vertices} vertices");
 
-        if (!_render.IsEnabled(LogLevel.Debug))
+        if (!namePaths || !_render.IsEnabled(LogLevel.Debug))
         {
             return;
         }
@@ -1564,8 +1572,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        // The count and the names are said by the upload itself (`UploadNow`), on every route.
-        UploadNow(upload);
+        // The count is said by the upload itself (`UploadNow`), on every route; the names on this one.
+        UploadNow(upload, namePaths: true);
     }
 
     /// <summary>The main viewmodel's bob state — `CTFViewModel::m_BobState` — stepped as frames advance (B525).</summary>

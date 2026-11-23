@@ -51,4 +51,9 @@
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The settings-file redirection every unit test assembly that reaches ViewerSettings shares (B779 gate). -->
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SettingsFileRedirect.cs" Link="SettingsFileRedirect.cs" />
+  </ItemGroup>
+
 </Project>
