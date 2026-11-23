@@ -84,7 +84,8 @@ public sealed class ViewerPresenterTests
     private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null) =>
         Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings(), Path.Combine(_folder, "settings.cfg")), spectateWho);
 
-    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(SettingsPresenter settingsOwner, string? spectateWho = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(
+        SettingsPresenter settingsOwner, string? spectateWho = null, Microsoft.Extensions.Logging.ILoggerFactory? loggers = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -98,7 +99,7 @@ public sealed class ViewerPresenterTests
 
         ViewerPresenter loader = new(
             view,
-            NullLoggerFactory.Instance,
+            loggers ?? NullLoggerFactory.Instance,
             view,
             () => view.Window,
             () => spectateWho,
@@ -795,6 +796,47 @@ public sealed class ViewerPresenterTests
             loader.FollowUpload(Lost, SyntheticMap.Read());
 
             view.Status.ShouldBe("Could not open broken.dem");
+        }
+    }
+
+    /// <remarks>
+    /// **The reload after a lost world precaches the open demo again and keeps its schedule** (B814): the reload resets
+    /// the packed models (level shutdown) and the sound cache's list (the map read), so it runs the demo's precache again,
+    /// as its load did; the schedule is the demo's (B228) and is kept. The control: a reload with no demo open runs none.
+    /// What this can see: that both precaches ran again (their log lines; the fixture's install is empty, so neither packs
+    /// nor decodes anything) and that the schedule is the same object.
+    /// </remarks>
+    [Test]
+    public void LoadMap_WithADemoOpen_PrecachesTheDemoAgain()
+    {
+        WriteMap();
+        using RecordingLoggers log = new();
+        (ViewerPresenter loader, _, _) = Loader(
+            new SettingsPresenter(NullLoggerFactory.Instance, new ViewerSettings(), Path.Combine(_folder, "settings.cfg")),
+            loggers: log);
+
+        using (loader)
+        {
+            loader.LoadMap(Map);
+            int withNoDemo = log.Count("precached models in ");
+            withNoDemo.ShouldBe(0, "the control: no demo open, no demo precache");
+
+            loader.LoadDemo(WriteDemo("open")).Loaded.ShouldBeTrue();
+            int afterLoad = log.Count("precached models in ");
+            int soundsAfterLoad = log.Count(" sounds in ");
+            SoundSchedule? schedule = loader.SoundSchedule;
+            afterLoad.ShouldBe(1);
+            soundsAfterLoad.ShouldBe(1, "the control: the load precached sounds once");
+            schedule.ShouldNotBeNull("the control: the load made the demo's schedule");
+
+            loader.LoadMap(Map);
+
+            log.Count("precached models in ").ShouldBe(afterLoad + 1);
+            log.Count(" sounds in ").ShouldBe(soundsAfterLoad + 1, "the sounds precached again");
+            // The demo's schedule survives the reload (B228). Without an install the effect sounds schedule nothing, so this
+            // holds the demo's own schedule (`DemoSystems.Open`); the install's replacement is kept off the reload by
+            // `LoadMap` not calling `AddEffectSounds` at all.
+            loader.SoundSchedule.ShouldBeSameAs(schedule);
         }
     }
 
