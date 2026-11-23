@@ -44392,6 +44392,18 @@ models to pack on sight, as before B814, rather than ending the frame (Sonnet; *
 archive read on the reload). The corpse record's drop is `ReadMap`, not `ReadMapNamed` (Fable). The "cannot see" list
 above is completed, and B819 now lists the reload's non-sound effects and marks what is inferred.
 
+**Review 4** (Gemini approves; Fable, Sonnet find; Grok). *The catch's claim was false for models* (Fable, Sonnet):
+`EntityModelSet.PackModels` registered each path before reading it, so a throw left the failing path, and every path
+read before it in that call, registered with no frames, and the per-frame `Add` skips a registered path; those models
+stayed undrawn until the next level, worse than before B814. The static props' once-a-level flag was set before their
+pack too. Fixed at the packing, so the load's own precaches (`DemoModels.Precache`'s catch had the same half-state) gain
+it as well: the failing path is unregistered, what was read before it still packs, the exception is rethrown, and the
+statics flag is reset. Tests `EntityModelsTests.Add_AModelWhoseReadFails_PacksTheOnesBeforeItAndTriesItAgain` and
+`Add_AStaticPropWhoseReadFails_IsPackedAtTheNextAdd` (red first; sabotage: keeping the failed path registered reddens
+both, leaving the statics flag set reddens the second). The catch's comment now names the skipped sound precache and
+corpse record too. Left: the `InvalidDataException` arm is unreachable from the two precaches, which catch it
+themselves (Fable), kept to match `Apply`; an `UnauthorizedAccessException` still ends the frame, as it ends a load.
+
 **As filed:**
 
 Found in B779 review 27 (Sonnet), filed in review 28. Pre-existing.
