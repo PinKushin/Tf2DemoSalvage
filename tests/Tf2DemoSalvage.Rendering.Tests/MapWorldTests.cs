@@ -51,6 +51,21 @@ public sealed class MapWorldTests
         world.Batches[0].VertexCount.ShouldBe(6);
     }
 
+    /// <remarks>
+    /// **Each corner says whether its edge is the polygon's** (B803): `mat_wireframe 3` outlines a face's own vertex loop
+    /// (`engine.dll` `FUN_1800e6780`), which the fan's three triangles of a pentagon hide. The first triangle's third edge,
+    /// both edges from the shared corner in the middle one and the last triangle's first edge are diagonals.
+    /// </remarks>
+    [Test]
+    public void Build_APentagon_MarksTheFansDiagonalsAsNotFaceEdges()
+    {
+        MapWorld world = MapWorldBuilder.Build(
+            Map,
+            [Surface(0, material: 3, corners: 5)], Materials, LightmapAtlas.Pack([]), null);
+
+        world.Vertices.Select(vertex => vertex.FaceEdge).ShouldBe([true, true, false, false, true, false, false, true, true]);
+    }
+
     [Test]
     public void Build_DownwardFacingSurfaces_AreKept()
     {

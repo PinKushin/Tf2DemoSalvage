@@ -42952,7 +42952,7 @@ Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but 
 config, a bind or a launch option without `sv_cheats`), and whether what ours draws for each is what the engine binds.
 *Not read*; the flags are the review's, not re-read by the lead. Filed so B791 stays the one ConVar it names.
 
-## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — NARROWED (2026-11-23): OPEN for the value 3 alone
+## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — FIXED (2026-11-23)
 
 **Read and ported** (2026-11-23; `docs/findings/113-mat-wireframe-is-a-material.md`, `engine.dll` of 2026-10-07). With
 `sv_cheats && mat_wireframe` the engine handles each kind of surface differently:
@@ -42988,10 +42988,35 @@ Tests: `WorldWireframeConformanceTests` (seven) and
 in Presentation. Each reddened under its own sabotage: the queue, the mode-2 pick, the displacement branch, the decal
 swap, the depth rule and the session's route.
 
-**Still open, the value 3.** `FUN_1800e6780` draws each face's own polygon edges as one line list with
-`debugworldwireframe`, and no triangulation diagonals. Ours outlines the triangles under 3 as it does under 1, so the
-fan's diagonals show as well. Porting it needs each face's boundary kept past upload, for the world and brush-entity
-buffers both, because the draw-time batches hold only triangles. The client's own wireframe materials are B817.
+**The value 3, ported the same day** (re-read: `FUN_1800dc720` takes `FUN_1800e6780` when the int at `mat_wireframe`+0x58
+is 3, on the same lists as 1 and 2, so the surfaces have already drawn solid). `FUN_1800e6780` counts the vertices of
+every surface with more than two, binds `debugworldwireframe` (`0x18069b3e0`, `$ignorez 1`), and fills one
+`MATERIAL_LINES` mesh (primitive type 1) with an edge from each vertex's predecessor to it, starting from the last. The
+vertices come from the map's vertex-index table (world `+0x108`) and its positions (`+0x38`), so the loop is the face's
+own and the triangulation never appears. Positions only: the colour and depth are the material's. A displacement is in
+no such list, and keeps its `debugwireframe` triangles under 3.
+
+Ported: both fan builders (`MapWorldBuilder`, `BrushModels`) mark each corner with `FaceEdge`, whether its edge to the
+next corner of its triangle is the polygon's (`FaceFan.IsFaceEdge`). The mark rides `PropVertex` and `WorldVertex` through
+the brush entities' packing. At upload the renderer builds an index buffer from it (`FaceFan.Outline`): two indices per
+vertex, the edge or a zero-length line on the corner itself, so any run of vertices is the same run of lines at twice
+the offset. It is built for the world buffer and for each `*N` model. Under 3 a queued world or brush run draws
+`DrawIndexed` as a line list over that buffer. A terrain run keeps its triangles.
+
+Tests: `WorldWireframeConformanceTests` `…UnderWireframeThree_OutlinesTheFacesPolygonWithoutItsDiagonal` (1 as the
+control, 3) and `…ADisplacementUnderWireframeThree_KeepsItsTriangleEdges`; `EyeShaderRenderTests`
+`…UnderWireframeThree_OutlinesABrushEntitysPolygonWithoutItsDiagonal`; `MapWorldTests.Build_APentagon_…`,
+`BrushModelsTests.Build_AQuadFace_…`; in Scene, `FaceFanTests` and `PackedVerticesTests.Precache_CornersMarkedAsFaceEdges_…`.
+Each reddened under its own sabotage: the outline ignoring the mark, the packing dropping it, each builder dropping it,
+`IsFaceEdge`'s first-triangle rule, the value-3 test, the terrain exclusion, and no outline built for a `*N` model.
+
+**Measured** with the same capture as above (`--tick 1000 --first-person --shot`, `+sv_cheats 1`, 984×551). Pixels of
+the pink hue fell from 77,362 under 1 to 54,240 under 3. Looked at side by side, the value 3 shows each face as its own
+polygon, with no fan of diagonals across walls and floors. Lines are never culled, so a face seen from behind is
+outlined under 3, where under 1 its wireframe redraw is culled. That follows from `MATERIAL_LINES` (*interpolated*:
+shaderapi's line cull is closed). Not compared against TF2.
+
+The client's own wireframe materials are B817.
 
 *As found (2026-11-21):*
 

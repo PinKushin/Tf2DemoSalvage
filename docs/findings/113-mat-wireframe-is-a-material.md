@@ -106,10 +106,27 @@ its own material does not draw.
 
 `FUN_1800e6780` counts the edges of every surface with more than two vertices. It builds one line list
 (`MATERIAL_LINES`, primitive type 1) of each face's own polygon edges, from the last vertex round to the first. It draws
-that list with `debugworldwireframe` (*read*). Unlike 1 and 2, it never draws the triangulation's diagonals. **Not
-ported:** the viewer outlines its triangles under 3 as it does under 1, so the fan's diagonals show as well. The
-viewer's draw-time batches hold triangles, not faces, so porting 3 needs the face boundaries kept at upload. Filed as
-B803's remaining part.
+that list with `debugworldwireframe` (*read*). Unlike 1 and 2, it never draws the triangulation's diagonals.
+
+Re-read for the port (*read*, the same build). The count is the byte at surface `+3` (its vertex count), summed over
+surfaces with three or more. The mesh is the render context's dynamic mesh with `0x18069b3e0` bound and primitive type 1.
+For each surface it walks the world data's vertex-index table (`+0x108`) from the surface's first index (`+0xc`), and it
+starts the previous vertex at the *last* one. So the loop closes, and every edge is a pair of positions (`+0x38`, twelve
+bytes each). No colour, normal or texture coordinate is written, so all of that comes from the material, and so does the
+depth (`$ignorez 1`: drawn through everything). The caller has already drawn the surfaces solid, as for 1 and 2.
+
+**The faces are gone by the viewer's draw time**, because the batches hold triangles. So the two fan builders mark each
+corner with whether its edge to the next corner of its triangle is the polygon's (`FaceFan`, `WorldVertex.FaceEdge`).
+The upload turns the marks into a line-list index buffer, two indices per vertex, so any run is the same run of lines at
+twice the offset. A diagonal's slot holds a zero-length line on its own corner, which lies on the loop anyway. Under 3
+each queued world or brush-entity run draws as lines over it. A displacement keeps its triangles, since `FUN_1800c2140`
+draws it whatever the value. Tests: `WorldWireframeConformanceTests` (the world square and the displacement under 3) and
+`EyeShaderRenderTests` (a brush entity under 3) in Rendering, with the builders' marks in `MapWorldTests` and
+`BrushModelsTests`, and `FaceFanTests` and the packing in Scene.
+
+*Measured*, the frame below under 1 and then 3: pink-hued pixels went from 77,362 to 54,240. Looked at, the walls and
+floors under 3 are outlined as whole polygons with no fan across them. A line list is not culled, so a face seen from
+behind is outlined under 3 and not under 1. That this matches the engine is *interpolated*. Not compared against TF2.
 
 ## Studio models under 2 and 3
 

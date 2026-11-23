@@ -604,7 +604,8 @@ public sealed partial class EntityModelSet
             TangentX: corner.TangentX,
             TangentY: corner.TangentY,
             TangentZ: corner.TangentZ,
-            TangentW: corner.TangentW);
+            TangentW: corner.TangentW,
+            FaceEdge: corner.FaceEdge);
 
     /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 80).</summary>
     /// <param name="modelPath">The model.</param>

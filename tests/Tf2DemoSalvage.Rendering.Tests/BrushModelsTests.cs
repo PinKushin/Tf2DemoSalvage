@@ -50,6 +50,21 @@ public sealed class BrushModelsTests
         corners.Select(corner => corner.MaterialIndex).Distinct().Order().ShouldBe([2, 3]);
     }
 
+    /// <remarks>
+    /// **A brush entity's corners carry the same polygon edges as the world's** (B803): its surfaces reach
+    /// `FUN_1800dc720` from the `R_DrawBrushModel` paths, so `mat_wireframe 3` outlines their vertex loops too
+    /// (`FUN_1800e6780`). A quad fans into two triangles whose shared diagonal is no face edge.
+    /// </remarks>
+    [Test]
+    public void Build_AQuadFace_MarksItsDiagonalAsNotAFaceEdge()
+    {
+        IReadOnlyDictionary<string, PropModels.ModelFrames> built = Build(
+            [Model(firstFace: 0, faceCount: 1), Model(firstFace: 1, faceCount: 1)],
+            [Face(0, material: 1), Face(1, material: 2, corners: 4)]);
+
+        built["*1"].Geometry[0].Select(corner => corner.FaceEdge).ShouldBe([true, true, false, false, true, true]);
+    }
+
     [Test]
     public void TheWorldModel_IsNotABrushEntity()
     {
@@ -148,7 +163,7 @@ public sealed class BrushModelsTests
     private static BspModel Model(int firstFace, int faceCount) =>
         new((0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f), 0, firstFace, faceCount);
 
-    private static BspSurface Face(int faceIndex, int material)
+    private static BspSurface Face(int faceIndex, int material, int corners = 3)
     {
         // Far from the origin on every axis, so a re-centring bug cannot hide behind a zero.
         List<SurfaceVertex> vertices =
@@ -157,6 +172,12 @@ public sealed class BrushModelsTests
             new(1100f, 2000f, 3000f, 0.25f, 0.5f, 0.33f, 0.5f),
             new(1100f, 2050f, 3000f, 0.25f, 0.5f, 0.66f, 0.5f),
         ];
+
+        // A fourth corner closes a quad.
+        if (corners == 4)
+        {
+            vertices.Add(new(1000f, 2050f, 3000f, 0.25f, 0.5f, 0.99f, 0.5f));
+        }
 
         return new BspSurface(
             faceIndex, vertices, material, default, (0f, 0f, 1f), SurfaceProperties.None, -1);

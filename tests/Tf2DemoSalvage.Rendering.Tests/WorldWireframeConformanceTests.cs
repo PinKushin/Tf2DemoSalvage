@@ -144,6 +144,76 @@ public sealed class WorldWireframeConformanceTests
         (target.PixelAt(Edge.X, Edge.Y), target.PixelAt(Inside.X, Inside.Y)).ShouldBe((White, Black));
     }
 
+    /// <remarks>
+    /// **`mat_wireframe 3` outlines each face's own polygon and not its triangles** (`FUN_1800dc720` hands the list to
+    /// `FUN_1800e6780` when the value is 3; that builds one `MATERIAL_LINES` list of every surface's edges with three or more
+    /// vertices, from the last vertex round to the first, out of the map's vertex-index table, and draws it with
+    /// `debugworldwireframe`, `0x18069b3e0`). A square face fanned into two triangles: under 3 its diagonal (32, 32) is the
+    /// face's own red and its left edge (16, 32) the material's `[0.9 0.5 0.5]`. Under 1 the diagonal is outlined too, the
+    /// control that the probe lies on it.
+    /// </remarks>
+    [TestCase(1, 230, 128, 128)]
+    [TestCase(3, 255, 0, 0)]
+    public void DrawWorld_UnderWireframeThree_OutlinesTheFacesPolygonWithoutItsDiagonal(int wireframe, int red, int green, int blue)
+    {
+        using OffscreenTarget target = Target();
+        FreeCamera camera = new() { Origin = (0f, 0f, 10f), Angles = (90f, 0f, 0f), Aspect = 1f };
+
+        target.Clear(0f, 0f, 0f);
+        target.Wireframe = wireframe;
+        target.DrawWorld(FannedSquare(), [new WorldBatch(0, 0, 6)], camera.ToMatrix(), Assets());
+        Dump(target);
+
+        Near(target.PixelAt(Edge.X, Edge.Y), (red, green, blue), "the fan's diagonal");
+        Near(target.PixelAt(PolygonEdge.X, PolygonEdge.Y), World, "the polygon's left edge");
+        target.PixelAt(PolygonInside.X, PolygonInside.Y).ShouldBe(Red, "the face itself, solid");
+    }
+
+    /// <remarks>
+    /// **A displacement keeps its triangles under 3** (`FUN_1800c2140` draws its `debug/debugwireframe` mesh whatever the
+    /// value, and no displacement reaches `FUN_1800dc720`'s list): the diagonal (32, 32) of the same fanned square, drawn as
+    /// terrain, is white, though its corners say the diagonal is no face edge.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_ADisplacementUnderWireframeThree_KeepsItsTriangleEdges()
+    {
+        using OffscreenTarget target = Target();
+        FreeCamera camera = new() { Origin = (0f, 0f, 10f), Angles = (90f, 0f, 0f), Aspect = 1f };
+
+        target.Clear(0f, 0f, 0f);
+        target.Wireframe = 3;
+        target.DrawWorld(FannedSquare(), [new WorldBatch(0, 0, 6, Category: SurfaceCategory.Terrain)], camera.ToMatrix(), Assets());
+
+        (target.PixelAt(Edge.X, Edge.Y), target.PixelAt(PolygonInside.X, PolygonInside.Y)).ShouldBe((White, Black));
+    }
+
+    /// <summary>A square whose edges fall on pixel centres 16 and 47, fanned from its first corner as a BSP face is.</summary>
+    /// <remarks>
+    /// 64 pixels cover 20 units, so a pixel is 0.3125: ±4.84375 lands on 16.5 and 47.5. Each corner says whether the edge
+    /// to the next corner of its triangle is the polygon's: the first triangle's diagonal is its third edge, the second's
+    /// its first.
+    /// </remarks>
+    private static WorldVertex[] FannedSquare()
+    {
+        const float Low = -4.84375f;
+        const float High = 4.84375f;
+
+        WorldVertex Corner(float x, float y, bool faceEdge) =>
+            new(x, y, 0f, (x - Low) / (High - Low), (y - Low) / (High - Low), 0f, 0f, 1f, FaceEdge: faceEdge);
+
+        return
+        [
+            Corner(Low, Low, true), Corner(Low, High, true), Corner(High, High, false),
+            Corner(Low, Low, false), Corner(High, High, true), Corner(High, Low, true),
+        ];
+    }
+
+    /// <summary>A pixel on the fanned square's left edge, halfway along it.</summary>
+    private static readonly (int X, int Y) PolygonEdge = (16, 32);
+
+    /// <summary>A pixel inside the fanned square, off its diagonal and its edges.</summary>
+    private static readonly (int X, int Y) PolygonInside = (40, 24);
+
     /// <summary>A pixel on the face's diagonal.</summary>
     private static readonly (int X, int Y) Edge = (32, 32);
 

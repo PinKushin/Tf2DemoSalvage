@@ -49,6 +49,25 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
+    /// **A corner's face edge survives the packing** (B803): a brush entity's surfaces are packed like a studio model's, and
+    /// `mat_wireframe 3` outlines only the edges that are its polygon's (`engine.dll` `FUN_1800e6780`). Corners 0 and 2 say
+    /// false here, and the packing puts them in buffer slots 0 and 1.
+    /// </remarks>
+    [Test]
+    public void Precache_CornersMarkedAsFaceEdges_PackTheMarkInTheirOrder()
+    {
+        PropModels.ModelFrames model = Skinned(Path);
+        PropModels.ModelFrames marked =
+            model with { Geometry = [[.. model.Geometry[0].Select((corner, index) => corner with { FaceEdge = index is 1 or 3 })]] };
+        EntityModelSet models = new() { Geometry = _ => marked };
+
+        models.Precache([Path]);
+
+        models.Vertices.Select(vertex => vertex.FaceEdge).ShouldBe([false, false, true, true]);
+        models.Vertices.Select(vertex => vertex.X).ShouldBe([1f, 7f, 4f, 1.5f], "the control: packing reordered the corners");
+    }
+
+    /// <remarks>
     /// **Reserved once for the whole call, then filled** (finding 80: the list's growth by doubling was about 1.45 GB of
     /// large-object garbage over f12's precache). Three models of four corners: grown model by model, the list ends at a
     /// capacity of 16 for 12 vertices. `VertexBytes` is the list's capacity in bytes, filled or not, so it reads the

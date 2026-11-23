@@ -160,11 +160,15 @@ public static class BrushModels
 
                 // A fan from the first corner, as the world path does: a face out of a BSP is
                 // convex by construction.
+                // Each corner says whether its edge is the polygon's, for `mat_wireframe 3` (FaceFan, B803).
                 for (int corner = 1; corner + 1 < surface.Vertices.Count; corner++)
                 {
-                    Append(corners, surface, 0, rectangle, lightStep, tint);
-                    Append(corners, surface, corner, rectangle, lightStep, tint);
-                    Append(corners, surface, corner + 1, rectangle, lightStep, tint);
+                    int triangle = corner - 1;
+                    int triangles = surface.Vertices.Count - 2;
+
+                    Append(corners, surface, 0, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 0));
+                    Append(corners, surface, corner, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 1));
+                    Append(corners, surface, corner + 1, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 2));
                 }
             }
 
@@ -235,7 +239,8 @@ public static class BrushModels
         int index,
         AtlasRect rectangle,
         float lightStep,
-        (float Red, float Green, float Blue)? tint)
+        (float Red, float Green, float Blue)? tint,
+        bool faceEdge)
     {
         SurfaceVertex vertex = surface.Vertices[index];
 
@@ -269,6 +274,7 @@ public static class BrushModels
             // than ours.
             Red: tint?.Red ?? 1f,
             Green: tint?.Green ?? 1f,
-            Blue: tint?.Blue ?? 1f));
+            Blue: tint?.Blue ?? 1f,
+            FaceEdge: faceEdge));
     }
 }

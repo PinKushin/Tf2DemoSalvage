@@ -672,6 +672,46 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **`mat_wireframe 3` outlines a brush entity's polygons, not its triangles** (B803): `FUN_1800dc720`, at the end of the
+    /// `R_DrawBrushModel` paths, hands the surfaces to `FUN_1800e6780` for 3, which draws each one's own vertex loop as
+    /// lines with `debugworldwireframe`. The quad's diagonal (34, 30) is then the brush's own lit red (89, 0, 0) and its left
+    /// edge (18, 30) the material's (230, 128, 128). Under 1 the diagonal is outlined too, the control that the probe lies
+    /// on it. Drawn clockwise, the corners (c3, c2, c0) and (c2, c1, c0): the diagonal is c2 to c0, each triangle's.
+    /// </remarks>
+    [TestCase(1, 230, 128, 128)]
+    [TestCase(3, 89, 0, 0)]
+    public void DrawModelPose_UnderWireframeThree_OutlinesABrushEntitysPolygonWithoutItsDiagonal(int wireframe, int red, int green, int blue)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+
+        target.Wireframe = wireframe;
+        Draw(target, assets, null, modelPath: "*1", frontFacing: true, faceEdges: [true, false, true, true, true, false]);
+        (int R, int G, int B) diagonal = target.PixelAt(34, 30);
+        (int R, int G, int B) edge = target.PixelAt(18, 30);
+
+        TestContext.Out.WriteLine($"mat_wireframe {wireframe}: diagonal {diagonal}, edge {edge}");
+        Math.Abs(diagonal.R - red).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(diagonal.G - green).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(diagonal.B - blue).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(edge.R - 230).ShouldBeLessThanOrEqualTo(1, "the left edge");
+        Math.Abs(edge.G - 128).ShouldBeLessThanOrEqualTo(1, "the left edge");
+        Math.Abs(edge.B - 128).ShouldBeLessThanOrEqualTo(1, "the left edge");
+    }
+
+    /// <remarks>
     /// **The wireframe material binds its own texture, not the swapped-out material's animation frame** (B788 review 1,
     /// Sonnet): `R_StudioSetupSkinAndLighting` replaces the material before any proxy or bind, so the frame the model's
     /// own `$basetexture` would animate to is never read. Material 0 animates red frames; the wireframe's white times
@@ -1153,7 +1193,8 @@ public sealed class EyeShaderRenderTests
         string? overrideMaterial = null,
         string modelPath = "offscreen/posed.mdl",
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
-        bool frontFacing = false)
+        bool frontFacing = false,
+        bool[]? faceEdges = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -1182,6 +1223,12 @@ public sealed class EyeShaderRenderTests
         if (frontFacing)
         {
             vertices.Reverse();
+        }
+
+        // Each corner's mark, in the order drawn, for a quad that is one polygon (B803).
+        for (int at = 0; faceEdges is not null && at < vertices.Count; at++)
+        {
+            vertices[at] = vertices[at] with { FaceEdge = faceEdges[at] };
         }
 
         float[] identity =

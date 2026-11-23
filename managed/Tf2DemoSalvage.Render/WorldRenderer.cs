@@ -4693,6 +4693,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float[] data = Pack(vertices);
 
         CreateVertexBuffer(device, data);
+        _worldOutline = CreateOutline(device, vertices);
 
         _batches = batches;
 
@@ -4901,7 +4902,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         DrawTranslucent(context);
         DrawAdditive(context);
-        DrawQueuedWireframes(context);
+        DrawQueuedWireframes(context, _worldOutline);
     }
 
     /// <summary>The 3D skybox room's runs, drawn by <see cref="DrawSky"/> before the world.</summary>
@@ -5121,7 +5122,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
         }
 
-        DrawQueuedWireframes(context);
+        DrawQueuedWireframes(context, _worldOutline);
     }
 
     /// <summary>Sets the view for the frames that follow.</summary>
@@ -7656,7 +7657,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="batch">The run.</param>
     /// <param name="alpha">The overlay fade.</param>
     /// <param name="cap">The B597 vertex cap, model decals only; null draws the run whole (<see cref="ModelVertexClamp"/>).</param>
-    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f, int? cap = null)
+    /// <param name="outline">The bound buffer's face outline, to draw the run as its faces' edges (B803), or a null handle.</param>
+    private void DrawDecalBatch(
+        ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f, int? cap = null, ComPtr<ID3D11Buffer> outline = default)
     {
         if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
         {
@@ -7735,7 +7738,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             // The caller closes the run (EndGammaRun), so consecutive modulating batches share one bind.
             UseGammaTarget(context, batch.MaterialIndex);
-            SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+
+            if (outline.Handle is not null)
+            {
+                DrawOutline(context, batch, outline);
+            }
+            else
+            {
+                SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+            }
         }
     }
 
@@ -7749,8 +7760,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <remarks>
     /// `engine.dll` `FUN_1800dc720`: `debugworldwireframezbuffer` (`0x18069b3e8`) when the value is 2, else
     /// `debugworldwireframe` (`0x18069b3e0`). The value 3 draws each face's polygon outline with the latter instead
-    /// (`FUN_1800e6780`, a line list of the face's own edges); ours outlines its triangles for 3 as for 1, so the fan's
-    /// diagonals show too — the one part of the value not ported (findings 113, B803).
+    /// (`FUN_1800e6780`, a line list of the face's own edges), which <see cref="DrawQueuedWireframes"/> draws from the outline.
     /// </remarks>
     private int? SurfaceWireframe() =>
         EngineWireframe(Wireframe == 2 ? MapAssets.WorldWireframeZBufferPath : MapAssets.WorldWireframePath);
@@ -7778,9 +7788,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// **After every surface of the pass, as the engine overlays a whole list** (`Shader_DrawChains`, `FUN_1800e39d0`, calls
     /// `FUN_1800dc720` after the chains; the brush model and translucent paths likewise), so a later surface never covers an
     /// earlier one's edges. Each run is drawn as a decal run is: the material's own blend, depth and back-face cull, its line
-    /// fill from <see cref="Raster"/>.
+    /// fill from <see cref="Raster"/>. Under 3 a world or brush run draws its faces' outline instead (<see cref="DrawsOutline"/>).
     /// </remarks>
-    private void DrawQueuedWireframes(ComPtr<ID3D11DeviceContext> context)
+    /// <param name="context">The device context.</param>
+    /// <param name="outline">The bound vertex buffer's face outline, or a null handle where it has none.</param>
+    private void DrawQueuedWireframes(ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Buffer> outline)
     {
         if (_wireframeQueue.Count == 0)
         {
@@ -7789,7 +7801,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _wireframeQueue)
         {
-            DrawDecalBatch(context, batch);
+            DrawDecalBatch(context, batch, outline: DrawsOutline(batch) ? outline : default);
         }
 
         _wireframeQueue.Clear();
@@ -8052,7 +8064,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         EndGammaRun(context);
-        DrawQueuedWireframes(context);
+        DrawQueuedWireframes(context, _worldOutline);
         context.RSSetState(Raster(_bothSides));
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
 
@@ -8232,6 +8244,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _vertices = default;
         }
 
+        ReleaseWorldOutline();
         _batches = [];
     }
 
@@ -8347,6 +8360,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
 
             _modelBuffers[path] = buffer;
+
+            // A brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps
+            // to `debugmrmwireframe` instead (B788) and needs none.
+            if (path.StartsWith(BrushModels.SubmodelPrefix))
+            {
+                _modelOutlines[path] = CreateOutline(device, model.Vertices);
+            }
         }
 
         _modelBatches = batches;
@@ -8375,6 +8395,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         _modelBuffers.Clear();
+        ReleaseModelOutlines();
 
         // A baked prop's colour stream is per placement of a model, so it goes with the models (B426).
         foreach (ComPtr<ID3D11Buffer> stream in _colourStreams.Values)
@@ -9087,7 +9108,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
         }
 
-        DrawQueuedWireframes(context);
+        DrawQueuedWireframes(context, _modelOutlines.GetValueOrDefault(modelPath));
 
         // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches
         // that survived the filters and says nothing about their size — a batch of zero vertices is

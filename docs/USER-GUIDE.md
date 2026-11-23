@@ -190,8 +190,8 @@ the CPU), and `r_glint_alwaysdraw 1` draws it on every eye however small on scre
 - **Bullet holes and other decals** draw as yellow edges.
 
 `mat_wireframe 2` draws the map's edges green, and only where the surface itself is in view. Models stay cyan and show
-through walls, as in TF2. In TF2, `mat_wireframe 3` outlines each face without its triangles; here it draws as `1` does
-(B803). Set from your config, a bind or the command line, `mat_wireframe` needs `sv_cheats 1` (above). The menu item
+through walls, as in TF2. `mat_wireframe 3` draws pink outlines of each of the map's faces, without the lines that split a
+face into triangles. Set from your config, a bind or the command line, `mat_wireframe` needs `sv_cheats 1` (above). The menu item
 and `CTRL+w` do not.
 
 `r_3dsky`, `cl_detaildist` and `cl_detailfade` take effect the moment they are set, from your config, the console, an
