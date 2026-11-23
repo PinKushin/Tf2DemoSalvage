@@ -44669,6 +44669,10 @@ load):
    (Fable): `Stuff_AOneShot_IsIdleAsAtStartup` (control: a key's one-shot fires).
 4. The findings section now carries review 8's and 9's reads (Fable).
 
+**Review 10** (Fable, Sonnet, Gemini, Grok merge): the B816 launch test's remarks had been displaced by the new launch-value
+test and are back above it (Fable, Sonnet); `Stuff`'s `_viewerIssued` clear is pinned by
+`Stuff_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats` (Fable), red with `AtStartup` removed.
+
 ## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
 
 Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it

@@ -1356,6 +1356,28 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **…and so is launch text** (B820 review 10, Fable): `Stuff` clears `_viewerIssued` as `Load` does, so a launch line run
+    /// from a handler inside the viewer's own key meets TF2's cheat refusal.
+    /// </remarks>
+    [Test]
+    public void Stuff_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ConVarSet += (_, e) =>
+        {
+            if (e.Name == "mat_fullbright")
+            {
+                console.Stuff("mat_wireframe 1");
+            }
+        };
+
+        console.KeyDown("CTRL+1");
+
+        console.ConVar("mat_fullbright").ShouldBe("1", "the control: the viewer's own key set its cheat");
+        console.RefusedCheats.ShouldContain("mat_wireframe");
+    }
+
+    /// <remarks>
     /// **A file line is cut at 1023 bytes and the rest read as the next line** (`Cmd_Exec_f`'s line reader, `engine.dll`
     /// FUN_180177310, B820 review 7): a 1023-byte line of spaces then `{Alpha} 6` runs the ConVar as a line of its own.
     /// </remarks>
