@@ -109,17 +109,6 @@ public sealed class VguiHud
         ],
         StringComparer.Ordinal);
 
-    /// <summary>Every model a HUD model panel will draw, for precaching.</summary>
-    /// <returns>The class panel's, the match doors' and the round sign's, then the freeze panel's and the spectator GUI's items.</returns>
-    public IEnumerable<string> ModelsToPrecache() =>
-    [
-        .. PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache(),
-        .. MatchStatus.MatchStartModelPanel.ModelsToPrecache(),
-        .. MatchStatus.RoundSignModel.ModelsToPrecache(),
-        .. FreezePanel.ItemPanel.ModelPanel?.ModelsToPrecache() ?? [],
-        .. SpectatorGui.ItemPanel.ModelPanel?.ModelsToPrecache() ?? [],
-    ];
-
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>
     public TfHudMatchStatus MatchStatus { get; }
 
@@ -180,11 +169,22 @@ public sealed class VguiHud
         bool showScoreboard = false,
         bool paint = true)
     {
+        FrameStarted?.Invoke();
+
         if (Think(state, events, reset, userMessages, showScoreboard, paint))
         {
             Paint(state, reset);
         }
     }
+
+    /// <summary>
+    /// **A test seam**, run as <see cref="Frame"/> starts: a test's stand-in for a panel's work inside the HUD's frame, where a
+    /// harness with no install has no scheme to think or paint with (B779 review 17 item 1). Null in production. The same
+    /// kind as `ViewerPresenter.Posed` and `EffectEntities.ViewBuilt`: a hook production fires and only a test sets. A
+    /// synthetic scheme with a real panel would replace it, but the presenter builds its HUD host from the install's archives,
+    /// and the harness has none.
+    /// </summary>
+    internal Action? FrameStarted { get; set; }
 
     /// <summary>The serial half of <see cref="Frame"/>: scheme, think, events, lifecycle, updates — every side effect (finding 105 B4).</summary>
     /// <returns>Whether <see cref="Paint"/> should follow: false with no scheme, or for a frame that is not painted.</returns>

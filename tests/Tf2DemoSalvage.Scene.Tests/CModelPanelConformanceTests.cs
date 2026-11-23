@@ -97,6 +97,40 @@ public sealed class CModelPanelConformanceTests
         ((HudViewport)status.Parent!).Animations.ActiveAnimationCount.ShouldBe(1, "HudMatchStatus_ShowMatchStartDoors");
     }
 
+    /// <remarks>
+    /// **The doors' logo survives a model nothing has packed yet** (B779 review 15). Both routes that reach `SetDoors` with
+    /// the model unpacked — a skip's batch after a load (the set forgot every model) and the HUD's first frame (its layout
+    /// loads inside that frame's `Think`, after any precache could have listed the doors) — come down to this cache. The
+    /// engine's `SetupModel` loads the model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so the
+    /// `SetBodyGroup` that follows records the logo (:367-382) and the set-up applies it (:425-428).
+    /// </remarks>
+    [Test]
+    public void HandleCountdown_TenSecondsWithTheDoorsModelNotLoaded_SetsUpTheDoorsWithTheLogo()
+    {
+        TfHudMatchStatus status = Built(new UnloadedCache(Labelled()));
+        VguiModelPanel doors = status.MatchStartModelPanel;
+
+        status.HandleGameEvent(Event("restart_timer_time", new SceneGameRules(false, 0, false) { MatchGroup = 7 }, ("time", 10)));
+        doors.UpdateModel();
+
+        doors.ModelInfo.ShouldNotBeNull().BodygroupValues.ShouldBe(new SortedDictionary<int, int> { [3] = 1 });
+        (doors.ModelSkin, doors.ModelBody).ShouldBe((3, 10), "casual: skin 3, logos 1 (tf_match_description_casual.cpp:73-78)");
+    }
+
+    /// <remarks>The round sign's half of the same (B779 review 15): `ShowRoundSign` (tf_hud_match_status.cpp:726).</remarks>
+    [Test]
+    public void RoundStart_ALadderMatchWithTheSignModelNotLoaded_DropsTheSignWithTheLogo()
+    {
+        TfHudMatchStatus status = Built(new UnloadedCache(Labelled()));
+        VguiModelPanel sign = status.RoundSignModel;
+
+        status.HandleGameEvent(Event("teamplay_round_start", new SceneGameRules(false, 0, false) { MatchGroup = 2, RoundsPlayed = 2 }));
+        sign.UpdateModel();
+
+        sign.ModelInfo.ShouldNotBeNull().BodygroupValues.ShouldBe(new SortedDictionary<int, int> { [3] = 1 });
+        (sign.ModelSkin, sign.ModelBody).ShouldBe((10, 10), "\"The comp skins start at skin 8\", logos 1 (tf_match_description_comp.cpp:94-100)");
+    }
+
     [Test]
     public void HandleCountdown_MannVsMachine_ShowsNoDoors()
     {
@@ -406,6 +440,309 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <remarks>
+    /// **A <c>CModelPanel</c>'s models draw their meshes flexed by the weights they draw with** (B779), as a world model
+    /// does: the <c>CModelPanelModel</c>, a C_BaseFlex nothing drives, at its rules over each controller's minimum
+    /// (`c_baseflex.cpp:1220-1222`) — `jaw + 0.25` over 0.5..1 is 0.75, the vertex (1.5, 0, 0); an attached model, a plain
+    /// C_BaseAnimating (`new C_BaseAnimating`, `basemodelpanel.cpp:468`), at the zero weights `LockFlexWeights` leaves
+    /// (studiorender `0x1800584b0`, B513) — 0, which a ramp from −0.5 to 0.5 takes to 0.5, the vertex (1, 0, 0), where the
+    /// C_BaseFlex's 0.75 would be the ramp's full 1. Neither has teeth.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith(bool asAttached)
+    {
+        PropModels.ModelFrames attached = PanelMeshFlexFixture.Flexed(Frames(eyed: false, mouthed: false, flexed: false) with
+        {
+            Flex = Frames(eyed: false, mouthed: true).Flex,
+        }, target0: -0.5f);
+        VguiModelPanel panel = asAttached ? Framed(startFramed: false, attached: attached) : Framed(startFramed: false, flexed: true);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        IReadOnlyList<ModelInstance> models = surface.Draws.ShouldHaveSingleItem().Models;
+        PanelMeshFlexFixture.ShouldBeFlexedBy(models[asAttached ? 1 : 0], asAttached ? 0.5f : 0.75f);
+    }
+
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c>'s mesh reads its delayed weights, which rise from zero** (B779 review 1 item 7): a
+    /// C_BaseFlex with `flex_smooth` on hands the mesh `m_flFlexDelayedWeight` (`c_baseflex.cpp:1123-1126`, `:1308-1311`),
+    /// zeroed when the model is set (`:203-213`), and `RunFlexDelay` (`:1265-1279`) blends nothing on the first draw
+    /// (`m_flFlexDelayTime` still 0) and then `delayed · d + weight · (1 − d)`, `d = ExponentialDecay( 0.8, 0.033,
+    /// frametime )`. A speed byte of 0 reads the delayed weight alone: paint 1 moves the vertex 0, paint 2 (0.1 s later,
+    /// frametime 0.015) `2 · 0.75 · (1 − d)`. Delayed taken as current would move it 1.5 both times.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelPanelModelWithASlowFlex_RisesByItsDelayedWeights()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, flexed: true, flexSpeed: 0);
+        panel.FrameTime = 0.015f;
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        float d = MathF.Exp(MathF.Log(0.8f) / 0.033f * 0.015f);
+        float[] expected = [0f, 2f * 0.75f * (1f - d)];
+        float[] at = [1f, 1.1f];
+
+        for (int paint = 0; paint < expected.Length; paint++)
+        {
+            VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+            viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: at[paint]));
+            panel.Paint(surface, viewport.Context!);
+
+            float[] face = surface.Draws.ShouldHaveSingleItem().Models[0].Flex.ShouldNotBeNull();
+            face[0].ShouldBe(expected[paint], 1e-5f, $"paint {paint + 1}");
+        }
+    }
+
+    /// <remarks>
+    /// **A new map sets the panel's model up again, from the new level's frames** (B779 review 2, the lead's loose end).
+    /// `CModelPanel` listens for `game_newmap` (`basemodelpanel.cpp:56`) and marks itself dirty "to force the models to
+    /// re-setup themselves" (:196-205), so `UpdateModel` (:520) builds its `CModelPanelModel` again at the next paint. The HUD
+    /// outlives the level, and the next level can answer the path with other frames (a map's pakfile first): here the
+    /// first frames' rule `jaw + 0.25` rests at 0.75 (the vertex 1.5), the next level's `jaw + 0.5` at 1.0 (the ramp's full
+    /// 1, the vertex 2). Kept across the level, the panel would draw the old frames' 1.5.
+    /// </remarks>
+    [Test]
+    public void Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames()
+    {
+        PropModels.ModelFrames first = Frames(eyed: false, mouthed: false, flexed: true);
+        PropModels.ModelFrames next = first with
+        {
+            Flex = first.Flex with
+            {
+                Rules = [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.5f), new StudioFlexOp(4, 0, 0f)])],
+            },
+        };
+        PropModels.ModelFrames current = first;
+        VguiModelPanel panel = Framed(startFramed: false, rootNow: () => current);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[0].Models[0], 0.75f);
+
+        current = next;
+        viewport.NewMap();
+        panel.Paint(surface, viewport.Context!);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws[1].Models[0], 1f);
+    }
+
+    /// <remarks>
+    /// **`game_newmap` reaches a model panel at any depth** (B779 review 3 item 1c): every `CModelPanel` listens for it
+    /// itself (`basemodelpanel.cpp:56`), wherever it sits; production's are grandchildren of the viewport (the match status
+    /// holds the doors and the round sign). The control: set up, the panel is clean before the event.
+    /// </remarks>
+    [Test]
+    public void NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        VguiPanel holder = new(viewport, "MatchStatus");
+        VguiModelPanel panel = new(holder, "RoundSignModel", new FramesCache(_ => null, null));
+
+        panel.UpdateModel();
+        panel.PanelDirty.ShouldBeFalse("the control: nothing to set up, so it is clean");
+
+        viewport.NewMap();
+
+        panel.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A level's shutdown releases the panel's model; the next paint sets it up again** (B779 reviews 3, 7, 8, 9). A level
+    /// change is two halves: `HudViewport.LevelShutdown`, the engine's `CHLClient::LevelShutdown` releasing every client
+    /// entity (`cl_entitylist->Release()`, `cdll_client_int.cpp:1735`; `CClientEntityList::Release`,
+    /// `cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until
+    /// the next `SetupModel`; then `HudViewport.NewMap`, the new map's `game_newmap`, which marks the panel dirty
+    /// (`basemodelpanel.cpp:196-205`). So before the next paint the panel has no model and `SetSequence` finds none; the
+    /// paint sets a new one up. The CMDL panels drop the faces and weights they keep by frames at the shutdown. The controls:
+    /// both held them.
+    /// </remarks>
+    [Test]
+    public void LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, flexed: true);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        PropModels.ModelFrames flexed = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => flexed, null)) { Wide = 100, Tall = 100 };
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        mdl.SetMDL("models/player/demo.mdl");
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+        mdl.Paint(surface, viewport.Context!);
+        object? old = panel.SetUpModel.ShouldNotBeNull("the control");
+        (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((1, true), "the control");
+
+        viewport.LevelShutdown();
+        viewport.NewMap();
+
+        panel.SetUpModel.ShouldBeNull("released with the level's entities, as `m_hModel` is");
+        panel.SetSequence("ref").ShouldBeFalse("no model to act on until the next set-up");
+        (mdl.KeptZeroControlWeights, mdl.RootHoldsMeshFace).ShouldBe((0, false));
+
+        panel.Paint(surface, viewport.Context!);
+
+        panel.SetUpModel.ShouldNotBeNull().ShouldNotBeSameAs(old);
+    }
+
+    /// <remarks>
+    /// **The `game_newmap` event alone leaves the panel's model in place** (B779 reviews 7 and 8): `FireGameEvent` only
+    /// marks the panel dirty (:196-205), and the model goes at the next `SetupModel` (`DeleteModelData`, :395), so
+    /// `SetSequence` (:708) between the two still finds the model's `ref` sequence. Driven here as the event alone; a level
+    /// change also releases the model (the row above). The control: before.
+    /// </remarks>
+    [Test]
+    public void SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel()
+    {
+        VguiModelPanel panel = Framed(startFramed: false);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context!);
+        panel.SetSequence("ref").ShouldBeTrue("the control");
+
+        panel.OnGameEvent(VguiModelPanel.GameNewMap);
+
+        panel.SetSequence("ref").ShouldBeTrue();
+        panel.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A level's shutdown releases a CMDL panel's merge models' mesh faces too** (B779 review 4 item 2): `HudViewport.LevelShutdown`
+    /// calls the panel's `ForgetLevel`, which walks the merge list as well as the root. The control: the drawn merge held one.
+    /// </remarks>
+    [Test]
+    public void LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        PropModels.ModelFrames flexed = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => flexed, null)) { Wide = 100, Tall = 100 };
+
+        mdl.SetMDL("models/player/demo.mdl");
+        VguiMdl merge = mdl.SetMergeMDL("models/player/items/demo/hat.mdl").ShouldNotBeNull();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        mdl.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), viewport.Context);
+        merge.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        viewport.LevelShutdown();
+        viewport.NewMap();
+
+        merge.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A CMDL panel poses the next level's model on a skeleton made from it** (B779 review 6 item 4): the panel keeps one
+    /// posing entity per path, built from that model's `NewSkeleton()`; kept across a level, the path read again from the next
+    /// map's files would be posed on the old model's skeleton, and keep the old level's model alive. `ForgetLevel`, called at
+    /// the level's shutdown (`HudViewport.LevelShutdown`), drops them with the faces. The control: within a level, the same
+    /// path keeps its entity.
+    /// </remarks>
+    [Test]
+    public void LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        PropModels.ModelFrames current = Frames(eyed: false, mouthed: false);
+        VguiMdlPanel mdl = new(viewport, "mdl", new FramesCache(_ => current, null)) { Wide = 100, Tall = 100 };
+        const string path = "models/player/demo.mdl";
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        mdl.SetMDL(path);
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        mdl.Paint(surface, viewport.Context);
+        Animation.Animating.AnimatingEntity first = mdl.KeptEntity(path).ShouldNotBeNull();
+        mdl.Paint(surface, viewport.Context);
+        mdl.KeptEntity(path).ShouldBeSameAs(first, "the control: one entity within a level");
+
+        viewport.LevelShutdown();
+        viewport.NewMap();
+        current = Frames(eyed: false, mouthed: false);
+        mdl.Paint(surface, viewport.Context);
+
+        mdl.KeptEntity(path).ShouldNotBeNull().ShouldNotBeSameAs(first);
+    }
+
+    /// <remarks>
+    /// **An attached model is loaded in the set-up's call too** (B779 review 15): `new C_BaseAnimating` then
+    /// `InitializeAsClientEntity( pInfo->m_pszModelName )` (basemodelpanel.cpp:468-478), so the first paint draws it with
+    /// nothing having loaded it before. The control: before the paint, the cache had not loaded it.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModelNothingLoaded_LoadsItInTheSetUp()
+    {
+        PropModels.ModelFrames attachedFrames = Frames(eyed: false, mouthed: false);
+        bool attachedLoaded = false;
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        VguiModelPanel panel = Framed(
+            startFramed: false,
+            attached: attachedFrames,
+            rootNow: () => root,
+            attachedNow: () => attachedLoaded ? attachedFrames : null,
+            onLoad: path => attachedLoaded |= path == AttachedPath);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        attachedLoaded.ShouldBeFalse("the control");
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws.ShouldHaveSingleItem().Models.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **An attached model that never loads leaves the panel as the engine leaves it** (B779 review 5 item 1): `SetupModel`
+    /// skips a failed attachment (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it
+    /// whatever happened (:534) — the panel clean, the root set up once and animating, the attachment absent. Held dirty, the
+    /// panel would set its root up again at every paint (its cycle back to zero, its delayed flex weights back to rest). Three
+    /// paints, the attachment never there: one model instance throughout, drawn alone, the panel clean. Its frames answer
+    /// `Skinned` null, a load that failed rather than one not yet made; an empty `modelname` is a second attachment that
+    /// names nothing.
+    /// </remarks>
+    [Test]
+    public void Paint_AnAttachedModelThatNeverLoads_KeepsOneRootModelAndACleanPanel()
+    {
+        PropModels.ModelFrames root = Frames(eyed: false, mouthed: false);
+        PropModels.ModelFrames failed = root with { Skinned = null };
+        VguiModelPanel panel = Framed(startFramed: false, attached: failed, rootNow: () => root, emptyAttachment: true);
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        object?[] models = new object?[3];
+
+        for (int paint = 0; paint < models.Length; paint++)
+        {
+            viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f + paint));
+            panel.Paint(surface, viewport.Context!);
+            models[paint] = panel.SetUpModel;
+            surface.Draws[paint].Models.Count.ShouldBe(1, $"paint {paint + 1}: the root alone");
+        }
+
+        models[0].ShouldNotBeNull("the control: the root was set up");
+        models[1].ShouldBeSameAs(models[0]);
+        models[2].ShouldBeSameAs(models[0]);
+        panel.PanelDirty.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c> whose model has flex descriptors but no controllers draws at zero weights** (B779 review
+    /// 1 item 7): `SetupGlobalWeights` zeroes the weights and returns false before any rule runs
+    /// (`c_baseflex.cpp:1198-1207`, `:1152-1155`). The rule `jaw + 0.25` would give 0.25 even over a missing controller;
+    /// at zero the fixture's ramp moves nothing, so the mesh is drawn unflexed.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelPanelModelWithoutControllers_DrawsAtZeroWeights()
+    {
+        PropModels.ModelFrames frames = Frames(eyed: false, mouthed: false, flexed: true);
+        VguiModelPanel panel = Framed(startFramed: false, root: frames with { Flex = frames.Flex with { Controllers = [] } });
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        surface.Draws.ShouldHaveSingleItem().Models[0].Flex.ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **A <c>CModelPanelModel</c> without controllers reads the render context's view target** (B725 5d): its
     /// `SetupGlobalWeights` returns false before `SetViewTarget` (`c_baseflex.cpp:1198-1207`), so it sets none and its eyes
     /// take the last one set. Left at (120, 300, 5) by an earlier draw: the eye at (120, 5, 5) looks along +y, right =
@@ -430,7 +767,7 @@ public sealed class CModelPanelConformanceTests
 
     /// <remarks>
     /// **A CModelPanel's attached model is a plain C_BaseAnimating** (review 1 item 2): `new C_BaseAnimating`
-    /// (`basemodelpanel.cpp:467`), whose `SetupWeights` is empty — so it sets no view target and reads the last one set, and
+    /// (`basemodelpanel.cpp:468`), whose `SetupWeights` is empty — so it sets no view target and reads the last one set, and
     /// its flex weights are the zeros `LockFlexWeights` hands a draw nobody fills (studiorender `0x1800584b0`, B513). The root
     /// here has no controllers, so it sets nothing either; the shared target left at (120, 300, 5) by an earlier draw stays,
     /// and the attached eye at (120, 5, 5) looks along +y: `$irisu` (−1, 0, 0). Its mouth reads descriptor 0 at zero: 0 —
@@ -490,16 +827,31 @@ public sealed class CModelPanelConformanceTests
         bool mouthed = false,
         StudioViewTarget? viewTarget = null,
         PropModels.ModelFrames? attached = null,
-        bool sharedTarget = true)
+        bool sharedTarget = true,
+        bool flexed = false,
+        byte flexSpeed = 255,
+        PropModels.ModelFrames? root = null,
+        Func<PropModels.ModelFrames?>? rootNow = null,
+        Func<PropModels.ModelFrames?>? attachedNow = null,
+        bool emptyAttachment = false,
+        Action<string>? onLoad = null)
     {
-        PropModels.ModelFrames frames = Frames(eyed, mouthed);
+        PropModels.ModelFrames frames = root ?? Frames(eyed, mouthed, flexed, flexSpeed);
+        Func<PropModels.ModelFrames?> rootFrames = rootNow ?? (() => frames);
+        Func<PropModels.ModelFrames?> attachedFrames = attachedNow ?? (() => attached);
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         FramesCache cache = new(
-            path => attached is not null && path == AttachedPath ? attached : frames,
-            sharedTarget ? viewTarget ?? new StudioViewTarget() : null);
+            path => attached is not null && path == AttachedPath ? attachedFrames() : rootFrames(),
+            sharedTarget ? viewTarget ?? new StudioViewTarget() : null,
+            onLoad);
         VguiModelPanel panel = new(viewport, "Framed", cache) { Wide = 640, Tall = 480 };
         string attachedLine = attached is null ? string.Empty : $"\"attached_model\" {{ \"modelname\" \"{AttachedPath}\" }}";
+
+        if (emptyAttachment)
+        {
+            attachedLine += " \"attached_model\" { \"modelname\" \"\" }";
+        }
 
         panel.ApplySettings(
             KeyValuesTree.Load(Encoding.UTF8.GetBytes($$"""
@@ -516,18 +868,21 @@ public sealed class CModelPanelConformanceTests
 
     private const string AttachedPath = "models/attached.mdl";
 
-    /// <summary>A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1.</summary>
-    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed)
+    /// <summary>
+    /// A one-bone model, optionally with an eye, and with teeth, a mouth and the `jaw + 0.25` rule over 0.5..1; or, flexed,
+    /// that rule and <see cref="PanelMeshFlexFixture"/>'s mesh flex without teeth.
+    /// </summary>
+    private static PropModels.ModelFrames Frames(bool eyed, bool mouthed, bool flexed = false, byte flexSpeed = 255)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
 
-        return new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
+        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
         {
             Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
             Mouths = mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [],
             HasTeeth = mouthed,
-            Flex = mouthed
+            Flex = mouthed || flexed
                 ? new StudioFlexData(
                     ["jaw"],
                     [new StudioFlexController("default", "jaw", 0.5f, 1f)],
@@ -535,14 +890,26 @@ public sealed class CModelPanelConformanceTests
                     [])
                 : StudioFlexData.None,
         };
+
+        return flexed ? PanelMeshFlexFixture.Flexed(frames, speed: flexSpeed) : frames;
     }
 
     /// <summary>A cache answering by path, with the render context target it shares (or none).</summary>
-    private sealed class FramesCache(Func<string, PropModels.ModelFrames> find, StudioViewTarget? viewTarget) : IMdlCache
+    private sealed class FramesCache(
+        Func<string, PropModels.ModelFrames?> find, StudioViewTarget? viewTarget, Action<string>? onLoad = null) : IMdlCache
     {
         public StudioViewTarget? ViewTarget { get; } = viewTarget;
 
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            onLoad?.Invoke(path);
+
+            return find(path);
+        }
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => -1;
 
@@ -561,13 +928,41 @@ public sealed class CModelPanelConformanceTests
         return new HudGameEvent(new SceneGameEvent(0, name, fields, new Dictionary<int, Core.Net.PlayerInfo>()), 10f, [], 1, rules, "cp_test", 0);
     }
 
-    private static TfHudMatchStatus Built()
+    private static PropModels.SkinnedModel Labelled()
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref", "open", "close", "intro", "outro");
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+
+        return SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+    }
+
+    /// <summary>
+    /// The model set as an event finds it after a load or on the HUD's first frame: nothing packed yet. <see cref="FindMdl"/>
+    /// answers only what <see cref="LoadMdl"/> has loaded; "logos" is bodygroup 3, written as <c>body + value * 10</c>.
+    /// </summary>
+    private sealed class UnloadedCache(PropModels.SkinnedModel model) : IMdlCache
+    {
+        private readonly HashSet<string> _loaded = new(StringComparer.Ordinal);
+
+        public PropModels.ModelFrames? FindMdl(string path) =>
+            _loaded.Contains(path) ? new([], new Dictionary<int, (int, int, float)>(), [], [], Skinned: model) : null;
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            _loaded.Add(path);
+
+            return FindMdl(path);
+        }
+
+        public int FindBodygroup(string modelPath, string group) => FindMdl(modelPath) is not null && group == "logos" ? 3 : -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body + (value * 10);
+    }
+
+    private static TfHudMatchStatus Built(IMdlCache? cache = null)
+    {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport, new Cache(model));
+        TfHudMatchStatus status = new(viewport, cache ?? new Cache(Labelled()));
 
         viewport.Think((new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f)).WithMatchHud(true));
         status.PerformApplySchemeSettings(context);

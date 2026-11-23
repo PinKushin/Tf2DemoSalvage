@@ -411,6 +411,52 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
     public IMdlCache? MdlCache { get; set; }
 
+    /// <summary>A level's end, as the HUD's model panels see it: the shutdown half of a level change, run at every load.</summary>
+    /// <remarks>
+    /// `CHLClient::LevelShutdown` releases every client entity (`cdll_client_int.cpp:1735`), a <c>CModelPanel</c>'s model
+    /// among them (<see cref="VguiModelPanel.ForgetLevel"/>, B779 review 8); a <c>CMDLPanel</c> drops what it keeps by the old
+    /// level's path or frames (<see cref="VguiMdlPanel.ForgetLevel"/>, review 3 item 4). The engine returns at once while no
+    /// level was initialised (:1714-1715); ours has no such guard and is run at every load (B779 review 12), releasing
+    /// exactly what the panels hold, so a panel holding nothing loses nothing. At any depth — production's model panels
+    /// are the match status's children, the viewport's grandchildren. Its one production caller is <c>FramePresenter.ClearMap</c>.
+    /// </remarks>
+    public void LevelShutdown() => Walk(this, static panel =>
+    {
+        if (panel is VguiModelPanel modelPanel)
+        {
+            modelPanel.ForgetLevel();
+        }
+        else if (panel is VguiMdlPanel mdlPanel)
+        {
+            mdlPanel.ForgetLevel();
+        }
+    });
+
+    /// <summary>The new map's <c>game_newmap</c>, as every <c>CModelPanel</c> under the viewport hears it.</summary>
+    /// <remarks>
+    /// Each listens for it from its constructor (<c>basemodelpanel.cpp:56</c>) and marks itself dirty, so its models are set up
+    /// again from the new level's (<c>:196-205</c>; review 2), at any depth. Its one production caller is
+    /// <c>FramePresenter.ClearMap</c>, at every load, a first one included. The viewport's own <c>game_newmap</c> (the
+    /// spectator GUI's) is carried by the timeline instead (B516).
+    /// </remarks>
+    public void NewMap() => Walk(this, static panel =>
+    {
+        if (panel is VguiModelPanel modelPanel)
+        {
+            modelPanel.OnGameEvent(VguiModelPanel.GameNewMap);
+        }
+    });
+
+    private static void Walk(VguiPanel panel, Action<VguiPanel> visit)
+    {
+        visit(panel);
+
+        foreach (VguiPanel child in panel.Children)
+        {
+            Walk(child, visit);
+        }
+    }
+
     /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
     public VguiAnimationController Animations { get; }
 

@@ -386,14 +386,28 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             return;
         }
 
-        // "Some classes only have secondary weapons. Fall back to that." (:294).
-        int? baseItem = schema.BaseItemForClass(CurrentClassIndex, ItemSchema.LoadoutSlotPrimary)
-            ?? schema.BaseItemForClass(CurrentClassIndex, ItemSchema.LoadoutSlotSecondary);
-
-        if (baseItem is { } definition)
+        if (FallbackItem(schema, CurrentClassIndex) is { } fallback)
         {
-            SwitchHeldItemTo(BaseItem(schema, definition));
+            SwitchHeldItemTo(fallback);
         }
+    }
+
+    /// <summary>
+    /// The class's stock item `HoldFirstValidItem` holds when nothing carried can be (:290-298): the primary's base item,
+    /// else — "Some classes only have secondary weapons. Fall back to that." (:294) — the secondary's.
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="playerClass">The class.</param>
+    /// <returns>The item, or null for a class with neither.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can hold (`DemoModels`, B779 review 19).</remarks>
+    public static TfItemView? FallbackItem(ItemSchema schema, int playerClass)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        int? baseItem = schema.BaseItemForClass(playerClass, ItemSchema.LoadoutSlotPrimary)
+            ?? schema.BaseItemForClass(playerClass, ItemSchema.LoadoutSlotSecondary);
+
+        return baseItem is { } definition ? BaseItem(schema, definition) : null;
     }
 
     /// <summary>`HoldItemInSlot` (:307).</summary>
@@ -550,8 +564,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// `weapon_stattrak_module_scale`, in `ACT_IDLE`'s place (sequence 1).
     /// </summary>
     /// <remarks>
-    /// `IsErrorModel` (:589) is the module failing to load; here an unloaded module simply draws nothing until the cache
-    /// has it, and it is precached with the rest.
+    /// `IsErrorModel` (:589) is the module failing to load; here a module that does not load simply draws nothing — it is
+    /// loaded when the draw reads it (`IMdlCache.LoadMdl`, B779 review 15).
     /// </remarks>
     private void UpdateStatTrack(ItemSchema schema, TfItemView held)
     {
@@ -783,10 +797,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             }
         }
 
-        string? attached = schema.WorldDisplayModel(definition)
-            ?? schema.PlayerDisplayModel(definition, CurrentClassIndex, Team, item.Style(schema));
-
-        if (attached is { Length: > 0 })
+        if (DisplayModel(schema, item, CurrentClassIndex, Team) is { Length: > 0 } attached)
         {
             LoadAndAttachAdditionalModel(attached, item);
 
@@ -803,6 +814,22 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
 
         UpdateHiddenBodyGroups(item);
+    }
+
+    /// <summary>The model `EquipItem` attaches for an item: its world model, else its display model for the class and team.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="item">The item.</param>
+    /// <param name="playerClass">The panel's class.</param>
+    /// <param name="team">The panel's team.</param>
+    /// <returns>The model's path, or null.</returns>
+    /// <remarks>One rule for the panel and for the level's preload of what it can attach (`DemoModels`, B779 review 19).</remarks>
+    public static string? DisplayModel(ItemSchema schema, TfItemView item, int playerClass, int team)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(item);
+
+        return schema.WorldDisplayModel(item.DefinitionIndex)
+            ?? schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, team, item.Style(schema));
     }
 
     /// <summary>`AddCarriedItem` (:1086): a copy, flagged to paint blue when this panel is BLU.</summary>
@@ -844,13 +871,24 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     }
 
     /// <summary>`modelinfo`'s load callbacks: each model now loaded reaches <see cref="OnModelLoadComplete"/>, in order.</summary>
+    /// <remarks>
+    /// **The registration loads the model** (B779 review 15 follow-up): "The auto-addref of vecDynamicAssetsLoaded will
+    /// actually trigger the load" (tf_playermodelpanel.cpp:1135-1136), and the callback answers once it is loaded
+    /// (:1165-1166, "callback triggers immediately if not dynamic"). Ours loads it here, at the registration and at each
+    /// paint after, so a model that loads is answered at once. **One that does not stays registered** (review 18 item 5):
+    /// within the level it is never answered — the failure is remembered until the level's end, and each paint costs one
+    /// lookup for it — and on a later level, whose preload may hold it, the first paint answers it. The engine does not
+    /// give up on a registration either: "Dynamic models never fail to register" (:1138), and the callback waits for
+    /// the load; only the hard-load branch, for a model with no index, drops a model `FindMDL` cannot find (:1147-1157).
+    /// *Interpolated*: a streamed item's load is asynchronous in the engine and may answer some frames later.
+    /// </remarks>
     private void AnswerLoadedCallbacks()
     {
         for (int index = 0; index < _pendingLoads.Count;)
         {
             string path = _pendingLoads[index];
 
-            if (MdlCache.FindMdl(path) is null)
+            if (MdlCache.LoadMdl(path) is null)
             {
                 index++;
                 continue;
@@ -1093,6 +1131,10 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <summary><c>m_flexWeight[ index ]</c>, for the test that the decay steps every paint.</summary>
     internal float FlexWeightAt(int index) => _flexWeight[index];
 
+    /// <summary>Whether anything kept for a model's flex data is held: the data, its shared slots, or the buffers sized for it.</summary>
+    internal bool HoldsFlexSlots =>
+        _flexSlotsFor is not null || _flexSlots.Length > 0 || _flexSource.Length > 0 || _flexRuleWeights.Length > 0;
+
     /// <summary>One paint's <see cref="RootFlexWeights"/>, for the tests of its cache and its allocation.</summary>
     internal float[]? StepRootFlex(string path, PropModels.ModelFrames frames) => RootFlexWeights(path, frames);
 
@@ -1103,9 +1145,13 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// </summary>
     /// <inheritdoc/>
     /// <remarks>
-    /// **The decay steps every paint; the rules run only for a model whose mouth reads them** (B725 review 1): the engine runs
-    /// both each paint, and its rules also flex the panel's mesh — which ours does not draw (B779) — so for a model without a
-    /// mouthed Teeth material nothing here reads them. When B779 is fixed the rules run for every model with flex.
+    /// **The decay steps every paint; the rules run every paint for a model with flex descriptors** (B779): `CMDL::Draw`
+    /// tests `numflexdesc` (`client.dll` `0x180937138`) and nothing else before `RunFlexRules`, whose weights flex the
+    /// mesh and set the mouth up. The rules write into this panel's own array and the mesh flex into its own kept arrays,
+    /// so neither the flex step nor the mesh's rebuild allocates once the model is known (B725 review 1 item 4,
+    /// `RootFlexWeights_OnAStableMouthedModel_AllocatesNothingAfterTheFirstPaint`; B779 review 1 item 1,
+    /// `PanelMeshFlexTests.For_AWeightChangeOnAKnownModel_AllocatesNothing`). The rest of a paint — its bone arrays, the
+    /// draw list — is not held to that.
     /// </remarks>
     protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
     {
@@ -1114,7 +1160,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         IReadOnlyList<StudioFlexController> controllers = frames.Flex.Controllers;
         DecayFlexWeights(_flexWeight, controllers);
 
-        if (!frames.HasTeeth || frames.Mouths.Count == 0)
+        if (frames.Flex.Descriptors.Count == 0)
         {
             return null;
         }
@@ -1483,24 +1529,19 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     private static bool IsValidPickupWeaponSlot(int slot) =>
         slot is ItemSchema.LoadoutSlotPrimary or ItemSchema.LoadoutSlotSecondary or ItemSchema.LoadoutSlotMelee;
 
-    /// <summary>The drawn models, then those a load callback still waits on — `RegisterDynamicModel`'s load (:1137).</summary>
     /// <inheritdoc/>
-    public override IEnumerable<string> ModelsToPrecache()
+    /// <remarks>The StatTrak module is a CMDL of its own, outside the merge list.</remarks>
+    public override void ForgetLevel()
     {
-        foreach (string path in base.ModelsToPrecache())
-        {
-            yield return path;
-        }
+        base.ForgetLevel();
+        StatTrackModel.MeshFlex.Release();
 
-        foreach (string path in _pendingLoads)
-        {
-            yield return path;
-        }
-
-        if (!StatTrackModel.Disabled && StatTrackModel.Path is { } module)
-        {
-            yield return module;
-        }
+        // The root's shared slots are kept per model's flex data: the old level's model, held (review 9 item 4), with the
+        // buffers sized for it.
+        _flexSlotsFor = null;
+        _flexSlots = [];
+        _flexSource = [];
+        _flexRuleWeights = [];
     }
 
     /// <summary>`CBaseModelPanel::OnTick`'s place: each frame, before drawing, answer the load callbacks now due.</summary>

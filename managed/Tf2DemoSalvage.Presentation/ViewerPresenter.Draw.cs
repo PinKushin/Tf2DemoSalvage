@@ -33,6 +33,9 @@ public sealed partial class ViewerPresenter
     /// </remarks>
     private readonly LeafBoxes _leafBoxes;
 
+    /// <summary>The line a projection held off by a map read writes (B779 review 29 item 2).</summary>
+    public const string HeldOffWhileAMapReads = "projection held off while a map reads; the frame after the load projects";
+
     /// <summary>Something a window knows moved the view: the world's projection is stale.</summary>
     public void InvalidateWorld() => _world.Invalidate();
 
@@ -50,8 +53,23 @@ public sealed partial class ViewerPresenter
     /// </remarks>
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>
     /// <param name="size">The viewport's size in pixels.</param>
-    public void ProjectMap(bool surfaceColours, (int Width, int Height) size)
+    /// <param name="fromTheRead">Whether this is the map read's own projection (`ILoadView.MapRead`), which runs inside the barrier.</param>
+    public void ProjectMap(bool surfaceColours, (int Width, int Height) size, bool fromTheRead = false)
     {
+        // **Only the read itself projects while a map reads** (B779 reviews 27-28). The window's `OpenDevice` reaches here
+        // on the UI thread with no barrier check, and projecting then runs the upload beside the worker's own on the same
+        // map (its texture lists swapped under the upload) and lets go of model vertices the worker is appending to. It
+        // marks the world instead, and the first frame after the load projects it. The read's own projection says so
+        // (`fromTheRead`, review 28 item 1) rather than being guessed from its thread, which an await or an inlined task
+        // could change.
+        if (_readingMap && !fromTheRead)
+        {
+            // Said: rare (a viewport recreated mid-read), and the one sign the read's own projection lost its signal.
+            _log.LogInformation("{Message}", HeldOffWhileAMapReads);
+            _world.Invalidate();
+            return;
+        }
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } map || map.Outline.IsEmpty)
         {
@@ -85,14 +103,26 @@ public sealed partial class ViewerPresenter
             size,
             _loggers);
 
-        if (result.Problem is { } problem)
+        FollowUpload(result, map);
+    }
+
+    /// <summary>What follows the world's upload: its problem said, the models' copies let go, a lost world read again.</summary>
+    /// <param name="result">What the upload answered.</param>
+    /// <param name="map">The map it uploaded.</param>
+    internal void FollowUpload(WorldUpload result, LoadedMap map)
+    {
+        // A lost world says "Reloading the map…" only when it reloads now: with no demo nothing reloads (review 27 item 5),
+        // and with a load in flight the reload waits and the load's own status ("Opening…") stays (review 28 item 3).
+        bool reloadWaits = result.NeedsReload && (_demo is null || LoadInFlight);
+
+        if (result.Problem is { } problem && !reloadWaits)
         {
             _view.Status = problem;
         }
 
         // **The world is up and the map's copies are gone, so the entity models' can go too** (B407). Armed only now, because a
         // failure before this point clears the renderer's model buffers and must be able to re-upload from memory.
-        if (result.Uploaded && map?.Assets is { Released: true })
+        if (result.Uploaded && map.Assets is { Released: true })
         {
             _models.ReleaseUploaded();
         }
@@ -100,6 +130,33 @@ public sealed partial class ViewerPresenter
         // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
         if (result.NeedsReload && _demo is { } open)
         {
+            // **Not while any load is in flight** (B779 reviews 26-28): decoding, fetching, queued, reading or applying.
+            // `ProjectMap` already does nothing but mark the world while a worker reads, so this is reached then only by the
+            // read's own projection, whose assets are fresh. Otherwise — a load still decoding, one queued and not yet
+            // raised, a superseded load's gap — a reload here would read the old demo's map only for the next load to
+            // clear it. So the reload waits, setting no status (review 28 item 3): once no load is in flight the world is
+            // marked, the next frame projects, the upload answers that the world is lost, and this reads the map again **synchronously, on
+            // the UI thread** — a full map read, 13 to 18 seconds on a large map (B146), with the window not pumping. That
+            // is the cost of recovering a lost device; the read in flight does not recover it, because it uploaded to the
+            // device that was lost (review 27 item 3).
+            //
+            // **It waits; it does not loop** (review 29 item 1). Frames run while a load decodes or fetches, and marking the
+            // world here would have each one project, find the world lost, log and mark again — a line and a projection a
+            // frame for the whole decode. So the skip records the reload once and leaves the world unmarked; the last load
+            // to finish marks it once (`LoadDemoAsync`'s last marshal).
+            if (reloadWaits)
+            {
+                if (System.Threading.Interlocked.Exchange(ref _reloadPending, 1) == 0)
+                {
+                    _log.LogInformation("{Message}", $"world textures lost while a load is in flight; reading {open.MapName} again after it");
+                }
+
+                // No re-check of the count here (review 31, D180): this runs on the UI thread, serialized with the last load's
+                // decrement (its marshal), or on the read's worker while that load is still counted, so the count cannot reach
+                // zero between the check above and the flag. The last load to finish takes the flag.
+                return;
+            }
+
             _log.LogWarning("{Message}", $"world textures lost after their pixels were released; reading {open.MapName} again");
             LoadMap(open.MapName);
         }

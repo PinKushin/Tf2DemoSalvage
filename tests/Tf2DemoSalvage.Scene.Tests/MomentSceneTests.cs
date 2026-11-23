@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 
 using Microsoft.Extensions.Logging;
 
@@ -1339,6 +1341,140 @@ public sealed class MomentSceneTests
         scene.Build([], [Prop("models/props/crate.mdl")], Info());
 
         log.Count("no model upload").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **Every upload says how much it handed over, whoever asked for it** (B779 gate): the HUD's overlay uploads a grown
+    /// set through `UploadGrown` (review 16), and that route wrote no "entity models: N packed" line — so when it ran
+    /// first, the moment's own pass found the device already holding the set and returned before its line, and a load's
+    /// log said nothing of the geometry it packed (`WiringUiTests.TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`).
+    /// Here a panel's load grows the set and the overlay's upload hands it over: one line, with the count. The control:
+    /// the upload happened.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_AfterAPanelsLoad_SaysHowMuchItUploaded()
+    {
+        RecordingLogger log = new();
+        Uploads upload = new();
+        EntityModelSet models = new() { Geometry = OneTriangle };
+        MomentScene scene = new(models, new ViewmodelScene(), log) { Upload = upload };
+
+        models.LoadMdl("models/props/crate.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+
+        models.Grown.ShouldBeFalse("the control: the set was handed over");
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 1 models in the set, 3 new vertices, 3 vertices in all").ShouldBe(1);
+        log.Count("  packed models/").ShouldBe(0, "the per-path names are the moment's own upload's, not a HUD paint's (review 32 item 6)");
+    }
+
+    /// <remarks>
+    /// **The moment's own upload names what it packed** (B779 review 33 item 3): under the count, one line per packed path,
+    /// so "the health packs are not drawing" can be answered by name — and only on this route (the HUD paint's does not).
+    /// Here a moment built with a crate: its upload says it is the moment's, and names the crate.
+    /// </remarks>
+    [Test]
+    public void Build_AMomentWithAModel_TheUploadNamesWhatItPacked()
+    {
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet { Geometry = OneTriangle }, new ViewmodelScene(), log) { Upload = new Uploads() };
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info());
+
+        log.Count($"entity models ({MomentScene.MomentRoute}): 1 models in the set, 3 new vertices, 3 vertices in all").ShouldBe(1);
+        log.Count("  packed models/props/crate.mdl").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The line counts what was handed over, not what is left after** (B779 review 32, the UI row's value check): once
+    /// the world is up the set lets its copy go after an upload (B407), so a count read after the upload said
+    /// "911 packed, 0 vertices" in the UI run for a set that had just gone up. Here release armed after a first upload,
+    /// then a second model loaded and uploaded: its line carries the vertices it handed over. The control: the copy was
+    /// let go after it. **Two counts, exactly** (review 33 items 1 and 2): one triangle's three new vertices, and six in all —
+    /// the three let go after the first upload plus these.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver()
+    {
+        RecordingLogger log = new();
+        EntityModelSet models = new() { Geometry = OneTriangle };
+        MomentScene scene = new(models, new ViewmodelScene(), log) { Upload = new Uploads() };
+
+        models.LoadMdl("models/props/crate.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+        models.ReleaseUploaded();
+        models.LoadMdl("models/props/barrel.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+
+        models.Vertices.ShouldBeEmpty("the control: the set let its copy go after the second upload");
+        log.Count($"entity models ({MomentScene.HudPaintRoute}): 2 models in the set, 3 new vertices, 6 vertices in all").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The viewmodel's upload marks the set uploaded** (B779 review 35 item 1): it called the device directly and never
+    /// said so to the set, so `Grown` stayed true and the HUD paint's `UploadGrown` that this branch added handed the whole
+    /// set over a second time. Here a first-person pose packs the arms and uploads them; the next `UploadGrown`, with
+    /// nothing new, uploads nothing. The control: the pose did upload, and its line names the viewmodel's route.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_AfterAViewmodelUpload_UploadsNothing()
+    {
+        RecordingLogger log = new();
+        MomentScene scene = Posable(log);
+        Uploads uploads = new();
+        scene.Upload = uploads;
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/c_models/c_soldier_arms.mdl", Sequence: 0, PlaybackRate: 1f, OwnerEntityIndex: 3, Slot: SceneViewmodel.MainHand),
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+
+        scene.Build([Soldier(entity: 3)], [], info);
+        int built = uploads.Count;
+        scene.Pose(info);
+        uploads.Count.ShouldBe(built + 1, "the control: the pose packed the arms and uploaded them");
+        log.Count($"entity models ({MomentScene.ViewmodelRoute}): ").ShouldBe(1);
+
+        scene.UploadGrown();
+
+        uploads.Count.ShouldBe(built + 1, "nothing grew since the viewmodel's upload");
+    }
+
+    /// <remarks>
+    /// **A stall names the route that paid it** (B779 review 35 item 2): three routes upload now, and a load's precache can
+    /// go up under any of them (B815), so a STALL that does not say whose it was cannot be attributed. Here a device that
+    /// takes longer than the threshold: the warning carries the HUD paint's route. The device holds until the threshold has
+    /// passed on its own clock, which is the condition, not a guess at a duration.
+    /// </remarks>
+    [Test]
+    public void UploadGrown_OnASlowDevice_TheStallNamesTheRoute()
+    {
+        RecordingLogger log = new();
+        EntityModelSet models = new() { Geometry = OneTriangle };
+        MomentScene scene = new(models, new ViewmodelScene(), log) { Upload = new SlowUpload() };
+
+        models.LoadMdl("models/props/crate.mdl").ShouldNotBeNull();
+        scene.UploadGrown();
+
+        log.Count($"STALL ({MomentScene.HudPaintRoute}) uploading 3 vertices took ").ShouldBe(1);
+    }
+
+    /// <summary>A device whose upload outlasts <see cref="MomentScene.StallSeconds"/>, measured on its own clock.</summary>
+    private sealed class SlowUpload : IModelUpload
+    {
+        public bool HasModels { get; private set; }
+
+        public void UploadModels(EntityModelSet models)
+        {
+            Stopwatch held = Stopwatch.StartNew();
+
+            while (held.Elapsed.TotalSeconds <= MomentScene.StallSeconds)
+            {
+                Thread.SpinWait(1_000);
+            }
+
+            HasModels = true;
+        }
     }
 
     [Test]

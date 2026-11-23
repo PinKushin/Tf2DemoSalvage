@@ -175,20 +175,85 @@ public sealed class TfPlayerModelPanelConformanceTests
         TfPlayerModelPanel.AdjustSkinIndexForZombie(8, 1).ShouldBe(23, "the spy's mask skins, +22");
     }
 
+    /// <remarks>
+    /// **An item's model is loaded when its callback is answered** (B779 review 15 follow-up): `LoadAndAttachAdditionalModel`
+    /// registers the model (`RegisterDynamicModel`, or `GetModelIndex`, tf_playermodelpanel.cpp:1131-1144), "The auto-addref
+    /// of vecDynamicAssetsLoaded will actually trigger the load", and `RegisterModelLoadCallback` answers once it is loaded
+    /// (:1165-1166, "callback triggers immediately if not dynamic"). Ours loads it when the callback is asked, at the
+    /// registration and at each paint after, and merges it then. A model not yet on disk (`Available` names those that
+    /// are) waits, and is merged at the first paint after it can load. The control: the model was not loaded before.
+    /// </remarks>
     [Test]
-    public void OnModelLoadComplete_AModelNotYetLoaded_MergesTheFrameItLoads()
+    public void OnModelLoadComplete_AModelNotYetLoaded_LoadsAndMergesItAtTheRegistration()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+
+        cache.Available.Add(Scattergun);
+        cache.FindMdl(Scattergun).ShouldBeNull("the control");
+        panel.SetToPlayerClass(1);
+
+        panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
+    }
+
+    /// <remarks>
+    /// **A root that failed on one level is decided again on the next** (B779 review 18 item 1). The engine's `FindMDL`
+    /// reads from the install whatever the level (mdlpanel.cpp:185-190), so a root that fails at `SetMDL` failed for good.
+    /// Ours loads from the level's preloaded set (`MapAssets.Geometry`), which a mapless demo leaves empty — so the class
+    /// model fails there and loads on the next mapped level, where the HUD's `SetToPlayerClass` for the same class returns
+    /// early (tf_playermodelpanel.cpp:198; ours :317) and never calls `SetMDL` again. The panel decides its root once per
+    /// level: here a mapless level (nothing loads), its shutdown, a mapped level (the class and weapon load), the same
+    /// class again, a paint. The control: the root was invalid on the mapless level.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AClassThatFailedOnAMaplessLevel_DrawsOnTheNextLevelWithNoNewSetMdl()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel();
+
+        panel.SetToPlayerClass(1);
+        panel.ModelName.ShouldBeNull("the control: invalid on the mapless level");
+
+        panel.ForgetLevel();
+        cache.Available.UnionWith([ScoutModel, Scattergun]);
+        panel.SetToPlayerClass(1);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Select(model => model.ModelPath).ShouldBe([ScoutModel, Scattergun]);
+    }
+
+    /// <remarks>The waiting half (B779 review 15 follow-up): a model that cannot load yet is merged at the first paint after
+    /// it can. The control: it waits while it cannot.</remarks>
+    [Test]
+    public void OnModelLoadComplete_AModelThatCannotLoadYet_IsMergedAtThePaintAfterItCan()
     {
         (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
 
         panel.SetToPlayerClass(1);
+        panel.MergeMdls.ShouldBeEmpty("the control: the callback waits for the model");
 
-        panel.MergeMdls.ShouldBeEmpty("the callback waits for the model");
-        panel.ModelsToPrecache().ShouldBe([ScoutModel, Scattergun], "the waiting model is asked for, or it never loads");
-
-        cache.Load(Scattergun);
+        cache.Available.Add(Scattergun);
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
 
         panel.MergeMdls.ShouldHaveSingleItem().Path.ShouldBe(Scattergun);
+    }
+
+    /// <remarks>
+    /// **The class model too, with nothing loaded** (B779 review 15 follow-up): `SetMDL` takes its handle from `FindMDL`
+    /// (mdlpanel.cpp:185) and the draw reads the header through it (imdlcache.h:116-126), so the first paint draws the class
+    /// model and its weapon with nothing having loaded either. The control: nothing was loaded.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassAndItsWeaponNothingLoaded_DrawsBoth()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel();
+
+        cache.Available.UnionWith([ScoutModel, Scattergun]);
+        cache.FindMdl(ScoutModel).ShouldBeNull("the control");
+        panel.SetToPlayerClass(1);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.Select(model => model.ModelPath).ShouldBe([ScoutModel, Scattergun]);
     }
 
     /// <summary>A system that emits every step, drawn as sprites, with no material key — the materials' "" entry.</summary>
@@ -261,6 +326,31 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
         panel.FlexWeightAt(0).ShouldBe(0.04875f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **The class model's mesh is flexed by the decaying controls, teeth or none** (B779): `CMDL::Draw` runs the rules for
+    /// every model with flex descriptors (TF2 `client.dll` `0x180937138-0x1809371a7`) and draws the mesh with them
+    /// (`0x1809371f2`), after `SetupFlexWeights` decayed the controls (`tf_playermodelpanel.cpp:2275-2361`). The rule
+    /// `lip + 1` over `lip` −1..1: paint 1 gives 0.05, the vertex (0.1, 0, 0); paint 2, 0.0975. A plain CMDLPanel's zero
+    /// controls would give 1, and before this fix no face was drawn without teeth.
+    /// </remarks>
+    [Test]
+    public void Paint_AClassModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFromTheDecayingControls()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        panel.SetToPlayerClass(1);
+
+        float[] expected = [0.05f, 0.0975f];
+
+        for (int paint = 0; paint < expected.Length; paint++)
+        {
+            VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+            panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+            PanelMeshFlexFixture.ShouldBeFlexedBy(surface.Draws.ShouldHaveSingleItem().Models[0], expected[paint]);
+        }
     }
 
     [Test]
@@ -339,6 +429,76 @@ public sealed class TfPlayerModelPanelConformanceTests
 
     private const string StatTrak = "models/weapons/c_models/stattrack.mdl";
 
+    /// <remarks>
+    /// **The StatTrak module's mesh is flexed at its CMDL's zero controls** (B779 review 1 item 3): `RenderStatTrack` draws it
+    /// with `m_StatTrackModel.m_MDL.Draw( … )` (`tf_playermodelpanel.cpp:1574`), a `CMDL::Draw` like any other, whose rules
+    /// run on `CMDL::CMDL`'s zeros (`client.dll` `0x180936e20`, `0x180937138-0x1809371a7`): `jaw + 0.25` over 0.5..1 is 0.25.
+    /// No shipped stat clock has flexes; the module is the only second-level merge, so it is the case that holds the path.
+    /// </remarks>
+    [Test]
+    public void RenderStatTrack_AModuleWithAVertexFlex_DrawsItsMeshAtZeroControls()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel, Scattergun, StatTrak);
+        cache.FlexedPath = StatTrak;
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13,
+            new EconAttributeValue(834, 350),
+            new EconAttributeValue(214, 12),
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))) with { IteratesDefinition = true });
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        PanelMeshFlexFixture.ShouldBeFlexedBy(
+            System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == StatTrak), 0.25f);
+    }
+
+    /// <remarks>
+    /// **A level's end releases the root's flex slots** (B779 review 9 item 4): the shared slots are kept per model's flex
+    /// data, and kept past the level they hold the old level's model. The control: a paint built them.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AfterAFlexedRootWasPainted_ReleasesItsFlexSlots()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel);
+        cache.Faced = true;
+        panel.SetToPlayerClass(1);
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.HoldsFlexSlots.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.HoldsFlexSlots.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A level's end releases the drawn StatTrak module's mesh face** (B779 review 4 item 2): the module is a CMDL outside
+    /// the merge list, so `ForgetLevel`'s override releases it. Drawn as the row above draws it; the control: it held one.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AfterTheStatTrakModuleWasDrawnFlexed_ReleasesItsMeshFace()
+    {
+        (TfPlayerModelPanel panel, FakeCache cache) = Panel(ScoutModel, Scattergun, StatTrak);
+        cache.FlexedPath = StatTrak;
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13,
+            new EconAttributeValue(834, 350),
+            new EconAttributeValue(214, 12),
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))) with { IteratesDefinition = true });
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+        panel.StatTrackModel.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.StatTrackModel.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
     [Test]
     public void RenderStatTrack_AStrangePaintkittedWeapon_DrawsItsModuleScaledOnTheWeapon()
     {
@@ -404,7 +564,18 @@ public sealed class TfPlayerModelPanelConformanceTests
     {
         private readonly HashSet<string> _loaded = new(loaded, StringComparer.Ordinal);
 
-        public void Load(string path) => _loaded.Add(path);
+        /// <summary>Paths on disk but not loaded: <see cref="LoadMdl"/> loads them; any other path does not load.</summary>
+        public HashSet<string> Available { get; } = new(StringComparer.Ordinal);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            if (Available.Contains(path))
+            {
+                _loaded.Add(path);
+            }
+
+            return FindMdl(path);
+        }
 
         /// <summary>
         /// The class model's face: teeth, a mouth on its bone reading descriptor 0, and one controller ranged −1..1 that the rule
@@ -413,6 +584,9 @@ public sealed class TfPlayerModelPanelConformanceTests
         public bool Faced { get; set; }
 
         public bool Mouthed { get; set; }
+
+        /// <summary>A model path answered with a vertex flex at zero controls (B779 review 1 item 3), or null.</summary>
+        public string? FlexedPath { get; set; }
 
         public PropModels.ModelFrames? FindMdl(string path)
         {
@@ -440,8 +614,21 @@ public sealed class TfPlayerModelPanelConformanceTests
 
             IReadOnlyList<StudioMouth> mouths = Mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [];
 
+            // A model given the `jaw + 0.25` rule over 0.5..1 and the fixture's mesh flex: 0.25 at zero controls.
+            if (path == FlexedPath)
+            {
+                return PanelMeshFlexFixture.Flexed(frames with
+                {
+                    Flex = new StudioFlexData(
+                        ["jaw"],
+                        [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                        [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                        []),
+                });
+            }
+
             return Faced && path == ScoutModel
-                ? frames with
+                ? PanelMeshFlexFixture.Flexed(frames with
                 {
                     Mouths = mouths,
                     HasTeeth = Mouthed,
@@ -450,9 +637,11 @@ public sealed class TfPlayerModelPanelConformanceTests
                         [new StudioFlexController("default", "lip", -1f, 1f)],
                         [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 1f), new StudioFlexOp(4, 0, 0f)])],
                         []),
-                }
+                })
                 : frames;
         }
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
 
         public int FindBodygroup(string modelPath, string group) => group switch
         {

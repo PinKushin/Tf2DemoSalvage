@@ -60,6 +60,7 @@
        through the production path (docs/measurements/2026-10-30-flex-for-cost-after.md). -->
   <ItemGroup>
     <Compile Include="..\Tf2DemoSalvage.Scene.Tests\FaceFlexReference.cs" Link="FaceFlexReference.cs" />
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SettingsFileRedirect.cs" Link="SettingsFileRedirect.cs" />
   </ItemGroup>
 
 </Project>

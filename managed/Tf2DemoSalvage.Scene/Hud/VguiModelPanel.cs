@@ -143,29 +143,6 @@ public class VguiModelPanel : VguiEditablePanel
     /// <summary>`gpGlobals->frametime`, set by whoever drives the frame.</summary>
     public float FrameTime { get; set; }
 
-    /// <summary>The paths this panel draws, for precaching.</summary>
-    /// <returns>The model, then each attached model.</returns>
-    public IEnumerable<string> ModelsToPrecache()
-    {
-        if (ModelInfo is not { } info)
-        {
-            yield break;
-        }
-
-        if (info.ModelName is { Length: > 0 } model)
-        {
-            yield return model;
-        }
-
-        foreach ((string? attached, _) in info.AttachedModels)
-        {
-            if (attached is { Length: > 0 })
-            {
-                yield return attached;
-            }
-        }
-    }
-
     /// <inheritdoc/>
     /// <remarks>`CModelPanel::ApplySettings` (:77).</remarks>
     public override void ApplySettings(KeyValuesTree block, VguiContext context)
@@ -180,7 +157,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         foreach (KeyValuesTree data in block.Children)
         {
-            if (string.Equals(data.Name, "model", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(data.Name, HudPanelModels.ModelBlock, StringComparison.OrdinalIgnoreCase))
             {
                 ParseModelInfo(data);
             }
@@ -195,7 +172,7 @@ public class VguiModelPanel : VguiEditablePanel
 
         VguiModelPanelModelInfo info = new()
         {
-            ModelName = data.Find("modelname")?.Value,
+            ModelName = data.Find(HudPanelModels.ModelName)?.Value,
             ModelNameHwm = data.Find("modelname_hwm")?.Value,
             Skin = Int(data, "skin", -1),
             AbsAngles = (Float(data, "angles_x", 0f), Float(data, "angles_y", 0f), Float(data, "angles_z", 0f)),
@@ -213,9 +190,9 @@ public class VguiModelPanel : VguiEditablePanel
             {
                 OnAddAnimation(entry);
             }
-            else if (string.Equals(entry.Name, "attached_model", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(entry.Name, HudPanelModels.AttachedModel, StringComparison.OrdinalIgnoreCase))
             {
-                info.AttachedModels.Add((entry.Find("modelname")?.Value, Int(entry, "skin", -1)));
+                info.AttachedModels.Add((entry.Find(HudPanelModels.ModelName)?.Value, Int(entry, "skin", -1)));
             }
         }
 
@@ -279,6 +256,38 @@ public class VguiModelPanel : VguiEditablePanel
 
     /// <summary>`SetPanelDirty`.</summary>
     public void SetPanelDirty() => _panelDirty = true;
+
+    /// <summary>`m_bPanelDirty`: whether the next `UpdateModel` sets the model up.</summary>
+    internal bool PanelDirty => _panelDirty;
+
+    /// <summary>The set-up model itself, for the test that a paint does not set it up again.</summary>
+    internal object? SetUpModel => _model;
+
+    /// <summary>The game event a <c>CModelPanel</c> listens for (`ListenForGameEvent( "game_newmap" )`, :56).</summary>
+    public const string GameNewMap = "game_newmap";
+
+    /// <summary>
+    /// `CModelPanel::FireGameEvent` (:196-205): at `game_newmap`, "force the models to re-setup themselves" — the panel is
+    /// dirty, so the next `UpdateModel` builds its models from the new level's frames (B779 review 2). The event alone
+    /// leaves the model to that set-up, which deletes it (`DeleteModelData`, :395); a level change has released it already
+    /// (<see cref="ForgetLevel"/>, review 8).
+    /// </summary>
+    /// <param name="name">The event's name.</param>
+    public void OnGameEvent(string name)
+    {
+        if (string.Equals(name, GameNewMap, StringComparison.Ordinal))
+        {
+            _panelDirty = true;
+        }
+    }
+
+    /// <summary>
+    /// The level's end, as it reaches this panel's model: `CHLClient::LevelShutdown` releases every client entity
+    /// (`cl_entitylist->Release()`, `cdll_client_int.cpp:1735`; `CClientEntityList::Release`, `cliententitylist.cpp:63-93`),
+    /// the client-only `CModelPanelModel` among them, so `m_hModel.Get()` is null until the next `SetupModel` — and a panel
+    /// that does not paint on the next level holds no old frames, skeleton or face (B779 review 8).
+    /// </summary>
+    public void ForgetLevel() => _model = null;
 
     /// <summary>`SetSkin` (:747).</summary>
     /// <param name="skin">The skin.</param>
@@ -354,6 +363,14 @@ public class VguiModelPanel : VguiEditablePanel
     }
 
     /// <summary>`UpdateModel` (:520): a dirty panel sets its model up again.</summary>
+    /// <remarks>
+    /// **The engine's flag** (B779 reviews 3-5, 16). `UpdateModel` clears `m_bPanelDirty` after `SetupModel` whatever it
+    /// found (:534), and `SetupModel` skips a model that fails to load (:473-478): the root animates without its missing
+    /// attachment, set up once. So does ours, whose load is in the call too (`InitializeAsClientEntity`, :407;
+    /// <see cref="IMdlCache.LoadMdl"/>). Reviews 3-5 kept a set-up's missed models and set the panel up again when one was
+    /// found, for the per-frame precache that review 15 removed; with the load in the call, a missed model is one that does
+    /// not load, remembered so until the level's end, so that route was dead and is gone (review 16).
+    /// </remarks>
     public void UpdateModel()
     {
         if (_panelDirty)
@@ -364,6 +381,7 @@ public class VguiModelPanel : VguiEditablePanel
     }
 
     /// <summary>`SetupModel` (:387): a fresh model — skin, bodygroups, the default animation — and its attachments.</summary>
+    /// <remarks>A model it names and cannot load is skipped, as the engine skips it (:398-412, :473-478).</remarks>
     private void SetupModel()
     {
         if (ModelInfo is not { } info)
@@ -373,7 +391,14 @@ public class VguiModelPanel : VguiEditablePanel
 
         _model = null;
 
-        if (DrawnModelName is not { Length: > 0 } path || _mdlCache.FindMdl(path) is not { Skinned: { } skinned } frames)
+        if (DrawnModelName is not { Length: > 0 } path)
+        {
+            return;
+        }
+
+        // Loaded in the call, as `InitializeAsClientEntity` loads it (:407; B779 review 15): an event's `SetBodyGroup` right
+        // after this finds the model.
+        if (_mdlCache.LoadMdl(path) is not { Skinned: { } skinned } frames)
         {
             return;
         }
@@ -422,12 +447,19 @@ public class VguiModelPanel : VguiEditablePanel
 
         foreach ((string? attachedPath, int skin) in info.AttachedModels)
         {
-            if (attachedPath is null || _mdlCache.FindMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
+            // An empty name names nothing: not looked for (review 5 item 1).
+            if (attachedPath is not { Length: > 0 })
             {
                 continue;
             }
 
-            // `new C_BaseAnimating` (basemodelpanel.cpp:467): no flex of its own, no view target (B725 review 1).
+            // Loaded in the call too (:472); skipped, as the engine skips a model that fails to load (:473-478).
+            if (_mdlCache.LoadMdl(attachedPath) is not { Skinned: { } attachedModel } attachedFrames)
+            {
+                continue;
+            }
+
+            // `new C_BaseAnimating` (basemodelpanel.cpp:468): no flex of its own, no view target (B725 review 1).
             model.Attached.Add(new PanelModel(attachedPath, attachedFrames, attachedModel, NewEntity(attachedModel))
             {
                 Skin = skin >= 0 ? skin : 0,
@@ -601,11 +633,13 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         StudioViewTarget viewTarget = ViewTarget;
-        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget)];
+        double curTime = viewport.State.CurTime;
+        List<ModelInstance> drawn =
+            [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget, _mdlCache, curTime, FrameTime)];
 
         foreach (PanelModel attached in model.Attached)
         {
-            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget));
+            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget, _mdlCache, curTime, FrameTime));
         }
 
         surface.Paint3D(
@@ -728,7 +762,21 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         /// <summary>`DrawModel( STUDIO_RENDER )`: posed at its cycle, or bone-merged onto <paramref name="follows"/>.</summary>
-        public ModelInstance Draw(float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals, StudioViewTarget viewTarget)
+        /// <param name="modelToWorld">Its placement, or null to keep the last.</param>
+        /// <param name="follows">The model it bone-merges onto, or null.</param>
+        /// <param name="locals">The panel's lights.</param>
+        /// <param name="viewTarget">The render context's view target.</param>
+        /// <param name="cache">The cache that packed it, for its flexed mesh.</param>
+        /// <param name="curTime">`gpGlobals->curtime`, for `RunFlexDelay`.</param>
+        /// <param name="frameTime">`gpGlobals->frametime`, for `RunFlexDelay`.</param>
+        public ModelInstance Draw(
+            float[]? modelToWorld,
+            AnimatingEntity? follows,
+            IReadOnlyList<LocalLight> locals,
+            StudioViewTarget viewTarget,
+            IMdlCache cache,
+            double curTime,
+            double frameTime)
         {
             if (Entity.Pose is SkeletonPose pose)
             {
@@ -753,6 +801,9 @@ public class VguiModelPanel : VguiEditablePanel
                 skinSwap = swaps[Skin >= 0 && Skin < swaps.Count ? Skin : 0];
             }
 
+            // The mesh flexed by the weights it draws with, as a world model's is (B779), and a C_BaseFlex's delayed weights.
+            (float[]? flex, FlexSlots? flexRange) = _meshFlex.For(cache, Path, Frames, DrawnWeights, DelayedWeights(curTime, frameTime));
+
             return new ModelInstance(
                 Path,
                 Identity4x4,
@@ -763,8 +814,51 @@ public class VguiModelPanel : VguiEditablePanel
                 BodyParts: Frames.BodyParts,
                 Body: Body,
                 Locals: locals,
-                Face: Face(viewTarget));
+                Face: Face(viewTarget),
+                Flex: flex,
+                FlexRange: flexRange);
         }
+
+        /// <summary>
+        /// The descriptor weights it draws with, computed once (its model never changes): a C_BaseFlex nothing drives runs
+        /// its rules at each controller's minimum (`c_baseflex.cpp:1220-1222` with `m_flexWeight` zero), as the world's does
+        /// (`EntityModelSet.FaceShading`); a C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender
+        /// 0x1800584b0, B513): every descriptor 0. So does a C_BaseFlex whose model has no controllers:
+        /// `SetupGlobalWeights` zeroes the weights and returns false before any rule runs (`c_baseflex.cpp:1198-1207`,
+        /// `:1152-1155`).
+        /// </summary>
+        private float[] DrawnWeights => _restingWeights ??= IsBaseFlex && Frames.Flex.Controllers.Count > 0
+            ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
+            : new float[Frames.Flex.Descriptors.Count];
+
+        /// <summary>
+        /// A C_BaseFlex's delayed weights this draw (B779 review 1 item 7), or null for a draw that hands none.
+        /// `UsesFlexDelayedWeights` is true for a C_BaseFlex with `flex_smooth` on (`c_baseflex.cpp:1123-1126`; on, as the
+        /// world's faces take it), and `SetupLocalWeights` then runs `RunFlexDelay` into `m_flFlexDelayedWeight` and hands
+        /// those to the mesh (`:1308-1311`): zeroed when the model is set (`:203-213`), they rise toward the weights over the
+        /// first frames. Without controllers `SetupLocalWeights` never runs and `SetupGlobalWeights` zeroes them
+        /// (`:1202-1205`) — the weights' own zeros. A plain C_BaseAnimating hands none.
+        /// </summary>
+        private float[]? DelayedWeights(double curTime, double frameTime)
+        {
+            if (!IsBaseFlex || Frames.Flex.Controllers.Count == 0)
+            {
+                return null;
+            }
+
+            float[] weights = DrawnWeights;
+            _flexDelayed ??= new float[weights.Length];
+            FaceFlex.Delay(weights, _flexDelayed, ref _flexDelayTime, curTime, frameTime);
+            return _flexDelayed;
+        }
+
+        /// <summary>`m_flFlexDelayedWeight`.</summary>
+        private float[]? _flexDelayed;
+
+        /// <summary>`m_flFlexDelayTime`: written only by `RunFlexDelay` (`c_baseflex.cpp:1310`), zero before.</summary>
+        private double _flexDelayTime;
+
+        private readonly PanelMeshFlex _meshFlex = new();
 
         /// <summary>
         /// The eyes of a <c>CModelPanelModel</c>, a C_BaseFlex (<c>basemodelpanel.h:23</c>) (B725): its <c>m_viewtarget</c> is
@@ -806,15 +900,8 @@ public class VguiModelPanel : VguiEditablePanel
 
             StudioEyes.FillEyes(_face, Frames, Entity.Bones, shared.Target);
 
-            // A C_BaseAnimating draws with `LockFlexWeights`' zeros (studiorender 0x1800584b0, B513): every descriptor 0.
-            if (mouthed && _restingWeights is null)
-            {
-                _restingWeights = IsBaseFlex
-                    ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex))
-                    : new float[Frames.Flex.Descriptors.Count];
-            }
-            _face.Mouth = mouthed && _restingWeights is { } weights
-                ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), weights)
+            _face.Mouth = mouthed
+                ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), DrawnWeights)
                 : null;
 
             return _face;
@@ -823,7 +910,7 @@ public class VguiModelPanel : VguiEditablePanel
         /// <summary>What <see cref="Face"/> writes, kept (B725 review).</summary>
         private StudioFace? _face;
 
-        /// <summary>The model's descriptor weights at rest, for its mouth, computed once (its model never changes).</summary>
+        /// <summary>What <see cref="DrawnWeights"/> computed.</summary>
         private float[]? _restingWeights;
 
         private static float[] DefaultPoses(PropModels.SkinnedModel model)

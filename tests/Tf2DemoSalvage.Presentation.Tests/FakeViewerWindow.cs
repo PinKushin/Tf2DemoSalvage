@@ -32,7 +32,26 @@ internal sealed class FakeViewerWindow : IViewerWindow
     }
 
     /// <inheritdoc/>
-    public (int Width, int Height) Viewport { get; set; } = (1280, 720);
+    public (int Width, int Height) Viewport
+    {
+        get
+        {
+            System.Threading.Interlocked.Increment(ref _viewportReads);
+            return _viewport;
+        }
+
+        set => _viewport = value;
+    }
+
+    private (int Width, int Height) _viewport = (1280, 720);
+
+    private int _viewportReads;
+
+    /// <summary>
+    /// How many times the viewport's size was asked for: a projection asks once (B779 review 30). Counted with an interlocked
+    /// add, because the map read's worker and the test's thread can both ask (review 31).
+    /// </summary>
+    public int ViewportReads => System.Threading.Volatile.Read(ref _viewportReads);
 
     /// <inheritdoc/>
     public bool IsActiveApp { get; set; } = true;
@@ -52,7 +71,19 @@ internal sealed class FakeViewerWindow : IViewerWindow
     }
 
     /// <inheritdoc/>
-    public void ReportLoading(string stage, double? fraction) => Told.Add("ReportLoading " + stage);
+    public void ReportLoading(string stage, double? fraction)
+    {
+        Told.Add("ReportLoading " + stage);
+
+        // The report the map read makes once its map is read, behind the barrier.
+        if (stage == "Loading models and sounds")
+        {
+            ProjectingDuringMapRead?.Invoke();
+        }
+    }
+
+    /// <summary>Run when the map read reports its models — while the read holds the barrier — for a test that acts then.</summary>
+    public Action? ProjectingDuringMapRead { get; set; }
 
     /// <inheritdoc/>
     public void HideLoading() => Told.Add(nameof(HideLoading));

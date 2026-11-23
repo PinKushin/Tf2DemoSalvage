@@ -23,7 +23,29 @@ public sealed partial class EntityModelSet
     /// Answers nothing until a map sets it, so the frames drawn before one is open take the same
     /// path as any other rather than a null check at each call site.
     /// </remarks>
-    public Func<string, PropModels.ModelFrames?> Geometry { get; set; } = NoGeometry;
+    public Func<string, PropModels.ModelFrames?> Geometry
+    {
+        get => _geometry;
+        set
+        {
+            _geometry = value;
+            LoaderGeneration++;
+
+            // **A failure remembered under the last loader is that loader's** (B779 review 20 item 5; B363's reason): an ask
+            // made before this one was bound — a panel read between a level's end and the next map — answered from a loader
+            // that had nothing, and must not stand for the file under this one.
+            foreach (string failed in _byModel.Where(static entry => entry.Value.Count == 0).Select(static entry => entry.Key).ToList())
+            {
+                _byModel.Remove(failed);
+            }
+        }
+    }
+
+    private Func<string, PropModels.ModelFrames?> _geometry = NoGeometry;
+
+    /// <inheritdoc/>
+    /// <remarks>Counts the <see cref="Geometry"/> loaders bound: a panel's verdict on a model is the loader's it asked.</remarks>
+    public int LoaderGeneration { get; private set; }
 
     /// <summary>Valve's colour for a brush entity's class, by model path (B219).</summary>
     /// <remarks>
@@ -90,6 +112,7 @@ public sealed partial class EntityModelSet
         _packedRebuilt.Clear();
         _packedOrder.Clear();
         _bakedByEntity.Clear();
+        _refusedLoads.Clear();
 
         _entities.Clear();
         _pendingBlends.Clear();
@@ -174,10 +197,7 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(load);
 
-        long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
-        int before = Count;
-
-        bool added = PackModels(props, load);
+        bool added = PackCounted(props, load);
 
         // **The static props once a level, after the moment's own** — the order they were packed in when they rode the
         // draw list behind the entities every frame (finding 83 item 1).
@@ -186,14 +206,7 @@ public sealed partial class EntityModelSet
         if (staticsNow)
         {
             _staticsPacked = true;
-            added |= PackModels(_staticProps, load);
-        }
-
-        if (added)
-        {
-            // Models, not the shadow LODs packed beside them.
-            ModelsPacked += Count - before;
-            PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
+            added |= PackCounted(_staticProps, load);
         }
 
         // Their lighting with them, as the level loads (B607), not on each one's first draw — on its own clock, after the
@@ -202,6 +215,28 @@ public sealed partial class EntityModelSet
         if (staticsNow)
         {
             TimedPrecache();
+        }
+
+        return added;
+    }
+
+    /// <summary><see cref="PackModels"/>, counted into <see cref="ModelsPacked"/> and <see cref="PackTicks"/>.</summary>
+    /// <remarks>
+    /// The static props' once-a-level branch is <see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>'s
+    /// alone: a panel's load (<see cref="LoadMdl"/>) packs only its own model, as the engine's load brings one model in
+    /// (B779 review 17 item 3).
+    /// </remarks>
+    private bool PackCounted(IReadOnlyList<SceneProp> props, Func<string, PropModels.ModelFrames?> load)
+    {
+        long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int before = Count;
+        bool added = PackModels(props, load);
+
+        if (added)
+        {
+            // Models, not the shadow LODs packed beside them.
+            ModelsPacked += Count - before;
+            PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
         return added;

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>
@@ -13,8 +15,33 @@ public interface IMdlCache : IModelBodygroups
     public PropModels.ModelFrames? FindMdl(string path);
 
     /// <summary>
+    /// A model a panel reads, loaded in the call when nothing has loaded it yet (B779 review 15). A `CModelPanel`'s
+    /// `SetupModel` makes its entity with `InitializeAsClientEntity( pszModelName )` (basemodelpanel.cpp:407), so the
+    /// `SetBodyGroup` that follows always finds the model (:367-382); a `CMDLPanel` takes its handle from `FindMDL` and reads
+    /// the header through it (mdlpanel.cpp:185, :857, :868; imdlcache.h:116-126). A cache that cannot load answers what
+    /// <see cref="FindMdl"/> does.
+    /// </summary>
+    /// <param name="path">The model's path.</param>
+    /// <returns>The model's frames, or null when it does not load.</returns>
+    public PropModels.ModelFrames? LoadMdl(string path) => FindMdl(path);
+
+    /// <summary>
+    /// Which loader <see cref="LoadMdl"/> reads through: changed when a level's preload is bound, so a verdict made under
+    /// another loader is made again (B779 review 20 item 5). Constant for a cache with one loader.
+    /// </summary>
+    public int LoaderGeneration => 0;
+
+    /// <summary>
     /// The studio render context's one view target the panels' draws share with the world's models (B725 5d), or null for a
     /// cache with no render context behind it (a panel then keeps its own).
     /// </summary>
     public StudioViewTarget? ViewTarget => null;
+
+    /// <summary>
+    /// Each buffer vertex's corner, as the model's geometry was packed for the device — what a flexed mesh's deltas are
+    /// spread over (B779) — or null for a model not packed, which a panel then draws unflexed.
+    /// </summary>
+    /// <param name="path">The model's path.</param>
+    /// <returns>The packed order, or null.</returns>
+    public IReadOnlyList<int>? PackedOrder(string path) => null;
 }

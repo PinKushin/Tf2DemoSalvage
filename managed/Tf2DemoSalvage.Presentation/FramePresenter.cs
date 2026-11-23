@@ -269,6 +269,25 @@ public sealed partial class FramePresenter
         _strikes.Clear();
         _impacts.ClearMap();
         _shadows.ClearMap();
+
+        // A map load as the HUD's model panels see it. **The shutdown half at every load** (B779 review 12): it releases each
+        // `CModelPanel`'s model as `CHLClient::LevelShutdown` does with every client entity (`cl_entitylist->Release()`,
+        // cdll_client_int.cpp:1735; review 8), always paired with the model set forgetting its models
+        // (`ViewerPresenter.ClearMap`). The engine returns early before any level (:1714-1715; its own comment, :1713,
+        // calls that a hack and gives no other reason). Ours releases exactly what the panels hold, so a panel holding
+        // nothing loses nothing. **A divergence on paper, unreachable** (reviews 13-14): a model set up before the first
+        // load would be released here, where the engine's first load would keep it until the dirty `SetupModel` replaces
+        // it (basemodelpanel.cpp:395). Nothing sets one up then: with no demo there is no timeline, so the HUD's state is
+        // `default` with no local player and no panel paints, sets up or hears an event; a skip needs a timeline, and both
+        // load routes run this before a frame shows one (finding 75). Interpolated: that the engine sets no model
+        // panel up before its first level is not read from source. No flag: reviews 9-11 armed
+        // one, and every arming site was a place it could miss. **The event half at every load**: the next map's
+        // `game_newmap` marks the panel dirty, so it sets its models up again from the next level's frames
+        // (basemodelpanel.cpp:196-205, review 2). Here rather than at `LevelInit`, which only a load that succeeds reaches
+        // (review 4 item 5); a panel that finds a model missing then keeps it and sets itself up again once the precache
+        // brings it (review 5). The HUD outlives the level; a HUD not built yet has nothing to set up.
+        _vguiHud?.Viewport.LevelShutdown();
+        _vguiHud?.Viewport.NewMap();
     }
 
     /// <summary>A new level: its glows start from nothing, and its particle materials' sheets are the ones a system reads.</summary>

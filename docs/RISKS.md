@@ -42388,6 +42388,60 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B810 — the world's per-path face caches outlive the level: resting weights and flexed corners (2026-11-21) — OPEN
+
+Found in B779 review 3 (item 5). `EntityModelSet.LevelShutdown` (`EntityModels.Packing.cs`) forgets every model, packing
+and per-model face — `_restingFace`, `_packedOrder`, `_frames` — because a path is map-scoped: the next map's pakfile is
+read first, so the same path can be another model. Two caches keyed by path are left out of it:
+`_restingWeights` (`EntityModels.FacesAndLighting.cs:252`, `RestingWeightsOf` :254-262), the rules at rest for a C_BaseFlex
+no scene drives, which its eyes' controllers and its mouth read; and `_flexedCorners` (:527, `FlexedCornersOf` :539-546),
+the buffer slots a model's flexes move, built from that level's flexes and packing order. **The failure**: on a level
+whose model for a path differs, the first keeps the old model's weights (a mouth or eye set up from another model's
+rules), and the second spreads a face over the old model's slots — vertices the new model's flexes do not name moved,
+and its own left at rest, or the write skipped where a slot is out of range. *Read*, not measured; the same failure B779
+review 2 fixed for the panels. The fix is the two `Clear()`s in `LevelShutdown` with a test of a path read again.
+
+## B809 — a C_BaseFlex in the world whose model has no flex controllers still runs its rules at rest (2026-11-21) — OPEN
+
+Found in B779 review 3 (item 5). `C_BaseFlex::SetupGlobalWeights` zeroes the flex weights (and the delayed ones) and returns
+false for a model with no flex controllers (`c_baseflex.cpp:1198-1207`), so `SetupWeights` never reaches
+`SetupLocalWeights` or the rules (`:1152-1155`): the mesh is drawn at zero weights. `EntityModelSet.RestingFaceOf`
+(`EntityModels.FacesAndLighting.cs:160-162`) and `RestingWeightsOf` (:258) run `FaceFlex.Rules` over each controller's
+minimum for any C_BaseFlex — a worn item, a corpse — with or without controllers. **The failure**: a model with flex
+descriptors and rules but no controllers (a rule reading only constants, or a controller another model owns) draws the
+rules' output on its mesh, mouth and eyes, where TF2 draws zero; with a ramp not zero at zero, zero is not the rest pose
+either (B513). The panel's `CModelPanelModel` had the same gap and is fixed (B779 review 1 item 7). *Read*; how many
+shipped models have descriptors without controllers is not counted.
+
+## B805 — a resting C_BaseFlex in the world draws its delayed weights as its current ones; the engine's rise from zero (2026-11-21) — OPEN
+
+Found in B779 review 1 (item 7). A C_BaseFlex with `flex_smooth` on hands the studio render its own delayed weights
+(`UsesFlexDelayedWeights`, `c_baseflex.cpp:1123-1126`; `SetupLocalWeights`, `:1308-1311`): `m_flFlexDelayedWeight` is
+zeroed whenever the model is set (`:203-213`) and `RunFlexDelay` (`:1265-1279`) moves it toward the weights each frame,
+`d = ExponentialDecay( 0.8, 0.033, frametime )` — so for its first frames the mesh's slow vertex animations (speed byte
+below 255) lag the weights. `EntityModelSet.RestingFaceOf`, which draws a worn item whose parent is not a player and a
+corpse whose player is alive again as a C_BaseFlex at rest, takes the delayed weights as the current ones and keeps one
+face per model (`FaceFlex.Deltas( …, weights, weights, … )`), so such a prop draws its settled face from its first
+frame. A player's own face already runs `RunFlexDelay` (`EntityModelSet.Delayed`). The `CModelPanelModel`'s same case
+was ported in B779. *Read* for the engine and ours; how many shipped resting models have a slow vertex animation, which
+decides whether any picture changes, is not counted. The fix is per-entity delayed state for the resting C_BaseFlex,
+which a cached per-model face cannot hold.
+
+## B804 — the embedded item panel's draws set a view target of their own, not the render context's one (2026-11-21) — OPEN
+
+Found during B779. Every `CMDL::Draw` sets the studio render context's one view target before it draws, eyes or none
+(TF2 `client.dll` `0x1809370f4-0x180937108`, B725 5d), and that target is shared with every model drawn after it until
+the next writer — a world model, another panel's. Ours models it as one `StudioViewTarget` the panels reach through
+their `IMdlCache.ViewTarget` (`EntityModelSet.ViewTarget`), falling back to a panel's own where the cache has none
+(`VguiMdlPanel.SharedViewTarget`). `TfEmbeddedItemModelPanel.DeferredMdlCache` — the cache of the item panels a `.res`
+file makes (the freeze panel's and the spectator GUI's item) — forwards `FindMdl`, `PackedOrder` and the bodygroups to
+the viewport's cache but not `ViewTarget`, so it answers the interface's null and those panels write a target of their
+own. What follows them reads a target the engine would have overwritten: a model whose eyes take the last target set (a
+`prop_dynamic`'s, a `CModelPanelModel` without controllers, B725 5d) drawn after an item panel sees the target from
+before it. *Read* for the engine; ours *read* from the code, not measured. The fix is the one-line forward with a test
+that an item panel's draw moves the viewport cache's target. Whether any shipped item model has eyes, which decides
+whether the panel's own draw could look different, is not counted.
+
 ## B802 — a server world impact's stand-in trace stops at grates, where `Impact`'s clip uses `MASK_SHOT` (2026-11-21) — OPEN
 
 Found in B797's review (rounds 2 and 3, Fable and Sonnet). `ServerImpacts.From` traces each server world impact with
@@ -42997,7 +43051,7 @@ read by every eye drawn after (`StudioViewTarget`). What differs is WHEN it is s
   (taken as (0, 0, 0)). Visible only for an eyed `prop_dynamic` (or a C_BaseFlex without controllers, or a CModelPanel's
   attached C_BaseAnimating) beside faces.
 
-## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — OPEN
+## B779 — a model panel's face mesh is drawn without its flex, where `CMDL::Draw` flexes it (2026-11-20) — FIXED 2026-11-21: every panel model's mesh is flexed by the weights its draw computes
 
 Found in B725 5f. `CMDL::Draw` (TF2 `client.dll` `0x180936f70`), for a model with flex descriptors, locks the studio
 render's flex weights (`LockFlexWeights`, `0x180937173`), runs the model's rules on `m_pFlexControls` into them
@@ -43011,6 +43065,1356 @@ material because nothing else reads them today; the engine runs them every paint
 (`CMDL::Draw`, `0x180937138-0x1809371a7`), and so must ours once the mesh is flexed by them. *May bear on B559* (the HUD class portrait 15-20 per channel off
 TF2's, cause unknown): a flexed face moves vertices and their normals, which changes shading on the face — *interpolated*,
 not measured; the portrait's deficit is reported as depending on which way the surface faces, which a normal change would.
+
+**Fix.** Read again in TF2's x64 `client.dll` (disassembled with `llvm-objdump`): the only test before the rules is
+`numflexdesc` (`cmp [rdx+0x104], r15d`, `0x180937138`); `LockFlexWeights` is called with `r9` zeroed (`0x180937167`), so
+no delayed array is asked for, and `DrawModel` is handed a null delayed pointer (`0x1809371e8`) — the delay is the
+weights themselves, as `StudioFlexRules.Accumulate` already takes a model with no smoothing. The mesh is flexed by the
+world's own primitives (`FaceFlex.FlexedCorners`, `ClearMoved`, `IntoFlexedSlots`; round 1 replaced a first
+`FaceFlex.MeshFace` that allocated per rebuild). Panels reach the set's packing through `IMdlCache.PackedOrder` (the
+embedded item panel's deferred cache forwards it), and `PanelMeshFlex` keeps each panel model's face, rebuilt only when
+its weights or packing change. Wired: `VguiMdlPanel`'s root (`RootFlexWeights`), merges and the StatTrak second-level
+merge (`DrawBoneMergedOnto`) at zero controls; `TfPlayerModelPanel`'s root at the decayed controls, **the Teeth gate
+removed** — the rules run for every root with flex descriptors; `VguiModelPanel`'s `CModelPanelModel` at its rules at
+rest and an attached model at zero weights. *Tests*: `VguiModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedAtZeroFlexControls`
+(root and merge; the face's reuse across paints is `PanelMeshFlexTests.For_TheSameWeightsAgain_DoesNotRebuild`, round 2),
+`CModelPanelConformanceTests.Paint_AModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFlexedByTheWeightsItDrawsWith`
+(rest and attached), `TfPlayerModelPanelConformanceTests.Paint_AClassModelWithAVertexFlexAndNoTeeth_DrawsItsMeshFromTheDecayingControls`
+(0.05 then 0.0975), `PackedVerticesTests.PackedOrder_APackedModel_IsTheCornerEachBufferVertexCarries`; all five panel rows
+red first (`Flex` null). *Sabotage*: the Teeth gate restored reddened only the TF row; the attached model as a C_BaseFlex
+its row and B725's `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; merges drawn with no weights only the
+merge row; the face cache ignoring a weight change only the TF row's second paint; the set answering no order only its
+row. **A model only a panel draws** (round 2, the lead's ruling under D261: first filed here as left unflexed for want of
+a packing, a deduction never checked): the HUD precaches every panel's models into the world's set
+(`VguiHud.AddModelsToPrecache` into `EntityModelSet.PrecacheChanged`, `FramePresenter.Hud.cs`; review 2 and 3 named it so),
+which packs them, so the order is
+there. *Test*: `VguiModelPanelConformanceTests.Paint_APanelOnlyModelPrecachedIntoTheSet_DrawsItsMeshFlexed` (through the
+production set; the moved vertex lands in the slot the set packed it at, 1, where the fixture's own order would put it at
+0). It passed on its first run, the code it reads being already on the branch; *sabotage*: the set answering no order
+reddened it at its control, and the face spread over the reversed order reddened its face assertion. Recorded in
+`docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`.
+
+**Review round 1** (three reviewers; every item fixed on this branch):
+1. *Allocation*: `PanelMeshFlex` rebuilt through fresh arrays every change of weight — the TF panel's decay changes them
+   every paint. Now the world's route (`FlexFor`, findings 80 and 92): the moved slots once per model and packing,
+   `ClearMoved` → `Accumulate` → `IntoFlexedSlots` into kept scratch and stream. `FaceFlex.MeshFace` went with it, and
+   `RestingFaceOf` is main's again. *Test*: `PanelMeshFlexTests.For_AWeightChangeOnAKnownModel_AllocatesNothing` (red
+   first against the committed code, 1408 bytes a rebuild; the fixture's vertex list is now an array, as the reader
+   stores it — a list is copied by `Accumulate` per call, 72 bytes).
+2. *The deferred cache's forward*: `TfEmbeddedItemModelPanelConformanceTests.MdlCache_APanelMadeWithoutACache_AnswersTheViewportsPackedOrder`.
+3. *The StatTrak module*: `TfPlayerModelPanelConformanceTests.RenderStatTrack_AModuleWithAVertexFlex_DrawsItsMeshAtZeroControls`.
+4. *Release notes*: B779 removed from the known gaps, and B804 and B805 added. Its changes line is the lead's to write
+   at the next release: beta.69 is published, so its section gains nothing (the lead's correction).
+5. *The order key*: `PanelMeshFlexTests.For_TheOrderChangesWithUnchangedWeights_SpreadsOverTheNewOrder` and
+   `For_AModelNotYetPacked_DrawsUnflexed`. Gemini (high): the key lacked the model, so a root switched by `SetMDL` to a
+   model with the same order and equal weights kept the first face — the rewrite keys on the frames too;
+   `VguiModelPanelConformanceTests.Paint_ARootSwitchedToAnotherModelWithEqualWeightsAndOrder_DrawsTheNewModelsFace`.
+6. *Wording*: the delay-is-the-weights reading is marked interpolated where the code states it (`PanelMeshFlex`).
+7. *`RunFlexDelay` for a `CModelPanelModel`* — **ported**, because no filed B covered the world's same convention (it is
+   filed now: **B805**). A C_BaseFlex with `flex_smooth` on hands the mesh its delayed weights
+   (`c_baseflex.cpp:1123-1126`, `:1308-1311`), zeroed when the model is set (`:203-213`); `PanelModel` now keeps
+   `m_flFlexDelayedWeight` and `m_flFlexDelayTime` and runs `FaceFlex.Delay` at the panel's `curtime` and `frametime`.
+   Read on the way: a C_BaseFlex whose model has no controllers draws zero weights and zero delayed weights
+   (`SetupGlobalWeights`, `:1198-1207`), where ours ran its rules at rest — fixed. *Tests*:
+   `CModelPanelConformanceTests.Paint_AModelPanelModelWithASlowFlex_RisesByItsDelayedWeights` (speed 0: 0, then
+   `1.5 · (1 − d)`), `Paint_AModelPanelModelWithoutControllers_DrawsAtZeroWeights`, and
+   `PanelMeshFlexTests.For_DelayedWeightsAndASpeedOfZero_MovesByTheDelayedWeight` (red first, 0.5 for 0.2).
+8. *`ZeroControlWeights`' remark* now says the linked/unlinked choice is visible on the mesh.
+9. *Output level*: `VguiModelPanelConformanceTests.Paint_IntoTheDrawList_CarriesTheFlexedFaceToTheRenderersModelDraw`, through
+   the production `VguiDrawList` whose models `VguiRenderer` hands to `Device3D.DrawPanelModels` (`flex: instance.Flex`);
+   the device call is read, not run.
+
+*Sabotage*, two batches of disjoint breaks, each reddening exactly its rows: no delayed weights (the slow-flex row, 1.5 at
+paint 1), StatTrak with no weights (its row), the deferred forward null (its row), the model dropped from the key (the
+switch row, 0.5 for 1.5); the no-controllers guard removed (its row), the order dropped from the key (the order row), a
+missing order taken as empty (the not-packed row), the draw list dropping the face (its row). *Not measured*: the
+delay-equals-weights reading for a CMDL rests on the null pointer, not on studiorender's handling of it; `flex_smooth` is
+taken as on, as the world's faces take it. **B559 is unchanged in evidence**: whether the flexed face
+closes any of the portrait's deficit is still *interpolated*, not measured. *Not verified by looking*.
+
+**Review round 2** (no high or medium; every item fixed here):
+1. *The HUD's precache guard outlived the level.* `ViewerPresenter` builds one `FramePresenter` (`ViewerPresenter.cs`,
+   the constructor) and keeps it across a map change: `ClearMap` calls its `ClearMap`, then `LevelSystems.Shutdown`
+   reaches `EntityModelSet.LevelShutdown`, which forgets every model. The presenter precached the panels' models only
+   when their list CHANGED, and kept its last list, so the same class panel on the next level was never packed — no
+   frames, no order, the panel's model not drawn at all, not only unflexed. The guard moved into the set
+   (`EntityModelSet.PrecacheChanged`), and `LevelShutdown` resets it with the models. *Tests*:
+   `PackedVerticesTests.PrecacheChanged_TheSameListAfterALevelShutdown_PacksItAgain` (red first: no order on the second
+   level) and `PrecacheChanged_TheSameListTwiceInALevel_ReadsOnce` (the reason the guard exists).
+2. *The face's reuse was unasserted.* The panel test's `ShouldBeSameAs` could not fail — a rebuild returns the same kept
+   stream — and is gone. `PanelMeshFlex.Rebuilds` counts the accumulations where they happen;
+   `PanelMeshFlexTests.For_TheSameWeightsAgain_DoesNotRebuild` holds the cache hit.
+3. *A path's zero-control weights were kept by path alone*, so frames read again for that path (the next level, a map's
+   pakfile) drew the old weights. Now kept with the frames they came from. *Test*:
+   `VguiModelPanelConformanceTests.Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights` (red first: 0.5 for 1.0).
+4. `new C_BaseAnimating` is `basemodelpanel.cpp:468`, not :467 — corrected here, in B725, finding 75 and the code.
+
+*Sabotage*: the reset removed from `LevelShutdown`, the cache hit's early return deleted, and the weights kept by path
+alone each reddened only their own row.
+
+**A `CModelPanel` kept across a level** (the lead's follow-up to the loose end above): yes, it kept the old level's
+model. `VguiModelPanel`'s `PanelModel` — its frames, its resting and delayed weights — is built only by `SetupModel`,
+which `UpdateModel` runs only when the panel is dirty, and nothing marked it dirty at a new map. The engine does: every
+`CModelPanel` listens for `game_newmap` (`basemodelpanel.cpp:56`) and sets `m_bPanelDirty` "to force the models to
+re-setup themselves" (:196-205). Ported as `VguiModelPanel.OnGameEvent( "game_newmap" )`, delivered to every model panel
+under the viewport by `HudViewport.NewMap`, which `FramePresenter.LevelInit` called at each level load (moved to
+`FramePresenter.ClearMap` in review 4, item 5, so a failed load reaches the panels too). *Test*:
+`CModelPanelConformanceTests.Paint_AfterANewMapWithNewFramesForThePath_DrawsTheNewFrames` (red first, with `NewMap` a stub:
+the old frames' 1.5 for the new 2.0). *Sabotage*: the walk not descending into the viewport's children reddened only that
+row. ~~*Not tested*: the `FramePresenter.LevelInit` call itself (read; the presenter has no test harness that loads a
+level).~~ Wrong: `FramePresenterTests` already calls `LevelInit` on a synthetic map, and `FramePresenterHudTests` builds
+the HUD through an install of nothing; the call is tested since review 3.
+
+**Review round 3** (no high; every item fixed here, two world gaps filed):
+1. *The production wiring was untested* (medium). Through the presenter's own harness (`FramePresenterHudTests.Window`):
+   a level-init row (since replaced; now `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`,
+   reviews 4, 9 and 10) held `FramePresenter.LevelInit`'s `NewMap` (now `ClearMap`'s, review 4 item 5), on the real HUD's
+   round sign — a grandchild of the viewport, as all of production's `CModelPanel`s are; and
+   `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels` holds the frame's precache, counted where the set
+   takes the ask (`EntityModelSet.PrecacheAsks`). The walk's depth: `CModelPanelConformanceTests.NewMap_AModelPanelTwoLevelsBelowTheViewport_IsMarkedDirty`.
+   All three passed first, the wiring being there; each was sabotaged.
+2. *A panel whose model was not loaded at its first paint never set it up* (low): `UpdateModel` cleared the flag after a
+   `SetupModel` that found no model. The engine's `SetupModel` loads in the call (:387), so its clear always follows a
+   set-up model; ours precaches on the frame, so the flag now stays until the named model is there. *Superseded in
+   review 5*: the flag clears after every set-up as the engine's does (:534), and the panel keeps the models it missed and
+   sets itself up again when one can be found.
+   `CModelPanelConformanceTests.Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` (red first: nothing drawn).
+3. *A frame's precache list allocated* (low): each panel adds to a caller's list (`AddModelsToPrecache`), the presenter
+   keeps one, and `PrecacheChanged` compares element by element against its kept copy. `PackedVerticesTests.PrecacheChanged_AnUnchangedList_AllocatesNothing`
+   (red first: 104 bytes a call).
+4. *Panels pinned the old level's frames* (low): at `game_newmap` a `CModelPanel` drops its model, and
+   `HudViewport.NewMap` tells each CMDL panel to drop the faces and zero-control weights it keeps by frames
+   (`VguiMdlPanel.ForgetLevel`, the StatTrak CMDLs too) — memory, not behaviour.
+   A release row (red first: the model held), renamed since: now
+   `CModelPanelConformanceTests.LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
+   *Corrected in review 7, and that correction corrected in review 8*: the `game_newmap` event alone only marks the panel
+   dirty (`DeleteModelData` at the next `SetupModel`, :395), but `NewMap` is the level change, whose shutdown releases every
+   client entity (`cdll_client_int.cpp:1735`), the panel's model among them — so releasing it there was right, as the
+   shutdown's half. The row is now `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`.
+   *Superseded by review 9*: `HudViewport.NewMap` no longer releases anything; the release is `HudViewport.LevelShutdown`'s,
+   run only after a level started.
+5. *The world's same gaps*, filed: **B809** (a C_BaseFlex without controllers runs its rules) and **B810** (the per-path
+   resting weights and flexed corners outlive the level). Not fixed here.
+
+*Sabotage*, two batches of disjoint breaks: no `NewMap` at level init (its row), no precache call (its row), the flag
+cleared after any set-up (its row), the unchanged-list shortcut never taken (its row and the reads-once row, which holds
+the same shortcut), `game_newmap` keeping the model (the release row); the walk stopped one level below the viewport (the
+grandchild row and the presenter's level-init row — production's panels are grandchildren), `ForgetLevel` a no-op (the
+release row, at the CMDL panel).
+
+**Review round 4** (no high; every item fixed here):
+1. *An attached-model panel allocated per frame*: `AddModelsToPrecache`'s `foreach` over the `Collection<T>` boxed its
+   enumerator; by index now. `VguiHudPrecacheTests.AddModelsToPrecacheThenPrecacheChanged_AnUnchangedFrame_AllocatesNothing`
+   measures the whole frame route — the HUD filling the kept list, an attached model among its panels, then the set's
+   comparison (red first: 48 bytes a frame).
+2. *`ForgetLevel`'s other paths*: `CModelPanelConformanceTests.LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt`,
+   `TfPlayerModelPanelConformanceTests.ForgetLevel_AfterTheStatTrakModuleWasDrawnFlexed_ReleasesItsMeshFace`,
+   `TfEmbeddedItemModelPanelConformanceTests.ForgetLevel_AStatTrakModuleWithAMeshFace_ReleasesIt` (its face seeded as the
+   draw builds it; the embedded panel's strange-weapon draw needs a schema and a weapon model).
+3. *The HUD's list*: `VguiHudPrecacheTests.AddModelsToPrecache_PanelsWithModels_ListsEachPanelsModelsInOrder`, on a HUD with
+   no install whose class panel, doors (with an attachment) and round sign are given models by hand.
+4. *A late attached model was never set up*: `SetupModel` skipped it and the flag cleared. The panel now stays dirty until
+   every model it names is set up (*superseded in review 5*: the flag clears as the engine's does, and the panel sets
+   itself up again when a model it missed can be found). `CModelPanelConformanceTests.Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`
+   (red first: the root alone at the second paint). ~~While dirty the panel is set up again each paint, so its animation
+   restarts on each such paint until the attachment loads — *interpolated* as a few frames at most; not measured.~~
+   **Wrong** (review 5): for an attachment that never loads — a missing file, frames with no skinned model — "until it
+   loads" is never, and the root was rebuilt every paint for good: frozen on its first frame, its delayed flex weights
+   back at rest, its arrays reallocated. Replaced in review 5 item 1.
+5. *`game_newmap` missed a failed load*: `ViewerPresenter.ClearMap` runs `FramePresenter.ClearMap` and then the level
+   shutdown at every level change, while `LevelInit` follows only a load that succeeded. `NewMap` moved to
+   `FramePresenter.ClearMap`; a panel stays dirty until its models load (items 2 of review 3 and 4 here — *superseded in
+   review 5*: a panel that finds a model missing keeps it and sets itself up again once the precache brings it).
+   A `ClearMap` row replaced the level-init row (red first); it is now
+   `FramePresenterHudTests.ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` (reviews 9, 10).
+6. *Test-only wrappers*: `VguiMdlPanel.ModelsToPrecache()` and `VguiModelPanel.ModelsToPrecache()` removed (D180); their
+   two tests use `AddModelsToPrecache`.
+7. *Stale names*: this entry's fix paragraph, the panel-only test's remark and `docs/HANDOFF-hud.md` now name
+   `VguiHud.AddModelsToPrecache` and `EntityModelSet.PrecacheChanged`.
+8. *The stay-dirty retry on a model that never loads costs one dictionary lookup a paint and no file read* (a reviewer's
+   reading, recorded, not measured here): `UpdateModel` → `SetupModel` → `IMdlCache.FindMdl`, which
+   `EntityModelSet.FindMdl` answers from `_frames` (`EntityModels.cs`, `_frames.TryGetValue`); a file is read only by
+   `Precache`, which `PrecacheChanged` runs on a changed list alone. No change. **Wrong for a failed attachment**
+   (review 5): a held flag re-ran the whole `SetupModel` each paint, a new model and its arrays, not a lookup. Since review
+   5 a model that never loads costs one `FindMdl` lookup per missing model a paint and nothing else.
+
+*Sabotage*, two batches: the `foreach` back (the whole-route allocation row), the merge loop, the player panel's StatTrak
+release and the embedded panel's each removed (each its own row), no `NewMap` at `ClearMap` (its row); the round sign's line
+removed from the HUD's list (the listing row, and the allocation row's count control), a missing attachment not marking
+the set-up incomplete (the attachment row — a first attempt at this break computed the same `false` as the fix and reddened
+nothing, and was redone).
+
+**Review round 5** (one medium, both reviewers; fixed here):
+1. *An attached model that never loads rebuilt the panel every paint* (medium) — round 4 item 4 held the flag until every
+   named model loaded, and a failed load never does. The engine: `SetupModel` skips a model that fails to load
+   (`continue`, `basemodelpanel.cpp:473-478`) and `UpdateModel` clears `m_bPanelDirty` after it whatever it found (:534);
+   the root animates without its attachment. Ours now does the same, and keeps the models a set-up missed: the panel is
+   set up again only when one of them can be found — a late precache (the HUD's list is precached on the frame, so a
+   model first named this frame is packed by the next) — and a load that failed stays missing at one lookup a paint. An
+   `attached_model` with an empty `modelname` is skipped by `SetupModel` too, as `AddModelsToPrecache` already skipped it
+   (it was handed to the cache as ""). *Tests*: `CModelPanelConformanceTests.Paint_AnAttachedModelThatNeverLoads_KeepsOneRootModelAndACleanPanel`
+   (three paints, frames with no skinned model and an empty name: one model instance, the root alone, the panel clean;
+   red first, at the empty name's second instance), with the late-root and late-attachment rows still passing. *Sabotage*:
+   no retry when a missed model becomes findable (the late-root and late-attachment rows), the empty-name skip back to
+   null only (the failed-attachment row), the flag held while anything is missed (the failed-attachment row, the model
+   rebuilt at the second paint). The test does not read the root's cycle: the synthetic sequence's rate is not one the
+   test controls; a rebuilt model is what resets it, and that is what the row holds.
+2. *Round 4's items 4 and 8* corrected above.
+3. *Two readings stay interpolated*: a CMDL's null delayed pointer taken as "the delay is the weights" (studiorender's
+   handling not read), and a `CModelPanelModel`'s `RunFlexDelay` stepping once per `Draw` here (once a paint), where the
+   engine steps it once per draw of the entity — the same while a panel draws its model once a paint, which is not
+   measured.
+
+**Review round 6** (no high or medium; fixed here):
+1. *The late rows stopped at the loading paint*: removing `_missed.Clear()` would rebuild the root every later paint —
+   round 5's defect for a late model — unseen. `Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` and
+   `Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs` now paint a third time: the same model, the panel clean.
+2. *Citation*: `m_bPanelDirty = false` is `basemodelpanel.cpp:534` (:531 is `SetupVCD`), read; corrected here, in
+   `VguiModelPanel` and the failed-attachment row's remark.
+3. *"Stays dirty until its models load"*: superseded notes on round 3 item 2 and round 4 items 4 and 5 above, and the
+   wording in `FramePresenter.ClearMap` and the two late rows' remarks.
+4. *A CMDL panel posed the next level's model on the old one's skeleton*: its posing entities, one per path built from that
+   model's `NewSkeleton()`, outlived the level. `ForgetLevel` clears them. `CModelPanelConformanceTests.LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity`
+   (red first: the same entity after the level change).
+5. *When a model first named is packed*, read in the code: in one overlay frame `FramePresenter.BuildOverlay` builds the
+   panels' list and precaches it (`FramePresenter.Hud.cs:283-284`) before the HUD paints (`_vguiHud.Frame(`, :300), and
+   `Precache` writes the set's frames in the same call (`EntityModels.Packing.cs:263`). So a model a panel first names
+   during a frame's paint (its `.res` applied, a class change) is missed by that paint, packed at the next frame's :284,
+   and found by that frame's paint — round 5's "packed by the next" holds, for the next frame's paint.
+
+*Sabotage*: `_missed.Clear()` removed (both late rows, at the third paint's instance), `_entities.Clear()` removed (the
+new-entity row).
+
+**Review round 7** (no high or medium; fixed here):
+1. *Right for the event, wrong for the level change — corrected in review 8, below.* *`game_newmap` dropped the model the
+   engine keeps* (parity): `CModelPanel::FireGameEvent` only marks the panel dirty
+   (`basemodelpanel.cpp:196-205`); `SetupModel` deletes the old model first (`DeleteModelData`, :395, body :322-339).
+   Ours cleared it at the event, so `SetSequence` (:708) and `SetBodyGroup` (:367-382) between the event and the next
+   paint found no model. The event now only marks the panel dirty; `SetupModel` already cleared the model first.
+   *Tests*: a `SetSequence` row (red first: false; since review 8
+   `CModelPanelConformanceTests.SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel`) and
+   `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (the round-3 row, changed: the model held after the event
+   and replaced at the next paint; red first: null after the event). Round 3 item 4 is corrected above.
+2. *The posing entity was keyed on the path alone*: a path answered with new frames without a level change posed the new
+   model on the old skeleton (unreachable in production today). `EntityFor` keeps the skinned model with the entity and
+   makes a new one when it differs, as the weights and the face are keyed. `VguiModelPanelConformanceTests.Paint_ThePathAnsweredWithNewFrames_DrawsTheNewFramesWeights`
+   now asserts a new entity (red first: the same).
+3. *The stream's in-place rewrite*, read: `FrameSequence.Run` places the camera (`FrameSequence.cs:133`), whose pose ends
+   with the wait for the frame in flight (`ViewerPresenter.Device.cs:163`, into `FinishDrawBeforeEffects` at :272), before
+   it builds the overlay (`FrameSequence.cs:138`) and draws (:141). Cited in `PanelMeshFlex`'s remark; no change.
+4. *Finding 105* now names `VguiHud.AddModelsToPrecache`.
+5. *The embedded panel's StatTrak draw*: reachable with a synthetic schema after all.
+   `TfEmbeddedItemModelPanelConformanceTests.Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed` draws a
+   strange, paint-kitted weapon with no inventory image as a model, and its module flexed at zero controls (0.25). It passed
+   first, the path being there.
+
+*Sabotage*, one batch: the model cleared at the event again (the two item-1 rows), the entity keyed on the path alone (the
+new-frames row), the embedded panel not drawing its module (the embedded draw row).
+
+**Review round 8** (one medium; fixed here):
+1. *The level change keeps no model* (medium, parity): `HudViewport.NewMap`'s one production caller is
+   `FramePresenter.ClearMap`, the level change, where the engine's `CHLClient::LevelShutdown` runs
+   `cl_entitylist->Release()` (`cdll_client_int.cpp:1735`) and `CClientEntityList::Release` releases every entity
+   (`cliententitylist.cpp:63-93`), the panel's client-only `CModelPanelModel` among them — `m_hModel.Get()` null until
+   the next `SetupModel`. Round 7 had moved the release to the set-up for the event's sake, which the event alone is.
+   Now two halves: `VguiModelPanel.ForgetLevel` (the shutdown's: the model released) and `OnGameEvent( "game_newmap" )`
+   (the event's: dirty only), both called by the viewport's walk at a level change (*superseded by review 9*: two walks,
+   `HudViewport.LevelShutdown` and `HudViewport.NewMap`, the first only after a level started). *Tests*:
+   `CModelPanelConformanceTests.LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces` (after the level change, no
+   model and `SetSequence` false; a new model at the paint — red first: the old model held) and
+   `SetSequence_AfterTheGameNewMapEventAloneBeforeThePaint_ReachesTheModel` (the event alone, driven directly: the model
+   kept). *Sabotage*: the event clearing the model (the event row); the walk not calling `ForgetLevel` (the level-change
+   row) — run apart, as with both in one batch the event's clear masked the walk's.
+2. *Docs*: round 3 item 4's and round 7 item 1's notes above, `VguiModelPanel.OnGameEvent`'s summary, `HudViewport.NewMap`'s
+   and `FramePresenter.ClearMap`'s comments now say the level change is the shutdown and the event.
+3. *Whether a panel set up the frame its model is precached draws flexed*: it does. `Precache` goes through `Add`
+   (`EntityModels.Packing.cs:584` → :183) into one `PackModels` call (:229), which writes the model's frames (:263) and its
+   packed order (:414) before it returns — so the first set-up that finds the model also finds its order. Read; no change.
+4. `VguiModelPanel.HoldsModel` removed (D180): nothing read it after round 7.
+5. Finding 105 cites the HUD's precache as `EntityModelSet.PrecacheChanged` at `FramePresenter.Hud.cs:284`.
+
+**Review round 9** (lows; fixed here):
+1. *The first load released what the engine keeps* (parity): `CHLClient::LevelShutdown` returns at once while no level was
+   initialised (`cdll_client_int.cpp:1714-1715`; `g_bLevelInitialized` set at `LevelInitPreEntity`, :1610-1612, cleared at
+   :1717). The viewport's walk is now two: `HudViewport.LevelShutdown` (the shutdown's half) and `HudViewport.NewMap` (the
+   event's). `FramePresenter.ClearMap` runs the first only after a `LevelInit` (a `_levelInitialized` flag in its place),
+   the second at every load (*superseded by review 10*: armed by `LevelStarted` in `ViewerPresenter.Apply`, map or not). *Test*: `FramePresenterHudTests.ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty`
+   (red first: released).
+2. *The presenter's row held only the flag*: `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` gives the
+   real HUD's round sign a model the presenter's set packed, loads a level, and asserts the model released and the panel
+   dirty — the wiring through the viewport's walk end to end, to a grandchild of the viewport.
+3. *`VguiModelPanel.ForgetLevel` kept the missed names*: cleared now. `CModelPanelConformanceTests.ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames`
+   (red first: the panel set up from the old level's missed attachment).
+4. *`TfPlayerModelPanel.ForgetLevel` kept the old flex data*: `_flexSlotsFor` and the buffers sized for it (`_flexSlots`,
+   `_flexSource`, `_flexRuleWeights`; Gemini's addition) released. `TfPlayerModelPanelConformanceTests.ForgetLevel_AfterAFlexedRootWasPainted_ReleasesItsFlexSlots`
+   (red first: held).
+5. *Finding 75* now has the level's release before the event, the first load's exception, and round 7's wrong turn.
+
+*Sabotage*: batch A — the shutdown half at every load (the before-any-level row), `_missed` kept (item 3's row), the
+buffers kept with the data dropped (item 4's row); batch B — the data kept with the buffers dropped (item 4's row), the
+flag inverted (both presenter rows; a never-shutdown break was refused by the analyzer as dead code).
+
+**Review round 10** (lows; fixed here):
+1. *The flag's clearing was untested*: `FramePresenterHudTests.ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst` — a
+   level, a load (released), the sign set up again, a second load with no level between: the model kept, as the engine's
+   cleared `g_bLevelInitialized` (`cdll_client_int.cpp:1717`) makes its second shutdown return at once.
+2. *A mapless level never armed the HUD's shutdown*: the flag was set only by `LevelInit`, which a missing map never
+   reaches (`ViewerPresenter.ReadMapNamed` returns first), while the model set forgets at every load
+   (`LevelSystems.Shutdown` → `EntityModelSet.LevelShutdown`). The engine has no mapless level; ours does, so the HUD
+   follows the model set: `FramePresenter.LevelStarted` arms the flag, called in `ViewerPresenter.Apply` right after
+   `DemoModels.Precache` — where every demo's models are packed, map or not, on both load routes — and `LevelInit` no longer
+   arms it. *Test*: the presenter's row is now `ClearMap_AfterAMaplessLevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`
+   (no `LevelInit`; red first: kept). The `Apply` call itself is read, not run by a test. *Superseded by review 11*: a
+   superseded or failed load never reached `Apply` either, and the arming moved to the HUD's own frame; `LevelStarted`
+   and its `Apply` call are gone, and the row is `ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty`.
+3. *Names and remarks*: the three Scene rows whose release is `LevelShutdown`'s are `LevelShutdown_ThenNewMapThenAPaint_ReplacesTheModelAndReleasesTheCmdlFaces`,
+   `LevelShutdown_AMergeModelDrawnWithAMeshFace_ReleasesIt` and `LevelShutdown_ThenThePathReadAgain_PosesItOnANewEntity`,
+   with remarks naming the two walks.
+4. *The presenter row's remark* names the release, the event and what arms the release.
+5. *Round 3 item 4's and round 8 item 1's notes* carry "superseded by review 9" pointers; round 9 item 1 one to review 10.
+6. *The flag's threads*: written in `LevelStarted` (from `ViewerPresenter.Apply`, which the async route runs inside
+   `_view.OnUi`, `ViewerPresenter.cs:979-981`, and the synchronous route on its caller's thread, the UI's) and read in
+   `ClearMap` (from `ViewerPresenter.ClearMap`, the async route's inside `_view.OnUi` at :919-927) — the UI thread both
+   ways, now that the worker-side `LevelInit` no longer writes it; stated on the field.
+
+*Sabotage*, run apart: the flag's clearing deleted (the twice row alone), `LevelStarted` not arming (the mapless row, and
+the twice row at its control, the first release).
+
+**Review round 11** (one medium, fixed by moving what it named):
+1. *`Apply`'s arming call was untested* (medium): the presenter rows armed the flag themselves, so deleting the production
+   call reddened nothing. The call is gone (item 2): the arming is now in `FramePresenter.BuildOverlay`, the production
+   path the presenter rows drive, so deleting it reddens them (below).
+2. *A superseded or failed load left the flag disarmed* while its frames rendered and the panels set up from that level's
+   models; the next load then skipped the HUD's shutdown while the model set forgot (reviews 8-9's retention, back). The
+   flag tracked the wrong thing. It now follows what the panels hold: `BuildOverlay` arms it after the HUD precaches its
+   panels' models, once any load has happened (`_aLoadHappened`, set by `ClearMap`) — whatever that load came to — and
+   the frames before the first load arm nothing (`cdll_client_int.cpp:1714-1715`). Written and read on the UI thread (the
+   frame, and `ViewerPresenter.ClearMap`'s `_view.OnUi` at :919-927). *Tests*:
+   `FramePresenterHudTests.ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty` (a load, a frame, a
+   load: released — red first: kept) and `ClearMap_TwiceWithNoLevelBetween_ReleasesOnlyOnTheFirst` (rewritten to arm by a
+   frame; red first at its control), with `ClearMap_BeforeAnyLevel_KeepsTheModelPanelsModelsAndMarksThemDirty` unchanged
+   (its sign is set up by a frame before any load). The superseded and failed routes themselves are not driven: they reach
+   the arming through the same frame, which is what the rows run.
+
+*Sabotage*, run apart: the arming deleted (the after-a-frame row and the twice row), armed without the after-a-load guard
+(the before-any-level row alone), the flag's clearing deleted (the twice row alone). The analyzer refused two wordings of
+the second break (a null test the flow analysis then distrusted); the one run arms on any frame. *Superseded by review
+12*: the flag is gone.
+
+**Review round 12** (the flag was a wrong turn; removed):
+1. *A frame before the first load set panels up and the first load kept them* (Sonnet): our HUD can run before any load
+   (an install open), setting its panels up from the model set, and the first load's `EntityModelSet.LevelShutdown`
+   clears that set — but `_aLoadHappened` was false, so the HUD's shutdown was skipped. The engine's first-load early
+   return (`cdll_client_int.cpp:1714-1715`) holds because it has no entities before its first level (interpolated; see
+   review 13); ours has panel models (unreachable in the viewer; see review 14 item 2).
+2. *Every arming site was a place the flag could miss* (Fable): `SkipHudFrame` (`FramePresenter.Hud.cs:150`) sets panels
+   up through events (`TfHudMatchStatus.cs:505-533`) without passing `BuildOverlay`'s arming, safe only while `FindMdl`
+   returns null after a shutdown until the next precache.
+
+**The wrong turn, reviews 9-11**: a `g_bLevelInitialized` copy was armed at `LevelInit` (9), then at
+`ViewerPresenter.Apply` (10), then in `BuildOverlay` after a load (11). Each move fixed a route the last one missed and
+left another, because the engine's flag stands for "entities exist", which ours never tracks in one place. **The fix**:
+`FramePresenter.ClearMap` runs `HudViewport.LevelShutdown` at every load. `ForgetLevel` on a panel holding nothing does
+nothing, so a load with nothing set up releases nothing — the engine's early return in effect — and the release is always
+paired with the model set forgetting (`ViewerPresenter.ClearMap`). `_levelInitialized`, `_aLoadHappened` and the arming
+line are deleted.
+
+*Tests* (`FramePresenterHudTests`): `ClearMap_WithNothingSetUp_…` (review 13: `…_MarksThePanelDirty`; replaces the
+before-any-level row; a control, green on both codes), `ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty`
+(red first: kept), `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween` (replaces the twice row; the sign set up again
+with no frame, as a skip's events do; red first: kept), and `ClearMap_AfterAFrameOfALevel_…` (control reworded).
+
+*Sabotage*, run apart: `LevelShutdown` deleted from `ClearMap` (the pre-load, after-a-frame and twice rows), `NewMap`
+deleted (all four rows).
+
+**Review 13** (Fable, Sonnet, Gemini OK; low findings only):
+1. *An unsourced engine claim*: "holds because it has no entities before its first level" (item 1 above) is not in the
+   source; `cdll_client_int.cpp:1713` calls the check a hack. Marked *interpolated* in finding 75, `FramePresenter.ClearMap`
+   and the test remarks, and the remaining difference stated as a divergence: a model set up before the first load is
+   released at ours, kept by the engine's until the dirty `SetupModel` (basemodelpanel.cpp:395). Not visible: both
+   callers that could see it (`TfHudMatchStatus.SetDoors`, `ShowRoundSign`) set the model up first when none is held.
+   *Corrected by review 14*: unreachable rather than invisible (item 2), and that set-up could itself miss in a skip
+   after a load (item 1).
+2. *A test name claimed more than it could fail for*: the nothing-set-up row is now
+   `ClearMap_WithNothingSetUp_MarksThePanelDirty`; only deleting `NewMap` reddens it.
+3. *Stale names and comments*: `HudViewport.LevelShutdown`'s remark said a caller ran it only after a level; reworded.
+   The rows cited in reviews 3, 4 and 9-11 are gone — `ClearMap_AfterAMaplessLevel_…` became
+   `ClearMap_AfterAFrameOfALevel_…` (review 11), `ClearMap_BeforeAnyLevel_…` became
+   `ClearMap_WithNothingSetUp_MarksThePanelDirty` (reviews 12-13), and `ClearMap_TwiceWithNoLevelBetween_…` became
+   `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween` (review 12); `ClearMap_AfterAFrameBeforeAnyLoad_…` was new in
+   review 12. Every "only after a level started" condition in those entries was removed by review 12. *(Name map
+   corrected in review 14.)*
+
+**Review 14** (Fable; Gemini pending):
+1. *A bodygroup set before the panel's model could be found was dropped* (parity, low). After a load the model set has
+   forgotten every model. The opening skip's batches run in `Simulate` (`StepSkip`), before the frame's `BuildOverlay`
+   (`FrameSequence.Run` :130, :138), which was the only HUD precache. So a batch crossing the match doors or a round sign
+   ran `SetDoors` (`TfHudMatchStatus.cs:503-510`) or `ShowRoundSign` (:524-533): `UpdateModel` missed, `SetBodyGroup`
+   returned at the null model (`VguiModelPanel.SetBodyGroup`), and the next paint set the panel up with the skin and the
+   default logo. Reachable on any load with the HUD built, whose opening skip crosses such an event. **Engine**:
+   `CModelPanel::SetupModel` loads its model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so
+   `SetBodyGroup` (:367-382) always finds it and records the value in `m_mapBodygroupValues`, which every later
+   `SetupModel` applies (:425-428). **Fix, the faithful one**: the model must be findable at the call, so the skip's HUD
+   frame precaches the panels' models before its events, as the drawn frame does (`FramePresenter.PrecachePanelModels`,
+   one helper for both). Recording a name for a later set-up was rejected: the engine records by index and only with
+   the model loaded. *Other callers*: `SetBodyGroup`, `SetSkin` and `SetPanelDirty` are called only from those two;
+   `SetSequence` (an animation command) and `TfPlayerModelPanel`'s bodygroups (`FindBodygroup`) run inside a HUD frame,
+   now always after the precache; the engine's `SetSequence` also does nothing with no model (:728). *Test*:
+   `FramePresenterHudTests.ShowMoment_ASkipAfterALoad_PrecachesThePanelModelsBeforeItsHudEvents` (red first: the
+   set-up after the skip found nothing). *Sabotage*: the skip's precache deleted reddens it alone. *Superseded by review
+   15*: "now always after the precache" was false — the HUD's first frame loads its layout inside `Think`, after the
+   precache, and a precache placed before the caller was itself the patch, not the engine's mechanism. The skip's precache
+   and its test are gone; the set-up loads in the call.
+2. *The pre-load set-up was unreachable, not invisible*: with no demo there is no timeline, so `HudStates.For` returns
+   `default` (`HudStates.cs:39-42`). `CModelPanel.Paint` returns before `UpdateModel` (`VguiModelPanel.cs:628`), no
+   event reaches the doors or the sign, the elements are hidden (`HudViewport.IsHidden`, :376), and the class panel's
+   `TfPlayerModelPanel` is set up only from a local player (`TfHudPlayerClass.Think`, :230). A skip needs a timeline, and
+   both load routes run `ClearMap` before a frame can show one (`ViewerPresenter.cs:554`, :925). Finding 75,
+   `FramePresenter.ClearMap` and the presenter row's remark now say so; the row sets its panel up by hand.
+3. *Round 13's name map* corrected above.
+4. *Round 12 item 1's engine claim* marked interpolated inline.
+
+**Review 15** (Fable, Sonnet; Gemini OK): **the third precache gap, fixed by porting the load instead**.
+1. *The HUD's first frame drops the logo too* (medium): `BuildOverlay`'s precache runs before the HUD's layout exists —
+   `VguiHud.Think` loads it (`LoadControlSettings`, then `SolveTraverse`) — so the doors and the sign have no
+   `ModelInfo` and the list omits them; the same `Think` then delivers the frame's events (`HudEventFeed.Advance` with no
+   last tick returns the whole window), and a `restart_timer_time`, `teamplay_round_start` or `show_match_summary` reaches
+   `SetDoors` or `ShowRoundSign` with the model missing. Reachable when the HUD's first frame already has a timeline (the
+   opening skip ran with no HUD). The third route where "precache before the caller" had a gap — the shape of reviews
+   9-11's flag. **The engine**: `SetupModel` makes its entity with `InitializeAsClientEntity( pszModelName )`
+   (basemodelpanel.cpp:407), which asks `modelinfo->GetModelIndex( pszModelName )` (c_baseentity.cpp:1130-1153); an
+   attached model the same way (basemodelpanel.cpp:468-478). The HUD precaches none of these: their names are only in the
+   `.res` files, and nothing in the SDK precaches them. *Interpolated*: that the client's `GetModelIndex` registers an
+   unprecached name as a client-only model is not in the SDK (ivmodelinfo.h:95-99 has the client-only index; its comment,
+   :109-111, says "precached or known dynamic models"). **Fix**: `IMdlCache.LoadMdl`, which `EntityModelSet` answers by
+   packing the model in the call through `Add` (a failed load remembered, never re-read), and `VguiModelPanel.SetupModel`
+   uses for its root and attached models. The HUD's frame runs where packing may (after the camera's wait, or under a
+   skip's lock), and a model packed in the call reaches the device at the frame's `Pack`. **The precaches**: round 14's on
+   the skip's frame is deleted. `BuildOverlay`'s stays, for the `CMDL` panels (class panel, item panels), which look their
+   models up on each paint and do not load; the engine's `CMDL` reads its model through `FindMDL`/`GetStudioHdr`
+   (imdlcache.h:116-126), whose load is not ported — filed below. The doors and sign stay on that list, harmlessly.
+   *Superseded by the follow-up below*: the CMDL panels load in the call too, and `BuildOverlay`'s precache is gone.
+2. *Round 14's test could not fail for order* (low): replaced. *Tests*:
+   `CModelPanelConformanceTests.HandleCountdown_TenSecondsWithTheDoorsModelNotLoaded_SetsUpTheDoorsWithTheLogo` and
+   `RoundStart_ALadderMatchWithTheSignModelNotLoaded_DropsTheSignWithTheLogo` (a cache with nothing loaded; the event,
+   then `ModelInfo.BodygroupValues` `{3: 1}` and the model's skin and body; red first: no bodygroup),
+   `Paint_AnAttachedModelNothingLoaded_LoadsItInTheSetUp`, `PackedVerticesTests.LoadMdl_AModelNothingPacked_PacksItInTheCall`
+   and `LoadMdl_AModelThatFailsToLoad_ReadsItOnce`, and
+   `FramePresenterHudTests.UpdateModel_AfterALoadWithNothingPacked_LoadsThePanelsModelThroughTheModelSet` (the presenter's
+   real set after a load; red first). **Routes, stated**: both — a skip's batch after a load, and the HUD's first frame —
+   reach `SetDoors`/`ShowRoundSign` with the model unpacked, which is the condition the two conformance rows build. Neither
+   route is driven end to end: the presenter's harness has no install (`GameContent.Open(null)`), so the HUD's
+   `HudMatchStatus.res` never loads and no match-group rules reach `ShouldUseMatchHud`.
+3. *Docs*: review 14 item 1 corrected above, finding 75, `FramePresenter.PrecachePanelModels`, `VguiModelPanel.UpdateModel`.
+
+*Sabotage*, run apart: `LoadMdl` not packing (both `LoadMdl` rows and the presenter row), `LoadMdl` through `Precache`,
+which re-reads a failed model (the reads-once row alone), the root's set-up back to `FindMdl` (both logo rows and the
+presenter row), the attached model's back to `FindMdl` (the attached row alone).
+
+*Follow-up*: the `CMDL` panels' load in the call — done below, on this branch (D261).
+
+**Review 15 follow-up — the CMDL panels load in the call too; the HUD's precache is gone.**
+1. *Engine*: `CMDLPanel::SetMDL( pMDLName )` takes its handle from `vgui::MDLCache()->FindMDL( pMDLName )`
+   (mdlpanel.cpp:185) and drops it if `IsErrorModel` (:187-190); `SetMergeMDL( pMDLName )` the same (:868-870), then
+   reads the header through the handle at once (`GetStudioHdr`, :857); `FindMDL` resolves a path from the GAME search
+   path, and the header is read on demand (imdlcache.h:116-126). The player panel's items: `LoadAndAttachAdditionalModel`
+   registers the model, "The auto-addref of vecDynamicAssetsLoaded will actually trigger the load", and the callback
+   answers once loaded, "immediately if not dynamic" (tf_playermodelpanel.cpp:1131-1166); the StatTrak module is
+   `FindMDL`'d (:588).
+2. *Ours*: `VguiMdlPanel` reads every model through `IMdlCache.LoadMdl` (root, merges, bone-merged children, the root's
+   header for the pose defaults). It holds a path, not a handle, and the set forgets its models at a level's end, so the
+   load is at each read — a dictionary hit once packed, a remembered failure answered without allocating.
+   `TfPlayerModelPanel.AnswerLoadedCallbacks` loads a waiting item's model when the callback is asked, at the
+   registration and at each paint after. *Interpolated*: a streamed item's load is asynchronous in the engine and may
+   answer frames later; ours answers at once. `TfEmbeddedItemModelPanel` needed no change of its own: its `SetMDL` and
+   merges are the base's (its icon-camera read after `SetMDL` finds what `SetMDL` loaded).
+3. *Removed, proved unused by the compiler*: `FramePresenter.PrecachePanelModels` and its call and list,
+   `VguiHud.AddModelsToPrecache`, `VguiModelPanel`/`VguiMdlPanel`/`TfPlayerModelPanel`/`TfEmbeddedItemModelPanel`
+   `.AddModelsToPrecache`, `EntityModelSet.PrecacheChanged` with its guard (`_precachedList`, `_precachedValid`,
+   `SameList`, the `LevelShutdown` reset) and counters (`PrecacheAsks`, `PrecachesRun`). The solution builds with 0
+   warnings and 0 errors without them (the LSP was not running, and starting it is the coordinator's). Tests of them
+   removed or rewritten: `BuildOverlay_EachFrame_AsksTheModelSetToPrecacheTheHudsPanelModels`,
+   `AddModelsToPrecache_ARootAndMergeModels_AddsRootFirst`, the three `PrecacheChanged_*` rows (now `LoadMdl_*`), the
+   player panel's callback row; `VguiHudPrecacheTests.cs` was rewritten as `VguiHudModelLoadTests` (its old tests could not
+   compile) and renamed to `VguiHudModelLoadTests.cs`.
+4. *Flex*: `PanelMeshFlex` reads `PackedOrder`, and a model loaded in the call is packed with its order by the same
+   `Add`, before the same paint's draw: `Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`
+   (*renamed in review 16*: it sees the draw list, not the device; see review 16 item 1) (the
+   production set, nothing precached; flexed on the first paint, never unflexed).
+5. *Tests, red first*: `Paint_ARootAndAMergeNothingLoaded_LoadsAndDrawsBoth` (CMDL),
+   `Paint_AClassAndItsWeaponNothingLoaded_DrawsBoth` and `OnModelLoadComplete_AModelNotYetLoaded_LoadsAndMergesItAtTheRegistration`
+   (player panel), `Paint_AStrangePaintkittedWeaponNothingLoaded_LoadsAndDrawsItsStatTrakModuleFlexed` (item panel),
+   `LoadMdl_APackedModelAndARememberedFailure_AllocateNothing`; and, written after the change so not red first,
+   `OnModelLoadComplete_AModelThatCannotLoadYet_IsMergedAtThePaintAfterItCan`, `LoadMdl_AfterALevelShutdown_PacksTheModelAgain`,
+   `VguiHudModelLoadTests.EachPanelKind_ReadingItsModelsWithNothingPacked_PacksThemIntoTheHudsModelSet` (the HUD over the
+   production set) — each reddened by a sabotage below.
+6. *Not covered*: a model remembered empty is never re-read by a panel's load (`Precache` drops empties, B363; `LoadMdl`
+   does not). Within a level the loader does not change after the map's load, and `LevelShutdown` forgets the empties.
+
+*Sabotage*, run apart: `VguiMdlPanel`'s reads back to `FindMdl` (the CMDL, class-panel and item-panel rows, and the HUD
+row); the player panel's callback back to `FindMdl` (both callback rows and the class-panel row); `LoadMdl` without its
+remembered-failure answer (the allocation row alone); `LoadMdl` returning the loader's frames without packing (the four
+`LoadMdl` rows and the first-paint flex row).
+
+**Review 16** (Fable, Sonnet, Gemini; one defect found by all three):
+1. *A model the HUD's paint packed was not on the device for that frame's draw* (medium/high). `MomentScene.Pack` — the
+   only reader of `Grown` that uploads — runs from the moment's show, in `Simulate` or the camera stage, both before
+   `BuildOverlay` (`FrameSequence.Run`). So the first paint after a load submitted an instance with no batches (the
+   renderer's "posed before its geometry was uploaded", `WorldRenderer.cs:8350-8356`), and a paused frame with a still
+   camera shows no moment (`ViewerSession.Frame.cs:903`), so the panel stayed missing and a paused `--shot` captured it
+   so. The engine loads and draws in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185). **Fix**: the overlay's end
+   calls `MomentScene.UploadGrown` — `Grown` and a device, then the same `Device3D.UploadModels` through `IModelUpload`,
+   its timing and stall report shared with `Pack` (`UploadNow`). On the UI thread with nothing in flight: the camera stage
+   waited for the last draw (`FinishDrawBeforeEffects`, `ViewerPresenter.Device.cs:272`) and `Device3D.UploadModels`
+   takes the queue's lock itself (`Lock`, `Device3D.cs:80`); a skip's loads happen under the skip's queue lock and reach
+   the device at the next drawn frame's overlay or show. *Test*:
+   `FramePresenterHudTests.BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns` (a recording upload: the
+   set as the paint left it, handed over before the overlay returns, `Grown` cleared; red first: nothing uploaded). The
+   load is made where the paint would make it (the harness's HUD has no local player, so no panel paints). *Not seen*:
+   the device's batches themselves — the harness has no device. Comments corrected: `FramePresenter.Hud`,
+   `EntityModelSet.LoadMdl`, `docs/HANDOFF-hud.md` (whose `MomentScene` line was wrong too); review 15's flex row renamed
+   `Paint_APanelOnlyModelNothingPacked_PacksItAndFlexesTheFirstDrawOverItsOrder`, its claim narrowed to the draw list.
+2. *A path the packer refuses was asked again every paint* (low): `LoadMdl` on a non-studio path never reached
+   `_byModel` through `Add` (`CanDraw`), so each ask built a prop and ran `Add`. Remembered empty now.
+   `PackedVerticesTests.LoadMdl_APackedModelARememberedFailureAndARefusedPath_AllocateNothing` (red first: 816 bytes).
+3. *`SetMergeMDL` loaded nothing at once and merged onto an error root* (low): ported — the merge is loaded in the call
+   (`FindMDL`, mdlpanel.cpp:868; header at once, :857), and a root that does not load refuses the merge (:836-837, the
+   root made `MDLHANDLE_INVALID` by `SetMDL`, :187-190). `VguiModelPanelConformanceTests.SetMergeMDL_AModelNothingLoaded_LoadsItAtOnce`
+   and `SetMergeMDL_ARootThatDoesNotLoad_IsRefused` (both red first).
+4. *Leftovers*: the `hud precache` timing part is `hud wiring` (what it times now), and a `hud upload` part closes the
+   overlay. **`VguiModelPanel`'s missed-model route is deleted (D180)**: with the load in the call, a missed model is one
+   that did not load, remembered empty until `LevelShutdown`; the set re-reads a remembered failure only through
+   `Precache` (B363), whose callers (`DemoModels.Precache`, the map's detail models) run at a load, after `ClearMap`
+   cleared the panels and before any frame (the async route holds the render loop off, `_readingMap`). So
+   `AMissedModelIsFoundNow` could never answer true. Gone: `_missed`, `AMissedModelIsFoundNow`, and three rows —
+   `Paint_AModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`, `Paint_AnAttachedModelNotLoadedAtTheFirstPaint_IsSetUpOnceItIs`,
+   `ForgetLevel_AfterAMissedAttachment_SetsNothingUpFromTheOldLevelsNames` — whose late loads only a fake cache could
+   make. "Ours precaches" wording removed with the first; `VguiModelPanel.UpdateModel`'s and `TfPlayerModelPanel`'s
+   remarks reworded.
+
+*Sabotage*, run apart: the overlay's `UploadGrown` deleted (the presenter row alone); the refused-path memory deleted (the
+allocation row alone); the root's load check removed (the error-root row alone); the merge's load deleted (the
+load-at-once row alone).
+
+**Review 17** (Fable, Sonnet, Gemini; no production defect — test gaps and two structural items):
+1. *The upload row could not fail for order* (medium): it made the load before the overlay, so `UploadGrown` moved above
+   the HUD's frame stayed green. The load now runs INSIDE `VguiHud.Frame`, through `VguiHud.FrameStarted` — an internal
+   hook, null in production, standing in for a model panel's paint, since the harness has no install and so no scheme to
+   paint with. *Sabotage*: `UploadGrown` moved above `_vguiHud.Frame` reddens it (and the next row's control).
+2. *`UploadGrown`'s guards were unpinned* (medium): `FramePresenterHudTests.BuildOverlay_ThreeOverlaysAfterOneLoad_UploadOnce`
+   (one load, three overlays, one upload; *sabotage*: the `Grown` guard deleted reddens it alone) and
+   `BuildOverlay_WithNoDevice_LeavesTheSetGrown` (no `Upload`: the set stays grown for the first device; *sabotage*: the
+   no-device branch marking the set uploaded reddens it alone). Kept at the presenter, where the frame order is.
+3. *A panel's load could pack the level's static props* (low): `LoadMdl` called `Add`, whose first call of a level packs
+   the static props after the moment's own and builds their lighting (`TimedPrecache`) — the order finding 83 item 1
+   chose. A HUD event's load in a skip could run that first, ahead of the moment. The engine's load brings one model in
+   (basemodelpanel.cpp:407, mdlpanel.cpp:185), so `LoadMdl` now packs the one path (`PackCounted`, the counted half of
+   `Add`, which `Add` itself now calls for both lists). What depends on the order: the statics' packing after the
+   moment's props and their lighting at the level's load (B607) — both still `Add`'s first call.
+   `PackedVerticesTests.LoadMdl_ALevelWithStaticProps_PacksOnlyTheAskedModel` (red first: the static prop packed and lit
+   by the load). *Sabotage*: `LoadMdl` back to `Add` reddens it alone.
+4. *`SetMDL` kept a failed root's name* (low): the engine decides once — `FindMDL`, and an error model is
+   `MDLHANDLE_INVALID` (mdlpanel.cpp:185-190) — and the draw (:417), the merge (:836-837) and the header read the handle,
+   never the name. Ours now loads at `SetMDL` and keeps the path only if it loaded; `SetMergeMDL` reads that (no path,
+   no merge), and the draw and `RootStudioHdr` load by the kept path (after a level's end the set forgets what the engine's
+   MDL cache would still hold). `VguiModelPanelConformanceTests.SetMDL_ARootThatFailsToLoad_StaysInvalidWhenItLaterCould`
+   (red first). *Sabotage*: `SetMDL` back to keeping any name reddens it and the error-root row. Two item-panel rows that
+   ask which model is chosen (`TfItemModelPanelConformanceTests.SetItem_AnItemForOneClass_ShowsThatClasssModel`,
+   `SetItem_ABlueWatcher_StillShowsTheStylesRedModel`) now give their viewport a cache in which every model loads.
+   *Caveat, review 18*: not parity as written — our load reads the level's preload, not the install, so "once" is once a
+   level (review 18 item 1).
+5. *Citations*: the root check is :836-837 (the comment is :835) in the review-16 row's remark, `VguiMdlPanel.SetMergeMDL`
+   and above.
+
+**Review 18** (Gemini OK; Fable one medium; Sonnet and Fable lows):
+1. *A root that failed on a mapless demo stayed invalid on the next mapped one* (medium). The engine's `FindMDL` reads
+   the install whatever the level (mdlpanel.cpp:185-190); ours reads the level's preloaded models — `EntityModelSet.Geometry`
+   is `MapAssets.Geometry`, a lookup over what the map load read from `DemoModels.Needed` (MapAssets.cs:988,
+   LoadedMap.cs:361-365), and `NoGeometry` for a mapless demo or a map with no assets (LevelSystems.cs:313-315;
+   ViewerPresenter.cs:690-694 returns before `LevelSystems.Load`). Route: a mapless POV demo, `SetToPlayerClass`
+   (TfHudPlayerClass.cs:477) fails the class model; a mapped demo with the same class returns early
+   (TfPlayerModelPanel.cs:317) and never calls `SetMDL` — no portrait and every merge refused until the class changed.
+   **Why not "a loader whenever game content exists"**: the loader is a dictionary on purpose — every model is read WITH
+   the map so its materials join the map's one texture table and upload once (MapAssets.cs:1742-1751; `DemoModels`'
+   class remark); a mapless demo has no table to draw a model's materials from, and draws no entity model at all (D224:
+   possible, not supported). Loading on demand from the install means growing that table mid-play, a separate change.
+   **The fix in this branch's scope**: the panel's verdict is the level's, as our load's failure is — `VguiMdlPanel`
+   keeps the asked name and decides validity at `SetMDL` and again at the first read after each level's end
+   (`RootPath`; `ForgetLevel` marks it undecided). Round 17's validity-once holds within a level. *Test*:
+   `TfPlayerModelPanelConformanceTests.ForgetLevel_AClassThatFailedOnAMaplessLevel_DrawsOnTheNextLevelWithNoNewSetMdl`
+   (a mapless level, its shutdown, a mapped level, the same class, a paint: the class model and its weapon drawn; red
+   first: nothing drawn). *Sabotage*: `ForgetLevel` no longer marking the root undecided reddens it alone. *Not
+   testable*: "a mapless level alone loads the panel model" — with `NoGeometry` nothing loads, by design (D224). **World
+   models on a mapless demo**: lost too, for the same reason — every entity model comes from the same preload — and that
+   is D224's accepted state, not a new defect; the models no preload names are B812.
+2. *`FrameStarted` named as a test seam*, with its precedent (`ViewerPresenter.Posed`, `EffectEntities.ViewBuilt`) and
+   why a synthetic scheme does not fit (the presenter builds its HUD host from the install's archives).
+3. *"Through Add"* corrected to `PackCounted` (`PackedVerticesTests`, `EntityModelSet.LoadMdl`).
+4. *The `SetMDL` row's positive control*: after the fresh `SetMDL`, the paint draws (`Draws.ShouldHaveSingleItem`).
+5. *`AnswerLoadedCallbacks`' remark*: a failing item stays registered — never answered within the level, a lookup a paint
+   — and is answered on a later level whose preload holds it. Not dropped: the engine does not give up on a
+   registration either ("Dynamic models never fail to register", tf_playermodelpanel.cpp:1138; the callback waits),
+   only its hard-load branch drops a model `FindMDL` cannot find (:1147-1157); dropping ours would repeat item 1 for items.
+6. *A refused path counted as a model*: kept apart (`_refusedLoads`, cleared at `LevelShutdown`), out of `Count` and
+   `Paths`. `PackedVerticesTests.LoadMdl_ARefusedPath_IsNotCountedAsAModel` (red first). *Sabotage*: the refused path back
+   in `_byModel` reddens it alone.
+7. *`DeferredMdlCache` with no viewport*: documented as unreachable — the `.res` factory makes the item panel unparented
+   and the layout parents it before any setting, and the only named `SetMDL` is `SetItem`'s, from the HUD's frame on a
+   panel already in the viewport's tree. Were it reached, the next level would decide the root again (item 1).
+
+**Review 19** (coordinator): B812 is B779's own claim — "a model only a panel draws is packed through the world's set" was
+false in production for a model no preload listed — so it is fixed here, within the preload design: see B812, with the
+`hud-model-loads` measurement (missing panel models 1 → 0 on each of two POV demos).
+
+**Review 20** (coordinator's thirteen findings on review 19; Gemini's addendum). Each fix below was red first or is
+named as a sabotage that reddens it; the item numbers are the coordinator's.
+1. *The preload read the stock HUD, the HUD drew the chosen one*: one owner now, `GameContent.ChosenHud` and
+   `GameContent.HudArchives` (`WithHud(chosen)`), read by both `FramePresenter`'s HUD and `DemoModels`' layout walk.
+   `ViewerPresenter` hands its choice to the install when it opens and at every change. **Decision**: a HUD changed
+   mid-level reaches the preload at the next level's load, because the preload is read with the map (D86's texture
+   table); the HUD itself switches at once. *Tests*: `DemoModelsTests.Needed_AChosenCustomHud_ListsThatHudsLayoutModelsAlone`
+   (a `custom/` HUD whose layout names another model); `ViewerPresenterTests.SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice`.
+   *Sabotage*: the preload reading `game.Archives` reddens the first; the install-time hand-off dropped, and the
+   after-open hand-off dropped, each redden the second.
+2. *The item panel's model rule was a copy*: `TfEmbeddedItemModelPanel.PanelModel` (`GetPlayerDisplayModel( first
+   class, 0 )`, item_model_panel.cpp:330-343) is used by the panel and the preload; `extra_wearable` is listed through
+   `ItemSchema.ExtraWearableModel`. One method, `DemoModels.AddItemModels`, lists what a panel can ask for one item, for
+   the carried items and the stock weapons alike. *Test*: `DemoModelsTests.AddItemModels_ItemsOfEachShape_ListEveryPanelModel`.
+   *Sabotage*: `PanelModel` not added, the extra wearable not added, the StatTrak module not added — each reddens it.
+3. *The carried wiring untested*: `DemoModels.AddCarriedItemModels(players, schema, paths)` now takes players, walks each
+   player's items and disguise weapon, and is called once from `AddPanelModels`, which both lists run.
+   `DemoModelsTests.AddCarriedItemModels_ItemsAndADisguiseWeapon_ListEachItemsModels`. *Sabotage*: the disguise branch
+   skipped reddens it. **Grok's B195 claim — false**: `Needed`'s `demo` and `ToPack`'s `withItems` were the same timeline
+   at both call sites; the two lists now share `AddPanelModels`, so they cannot differ there, and the probe asserts that
+   `ToPack` holds every listed ask (item 8). *Not unit-tested*: the glue from timeline frames to players — a synthetic
+   frame's players carry no items without `m_hMyWeapons`; the probe's four-demo run covers it.
+4. *One row stood for its definition*: the walk is keyed after the item view is made, on what decides the panels'
+   models — definition, style, paint kit, and whether its strings come from the definition. *Sabotage*: the style left
+   out of the key reddens the new styled-row assertion (a plain and a style-0 rocket launcher; the style row was added
+   because the first sabotage survived); the style and paint kit both left out redden the paint-kit assertion. Keying
+   before `TfItemView.From` is not observable today: `From` rejects only a null definition, which the walk skips first.
+5. *A verdict made between a level's end and the next loader*: reachable as written then — the render loop is held while a
+   map reads, but a scrub reached `ShowMoment` (review 22 item 5: only the scrub), which also raced the worker's writes
+   to the entity set. **Review 21 item 1 closes that route** (no moment is shown while a map reads), so what this item
+   still covers is a loader bound after a panel asked: a mapless level (`NoGeometry` for the whole level), then a mapped
+   one. Two parts: binding a `Geometry` loader forgets the empty entries made under the last
+   one and counts a `LoaderGeneration`; `VguiMdlPanel.RootPath` decides again when the generation moved.
+   *Tests*: `PackedVerticesTests.LoadMdl_AFailureBeforeTheLoaderIsBound_LoadsOnceItIs`,
+   `VguiModelPanelConformanceTests.ModelName_ReadBetweenALevelsEndAndTheNextLoader_IsDecidedAgainByTheBoundLoader`.
+   *Sabotage*: the forget removed reddens both; the generation check made `<` reddens the second alone.
+6. *The Mannpower rune item* — **false**: the powerup items carry `image_inventory` and no model, so the panel never
+   calls `SetMDL` for them.
+7. *Festivized lists mismatched* — **false**: `AttachedModelsFor(festivized: true)` is the plain list plus the festive one
+   (ItemSchema.cs:2197-2203), so asking with it lists both.
+8. *Probe honesty*: the controls are asserted and the run throws when one fails — the class model asked and held
+   (reported NOT APPLICABLE when no frame's local player has a class, as on both f12 demos), an unlisted path answered
+   missing, `ToPack` holding every listed ask; "held" is labelled listed-not-loaded; the HUD reads
+   `GameContent.HudArchives` with no HUD chosen, as the preload does; the usage names the pub demo. **The layout census
+   is measured each run** (Gemini's addendum): every `.res` the HUD read is walked for model blocks and a file outside
+   `HudPanelModels.Layouts` fails the run. *Sabotage*: `HudMatchStatus.res` dropped from `Layouts` fails it on the pub demo.
+9. *Secondary-only stock weapon*: the stock row now has a spy with only a secondary base item. *Sabotage*: the secondary
+   arm of `FallbackItem` removed reddens `NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon`.
+10. *The refused-path row*: it counts loader reads, asks the refused path twice, and checks a real model still loads.
+    *Sabotage*: the refused path stored as an empty `_byModel` entry reddens it; the refusal's memo removed reddens the
+    allocation row instead (the packer refuses it again, so nothing is counted, but the ask allocates).
+11. *The walk's cost at load* (measurements/2026-11-22-b779-panel-preload.md; Release, warm, one run each):
+
+    | demo | frames | `Needed` | `ToPack` | carried walk alone (run once in each) |
+    |---|---|---|---|---|
+    | `tf2-2026-pub-pov-clean.dem` | 21,220 | 437 ms | 310 ms | 121 ms (342 paths) |
+    | `20150119_2240_cp_process_final_(ovo)_blu.dem` | 111,632 | 525 ms | 292 ms | 179 ms (243 paths) |
+    | `f12.dem` | 106,219 | 662 ms | 390 ms | 262 ms (303 paths) |
+    | `auto-20260817-1720-cp_process_f12.dem` | 2,400 | 72 ms | 20 ms | 3 ms (18 paths) |
+
+    About half a second of a long demo's level load is the walk, twice. **Fixed in review 21** (coordinator: "a
+    regression this branch adds… fix it here"): `DemoModels.CarriedPanelModels` walks once per timeline and schema and
+    both lists take that one result. That makes B195's agreement structural for the carried items, not two calls that
+    happen to match. The walk also skips an item list already seen by reference.
+    The figures for this fix are in review 21 below, measured by one method; the first account of it compared a
+    median against a single run and inferred the saving (review 21 item 6). Path counts unchanged
+    (measurements/2026-11-22-b779-panel-preload.md). *Test*: now
+    `DemoModelsTests.NeededThenToPack_OneTimelineWithACarriedItem_ShareOneCarriedWalk`. *Sabotage*: both reddened it alone.
+    - `AddPanelModels` walking directly instead of through the shared walk.
+    - The held walk never returned.
+
+    *Not tested*: the list skip, which changes cost and not output; the probe's path counts are its control. *Not cut
+    further*: the rest of the walk is reading every frame's players. Skipping a shared player detail needs a Core
+    accessor that the timeline does not expose today.
+12. *`versus_doors_lock.mdl`* is marked synthetic in the layout row's remark.
+13. *The cut-off duplicate sentence in B812* removed.
+
+**Re-measured, review 20** (measurements/2026-11-22-b779-panel-preload.md; every 33 ticks, controls asserted):
+
+| demo | preload | asked | not listed | `.res` read | with model blocks | outside `Layouts` | class control |
+|---|---|---|---|---|---|---|---|
+| `tf2-2026-pub-pov-clean.dem` | 476 | 13 | 0 | 35 | `HudMatchStatus.res` | 0 | held |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` | 389 | 21 | 0 | 36 | `HudMatchStatus.res` | 0 | held |
+| `f12.dem` | 450 | 9 | 0 | 34 | `HudMatchStatus.res` | 0 | not applicable |
+| `auto-20260817-1720-cp_process_f12.dem` | 136 | 0 | 0 | 34 | `HudMatchStatus.res` | 0 | not applicable |
+
+*The census, corrected*: of the three `Layouts`, only `HudMatchStatus.res` names a model path on the stock install.
+`HudPlayerClass.res` and `ItemModelPanel.res` hold model panels whose models are set in code, so they name none — the
+addendum's "three layouts with model panels" is right about panels and not about paths. No other `.res` the HUD read
+names one. *Not measured*: a custom HUD's layouts (the owner's install was left out on purpose, as for every reference).
+
+**Review 21** (Fable, Sonnet, Grok; Gemini still out). Item numbers are the coordinator's.
+
+1. *The HUD and the map read raced*: **true**, and Sonnet's "no race" is false.
+   - `_readingMap` held only `RenderFrame`. A scrub, through `MomentChanged` (ViewerSession.Window.cs:227-239), reached
+     `ViewerPresenter.ShowMoment` from the UI thread during a map read with no guard. *Corrected in review 22 item 5*:
+     this account first named a camera move (`ReprojectScene`) and the measure seek too, but both run only inside
+     `RenderFrame` (`ProjectWorld`, ViewerSession.Frame.cs:910; the seek at :767), which already returned during a read.
+   - It built a moment into the entity set while the worker bound its loader (`LevelSystems.Load`) and precached into
+     the same set. That race existed before B779, through the precache.
+   - **Fixed the engine's way:** the client draws no world during a level load. `ShowMoment` now returns while
+     `_readingMap` is set, as `RenderFrame` already did, so no moment and no HUD paint run during the read.
+   - *Test*: `ViewerPresenterTests.ShowMoment_WhileAMapReads_ShowsNothing`. A `ShowMoment` asked behind the barrier
+     (control: `ReadingMap` is true then) shows nothing; the same ask after the load shows. *Sabotage*: removing the
+     check reddens it.
+   - Review 20's item 5 is corrected above.
+2. *Nothing asserted the carried walk reaching the lists*: **true**. The shared-walk test now uses a timeline whose scout
+   carries a non-base item, whose model no other list names. Both lists hold it.
+   - *Test*: `DemoModelsTests.NeededThenToPack_OneTimelineWithACarriedItem_ShareOneCarriedWalk`.
+   - *Sabotage*: computing the walk without adding it reddens it and the item-3 row.
+3. *The guards differed*: **false as a defect**, and fixed anyway.
+   - When `Needed` tests it, its set holds only `ModelPaths` and their gibs, so `paths.Count > 0` exactly when
+     `ModelPaths().Any()`. The two guards are equivalent.
+   - The guard is still not the engine's: no panel waits on class scripts. The panel models now sit outside both guards,
+     called the same way in both lists, and they read only the install's HUD files and schema.
+   - *Test*: `NeededAndToPack_AnInstallWithNoClassScripts_StillListThePanelModels`.
+   - *Sabotage*: `ToPack`'s call put back under its guard reddens it.
+4. *The `CModelPanel` family has no loader re-decide*: **mooted**.
+   - Item 1 closes the route by which a set-up could run during the read.
+   - From one level to the next, `game_newmap` marks every `CModelPanel` dirty (`VguiModelPanel.OnGameEvent`,
+     basemodelpanel.cpp:196-205), so the next level sets the model up again under its own loader.
+   - Within a mapless level nothing loads, by design (D224).
+   - No new code.
+5. *The `ChosenHud` hand-off on the worker*: **true**. The worker read `_chosenHud`, and a UI choice made before its
+   write was overwritten.
+   - The map read now publishes the install and its choice under the same lock `ChooseHud` takes, so whichever runs
+     second writes the latest choice. The `GameContent` remark is corrected.
+   - *Not tested*: the interleaving needs a seam inside `ReadMap`. The existing rows still hold the hand-off, and
+     dropping it reddens `SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice` and the item-10 row.
+6. *The earlier walk figure was inferred*: **true**. Re-measured by one method: a fresh timeline per run, warm, median of 3.
+   - Measured on f12 (measurements/2026-11-22-b779-panel-preload.md): `Needed` 441 ms, `ToPack` 124 ms, both 565 ms, walk alone 165 ms.
+   - Inferred, not measured: the second walk the shared result saves.
+   - Not comparable: review 20's single first calls.
+7. *The class control accepted any `models/player/` path*: **true**. It now compares against `PlayerClassModels.Model`
+   for each class the local player had. *Sabotage*: a wrong class fails the run.
+8. *MISSING did not fail the run*: **true**. An asked path the preload does not list now fails the run, and so does a
+   disagreement in either B195 direction. *Sabotage*: removing the banner from `Needed` fails both checks.
+9. *The cache's timeline key was untested*: **true**. Another timeline under the same schema must walk again. *Sabotage*:
+   a held walk keyed on the schema alone reddens it.
+10. *The launch route was untested*: **true**.
+    - *Test*: `ReadLaunch_AHudFlagAndARememberedHud_TheFlagReachesTheInstall`.
+    - *Sabotage*: the remembered choice winning over `--hud` reddens it.
+11. *Stale text*: **true** for all three.
+    - LevelSystems.cs's "stays empty for ever" now names the forget.
+    - Review 20's citation is item_model_panel.cpp:330-343 (`nClass`, then `GetPlayerDisplayModel( nClass, 0 )`, read
+      from the SDK).
+    - `DemoModels.ToPack`'s remark names the shared part.
+
+**Review 22** (Fable, Sonnet, Grok; Gemini still out). Item numbers are the coordinator's. Items 1, 3 and 7 are the
+viewer's own threading, so they are not engine parity. The engine's one stated fact here is that it loads one level at a
+time and draws no world while it does.
+
+1. *Overlapping loads defeated the barrier*: **true**.
+   - Demo B opened mid-read set the one flag, cleared the map and read into the same `_models` beside A's worker, and A's
+     `finally` lowered the flag under B's read.
+   - Map reads are now serialized. Each read waits for the one before it to finish its read, its precache and its `Apply`
+     (`ViewerPresenter._lastMapRead`, a task chain). So two workers never share the entity set, and one flag is enough.
+   - A load superseded while it waited reads nothing.
+   - *Test*: `ViewerPresenterTests.LoadDemoAsync_ASecondLoadDuringAMapRead_WaitsForTheFirstRead`. Demo B is started inside
+     A's read, and A holds until B has queued or cleared the world. The barrier calls come in two whole runs, every one
+     behind the barrier, and A is superseded.
+   - *Sabotage*: no wait reddens it (B cleared the world mid-read).
+   - *Not covered*: the synchronous `LoadDemo` / `LoadMap` path does not take the chain. It is the command line's,
+     `--shot`'s and the tests', on the UI thread, and is never beside an async load.
+2. *A scrub during the read is lost*: **harmless**, so Grok's high is false.
+   - The scrub moves the old demo's playback position.
+   - `Apply` then opens the new demo's own transport and clock (`_demoSystems.Open(_timeline, _demo.LastTick, ...)`),
+     so the position is replaced either way.
+   - A read that fails goes to `CouldNotOpen`, which closes the demo.
+   - Grok's test claim is also **false**. Putting `ToPack`'s panel models back under its guard reddens
+     `NeededAndToPack_AnInstallWithNoClassScripts_StillListThePanelModels` (rerun this round). The row asserts the
+     carried item's model and the stock weapon, both panel models listed only by `AddPanelModels`.
+3. *The gap between lowering the flag and `Apply`*: **true**. The flag now lowers inside the marshal that runs `Apply`.
+   - *Not tested*: the test window marshals inline, so the gap cannot be reached without a seam inside the load.
+   - *Not closed on the superseded path* (review 23 item 7). A superseded load lowers the flag in its last marshal; the
+     newer load raises it only after a thread hop. Frames between them draw the old demo against the superseded load's
+     level. No worker writes then, so it is a stale picture for a frame or two, not a race.
+4. *A HUD change between the two lists*: **true**.
+   - `GameContent.BeginLevelLoad` fixes the HUD view for the load. *Since review 23* it is called at the top of
+     `ReadMapNamed`, not when the map read publishes the install (review 24 item 6).
+   - Both lists read `LevelHudArchives`. The "cannot disagree" remarks now say "within a load".
+   - *Test*: `NeededAndToPack_AHudChangedDuringALoad_ReadTheHudTheLoadBeganWith`.
+   - *Sabotage*: reading the live `HudArchives` reddens it.
+5. *Stale route claim*: **true**.
+   - Only the scrub reached `ShowMoment` during a read. `ReprojectScene` (from `ProjectWorld`) and the measure seek run
+     only inside `RenderFrame`.
+   - Corrected in review 21 item 1, review 20 item 5, the `ShowMoment` comment and its test.
+   - Review 21 item 4's file is basemodelpanel.cpp.
+6. *The probe's class line*: **true**. It now prints the class models that passed, out of those the classes name. On the
+   2015 demo: soldier and spy, of soldier and spy.
+7. *`CarriedLock` held across the walk*: **mooted by item 1**.
+   - Both lists of one load run on its worker, and loads no longer overlap, so no other load's walk can wait on it.
+   - Noted, not changed: `Apply` runs `DemoModels.Precache` again on the UI thread, so `ToPack` runs there on every load.
+     It takes the held walk, but its own work, 124 ms on f12 (measurements/2026-11-22-b779-panel-preload.md), is
+     UI-thread time. That cost predates B779, apart from the panel part; it is filed here as a follow-up, not fixed.
+8. *No interleaving test for the `ReadMap` lock*: **left as disclosed**. No cheap seam exists (review 21 item 5).
+
+**Review 23** (Fable, Sonnet, Grok, Gemini). Item numbers are the coordinator's. No reviewer found a deadlock or a
+release leak in the queue. Everything here is the viewer's own threading and none of it is engine parity. The engine's
+facts it follows are that it loads one level at a time and draws no world while it does.
+
+1. *Nothing tested the `BeginLevelLoad` wiring*: **true**.
+   - *Test*: `ViewerPresenterTests.LoadDemoAsync_AHudChangedMidLoad_BothListsReadTheHudTheLoadBeganWith` (two cases).
+     HUD A is chosen, a load runs, and HUD B is chosen when the load reports its models. Both lists, asked then, name A's
+     doors and not B's.
+   - *Sabotage*: making the begin a no-op reddens both cases.
+2. *Fixing the HUD again was untested*: **true**. The Scene row now begins a second load after the HUD change and expects
+   the new HUD's doors.
+   - *Sabotage*: `_levelHudArchives ??= now` (fixed once, for ever) reddens it.
+3. *The fixed view went stale*: **true**, on two counts.
+   - **A load that read no map file never fixed it.** The begin now sits at the top of `ReadMapNamed`, which every map
+     read passes, including a missing map and a failing one.
+   - **Nothing ever let it go.** `GameContent.EndLevelLoad` now runs on every path: in the marshal that runs `Apply`, in
+     the read's failure path, and at the end of the synchronous `LoadDemo` and `LoadMap`. Outside a load, the lists read
+     the HUD as it is now, and the old view's archives are released.
+   - *Tests*: the item-1 row's second case, `pl_locked`, whose map file is held open so `ReadAllBytes` throws. Its
+     after-load assertion covers the end; so does the Scene row's last assertion.
+   - *Sabotage*: putting the begin back after `ReadAllBytes` reddens the `pl_locked` case alone. Removing the end
+     reddens both cases.
+   - The remarks in `DemoModels.AddPanelModels` and `GameContent` now say this.
+   - *Corrected in review 24 (item 5)*: "closed" does not hold on a session's **first** load when its map is missing or
+     unreadable. No install has been published (`_game` is null), so the precache is skipped and no list reads the
+     fixed view. That leaves nothing to disagree, but nothing is covered either. The test's warm first load is what
+     makes the `pl_locked` case reach a list.
+4. *The barrier raise sat outside the region that lowers it*: **true**. The raise, the skip drop and the clear now run
+   inside it.
+   - *Test*: `LoadDemoAsync_AClearThatThrows_LeavesTheBarrierDown`.
+   - *Sabotage*: lowering only when the raise step had finished reddens it.
+5. *The queue test did not observe `Apply`*: **true**.
+   - The queue is now released inside the marshal that runs `Apply`, after it.
+   - The test reads, at the start of A's last marshal, whether B still waits on A.
+   - *Sabotage*: releasing before that marshal (Grok's form) reddens it.
+6. *A throwing read lowering the barrier was untested*: **true**.
+   - *Test*: `LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo` (named
+     `LoadDemoAsync_AReadThatThrows_LowersTheBarrier` until review 24 item 4 widened it).
+   - *Sabotage*: removing the lowering in the catch reddens it, and the item-4 row too.
+7. *The superseded path's flag gap*: **not fixed**. Review 22 item 3's wording is corrected above. Keeping a superseded
+   load's barrier up until the next one raises it would risk the barrier never coming down if the next load fails
+   before its read.
+8. *The synchronous path could overlap a queued read*: **true**. `ReadDemoMap` now refuses while a queued read is in
+   flight. *Superseded*: review 24 moved the refusal and keyed it on the barrier, review 25 removed it as unreachable,
+   and review 26 item 1 puts the real guard on the one reachable route, the window's `OpenDevice` reload.
+   - *Test*: `LoadMap_WhileAnAsyncReadIsInFlight_Refuses`.
+   - *Sabotage*: no refusal reddens it.
+   - The first form of this test recursed under the sabotage (the unrefused `LoadMap` reached the same hook again) and
+     crashed the test host. The hook now asks once.
+9. *A count kept only for a test*: **replaced, not removed**. `MapReadsQueued` is gone. `MapReadWaiting` (whether the
+   read the newest load waits on is still in flight) is kept, because a test cannot otherwise tell "waiting" from "about
+   to clear the world". Both queue tests read it.
+10. *Opening a HUD under a lock*: **true**. The begin now runs outside `_hudChoice`, and `HudArchives` opens a HUD
+    outside `GameContent`'s lock. The view is published only if the choice is still the one it was opened for; otherwise
+    it is opened again. Gemini's point was that the fixed view must never be older than a choice made meanwhile, so
+    `BeginLevelLoad` publishes only the view cached for the current choice.
+    - *Not tested*: the interleaving needs a seam inside `WithHud`.
+11. *Stale text*: **true**. "A superseded load's read can run beside a newer one" is gone from `ReadMapNamed`'s remarks.
+
+The queue tests passed in five more runs in a row.
+
+**Review 24** (Fable, Sonnet; Grok's points folded in; Gemini still out). Item numbers are the coordinator's, and Grok's
+are marked G. Everything here is the viewer's own threading, not engine parity. *Superseded by review 25 item 1*: the
+synchronous refusal that items 1-3 shape was unreachable in production and has been removed, with its rows. Items 1-3
+below record what was done and why it was undone; item 4's release rows stay.
+
+1. *The synchronous refusal could crash the render loop*: **true**.
+   - `NeedsReload` (ViewerPresenter.Draw.cs:100-104) calls `LoadMap` from inside the frame. The refusal keyed on an
+     incomplete queue, so it threw whenever a load was queued but had not yet raised the barrier, or in the gap after a
+     superseded load.
+   - The refusal is now keyed on the barrier: it refuses only while a worker is actually reading. While the barrier is
+     up, the frame itself returns early, so the reload never reaches it.
+   - The check runs first, on the UI thread. The barrier is raised and lowered only in UI marshals, so it cannot change
+     during the call (G3: a load started after the check cannot reach its read until the UI thread is free).
+   - *Test*: `LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap`. `LoadMap` is asked at the start of the load's
+     raising marshal and reads.
+   - *Sabotage*: keying the refusal on the queue again reddens it.
+2. *A refused call released a view it never fixed*: **true**. The refusal now runs before the `try`, so the `finally`
+   never sees it.
+   - *Test*: `LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed`. After the refusal, HUD B is chosen and the
+     lists still read A's doors.
+   - *Sabotage*: putting the refusal inside the `try` reddens it.
+3. *A refused synchronous `LoadDemo` left a half-applied demo*: **true**. `LoadDemo` now refuses at its entry, before it
+   takes a ticket or calls `Apply`. The same row asserts no demo opened.
+   - *Sabotage*: moving the refusal back into `ReadDemoMap` reddens the row. It fails at the async load's own result,
+     because the refused call had already taken a ticket and superseded it, which is the half-applied state itself.
+4. *Three release sites were untested*: **true**. One row now covers each.
+   - The read's failure path: `LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo`.
+   - `LoadMap` and `LoadDemo`: `LoadMapAndLoadDemo_AfterTheirRead_LetTheLoadsHudGo` (two cases). In each, HUD B is chosen
+     during the read and the lists read B afterwards.
+   - *Sabotage*: removing all three releases reddened each row.
+   - *Not covered separately*: a superseded load's release. It is the same `finally` as the current load's, and it can
+     only be seen if the next load never begins.
+5. *The first load with no readable map fixes a view nothing reads*: **true**. Review 23 item 3 is corrected above. No
+   code change: with no install published, the precache does not run.
+6. *Stale route comments*: **true**.
+   - `LoadDemoAsync` is the playlist's, the command line's (`ViewerSession.Capture.cs:522`) and `--shot`'s route.
+   - `LoadDemo` is called by `MainForm.LoadDemo` and the tests, and `MainForm.LoadDemo` is called only by
+     `Viewer3D.Tests` (review 25 item 4). No production route reaches `LoadDemo`.
+   - `LoadMap` is the world's reload after a lost device. *Corrected in review 26*: it is reached through `ProjectMap`,
+     which has three callers — the frame, the map read, and the window's `OpenDevice`.
+   - The comments now name these callers. Review 22 item 4 now names the new place of the begin.
+
+Grok's items:
+- **G1** (a release on the worker before `Apply`): **false**. Nothing releases in or after `ReadMapNamed`. The releases
+  are at the end of the marshal that runs `Apply`, in the read's failure path, and at the end of the synchronous
+  `LoadMap` and `LoadDemo`. The mid-load test already switches the HUD after `ReadMapNamed` has returned, at the models
+  report.
+- **G2** (a synchronous read overlapping an async one through the shared slot): **cannot happen**.
+  - The synchronous routes run on the UI thread, and an async load's steps that matter — its install hand-off, its
+    raise, and its worker's begin after the raise — need the UI thread first.
+  - A synchronous read therefore finishes, and releases its view, before an async read can begin.
+  - An async read already begun: *restated in review 26 item 2*. The one synchronous route that can reach a read during
+    a worker's — the window's `OpenDevice` projecting a lost world — skips its reload while the barrier is up
+    (`FollowUpload`, review 26 item 1). The others run inside the frame, which returns while the barrier is up.
+- **G4** (the queue test samples before `Apply`): **true as written, harmless in production**. The real window runs
+  marshals one at a time on its thread, so the next load's raise cannot begin until the whole of A's last marshal,
+  `Apply` included, has run, wherever inside it the queue is released. A superseded A runs no `Apply`, and nothing in its
+  last marshal reaches the window to observe. The test window runs marshals inline on many threads, which is looser than
+  production. No change.
+- **G5** (the Scene row never selects stock): **false**. `ChosenHud` is null, which is stock, from the first part of the
+  row. The row now asserts that as a control and says so in its comment.
+
+**Review 25** (Fable OK to merge; Sonnet nothing high; Gemini and Grok still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The synchronous refusal is unreachable in production*: **true**. It is removed, together with its two rows
+   (`LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed`, `LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap`)
+   and the claims about it. **Do not re-add it.** The reason, from a search of every caller:
+   - `LoadMap`'s one production caller is the reload after a lost world (`NeedsReload`, ViewerPresenter.Draw.cs).
+     *Corrected in review 26 item 1*: this said it runs only inside the frame and that `MapRead` and `OpenDevice` do
+     not reach it. That was wrong, because the search was for `LoadMap` and not for its caller `ProjectMap`, which has
+     three entries. The frame (`ProjectWorld`) is held off by the barrier. The map read (`MapRead`) has fresh assets and
+     never asks for a reload. The window's `OpenDevice` runs on the UI thread with no barrier check, so a viewport
+     recreated during a worker's read did reach `LoadMap` beside it. The refusal was still the wrong place for the
+     guard; review 26 puts it on the reload itself.
+   - `LoadDemo`'s one non-test caller is `MainForm.LoadDemo` (MainForm.cs:892), which only `Viewer3D.Tests` calls. Both
+     are kept for tests, which need a load that has finished when the call returns. No comment calls them a production
+     route any more.
+2. *The failure path's release ran on the worker, after the marshal*: **true**. It now runs in that marshal, in a
+   `finally`, on the UI thread, as the success path's does. The failure row
+   (`LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo`) pins that it runs. Which thread it runs on is not
+   cheaply observable.
+3. *A mapless read installs while `_game` stays null or old*: **true, recorded**. `BeginLevelHud` calls
+   `_levels.Install` at the top of every map read, so on a mapless or missing-map read `LevelSystems` holds the install
+   while the presenter's `_game` stays as it was until a map is read (`ReadMap`). Publishing `_game` there would make a
+   mapless first load precache against the install, which D224 does not support, so it is left. The fixed view is then
+   read by nothing (review 24 item 5).
+4. *Stale wording*: **true**. The remarks at `LoadDemo`, `LoadDemoAsync` and `Apply`, and review 24 item 6, now say
+   that only tests reach `LoadDemo`.
+
+Gemini's two points on review 24:
+- *`MainForm.LoadDemo` breaks its "reported, never thrown" contract*: **false**. That contract, MainForm.cs:901-903, is
+  `LoadSelected`'s, the method at :905. `LoadDemo` (:892) states none. It forwards to `ViewerPresenter.LoadDemo`, which
+  reports I/O and invalid-data failures through `CouldNotOpen`, and removing the refusal removed the one new exception.
+- *A stale `read ?? LoadMap(...)` in `Apply`'s comment*: **true**. It now reads `read ?? ReadDemoMap(...)`.
+
+**Review 26** (Sonnet and Grok OK; Fable OK with three lows; Gemini still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The reachability record was wrong, and one route was real*: **true**. Review 25 searched for `LoadMap`'s callers
+   and not for those of its caller `ProjectMap`, which has three:
+   - `ProjectWorld`, the frame, is held off by the barrier.
+   - `ILoadView.MapRead`, on the worker, has fresh assets and so never asks for a reload.
+   - `OpenDevice` (ViewerSession.Window.cs:528) runs on the UI thread with no barrier check. If the viewport is
+     recreated during a worker's read, after that read's upload released the assets, the reload ran `LoadMap` beside
+     the worker: it cleared the map, read a second one into the same entity set, and released the worker's HUD view.
+
+   **Fix**: what follows an upload is now `ViewerPresenter.FollowUpload`. It skips the reload while the barrier is up,
+   because the load in flight uploads its own map, and invalidates the world so that the first frame after the load
+   projects it.
+   - *Test*: `FollowUpload_AWorldLostWhileAWorkerReads_ReadsNothingAndProjectsAfter`. During a second load's map read,
+     the reload answer reads nothing (no clear), leaves the load's HUD view fixed, and leaves the world asking to be
+     projected. The control: the same answer after the load does read.
+   - *Sabotage*: removing the guard reddens it (a third clear).
+   - Reviews 24 and 25 are corrected above.
+2. *G2's "cannot happen" cited the deleted refusal*: **true**. It now rests on the item-1 guard.
+3. *The `LoadDemo` exemption conflicts with D180*: **true, filed as B813**. The code comment now points there instead
+   of claiming an exemption.
+4. *Review 23 items 6 and 8 named a renamed test and a deleted refusal*: **true**. Item 6 gives the current test name,
+   and item 8 has a pointer to what superseded it.
+
+*Corrected in review 27*: item 1's "the load in flight uploads its own map" is false, and so is "the route is closed".
+Only the reload branch was guarded; the rest of `ProjectMap` still ran beside the worker. Both are fixed in review 27.
+
+**Review 27** (Fable and Sonnet OK; Grok high; Gemini still out). Item numbers are the coordinator's. Everything here is
+the viewer's own threading, not engine parity.
+
+1. *Grok: the skip loses the reload*: **false, settled by a test**. Grok said the read's completion marks the world
+   projected, so no later frame reloads. Only the frame clears the mark (`WorldProjected`, ViewerSession.Frame.cs:908);
+   nothing in the load does.
+   - *Test*: `ProjectMap_FromAWindowWhileAMapReads_MarksTheWorldAndTheFrameAfterTheLoadReloads`, renamed in review 28
+     to `ProjectMap_NotTheReadsOwnWhileAMapReads_MarksTheWorldAndTheMarkOutlivesTheLoad`. The mark set during
+     the read is still set after the load. The frame's step then clears it and the upload answers "lost", and the map is
+     read again (a clear) with no mark left behind.
+   - *Limit*: the upload's "lost" answer is supplied by the test. A map whose upload answers that by itself needs
+     textured surfaces and released assets, which no synthetic fixture here has. Everything around that answer is real.
+   - The round-26 test sampled the mark inside the read; this test replaces it.
+   - *An instrument fault, found and fixed*: the test's first form ran the window's projection as a pool task and
+     waited on it. In the full suite the wait ran the task inline on the read's own thread, which the guard rightly
+     treats as the read's projection, so the test failed there and passed when run alone. It now uses a dedicated
+     thread, as the window's UI thread is, and passed in three full Presentation runs.
+2. *`OpenDevice`'s projection still ran beside the worker*: **true** (pre-existing). The guard now sits at the top of
+   `ProjectMap`. While a worker reads, any projection other than the read's own only marks the world. The read's own
+   projection is told apart by its thread (`_readProjectionThread`, set around `ILoadView.MapRead`). *Replaced in
+   review 28 item 1* by an explicit signal: `ProjectMap(…, fromTheRead: true)` from `ILoadView.MapRead`.
+   - This closes `FollowUpload`'s release of the model vertices the worker appends to, and the UI upload running beside
+     the worker's on the same map.
+   - *Test*: the item-1 row drives `ProjectMap` itself, from another thread during the read, which is the `OpenDevice`
+     route. The read's own projection on its thread is the control.
+   - *Sabotage*: removing the guard reddens it (the window's projection does not mark). Never setting the thread mark
+     reddens its control (the read's own projection marks instead of running).
+3. *Wrong rationale*: **true**. The read in flight does not recover a lost device, because it uploaded to the device
+   that was lost. Recovery is the first frame with no read in flight or queued. The upload answers that the world is
+   lost, and `LoadMap` reads the map again **synchronously, on the UI thread**: a full map read, 13 to 18 seconds on a
+   large map (B146), with the window not pumping. The comment in `FollowUpload` and review 26 now say this.
+4. *A reload in a superseded load's gap reads a map the next load clears*: **true, fixed**. The reload now waits while
+   any map read is in flight or queued (`MapReadInFlightOrQueued`). It only marks the world and skips, with no throw.
+   *Widened in review 28 item 2*: the skip now holds while any load is in flight, decoding included.
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsQueued_ReadsNothingAndMarksTheWorld`. The world is lost at the start of
+     a queued load's raising marshal, with the barrier down.
+   - *Sabotage*: keying the skip on the barrier alone (round 26's form) reddens it.
+5. *"Reloading the map…" with no demo overwrote the status*: **true, fixed** in one line. A lost world with no demo
+   sets no status.
+   - *Test*: `FollowUpload_AWorldLostWithNoDemo_LeavesTheStatus`.
+   - *Sabotage*: setting the status anyway reddens it.
+6. *A lost-device reload forgets the demo's precached models*: **true, recorded (pre-existing)**.
+   - `LoadMap` clears the map. `ClearMap` calls `_levels.Shutdown()`, whose `MomentScene` system calls
+     `EntityModelSet.LevelShutdown`, which forgets every packed model.
+   - The re-read packs the map's detail models (`LevelSystems.Load`), but not the demo's precache. That runs only in a
+     demo load (`DemoModels.Precache`, on the worker and in `Apply`).
+   - After a lost-device reload, the demo's models pack on sight. That is slower, with a hitch at each model's first
+     appearance, but not broken.
+   - Not fixed here: precaching again in `LoadMap` is a separate change, filed as B814 in review 28.
+
+**Review 28** (Fable and Sonnet OK; Grok high; Gemini still out). Item numbers are the coordinator's. Everything here is
+the viewer's own threading, not engine parity.
+
+1. *The read's own projection was told apart by its thread*: **replaced by an explicit signal**. Grok's scenarios (an
+   awaited `MapRead`, or a `ProjectMap` inside an inlined task) were traced by Fable and Sonnet as not happening in
+   production. A thread-identity check still breaks the moment either does.
+   - `ProjectMap` now takes `fromTheRead`. The only caller that passes it is the window's `ILoadView.MapRead`, the
+     read's own projection. `_readProjectionThread` is deleted.
+   - *Test*: `ProjectMap_NotTheReadsOwnWhileAMapReads_MarksTheWorldAndTheMarkOutlivesTheLoad` (item 6's rename). Both
+     calls now run on the same thread, with and without the signal, so the dedicated-thread workaround is gone.
+   - *Sabotage*: ignoring the signal reddens the control (the read's own projection marks).
+   - *Not pinned by a test*: the window passing the signal. `ILoadView.MapRead` is one line in `ViewerSession`, and no
+     test drives a session through a real map read with a device.
+2. *The skip missed a load still decoding*: **true, fixed**. The skip now keys on any asynchronous load in flight
+   (`LoadInFlight`, `_loadsInFlight > 0`), from `LoadDemoAsync`'s start to its last marshal. That marshal counts it down
+   on every path, so the skip always releases. `MapReadInFlightOrQueued` is gone.
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing` (two cases). The world
+     is lost while the second load decodes, or once it is queued.
+   - *Sabotage*: keying on the queue alone reddens the decoding case only.
+3. *The skip set "Reloading the map…"*: **true, fixed**. A reload that waits sets no status, so the load's own status
+   ("Opening…") stays. The same row asserts it.
+   - *Sabotage*: setting the status on the skip reddens both cases.
+4. *Stale `LoadMap` remark*: **true**. It now names both guards on the route: `ProjectMap` at its top, and
+   `FollowUpload` keyed on loads in flight.
+5. *The lost-precache gap*: **filed as B814**. No commit on any ref had added "B814" (`git log --all -S"B814"`), and the
+   same search finds "B813" only in this branch's own commit.
+6. *The test name overclaimed*: **true**. It is renamed to what it shows: no frame runs, and the "lost" answer is
+   supplied by the test.
+
+**Review 29** (Sonnet OK; Fable one medium; Gemini and Grok still out). Item numbers are the coordinator's. Everything
+here is the viewer's own threading, not engine parity.
+
+1. *The waiting skip repeated every frame*: **true** (review 28 widened the skip into the decode and fetch, when frames
+   still run).
+   - The skip now records a pending reload once (`_reloadPending`, which logs once) and leaves the world unmarked.
+   - The last load to finish (the count reaching zero in `LoadDemoAsync`'s last marshal) marks it once. The next frame
+     then projects, and a world still lost is read again.
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing` (renamed in review
+     30 to `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`), two cases. Two
+     "lost" answers in a row during a load leave the world unmarked, so no frame re-projects. After the load the world
+     is marked once, and the same answer reads the map.
+   - *Sabotage*: marking on every skip reddens both cases. Dropping the end-of-loads mark reddens both cases (nothing
+     would project again).
+   - The log line's count is not asserted, because no recording logger reaches these presenter rows; the mark is what
+     stops the loop.
+   - *An instrument fault, found and fixed*: the test's decoding case hooked the queued load's decode report. The test
+     window notes decode reports by count, so a late progress post from the first load took the slot and the hook never
+     ran; it failed every time. It now hooks "Loading the map", which comes after the decode and before the fetch wait
+     and the queue. That is always noted, and it is the window the queue key missed.
+2. *The read's signal was untested*: **true**.
+   - *Test*: `ViewerSessionTests.Activate_ADemoWithItsMap_TheReadsOwnProjectionIsNotHeldOff`, a session with a device
+     opening a demo through the playlist. A projection held off by a read now writes one line
+     (`ViewerPresenter.HeldOffWhileAMapReads`), and the read's own projection writes none. The control: a projection
+     made during a second load's read, from outside it, is held off and writes the line.
+   - *Sabotage*: dropping `fromTheRead: true` from `ILoadView.MapRead` reddens it.
+3. *The count was raised before the region that lowers it*: **true**. The increment is now the first statement inside
+   the `try`, ahead of the decode report.
+   - *Test*: `LoadDemoAsync_ALoadThatFails_LeavesNoLoadCounted`, three cases: a decode report that throws, a file that is
+     no demo, and a read that throws.
+   - *Sabotage*: the increment and report back before the `try` reddens the report case alone.
+4. *Mixed atomics on the count*: **true**. It is counted on the UI thread, or inline off it before the window's handle
+   exists, and read from the map read's worker as well. So it now uses `Interlocked` on both sides, with
+   `Volatile.Read` for reads.
+
+**Review 30** (Fable and Sonnet OK, no defects; Grok one high; Gemini still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The pending flag was set apart from the count* (Grok): **closed, though unreachable in practice**. Sonnet traced
+   both sides to the UI thread.
+   - The flag is now an int that both sides take with one `Interlocked.Exchange`.
+   - After setting it, the skip reads the count again. If the count is zero (the last load finished in between), the
+     skip takes the reload itself and marks the world. A double mark is harmless; a missing mark loses the reload.
+   - *Not tested*: the interleaving needs the decrement off the UI thread, which nothing in the code does.
+2. *The window's step ran before the mark* (Fable, Grok): **true, fixed**. The last load now takes the pending reload
+   before it hides the loading overlay.
+   - *Test*: `LoadDemoAsync_AHideThatThrowsWithAReloadPending_StillMarksTheWorld`.
+   - *Sabotage*: hiding first reddens it.
+3. *Tests*: **added**.
+   - *Clearing the flag*: the in-flight row runs a plain load after its reload and asserts the world ends unmarked,
+     which also pins "mark only when a reload is pending". *Sabotage*: marking at every last load reddens it.
+   - *Log once*: `ViewerSessionTests.Activate_AWorldLostTwiceDuringALoad_SaysSoOnce` gives two "lost" answers during a
+     session's load and expects one line. *Sabotage*: logging on every skip reddens it.
+   - *The read's projection ran* (Grok): the session row is now
+     `Activate_ADemoWithItsMap_TheReadsOwnProjectionRunsAndIsNotHeldOff`. Inside the read, before it reports its
+     models, the window was asked for the viewport's size exactly once, which is the read's projection. *Sabotage*: a
+     `MapRead` that does not ask the window reddens it.
+   - *Limit*: a synthetic map has no outline, so the read's projection returns before any upload. The viewport ask is
+     the trace it leaves.
+4. *Stale text*: **true**. "So mark the world and wait" now says the reload waits and the world is marked once no load
+   is in flight. The in-flight row is renamed
+   `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`.
+
+**The gate on the merged head (f50c61ec6) failed twice, and both failures were this branch's.** The viewer's own code is
+behind both, so neither is engine parity.
+
+1. *Viewer3D.Tests `HudMenu_WithNoHudsInstalled_HasOnlyTf2Default`: TF2's stock HUD was not checked.* **Cause: B779's
+   own tests wrote the owner's settings file.**
+   - `ViewerPresenterTests.Loader` built its `SettingsPresenter` with no path. `SetChosenHud` then saved to
+     `ViewerSettings.Path`, the user's `settings.cfg` under LocalApplicationData.
+   - The HUD rows added in reviews 20-24 (`SetChosenHud_BeforeAndAfterTheInstallOpens_IsTheInstallsChoice` and the
+     others) therefore overwrote that file with a test's settings and `hud_chosen "custom/after"`.
+   - `new MainForm()` in Viewer3D.Tests reads the same file, saw a chosen HUD, and left the stock entry unchecked.
+     Measured: the file's line 89 was `hud_chosen "custom/after"`, last written 2026-11-22 21:36.
+   - **Fixed at the cause and guarded.** `Loader` now passes a path in the test's own folder, and so do the two
+     `SetConVar` rows that built their own presenter (review 32 item 3).
+   - Every unit test assembly that reaches `ViewerSettings` — Scene.Tests, Rendering.Tests, Presentation.Tests and
+     Viewer3D.Tests — now has a `SettingsFilePolicy`. It points `TF2VIEW_SETTINGS` at a fresh temp file for the run (the
+     UI tests' D210 seam) and deletes the file afterwards. The redirect is one linked base, `SettingsFileRedirect`.
+   - Each assembly pins it: `SettingsFilePolicyTests.Path_InThisAssembly_IsARunsTempFileNotTheOwners`. *Sabotage*:
+     dropping the `[SetUpFixture]` in Scene.Tests reddens it.
+   - **What this covers, exactly** (reviews 32-33):
+     - no test in those assemblies writes the owner's file, and Presentation and Viewer3D tests do not read it;
+     - **Fonts.Tests too** (review 33 item 5): the Fonts project references Scene, so its tests reach `ViewerSettings`
+       transitively. Review 32 checked only the test projects' direct references and missed it. It now has the policy
+       and the pin. *Sabotage*: dropping its `[SetUpFixture]` reddens its pin.
+     - Content.Tests, Audio.Tests, Animation.Tests, Cli.Tests, Core.Tests and Logging.Tests reach no project that
+       references Scene, directly or through another project (checked review 33), so they cannot reach `ViewerSettings`;
+     - Corpus.Tests is left as it is: it reads this machine's game folder (`cl_game_folder`) by design, read-only, as
+       the UI tests' map fetch does.
+   - *Proof*: the gate run was red. After the change it is green, and the owner's file kept its timestamp through full
+     Presentation, Scene, Viewer3D and Rendering runs.
+   - **The owner's file has been reset.** The coordinator restored it (`hud_chosen` back to the default). The 21:52
+     write was the coordinator's, not a test's.
+   - *Review 33*:
+     - Each pin now checks the file is named for its own assembly, through one shared assertion
+       (`SettingsFileRedirect.ShouldBeRedirectedFor`). In a shared runner, a variable another assembly left set could
+       otherwise pass it (Grok).
+     - The teardown deletes the file this run created, not whatever the variable names, and restores the variable's
+       prior value instead of clearing it (item 6).
+2. *UI `TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry`: no "entity models:" line.* **A lost log line, not lost
+   geometry.**
+   - Review 16 (6889c9bb5) added `MomentScene.UploadGrown`, the upload after the HUD's overlay. It uploaded without the
+     line, which only the moment's own `Pack` wrote.
+   - When the overlay's upload ran first, `Pack` found the device already holding the set and returned before its
+     line.
+   - The geometry was there: the UI rows that need drawn models (`TheOpaqueModels_…`) passed in the same run.
+   - **Fixed**: the line, and the names under it, are now written by `UploadNow`, so every upload reports, whoever
+     asked for it.
+   - *Test*: `MomentSceneTests.UploadGrown_AfterAPanelsLoad_SaysHowMuchItUploaded`. It was red first (count 0) and is
+     green after the fix.
+   - *Review 32*:
+     - The per-path names under the line are now the moment's own upload's only (item 6), so a HUD paint that adds a
+       model does not list the whole set again. The same Scene row asserts it; naming on every upload reddens it.
+     - The UI row now reads the line's value (item 5): at least one "entity models:" line must carry vertices, since
+       every upload, a HUD paint's included, writes the line.
+     - **That check found the line was misreporting**, and it was red on its first run. It wrote "911 packed,
+       0 vertices" because it counted after the upload, and once the world is up the set lets its copy go after each
+       upload (B407). The line now counts what is handed over, before the hand-over; so does the STALL warning, which
+       had the same fault. *Test*: `MomentSceneTests.UploadGrown_AfterTheCopyIsLetGo_CountsTheVerticesItHandedOver`
+       (red with the count read after the upload).
+   - *Review 33*:
+     - **The line now says which route uploaded, and gives two counts**:
+       `entity models (moment|hud paint): N packed, V new vertices, T vertices in all`. After a release the set holds
+       only what was packed since, so the new count alone mixed units with the model count (item 1).
+     - A re-upload legitimately reports 0 new vertices, so the comment now says "no vertices in total means the packing
+       failed".
+     - The Scene rows assert the exact counts: one triangle is 3 new and 3 in all, then 3 new and 6 in all after a
+       release (item 2).
+     - `Build_AMomentWithAModel_TheUploadNamesWhatItPacked` pins the moment's per-path names. *Sabotage*: `Pack`
+       passing `namePaths: false` reddens it (item 3).
+     - The UI row reads the counts with a pattern, not by position (item 4). **Keying it on the moment's own line was
+       tried and was red**, because no `(moment)` line was written in the UI run. After the load the precache has grown
+       the set, and the HUD overlay's upload ran first and handed over all 911 models; the moment's own pass then had
+       nothing new. Which route uploads first is incidental. The row now requires one upload of more than 50 models
+       with vertices in all. A HUD panel alone asks for at most 21 (measurements/2026-11-22-b779-panel-preload.md),
+       and a demo's load packs hundreds.
+   - *Review 34*:
+     - **"N packed" said the wrong thing.** N is the whole set, which only grows, while the vertex count is this
+       upload's. The line now reads `entity models (moment|hud paint): N models in the set, V new vertices, T vertices
+       in all`, and the UI row's comment says "an upload of a set holding more than 50 models" (item 1). The three Scene
+       rows were red on the old text before the rename.
+     - **The route is the one argument** (item 2). `UploadNow` takes the route's label, and whether it names every
+       packed path follows from it (only `MomentRoute` does), so the label and the names cannot disagree.
+     - **"A re-upload after the device lost its buffers" is not a zero-new case** (item 3). A lost device rebuilds the
+       set from the map (B814), so its upload carries vertices. The review 33 note above that called a re-upload
+       legitimate is superseded; the comment now keeps only "nothing new since a release".
+     - **The load's own upload has no owner**: filed as B815 (item 4).
+   - *Review 35*:
+     - **The viewmodel's upload bypassed the set** (item 1, a cost this branch introduced). `AddViewmodel` called the
+       device directly and never called `Uploaded`, so `Grown` stayed set and the HUD paint's `UploadGrown` handed the
+       whole set over again. It now goes through `UploadNow` under a third route, `viewmodel`, which marks the set
+       uploaded, writes the one line and takes the STALL timing; its own "viewmodel models uploaded" line is gone.
+       *Test*: `MomentSceneTests.UploadGrown_AfterAViewmodelUpload_UploadsNothing`, red before the fix. *Sabotage*:
+       skipping `Uploaded` on the viewmodel route reddens it on the upload count.
+     - **The STALL warning names its route** (item 2): `STALL (route) uploading V vertices took ...`. *Test*:
+       `UploadGrown_OnASlowDevice_TheStallNamesTheRoute`, red before the route was added; the fake device holds until
+       `StallSeconds` has passed on its own clock.
+     - **B815's text corrected** (item 3): every upload is `UploadNow`'s after item 1, the per-path names are written
+       late rather than never, and the frame is named.
+     - **When 0 new vertices is legitimate** (item 4). `PackModels` sets `Grown` before it asks for the geometry, so a
+       model that fails to load, or has no geometry, grows the set with no vertices. That is one legitimate case;
+       the other (review 36, Sonnet and Gemini) is nothing packed at all, as on an empty first frame, where `Pack` reaches
+       the upload with nothing grown because the device has no models. After a release with models packed, 0 new while the
+       device holds none is a fault.
+
+**Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
+1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
+   thread, serialized with the last load's decrement marshal (`MainForm.OnUi` invokes onto that thread), or on the read's
+   worker while that load is still counted. So the count cannot reach zero between the check and the flag. Both sides
+   still take the flag with one `Interlocked.Exchange`; the last load to finish takes it.
+2. *`FakeViewerWindow.ViewportReads`* (Sonnet, test only): counted with `Interlocked.Increment`, since the read's worker
+   and the test's thread can both ask.
+
+**Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
+layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
+the two f12 demos.
+
+## B815 — a load's precache reaches the device under the HUD's name, on a later frame (2026-11-22) — OPEN
+
+Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it visible.
+- **What happens.** A demo load packs its precache (`DemoModels.Precache`) and uploads nothing. The set is handed to the
+  device by whichever per-frame upload runs first afterwards. Every upload goes through `MomentScene.UploadNow` (since
+  B779 review 35, which moved the viewmodel's direct upload there), under one of three routes: `Pack` (the moment),
+  `UploadGrown` (the HUD overlay) and `AddViewmodel` (the viewmodel). One upload hands over the whole set, on the first
+  frame drawn after the load: the overlay's `UploadGrown` runs after the overlay and before that frame's draw. In the
+  review-33 UI run it was the HUD overlay's, carrying all 911 models.
+- **Consequences.**
+  - The line names the wrong owner: the load's models appear under `(hud paint)`.
+  - The per-path names, which only the moment's route writes, are written late: at the next moment upload, when the set
+    next grows during a moment's build, which lists the whole set, and not with the upload that handed the load's models over.
+    The viewmodel's models are named late the same way since review 36 routed its upload through `UploadNow` (it names
+    no paths), where before the next `Pack` re-uploaded and named them.
+  - **Stall attribution is wrong.** A STALL warning for that upload is logged as the HUD paint's and lands on a playback
+    frame. So a load's cost reads as a frame hitch, and a frame-time measurement right after a load counts it.
+- **What the engine declares** (read from published source, `public/datacache/imdlcache.h`: `MDLCACHE_STUDIOHWDATA`
+  `:67`, `GetHardwareData` `:198`, `BeginMapLoad`/`EndMapLoad` `:246-247`, `PreloadModel` `:260`). `IMDLCache` brackets a
+  level load and has a per-model preload and a getter for each model's device data. **Interpolated, not read:** that
+  the level load builds the precached models' hardware data before the first frame rather than lazily at the first
+  `GetHardwareData`. The header is declarations only; the bodies are in the closed engine, and `GetHardwareData` reads
+  as a lazy getter by name. A disassembly read of the load path (`PreloadModel`, `EndMapLoad`) settles it, and must
+  come before the fix shape below is treated as parity (B779 review 35, Sonnet).
+- **The fix shape.** Upload once at the end of the load, under a third route (for example `"load"`) that names every
+  path, and before the first frame is drawn. Then the first frame has nothing new from the precache, and a STALL warning
+  for the load is the load's. Not fixed on B779's branch: it adds a route and moves when the upload happens, which is
+  more than a log fix.
+
+## B814 — a lost-device reload forgets the demo's precached models (2026-11-22) — OPEN
+
+Found in B779 review 27 (Sonnet), filed in review 28. Pre-existing.
+- **The route.** When the world is lost after its pixels were released, `FollowUpload` reads the map again through
+  `LoadMap`. That calls `ClearMap`, then `_levels.Shutdown()`, whose `MomentScene` system calls
+  `EntityModelSet.LevelShutdown`, which forgets every packed model.
+- **What the re-read misses.** It packs the map's detail models (`LevelSystems.Load`), but not the demo's own precache.
+  `DemoModels.Precache` runs only in a demo load, on the load's worker and in `Apply`.
+- **The effect.** After a lost-device reload, the demo's models pack on sight. That is a hitch at each model's first
+  appearance, which is the kind of stall the precache exists to prevent (D86). Nothing breaks.
+- **The fix shape.** Precache the open demo again after the reload in `LoadMap`. It is synchronous on the UI thread like
+  the reload itself, so it adds to that stall rather than to playback.
+
+## B813 — the synchronous `LoadDemo` is a route only tests take (2026-11-22) — OPEN
+
+Found in B779 review 26 (Fable).
+- **The route.** `ViewerPresenter.LoadDemo` is the synchronous load. Its one non-test caller, `MainForm.LoadDemo`
+  (MainForm.cs:892), is called only by `Viewer3D.Tests`. Every production route opens demos through `LoadDemoAsync`:
+  the playlist, the command line and `--shot`.
+- **The conflict.** D180 says that a reader only a test reaches is not a reader, so by that rule the method is dead
+  code that about 35 test calls keep alive.
+- **Why it is not simply deleted.** These tests want a load that has finished when the call returns. The synchronous
+  route also has an `Apply` path (`read ?? ReadDemoMap(...)`) that the async route never takes, and that path's own
+  rows exist only to test it.
+- **Two ways out.** Either give the tests a seam that awaits `LoadDemoAsync` and delete the synchronous route with its
+  `Apply` branch, or record in D180 why a synchronous test seam is allowed. *Not decided*: this is the owner's call.
+  Until then, the code comments point here instead of claiming an exemption.
+
+## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — FIXED (on B779's branch, review 19)
+
+**Fixed within the preload design** (owner's coordinator, review 19: it is B779's own claim, so it finishes there, D261). The
+engine loads a panel's model from the install on demand; ours preloads every model a level can draw, so the faithful
+equivalent is every model a HUD panel can ask for on the preload list (`DemoModels.Needed` and `ToPack` alike, B195):
+- **The HUD layouts' model blocks**: `HudPanelModels.Named` reads the layouts of the elements that hold model panels
+  (`TfHudMatchStatus.ResFile`, `TfHudPlayerClass.ResFile`, `TfItemModelPanel.ResFile` — the elements' own constants) with
+  the keys the panels read (`model`, `modelname`, `attached_model`; basemodelpanel.cpp:88, :127, :143, :149), every
+  conditional block included. On the install: `models/props_ui/banner.mdl` and `models/vgui/versus_doors.mdl`.
+- **Each class's stock weapon**, which the class panel holds when nothing carried can be held (`HoldFirstValidItem`,
+  tf_playermodelpanel.cpp:290-298; `TfPlayerModelPanel.FallbackItem`, one rule for both).
+- **Every carried item's panel models**: `TfPlayerModelPanel.DisplayModel` (the `EquipItem` rule, now shared) for every
+  class and team (0, RED, BLU — the item panels ask with team 0), its world attachments, and a paint-kit weapon's StatTrak
+  module — for every item instance any player carries, drawn or not.
+- Class models and held weapons were already listed (`GameContent.ModelPaths`, `WeaponModels.AllIn`).
+
+**Measured** with the new `hud-model-loads` probe (the production `VguiHud` over a demo, every 33 ticks, with a loader
+that answers only the preload list, as `MapAssets.Geometry` does), before and after, on the install:
+
+| demo | HUD frames | preload before → after | asked | missing before → after |
+|---|---|---|---|---|
+| `tf2-2026-pub-pov-clean.dem` (POV, soldier) | 852 | 472 → 476 | 13 | 1 (`banner.mdl`) → 0 |
+| `20150119_2240_cp_process_final_(ovo)_blu.dem` (POV) | 3647 | 383 → 389 | 21 | 1 (`c_revolver.mdl`, the spy's stock weapon) → 0 |
+| `f12.dem` (STV: no class panel, item panels only) | 3222 | 443 → 450 | 9 | 0 → 0 |
+| `auto-20260817-1720-cp_process_f12.dem` (no class: the null case) | 293 | 126 → 136 | 0 | 0 → 0 |
+
+*The control*: the class panel's model asked and held on both POV demos (the HUD painted a model panel). *Not exercised by
+these demos*: the match doors (no match-start in them) — on the list from the layout, held by the unit test below.
+*Tests*: `DemoModelsTests.NeededAndToPack_AnInstallsHudLayout_HoldItsPanelModelsForTheLevelsLoad` (a synthetic install
+and layout, the lists built the production way, and a set whose loader answers only the preload: the doors load with
+nothing else asking; red first), `AddCarried_AWeaponWithAttachments_ListsItsPanelModels`,
+`NeededAndToPack_AnInstallsSchema_HoldEachClasssStockWeapon`. *Sabotage*: the layout names left off (the layout row),
+the world attachments filtered by the view flag (the carried row), the display model not added (the carried row), the
+stock weapon not added (the stock row). A first sabotage of the stock walk (class + 9) did not redden — not a break:
+`BaseItemForClass` answers the item for such a class too — and was replaced. (`AddCarried_…` is now
+`AddItemModels_AWeaponWithAttachments_ListsTheWorldAttachmentAlone`; review 20 below widened the rows.)
+
+**"Missing" and "held" in this table mean LISTED or not, not loaded**: the probe's loader answers from the preload list
+and reads no file, so a listed `.mdl` the install lacks still counts as held. Whether a listed model loads is the level
+load's own check (review 20 item 8).
+
+Found in B779 review 18.
+
+*The filing, as written in review 18:* `EntityModelSet.Geometry` is `MapAssets.Geometry`, a LOOKUP over the models the map load read
+(MapAssets.cs:988), and the map load reads `DemoModels.Needed` (LoadedMap.cs:361-365): the class models
+(`GameContent.ModelPaths`), every track's models, viewmodels, held weapons, attached models, and the level-load models
+(DemoModels.cs:154-230). A model named only by a HUD `.res` file — the match doors and the round sign in
+`HudMatchStatus.res` — is in none of those, so `LoadMdl` answers null for it on every level, and B779's doors/sign work
+(the set-up's load in the call, the logo bodygroup) cannot be seen in production. *Read from our code*; not measured on a
+real install. Not checked: whether the StatTrak modules and the item panels' models are always in the list. The engine
+reads them from the install on demand (`InitializeAsClientEntity`, basemodelpanel.cpp:407). Fix shape: add the HUD's
+panel model names to the preload (the layout's model blocks are known at HUD load), or load on demand from the install
+with the texture table grown — the larger change D86 avoided.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 
@@ -45769,7 +47173,7 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      `C_BaseFlex::SetupWeights` (:1397) only otherwise; a corpse whose player is dead sets the PLAYER's target, his
      `UpdateLookAt` from his origin (`C_TFRagdoll::SetupWeights` → `pPlayer->SetupWeights`, `c_tf_player.cpp:634-637`;
      `ClientThink` runs the look-at dead or alive, :5948-5955; the clamp taken in the corpse's attachment, *interpolated*);
-     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:467`). *Tests*:
+     a CModelPanel's attached C_BaseAnimating sets none (`basemodelpanel.cpp:468`). *Tests*:
      `Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers` (2 rows),
      `Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget` (2 rows),
      `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`; each red before its fix, each sabotaged. **Review 2**:
@@ -45815,11 +47219,11 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
      reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null).~~ **Superseded**
      (the bounds check at :1456 was read as the index; the read at :1485-1486 is by `localToGlobal`): see "the TF panel,
      read further" below. A CModelPanel's attached models are plain C_BaseAnimatings (`new C_BaseAnimating`,
-     `basemodelpanel.cpp:467`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
+     `basemodelpanel.cpp:468`): zero flex weights, no view target (review 1 item 2; `Paint_AnAttachedModel_SetsNoTargetReadsTheLastAndHasZeroFlex`).
      No TF2 class model has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
      `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
      *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. Neither panel flexes its
-     MESH by those weights, which `CMDL::Draw` does: **B779**.
+     MESH by those weights, which `CMDL::Draw` does: **B779** (fixed 2026-11-21).
      *The TF panel, read further* (the lead's ruling: read where the global numbers come from): the reads are the model's,
      not the session's. `AddGlobalFlexController` numbers names in first-seen order (`c_baseflex.cpp:1341-1361`), but
      RunFlexRules' FETCH1 reads `src[ controller[ index ].localToGlobal ]` (`client.dll` `0x1803177ea-0x18031781f`, as

@@ -1399,6 +1399,108 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The counters as the last load report read them, so the next reports only its own level's.</summary>
     private (int States, long StateTicks, int Baked, int Lists) _loadReported;
 
+    /// <summary>Hands the set to the device if anything grew it since the last upload — for a writer after the moment's show.</summary>
+    /// <remarks>
+    /// **The HUD's paint packs models in the call** (B779 reviews 15-16: `EntityModelSet.LoadMdl`, as the engine's panels
+    /// load and draw in one frame, basemodelpanel.cpp:407, mdlpanel.cpp:185), and it runs in the overlay, after
+    /// <see cref="Pack"/> — which runs from the moment's show, and not at all on a paused frame with a still camera. So the
+    /// frame calls this after the overlay and before the draw. Nothing grown, nothing done: an unchanged frame costs a bool.
+    /// </remarks>
+    public void UploadGrown()
+    {
+        if (!_models.Grown || Upload is not { } upload)
+        {
+            return;
+        }
+
+        UploadNow(upload, HudPaintRoute);
+    }
+
+    /// <summary>The upload line's route for the moment's own upload (`Pack`), which also names every packed path.</summary>
+    public const string MomentRoute = "moment";
+
+    /// <summary>The upload line's route for the HUD overlay's upload (`UploadGrown`).</summary>
+    public const string HudPaintRoute = "hud paint";
+
+    /// <summary>The upload line's route for the first-person viewmodel's upload (`AddViewmodel`).</summary>
+    public const string ViewmodelRoute = "viewmodel";
+
+    /// <summary>Uploads the whole set and marks it uploaded, reporting a stall and the count.</summary>
+    /// <param name="upload">The device.</param>
+    /// <param name="route">Which route asked (<see cref="MomentRoute"/>, <see cref="HudPaintRoute"/>,
+    /// <see cref="ViewmodelRoute"/>, review 33 item 4, review 35 item 1); the line and any STALL warning name it. The
+    /// per-path names follow from it, not from a second argument (review 34 item 2): only the moment's own upload names
+    /// every packed path, so a HUD paint that grows the set by one model does not list the whole set again (review 32
+    /// item 6).</param>
+    private void UploadNow(IModelUpload upload, string route)
+    {
+        bool namePaths = route == MomentRoute;
+        long uploadedAt = Stopwatch.GetTimestamp();
+
+        // What is handed over, counted before the hand-over: once the world is up the set lets its copy go after an
+        // upload (B407), so a count read afterwards says 0 vertices for a set that just uploaded hundreds of models. Two
+        // counts, because after a release the set holds only what was packed since (review 33 item 1): the new vertices
+        // this upload hands over, and the total on the device after it (`VertexBase`, what went up before, plus those).
+        int models = _models.Count;
+        int vertices = _models.Vertices.Count;
+        int total = _models.VertexBase + vertices;
+
+        upload.UploadModels(_models);
+
+        _models.Uploaded();
+
+        double uploadSeconds = (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
+
+        if (uploadSeconds > StallSeconds)
+        {
+            // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off cost
+            // at load: it is paid again every time a model nobody has seen yet comes into view, and
+            // it gets more expensive as the set gets bigger.
+            // Stryker disable all : the String mutator wraps the interpolated literal in a
+            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
+            // and Safe Mode then drops every mutation in this method — B410.
+            _render.LogWarning(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"STALL ({route}) uploading {vertices} vertices took " +
+                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {models}"));
+
+            // Stryker restore all
+        }
+
+        // **Logged because a model that draws nothing looks exactly like one that was never uploaded.** The counts
+        // separate the two: no vertices in total means the packing failed, and vertices with no instances means the
+        // posing did. **New** vertices are 0 legitimately in two cases: every model packed since the last upload failed to
+        // load (`PackModels` marks the set grown before it asks for the geometry, so a missing file or an empty model still
+        // grows it; review 35 item 4), or nothing has been packed at all (`Pack` gets here with nothing grown when the
+        // device has no models, as on an empty first frame; review 36). After a release with models packed, 0 new while
+        // the device holds none is a fault.
+        // **The model count is the whole set**, not what this upload added — a set only grows (review 34 item 1).
+        // **Here, on every upload, whoever asked for it** (B779 gate): the HUD's overlay uploads through `UploadGrown`, and
+        // when it ran first the moment's own pass returned before a line it alone wrote, so a load said nothing of what it
+        // packed.
+        _render.LogDebug(
+            "{Message}",
+            $"entity models ({route}): {models} models in the set, {vertices} new vertices, {total} vertices in all");
+
+        if (!namePaths || !_render.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        // **Named, not counted.** A count says how many arrived and nothing about which are missing,
+        // and "the health packs are not drawing" is a question about names.
+        foreach (string path in _models.Paths)
+        {
+            string indices = string.Join(
+                ", ",
+                _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
+
+            _render.LogDebug("{Message}", $"  packed {path}: {indices}");
+        }
+    }
+
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
     /// <remarks>
     /// **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an MDL
@@ -1492,54 +1594,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        long uploadedAt = Stopwatch.GetTimestamp();
-
-        upload.UploadModels(_models);
-
-        _models.Uploaded();
-
-        double uploadSeconds = (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
-
-        if (uploadSeconds > StallSeconds)
-        {
-            // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off cost
-            // at load: it is paid again every time a model nobody has seen yet comes into view, and
-            // it gets more expensive as the set gets bigger.
-            // Stryker disable all : the String mutator wraps the interpolated literal in a
-            // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
-            // and Safe Mode then drops every mutation in this method — B410.
-            _render.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL uploading {_models.Vertices.Count} vertices took " +
-                    $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
-
-            // Stryker restore all
-        }
-
-        // **Logged because a model that draws nothing looks exactly like one that was never
-        // uploaded.** The counts separate the two: no vertices means the packing failed, and
-        // vertices with no instances means the posing did.
-        _render.LogDebug(
-            "{Message}",
-            $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
-
-        if (!_render.IsEnabled(LogLevel.Debug))
-        {
-            return;
-        }
-
-        // **Named, not counted.** A count says how many arrived and nothing about which are missing,
-        // and "the health packs are not drawing" is a question about names.
-        foreach (string path in _models.Paths)
-        {
-            string indices = string.Join(
-                ", ",
-                _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
-
-            _render.LogDebug("{Message}", $"  packed {path}: {indices}");
-        }
+        // The count is said by the upload itself (`UploadNow`), on every route; the names on this one.
+        UploadNow(upload, MomentRoute);
     }
 
     /// <summary>The main viewmodel's bob state — `CTFViewModel::m_BobState` — stepped as frames advance (B525).</summary>
@@ -2126,15 +2182,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
         // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
         // were packed, posed, instanced, transformed correctly and submitted against geometry the
-        // renderer did not have.
+        // renderer did not have. **Through `UploadNow`**, which marks the set uploaded: a direct call left `Grown` set, and
+        // the HUD paint's `UploadGrown` then handed the whole set over again (B779 review 35 item 1).
         if (_models.Add(scene.Props) && Upload is { } upload)
         {
-            upload.UploadModels(_models);
-
-            _render.LogDebug(
-                "{Message}",
-                $"viewmodel models uploaded: {_models.Count} packed, " +
-                $"{_models.Vertices.Count} vertices");
+            UploadNow(upload, ViewmodelRoute);
         }
 
         // **The viewmodel is where the owner saw it** (B380): a 2008 sticky launcher's `draw` is 2 in

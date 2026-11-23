@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -102,6 +104,146 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
             "texture " + second, $"color {secondColor} 255", "subrect 20 8 170 108",
         ]);
         surface.SubRects.ShouldBe(["20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv]);
+    }
+
+    /// <remarks>
+    /// **An item panel a `.res` file makes reaches the viewport's packing** (B779 review 1 item 2): the freeze panel's and
+    /// the spectator GUI's item panels are built with no cache and ask the viewport's on each use, and the mesh flex spreads
+    /// its face over the order that cache packed. The control: the viewport's cache is the one answering.
+    /// </remarks>
+    [Test]
+    public void MdlCache_APanelMadeWithoutACache_AnswersTheViewportsPackedOrder()
+    {
+        int[] order = [2, 0, 1];
+        HudViewport viewport = new() { Wide = 1366, Tall = 768, MdlCache = new OrderCache(order) };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel");
+
+        viewport.MdlCache.PackedOrder("models/items/hat.mdl").ShouldBeSameAs(order, "the control");
+        panel.MdlCache.PackedOrder("models/items/hat.mdl").ShouldBeSameAs(order);
+    }
+
+    /// <remarks>
+    /// **A level's end releases the StatTrak module's mesh face too** (B779 review 4 item 2): the module is a CMDL of its own,
+    /// outside the merge list, so `ForgetLevel`'s override releases it. Its face is seeded as its draw would build it (the
+    /// embedded panel's strange-weapon draw needs an item schema and a weapon model). The control: it held one.
+    /// </remarks>
+    [Test]
+    public void ForgetLevel_AStatTrakModuleWithAMeshFace_ReleasesIt()
+    {
+        HudViewport viewport = new() { Wide = 1366, Tall = 768 };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel");
+        PropModels.ModelFrames module = PanelMeshFlexFixture.Flexed(
+            new PropModels.ModelFrames([], new Dictionary<int, (int, int, float)>(), [], []) { Flex = new StudioFlexData(["jaw"], [], [], []) });
+
+        panel.StatTrack.MeshFlex.For(new OrderCache([1, 0]), "models/stattrack.mdl", module, [0.25f]);
+        panel.StatTrack.MeshFlex.HoldsFrames.ShouldBeTrue("the control");
+
+        panel.ForgetLevel();
+
+        panel.StatTrack.MeshFlex.HoldsFrames.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The embedded panel's StatTrak module is drawn flexed at its CMDL's zero controls** (B779 review 7 item 5): the
+    /// strange, paint-kitted weapon with no inventory image is drawn as a model (`item_model_panel.cpp:938-1027`), and
+    /// `RenderingRootModel` draws its module bone-merged (`DrawBoneMergedOnto`), a `CMDL::Draw` whose rules run on zeros —
+    /// `jaw + 0.25` over 0.5..1 is 0.25. A synthetic schema names the module (`weapon_uses_stattrak_module`); no install.
+    /// </remarks>
+    [Test]
+    public void Paint_AStrangePaintkittedWeapon_DrawsItsStatTrakModuleFlexed() => PaintStrangeWeapon(loadOnAsk: false);
+
+    /// <remarks>
+    /// **The same with nothing loaded** (B779 review 15 follow-up): the item panel is a `CMDLPanel`, whose `SetMDL` takes
+    /// its handle from `FindMDL` (mdlpanel.cpp:185) and whose draw reads the header through it (imdlcache.h:116-126); the
+    /// module is `FindMDL`'d too (`item_model_panel.cpp`, as the player panel's, tf_playermodelpanel.cpp:588). So the
+    /// first paint draws the weapon and the module, and the module flexed: loaded in the call, it is packed with its flex
+    /// order before the draw reads it. The control: nothing was loaded before the item was set.
+    /// </remarks>
+    [Test]
+    public void Paint_AStrangePaintkittedWeaponNothingLoaded_LoadsAndDrawsItsStatTrakModuleFlexed() => PaintStrangeWeapon(loadOnAsk: true);
+
+    private static void PaintStrangeWeapon(bool loadOnAsk)
+    {
+        const string weapon = "models/weapons/w_scattergun.mdl";
+        const string module = "models/weapons/c_models/stattrack.mdl";
+        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes("""
+            "items_game"
+            {
+                "items" { "13" { "item_slot" "primary" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_scattergun.mdl" "static_attrs" { "weapon_uses_stattrak_module" "models/weapons/c_models/stattrack.mdl" } } }
+                "attributes"
+                {
+                    "834" { "name" "paintkit_proto_def_index" "stored_as_integer" "1" }
+                    "214" { "name" "kill eater" "stored_as_integer" "1" }
+                    "2001" { "name" "weapon_uses_stattrak_module" }
+                }
+            }
+            """));
+        PropModels.ModelFrames plain = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        PropModels.ModelFrames flexed = PanelMeshFlexFixture.Flexed(plain with
+        {
+            Flex = new StudioFlexData(
+                ["jaw"],
+                [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                []),
+        });
+        Dictionary<string, PropModels.ModelFrames> models = new() { [module] = flexed, [weapon] = plain };
+        HashSet<string> loaded = new(StringComparer.Ordinal);
+        IMdlCache cache = loadOnAsk
+            ? new FramesCache(path => loaded.Contains(path) ? models.GetValueOrDefault(path) : null, path => loaded.Add(path))
+            : new FramesCache(models.GetValueOrDefault);
+        HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel", cache)
+        {
+            Wide = 140,
+            Tall = 100,
+        };
+        TfItemView item = new TfItemView(
+            13,
+            6,
+            new Dictionary<int, EconAttributeValue> { [834] = new(834, 350), [214] = new(214, 12) }) with { IteratesDefinition = true };
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        loaded.ShouldBeEmpty("the control: nothing loaded before the item");
+        panel.SetItem(item);
+        panel.StatTrack.Disabled.ShouldBeFalse("the control: the module is shown");
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        IReadOnlyList<ModelInstance> drawn = surface.Draws.ShouldHaveSingleItem().Models;
+        System.Linq.Enumerable.Select(drawn, model => model.ModelPath).ShouldBe([weapon, module]);
+        PanelMeshFlexFixture.ShouldBeFlexedBy(System.Linq.Enumerable.Single(drawn, model => model.ModelPath == module), 0.25f);
+    }
+
+    /// <summary>A cache answering models by path, with the fixture's packed order; <paramref name="load"/> runs on a load.</summary>
+    private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find, Action<string>? load = null) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => find(path);
+
+        public PropModels.ModelFrames? LoadMdl(string path)
+        {
+            load?.Invoke(path);
+
+            return find(path);
+        }
+
+        public IReadOnlyList<int>? PackedOrder(string path) => PanelMeshFlexFixture.Order;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
+    /// <summary>A cache answering one packed order for every path.</summary>
+    private sealed class OrderCache(IReadOnlyList<int> order) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => null;
+
+        public IReadOnlyList<int>? PackedOrder(string path) => order;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
     /// <summary>The 140x100 panel at 1366x768 holding the hat, image data pos (12, 5), its image loaded.</summary>

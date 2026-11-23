@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Tests;
@@ -23,8 +25,9 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// empty scheme and draws defaults. **What the HUD draws is `VguiHud`'s and has its own suites**; asserted here is when
 /// it exists, what it asks the window and at which ticks.
 ///
-/// **Not here:** the HUD's scripts and attribute hooks, which need `items_game.txt`, and the class model panel's
-/// precache, which needs a HUD with a model panel in it. The first-person frames hold the drawn HUD, byte for byte.
+/// **Not here:** the HUD's scripts and attribute hooks, which need `items_game.txt`, and which models the class panel's
+/// precache names, which needs a class model; that the frame asks for it is here (B779 review 3). The first-person frames
+/// hold the drawn HUD, byte for byte.
 /// </remarks>
 public sealed class FramePresenterHudTests
 {
@@ -59,6 +62,8 @@ public sealed class FramePresenterHudTests
             });
 
             Game = GameContent.Open(null, NullLoggerFactory.Instance);
+            Models = models;
+            Moment = moment;
             Frames = new FramePresenter(
                 models, moment, new MomentPresenter(moment, new FrameLedger(), NullLogger.Instance), sound, NullLogger.Instance, NullLogger.Instance, Audio);
             Frames.AttachHud(new HudWindow(
@@ -87,6 +92,12 @@ public sealed class FramePresenterHudTests
         }
 
         public GameContent? Game { get; }
+
+        /// <summary>The model set the presenter and its HUD share.</summary>
+        public EntityModelSet Models { get; }
+
+        /// <summary>The scene whose upload the device takes.</summary>
+        public MomentScene Moment { get; }
 
         public FramePresenter Frames { get; }
 
@@ -126,6 +137,302 @@ public sealed class FramePresenterHudTests
         window.Asked.ShouldBe([100, 101]);
         window.Positions.ShouldBe(2, "cl_showpos is read when the tools panel is framed, once an overlay");
         window.Clocks.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A model the HUD's paint packed is on the device before the frame draws** (B779 review 16): the engine loads and
+    /// draws in one frame (basemodelpanel.cpp:407, mdlpanel.cpp:185), but the scene's upload (`MomentScene.Pack`) runs
+    /// from the moment's show, before the overlay (`FrameSequence.Run`), and a paused still camera shows no moment at all.
+    /// So the overlay uploads what its paint grew before it returns, and `Draw` follows it. The load is made INSIDE the
+    /// HUD's frame (review 17 item 1), as a model panel's paint makes it — through `VguiHud.FrameStarted`, since the harness
+    /// has no install and so no scheme to paint with. Uploading before the HUD's frame would hand over a set without it.
+    /// The controls: the frame did load it, and nothing was packed before the overlay.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_AModelThePaintPacked_IsUploadedBeforeTheOverlayReturns()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+        RecordingUpload upload = new();
+
+        window.Overlay(100);
+        window.Moment.Upload = upload;
+        window.Models.Geometry = SignGeometry(path);
+        StrongBox<int> loads = LoadInTheHudFrame(window, path);
+        window.Models.FindMdl(path).ShouldBeNull("the control: nothing packed before the overlay");
+
+        window.Overlay(101);
+
+        loads.Value.ShouldBe(1, "the control: the HUD's frame ran the load");
+        upload.Uploaded.ShouldHaveSingleItem().ShouldContain(path);
+        window.Models.Grown.ShouldBeFalse("the set was told its contents reached the device");
+    }
+
+    /// <remarks>
+    /// **An overlay with nothing grown uploads nothing** (review 17 item 2): the upload rebuilds the whole set, so the
+    /// overlay's `UploadGrown` hands it over only when the set grew. One load, then three overlays: one upload. The
+    /// control: the first overlay uploaded the load.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_ThreeOverlaysAfterOneLoad_UploadOnce()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+        RecordingUpload upload = new();
+
+        window.Overlay(100);
+        window.Moment.Upload = upload;
+        window.Models.Geometry = SignGeometry(path);
+        _ = LoadInTheHudFrame(window, path);
+
+        window.Overlay(101);
+        upload.Uploaded.Count.ShouldBe(1, "the control");
+        window.Overlay(102);
+        window.Overlay(103);
+
+        upload.Uploaded.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **With no device the growth waits for one** (review 17 item 2): the overlay has nothing to hand the set to, and the
+    /// set stays grown, so the first upload after a device is set takes it. The control: the paint did grow the set.
+    /// </remarks>
+    [Test]
+    public void BuildOverlay_WithNoDevice_LeavesTheSetGrown()
+    {
+        const string path = "models/vgui/round_sign.mdl";
+        Window window = new();
+
+        window.Overlay(100);
+        window.Models.Uploaded();
+        window.Models.Geometry = SignGeometry(path);
+        _ = LoadInTheHudFrame(window, path);
+        window.Moment.Upload.ShouldBeNull("the control: no device");
+
+        window.Overlay(101);
+
+        window.Models.FindMdl(path).ShouldNotBeNull("the control: the paint grew the set");
+        window.Models.Grown.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A model loaded inside the HUD's frame, as a model panel's paint loads one: through `VguiHud.FrameStarted`, since the
+    /// harness has no install and so no scheme to paint with. Counts its runs.
+    /// </summary>
+    private static StrongBox<int> LoadInTheHudFrame(Window window, string path)
+    {
+        StrongBox<int> loads = new(0);
+
+        window.Frames.Hud.ShouldNotBeNull().FrameStarted = () =>
+        {
+            loads.Value++;
+            window.Models.LoadMdl(path);
+        };
+
+        return loads;
+    }
+
+    /// <summary>An upload that records the paths it was handed, each call.</summary>
+    private sealed class RecordingUpload : IModelUpload
+    {
+        public List<List<string>> Uploaded { get; } = [];
+
+        public bool HasModels => Uploaded.Count > 0;
+
+        public void UploadModels(EntityModelSet models) => Uploaded.Add([.. models.Paths]);
+    }
+
+    /// <remarks>
+    /// **The HUD's model panels load through the presenter's model set in the call** (B779 review 15): after a load the set
+    /// has forgotten every model, and a skip's batch or the HUD's first frame can set a panel up before any precache lists
+    /// it. The engine's `SetupModel` loads the model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so
+    /// ours asks the set to (`EntityModelSet.LoadMdl`), and the model is packed for the device with it. The control: the
+    /// load forgot the model.
+    /// </remarks>
+    [Test]
+    public void UpdateModel_AfterALoadWithNothingPacked_LoadsThePanelsModelThroughTheModelSet()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Models.LevelShutdown();
+        window.Frames.ClearMap();
+        window.Models.FindMdl("models/vgui/round_sign.mdl").ShouldBeNull("the control: the load forgot the model");
+
+        sign.UpdateModel();
+
+        sign.SetUpModel.ShouldNotBeNull();
+        window.Models.FindMdl("models/vgui/round_sign.mdl").ShouldNotBeNull("packed by the set-up");
+    }
+
+    /// <remarks>
+    /// **A level change after a level releases the HUD's model panels' models and marks them dirty** (B779 reviews 3, 4, 8, 9,
+    /// 10). Both halves run from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every load: the old
+    /// level's shutdown releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`,
+    /// `cdll_client_int.cpp:1735`), and the new map's `game_newmap` marks the panel dirty (`basemodelpanel.cpp:56`,
+    /// :196-205) so it sets its model up again from the new level's frames. **The shutdown runs at every load** (B779 review
+    /// 12): it releases exactly what the panels hold, paired with the model set forgetting its models, whatever the load
+    /// before came to (a map, none, superseded, failed). Here: a frame, a load, the sign set up again, a frame, a second
+    /// load. The control: the round sign, set up, is clean before the change.
+    /// </remarks>
+    [Test]
+    public void ClearMap_AfterAFrameOfALevel_ReleasesTheModelPanelsModelsAndMarksThemDirty()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Frames.ClearMap();
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldNotBeNull("the control: set up again after the first load");
+        window.Overlay(101);
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull("the level's shutdown released it (cdll_client_int.cpp:1735)");
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A panel set up before the first load is released by it** (B779 reviews 12-14): the first load's model-set shutdown
+    /// clears the set (`EntityModelSet.LevelShutdown`), and the panels go with it. The engine's first load returns early
+    /// (`cdll_client_int.cpp:1714-1715`) and would keep such a model until the dirty `SetupModel` replaces it — a
+    /// divergence on paper only: in the viewer nothing sets a panel up before the first load (no timeline, so no local
+    /// player, no paint, no event, no skip; finding 75). The sign here is set up by hand (`SignWithAModel`), which is
+    /// also the control.
+    /// </remarks>
+    [Test]
+    public void ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull("the first load released what was set up before it");
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **Every load releases what was set up since the last** (B779 review 12, replacing review 10's flag): the model set
+    /// forgets its models at every load (`ViewerPresenter.ClearMap`), so the panels must too, whatever ran between — a
+    /// frame or only a skip's events setting the panel up. A load, the sign set up again with no frame, a second load:
+    /// released again.
+    /// </remarks>
+    [Test]
+    public void ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Frames.ClearMap();
+        sign.SetUpModel.ShouldBeNull("the control: the first load released it");
+
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldNotBeNull("the control: set up again with no frame between");
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull();
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **Nothing set up, the panel still marked dirty** (B779 reviews 9, 12 and 13): ours runs the shutdown at every load,
+    /// and the new map's event (`game_newmap`, basemodelpanel.cpp:196-205) marks a panel dirty whether or not it held a
+    /// model. Only deleting the event half can redden this; with nothing set up, no shutdown fault is visible, so it claims
+    /// no release. The control: the sign was clean before the load.
+    /// </remarks>
+    [Test]
+    public void ClearMap_WithNothingSetUp_MarksThePanelDirty()
+    {
+        Window window = new();
+        window.Overlay(100);
+        VguiModelPanel sign = window.Frames.Hud.ShouldNotBeNull().MatchStatus.RoundSignModel;
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldBeNull("the control: nothing set up");
+        sign.PanelDirty.ShouldBeFalse("the control: clean before the load");
+
+        window.Frames.ClearMap();
+
+        sign.SetUpModel.ShouldBeNull();
+        sign.PanelDirty.ShouldBeTrue();
+    }
+
+    /// <summary>An empty scheme's context, for a panel's own settings: the install of nothing has no `ClientScheme.res`.</summary>
+    private static VguiContext Context()
+    {
+        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 720), scheme.Find("Fonts")!, 1280, 720, "english");
+    }
+
+    /// <summary>One bone at the origin, one sequence: enough for a panel to set the model up.</summary>
+    private static PropModels.SkinnedModel OneBone()
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+            [(0, [new StudioSequence(Animation: 0, Flags: 0, Label: "idle", Blend: null, Activity: "idle", ActivityWeight: 1)])];
+
+        return new PropModels.SkinnedModel(
+            Bones:
+            [
+                new StudioBone(
+                    Name: "root",
+                    Parent: -1,
+                    Position: (0f, 0f, 0f),
+                    Rotation: (0f, 0f, 0f, 1f),
+                    PoseToBone: new float[] { 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f },
+                    Flags: ~0),
+            ],
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: [],
+            MasterPose: []);
+    }
+
+    /// <summary>A loader answering a one-bone, two-corner model for <paramref name="path"/> alone.</summary>
+    private static Func<string, PropModels.ModelFrames?> SignGeometry(string path)
+    {
+        PropModels.ModelFrames frames = new(
+            [
+                new PropVertex[]
+                {
+                    new(0f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 1) { Weights = (1f, 0f, 0f), Bones = (0, 0, 0) },
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: OneBone());
+
+        return requested => requested == path ? frames : null;
+    }
+
+    /// <summary>The HUD built, its round sign given a model the presenter's set has packed, and set up.</summary>
+    private static VguiModelPanel SignWithAModel(Window window)
+    {
+        const string path = "models/vgui/round_sign.mdl";
+
+        window.Models.Geometry = SignGeometry(path);
+        window.Models.Precache([path]);
+        window.Overlay(100);
+
+        VguiHud hud = window.Frames.Hud.ShouldNotBeNull();
+        VguiModelPanel sign = hud.MatchStatus.RoundSignModel;
+
+        sign.ApplySettings(
+            KeyValuesTree.Load(
+                Encoding.UTF8.GetBytes($$"""
+                    "Panel" { "fieldName" "Panel" "wide" "100" "tall" "100" "model" { "modelname" "{{path}}" } }
+                    """),
+                "panel.res",
+                _ => null),
+            Context());
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldNotBeNull("the control: the sign has a model");
+        sign.PanelDirty.ShouldBeFalse("the control");
+
+        return sign;
     }
 
     [Test]

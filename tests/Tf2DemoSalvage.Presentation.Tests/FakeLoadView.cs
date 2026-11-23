@@ -59,10 +59,14 @@ internal sealed class FakeLoadView : ILoadView, ICameraView
         }
     }
 
+    /// <summary>Told as each marshal to the window's thread begins, before its work.</summary>
+    public Action? Marshalling { get; set; }
+
     public T OnUi<T>(Func<T> work)
     {
         ArgumentNullException.ThrowIfNull(work);
 
+        Marshalling?.Invoke();
         marshalled++;
 
         try

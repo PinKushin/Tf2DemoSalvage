@@ -35,6 +35,9 @@ public sealed class VguiMdl
 
     /// <summary>The war paint a <c>WeaponSkin</c> material binds, the item it draws being the proxy's (B754), or null.</summary>
     public WeaponSkin? WeaponSkin { get; set; }
+
+    /// <summary>The mesh face this CMDL's draw last flexed (B779), kept with it so a dropped merge drops it.</summary>
+    internal PanelMeshFlex MeshFlex { get; } = new();
 }
 
 /// <summary>
@@ -59,8 +62,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>CMDLPanel( parent, name )</c> (<c>mdlpanel.h:46</c>).</summary>
     /// <param name="parent">The parent, or null.</param>
     /// <param name="name">The panel's name, or null.</param>
-    /// <param name="mdlCache"><c>vgui::MDLCache()</c>. Asked again on every paint, so a model precached after the
-    /// panel was built is drawn from the next frame.</param>
+    /// <param name="mdlCache"><c>vgui::MDLCache()</c>. Every read of a model loads it in the call (<see cref="IMdlCache.LoadMdl"/>;
+    /// B779 review 15 follow-up): <c>SetMDL</c> and <c>SetMergeMDL</c> take a handle from <c>FindMDL( pMDLName )</c>
+    /// (mdlpanel.cpp:185, :868), the merge reads its header through it at once (<c>GetStudioHdr</c>, :857), and every draw
+    /// reads the header again (imdlcache.h:116-126). Ours holds a path, not a handle, and the model set forgets its models at
+    /// a level's end, so the load is at each read: a dictionary hit once packed, a failed load remembered.</param>
     public VguiMdlPanel(VguiPanel? parent, string? name, IMdlCache mdlCache)
         : base(parent, name)
     {
@@ -87,7 +93,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     ];
 
     private readonly BoneFrameCounter _clock = new();
-    private readonly Dictionary<string, AnimatingEntity> _entities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (PropModels.SkinnedModel Model, AnimatingEntity Entity)> _entities =
+        new(StringComparer.Ordinal);
     private readonly VguiMdl _root = new();
     private readonly List<VguiMdl> _merges = [];
 
@@ -99,8 +106,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// (<c>SetIdentityMatrix</c>, mdlpanel.cpp:75) until <see cref="SetModelAnglesAndPosition"/>.</summary>
     private float[] _rootMdlToWorld = Identity3x4;
 
-    /// <summary><c>vgui::MDLCache()</c>.</summary>
-    protected IMdlCache MdlCache { get; }
+    /// <summary><c>vgui::MDLCache()</c>; internal for the test that an item panel's deferred cache forwards it (B779).</summary>
+    protected internal IMdlCache MdlCache { get; }
 
     /// <summary>
     /// The root model's bones set up as the next paint will (`m_RootMDL.m_MDL.SetUpBones( m_RootMDL.m_MDLToWorld, … )`),
@@ -110,7 +117,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>A row-major 3x4, or null without a model or attachment.</returns>
     protected float[]? RootAttachmentToWorld(int attachment)
     {
-        if (_root.Path is not { } rootPath || MdlCache.FindMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
+        if (RootPath() is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
             || rootFrames.Attachments is not { } attachments || attachment < 0 || attachment >= attachments.Count)
         {
             return null;
@@ -191,7 +198,49 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     public VguiMdl RootMdl => _root;
 
     /// <summary>The root model's path, or null for <c>MDLHANDLE_INVALID</c>.</summary>
-    public string? ModelName => _root.Path;
+    public string? ModelName => RootPath();
+
+    /// <summary>The name <see cref="SetMDL"/> was last given, valid or not.</summary>
+    private string? _rootAsked;
+
+    /// <summary>Whether a level's end left the root's validity to be decided again by the next read.</summary>
+    private bool _rootUndecided;
+
+    /// <summary>The valid root's path, or null for <c>MDLHANDLE_INVALID</c>: decided at <see cref="SetMDL"/>, and again once
+    /// after each level's end.</summary>
+    /// <remarks>
+    /// **Once a level, not once for good** (B779 review 18 item 1): the engine's `FindMDL` reads the install whatever the
+    /// level (mdlpanel.cpp:185-190), so its verdict is the file's. Ours loads from the level's preloaded models
+    /// (`EntityModelSet.LoadMdl` over `MapAssets.Geometry`), so a root that failed on a mapless demo's level is asked again
+    /// by the first read on the next level — not by a new `SetMDL`, which the HUD skips for the same class. Within a level
+    /// it stays decided (review 17). **And again when the loader changed since the verdict** (review 20 item 5): a read
+    /// between a level's end and the next map's loader asks a loader that has nothing, so its verdict is the gap's; the
+    /// bound loader decides.
+    /// </remarks>
+    private string? RootPath()
+    {
+        if (_rootUndecided || (_rootAsked is not null && MdlCache.LoaderGeneration != _rootDecidedUnder))
+        {
+            Decide();
+        }
+
+        return _root.Path;
+    }
+
+    /// <summary>The verdict on <see cref="_rootAsked"/> under the loader there is now.</summary>
+    private void Decide()
+    {
+        _rootUndecided = false;
+        _rootDecidedUnder = MdlCache.LoaderGeneration;
+        _root.Path = Valid(_rootAsked);
+    }
+
+    /// <summary>The loader (<see cref="IMdlCache.LoaderGeneration"/>) the root's verdict was made under.</summary>
+    private int _rootDecidedUnder;
+
+    /// <summary>`FindMDL( pMDLName )` then `IsErrorModel` (:185-190): the name if it loads, else null.</summary>
+    private string? Valid(string? modelName) =>
+        !string.IsNullOrEmpty(modelName) && MdlCache.LoadMdl(modelName) is not null ? modelName : null;
 
     /// <summary><c>m_RootMDL.m_MDL.m_nSequence</c>.</summary>
     public int Sequence => _root.Sequence;
@@ -217,24 +266,6 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>m_flTime = GetAutoPlayTime() - m_flCycleStartTime</c> (<c>mdlpanel.cpp:638</c>).</summary>
     public double CycleTime => RealTimeSeconds - CycleStartTime;
 
-    /// <summary>The model paths this panel needs precached, root first.</summary>
-    /// <returns>The root's path, then each merge model's.</returns>
-    public virtual IEnumerable<string> ModelsToPrecache()
-    {
-        if (_root.Path is { Length: > 0 } root)
-        {
-            yield return root;
-        }
-
-        foreach (VguiMdl merge in _merges)
-        {
-            if (merge.Path is { Length: > 0 } path)
-            {
-                yield return path;
-            }
-        }
-    }
-
     /// <summary>
     /// <c>CMDLPanel::SetMDL( pMDLName )</c> (<c>mdlpanel.cpp:153-198</c>): the root model by path — an unloaded or
     /// empty one is <c>MDLHANDLE_INVALID</c> — with the cycle clock zeroed and the pose parameters at the model's
@@ -243,7 +274,12 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <param name="modelName">The model's path, or null.</param>
     public virtual void SetMDL(string? modelName)
     {
-        _root.Path = string.IsNullOrEmpty(modelName) ? null : modelName;
+        // **Decided here** (B779 review 17 item 4): `FindMDL( pMDLName )`, and an error model is `MDLHANDLE_INVALID`
+        // (:185-190), which the draw (:417), the merge (:836-837) and the header read without asking the name again. Ours
+        // keeps no handle, so an invalid root is no root path; a valid one is loaded again by name after a level's end,
+        // as the engine's MDL cache still holds it — and an invalid one is decided again then (`RootPath`, review 18).
+        _rootAsked = modelName;
+        Decide();
 
         // `m_RootMDL.m_flCycleStartTime = 0.f;` (:169), then `SetPoseParameters( NULL, 0 )` (:172).
         CycleStartTime = 0d;
@@ -332,12 +368,20 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <returns>The merge model, or null when there is no root to merge onto.</returns>
     public VguiMdl? SetMergeMDL(string? modelName, int skin = -1)
     {
-        if (_root.Path is null)
+        // "Verify that we have a root model to merge to" (the check :836-837): `SetMDL` made an error model
+        // `MDLHANDLE_INVALID` (:187-190), which ours records as no root path (B779 reviews 16-17).
+        if (RootPath() is null)
         {
             return null;
         }
 
         VguiMdl merge = new() { Path = string.IsNullOrEmpty(modelName) ? null : modelName };
+
+        // `FindMDL( pMDLName )` (:868), then the header read at once (`GetStudioHdr`, :857).
+        if (merge.Path is { } mergePath)
+        {
+            MdlCache.LoadMdl(mergePath);
+        }
 
         if (skin != -1)
         {
@@ -387,7 +431,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>m_RootMDL.m_MDL.GetStudioHdr()</c>: the root model, or null for <c>MDLHANDLE_INVALID</c>.</summary>
     /// <returns>The skinned model.</returns>
     protected PropModels.SkinnedModel? RootStudioHdr() =>
-        _root.Path is { } path ? MdlCache.FindMdl(path)?.Skinned : null;
+        RootPath() is { } path ? MdlCache.LoadMdl(path)?.Skinned : null;
 
     /// <summary>
     /// <c>CMDLPanel::OnPaint3D</c> (<c>mdlpanel.cpp:415-520</c>): <see cref="PrePaint3D"/>, root <c>SetUpBones</c> with
@@ -399,7 +443,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(renderContext);
 
         // `if ( m_RootMDL.m_MDL.GetMDL() == MDLHANDLE_INVALID ) return;` (:417).
-        if (_root.Path is not { } rootPath || MdlCache.FindMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
+        if (RootPath() is not { } rootPath || MdlCache.LoadMdl(rootPath) is not { Skinned: { } rootModel } rootFrames)
         {
             return;
         }
@@ -415,17 +459,18 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         // key for it. So every panel here keeps it, and `OnPaint3D` sets a world-space view target at the
         // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. `CMDL::Draw` takes a world-space target
         // as it stands (see CmdlFace).
+        float[]? rootWeights = RootFlexWeights(rootPath, rootFrames);
         StudioFace? rootFace = CmdlFace(
-            _root, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z), RootFlexWeights(rootPath, rootFrames));
+            _root, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z), rootWeights);
 
-        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones)) with { Face = rootFace };
+        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones), rootWeights) with { Face = rootFace };
 
         renderContext.Models.Add(rootDrawn);
 
         foreach (VguiMdl merge in _merges)
         {
             if (merge.Disabled || merge.Path is not { } mergePath
-                || MdlCache.FindMdl(mergePath) is not { Skinned: { } mergeModel } mergeFrames)
+                || MdlCache.LoadMdl(mergePath) is not { Skinned: { } mergeModel } mergeFrames)
             {
                 continue;
             }
@@ -436,10 +481,11 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
             // A merge's CMDL keeps its constructor's view target, (0, 0, 0) in model space, carried by its identity
             // `m_MDLToWorld` (`SetMergeMDL`, mdlpanel.cpp:853) to the world origin; its flex controls stay zero.
-            StudioFace? mergeFace = CmdlFace(merge, mergeFrames, merged.Bones, (0f, 0f, 0f), ZeroControlWeights(mergePath, mergeFrames));
+            float[] mergeWeights = ZeroControlWeights(mergePath, mergeFrames);
+            StudioFace? mergeFace = CmdlFace(merge, mergeFrames, merged.Bones, (0f, 0f, 0f), mergeWeights);
 
             renderContext.Models.Add(
-                Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones)) with { Face = mergeFace });
+                Drawn(mergePath, mergeFrames, merge, Skinned(mergeModel.Bones, merged.Bones), mergeWeights) with { Face = mergeFace });
 
             RenderingMergedModel(renderContext, mergeFrames, mergePath, merged.Bones);
         }
@@ -464,11 +510,13 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(renderContext);
         ArgumentNullException.ThrowIfNull(mdl);
 
-        if (mdl.Path is not { } path || MdlCache.FindMdl(path) is not { Skinned: { } model } frames
-            || !_entities.TryGetValue(parentPath, out AnimatingEntity? parent))
+        if (mdl.Path is not { } path || MdlCache.LoadMdl(path) is not { Skinned: { } model } frames
+            || !_entities.TryGetValue(parentPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) parentEntry))
         {
             return false;
         }
+
+        AnimatingEntity parent = parentEntry.Entity;
 
         AnimatingEntity merged = EntityFor(path, model);
 
@@ -498,7 +546,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             StudioBones.Concatenate(boneToWorld, model.Bones[bone].PoseToBone.Span, skinned[bone]);
         }
 
-        renderContext.Models.Add(Drawn(path, frames, mdl, skinned));
+        // A CMDL draw like the others, so its mesh flexes at its zero controls (B779).
+        renderContext.Models.Add(Drawn(path, frames, mdl, skinned, ZeroControlWeights(path, frames)));
 
         return true;
     }
@@ -568,13 +617,53 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary>How many CMDL faces this panel keeps, for the test that clearing the merges drops theirs.</summary>
     internal int KeptFaces => _faces.Count;
 
+    /// <summary>
+    /// Drops what this panel keeps by a model's path or frames — its posing entities, its CMDLs' mesh faces and the
+    /// zero-control weights — when a level ends (B779 review 3 item 4, review 6 item 4). A CMDL panel hears no
+    /// <c>game_newmap</c>. The faces and weights are memory only, rebuilt from the next level's frames at the next paint as
+    /// they would be on finding the frames changed; the entities are behaviour too, since each is posed on the skeleton its
+    /// model made, and a path read again from the next map must be posed on its own.
+    /// </summary>
+    public virtual void ForgetLevel()
+    {
+        // The posing entities too, each built from its model's skeleton: the path read again would be posed on the old one
+        // (review 6 item 4).
+        _entities.Clear();
+        _zeroControlWeights.Clear();
+        _root.MeshFlex.Release();
+
+        // The root's validity was this level's verdict (`RootPath`, review 18 item 1).
+        _rootUndecided = _rootAsked is not null;
+
+        foreach (VguiMdl merge in _merges)
+        {
+            merge.MeshFlex.Release();
+        }
+    }
+
+    /// <summary>The posing entity this panel keeps for a model path, or null.</summary>
+    /// <param name="modelPath">The path.</param>
+    /// <returns>The entity.</returns>
+    internal AnimatingEntity? KeptEntity(string modelPath) =>
+        _entities.TryGetValue(modelPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) kept) ? kept.Entity : null;
+
+    /// <summary>How many models' zero-control weights this panel keeps.</summary>
+    internal int KeptZeroControlWeights => _zeroControlWeights.Count;
+
+    /// <summary>Whether the root CMDL keeps a mesh face, and so the frames it was built from.</summary>
+    internal bool RootHoldsMeshFace => _root.MeshFlex.HoldsFrames;
+
     private readonly StudioViewTarget _ownViewTarget = new();
 
     /// <summary>Each drawn CMDL's face values, kept and rewritten each paint: the HUD paints, then the frame draws it (B725).</summary>
     private readonly Dictionary<VguiMdl, StudioFace> _faces = [];
 
-    /// <summary>Each model's descriptor weights at zero flex controls, by path, computed once.</summary>
-    private readonly Dictionary<string, float[]> _zeroControlWeights = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Each model's descriptor weights at zero flex controls, by path, with the frames they were computed from: a path is
+    /// read again after a level shutdown, possibly from the next map's pakfile, so the frames decide (B779 review 2 item 3).
+    /// </summary>
+    private readonly Dictionary<string, (PropModels.ModelFrames Frames, float[] Weights)> _zeroControlWeights =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// What <c>CMDL::Draw</c> hands the studio render for one model's eyes and mouth (B725 5f, 5g), or null for a model with
@@ -633,7 +722,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// CTFPlayerModelPanel) links it (<c>c_baseflex.cpp:1132-1142</c>). Unlinked, a rule reads <c>m_pFlexControls[ −1 ]</c>,
     /// the float before the array: <c>m_flTime</c> (+0x1c; the array is +0x20, <c>CMDL::CMDL</c> <c>0x180936e20</c>). Whether
     /// a model was linked depends on what the session drew before (B725 5f); taken as linked, the common case for a model a
-    /// player also wears.
+    /// player also wears. **Since B779 this choice is visible**: the mesh is flexed by these weights, so an unlinked model
+    /// whose rule reads <c>m_pFlexControls[ −1 ]</c> would move its vertices by the panel's <c>m_flTime</c>, not hold them
+    /// at the zero-control face drawn here — before, only a mouthed Teeth material read the difference.
     /// </remarks>
     /// <param name="path">The root's model path.</param>
     /// <param name="frames">The root's model.</param>
@@ -652,19 +743,20 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(frames);
 
-        if (!_zeroControlWeights.TryGetValue(path, out float[]? weights))
+        if (!_zeroControlWeights.TryGetValue(path, out (PropModels.ModelFrames Frames, float[] Weights) kept)
+            || !ReferenceEquals(kept.Frames, frames))
         {
-            weights = FaceFlex.Rules(frames.Flex, new float[frames.Flex.Controllers.Count]);
-            _zeroControlWeights[path] = weights;
+            kept = (frames, FaceFlex.Rules(frames.Flex, new float[frames.Flex.Controllers.Count]));
+            _zeroControlWeights[path] = kept;
         }
 
-        return weights;
+        return kept.Weights;
     }
 
     /// <summary>One model as <c>CMDL::Draw</c> draws it: its skin row from the model's own table
     /// (<c>g_skinref[m_nSkin]</c>, an out-of-range family falling back to zero as the engine does) and its body number
-    /// over its body parts.</summary>
-    private ModelInstance Drawn(string path, PropModels.ModelFrames frames, VguiMdl mdl, float[][] bones)
+    /// over its body parts, and its mesh flexed by the descriptor weights its <c>RunFlexRules</c> wrote (B779).</summary>
+    private ModelInstance Drawn(string path, PropModels.ModelFrames frames, VguiMdl mdl, float[][] bones, float[]? weights)
     {
         IReadOnlyDictionary<int, int>? skinSwap = null;
 
@@ -672,6 +764,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         {
             skinSwap = swaps[mdl.Skin >= 0 && mdl.Skin < swaps.Count ? mdl.Skin : 0];
         }
+
+        (float[]? flex, FlexSlots? flexRange) = mdl.MeshFlex.For(MdlCache, path, frames, weights);
 
         return new ModelInstance(
             path,
@@ -685,7 +779,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             MaterialOverride: mdl.MaterialOverride,
             Paint: mdl.Paint,
             Locals: Locals,
-            WeaponSkin: mdl.WeaponSkin);
+            WeaponSkin: mdl.WeaponSkin,
+            Flex: flex,
+            FlexRange: flexRange);
     }
 
     /// <summary><c>AngleMatrix( angRot, vecPos, matrix )</c>: a row of <c>(forward[i], left[i], up[i], origin[i])</c>
@@ -708,17 +804,19 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     }
 
     /// <summary>This panel's own posing entry for one model path — <see cref="EntityModelSet.EntityFor"/>'s shape, keyed
-    /// by path because a model panel has no entity index.</summary>
+    /// by path because a model panel has no entity index, and made again when the path answers another model: each is posed
+    /// on the skeleton its own model made, as the weights and the face are keyed on the frames (B779 review 7 item 2).</summary>
     private AnimatingEntity EntityFor(string modelPath, PropModels.SkinnedModel model)
     {
-        if (_entities.TryGetValue(modelPath, out AnimatingEntity? existing))
+        if (_entities.TryGetValue(modelPath, out (PropModels.SkinnedModel Model, AnimatingEntity Entity) existing)
+            && ReferenceEquals(existing.Model, model))
         {
-            return existing;
+            return existing.Entity;
         }
 
         AnimatingEntity created = new(model.NewSkeleton(), _clock);
 
-        _entities[modelPath] = created;
+        _entities[modelPath] = (model, created);
 
         return created;
     }
