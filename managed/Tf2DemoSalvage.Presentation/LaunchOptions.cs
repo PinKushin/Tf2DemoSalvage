@@ -218,6 +218,15 @@ public static class LaunchOptionsReader
                 string command = argument[1..];
                 string value = pending.Dequeue();
 
+                // **A value is one argument, so it may not close its own quotes or start another line** (B811 review 10,
+                // Sonnet): it is handed to the console as `name "value"`, and a `"`, `\r` or `\n` inside would become
+                // further console lines, from a `--like` sidecar as much as a typed line. Refused, and said so.
+                if (value.AsSpan().IndexOfAny("\"\r\n") >= 0)
+                {
+                    log.LogWarning("{Message}", $"+{command}: a value holding a quote or a line break is refused");
+                    continue;
+                }
+
                 // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718,
                 // B811): TF2's `cfg/valve.rc` runs `exec autoexec.cfg` and then `stuffcmds`, which executes the whole line,
                 // so the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it.

@@ -369,6 +369,22 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **A value that would close its own quotes or start another line is refused** (B811 review 10, Sonnet): handed to
+    /// the console as `name "value"`, it would run as further console lines. The control: a plain value is handed on.
+    /// </remarks>
+    /// <param name="value">The value given.</param>
+    [TestCase("1\"; bind q quit; \"")]
+    [TestCase("1\nbind q quit")]
+    [TestCase("1\rbind q quit")]
+    public void Read_ACheatValueThatBreaksItsQuotes_IsRefused(string value)
+    {
+        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs
+            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""], "the control: a plain value");
+
+        Read("+sv_cheats", "1", "+mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+    }
+
+    /// <remarks>
     /// **The launch line finds a ConVar in any case, as the console does** (B791 review 9, Sonnet; the console's lookup is the
     /// closed `vstdlib`'s, *interpolated*): `+MAT_WIREFRAME 1` is handed on under its own name.
     /// </remarks>

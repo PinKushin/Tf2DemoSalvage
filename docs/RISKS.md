@@ -42850,8 +42850,14 @@ console's own list, the gate's value (Fable, Gemini).
 
 **Review 9** (Gemini approves; Fable, Sonnet, Grok low). The admit rule looked at the name only, so a sidecar holding a
 cheat at its default (`cl_drawhud 1`) or only a replicated cheat (`cl_forwardspeed`, which the line drops) turned
-cheats on for nothing. It now counts only a client cheat away from its default. Test
-`Expand_ACheatAtItsDefaultOrReplicated_AdmitsNothing` (each half of the condition, dropped alone, reddens its own case).
+cheats on for nothing. It now counts only a client cheat (not replicated). The default half was added and taken out
+again in review 10 (Fable): the run may hold a cheat away from its default (`settings.cfg`'s `mat_fullbright 1`), and a
+sidecar's default `mat_fullbright 0`, refused, left the replay fullbright; admitting for a default-only sidecar is the
+harmless side. Test `Expand_AReplicatedCheat_AdmitsNothingAndAClientCheatAdmitsAtAnyValue`.
+**Review 10** also: a launch value holding a `"`, `\r` or `\n` is refused (Sonnet), since it is handed to the console as
+`name "value"` and would run as further console lines, from a `--like` sidecar as much as a typed line. Test
+`LaunchOptionsTests.Read_ACheatValueThatBreaksItsQuotes_IsRefused`. A `;` is not refused: TF2's `stuffcmds` runs the
+line through the same tokenizer, and how it treats one there is not read.
 Left, as found: a replay of a shot whose cheat the menu set at `sv_cheats 0` now runs at `sv_cheats 1`, so the replay's
 own sidecar gains `sv_cheats` the original lacks; a TF2 sidecar holding `sv_cheats 0` with a cheat still refuses it, a
 state TF2 itself cannot be in. No test runs `--like` on a committed golden.

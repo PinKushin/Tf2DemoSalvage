@@ -280,15 +280,16 @@ public sealed class ShotSidecarTests
     }
 
     /// <remarks>
-    /// **A cheat at its default, or a replicated one, admits nothing** (B811 review 9, Fable, Sonnet, Grok): `cl_drawhud 1`
-    /// is the default and `cl_forwardspeed` is the server's, which the line drops. The control: `cl_drawhud 0` admits.
+    /// **A replicated cheat admits nothing; a client cheat admits at any value** (B811 reviews 9, 10): `cl_forwardspeed` is
+    /// the server's, which the line drops; `cl_drawhud 1` is the default, but the run may hold `cl_drawhud 0` from its
+    /// saved settings, and the sidecar's default must replace it. The control: `cl_drawhud 0` admits.
     /// </remarks>
     /// <param name="convars">The sidecar's ConVars.</param>
     /// <param name="admits">Whether `+sv_cheats 1` is prepended.</param>
     [TestCase("\"cl_drawhud\": \"0\"", true)]
-    [TestCase("\"cl_drawhud\": \"1\"", false)]
+    [TestCase("\"cl_drawhud\": \"1\"", true)]
     [TestCase("\"cl_forwardspeed\": \"500\"", false)]
-    public void Expand_ACheatAtItsDefaultOrReplicated_AdmitsNothing(string convars, bool admits)
+    public void Expand_AReplicatedCheat_AdmitsNothingAndAClientCheatAdmitsAtAnyValue(string convars, bool admits)
     {
         string sidecar = Tf2Sidecar.Replace(
             "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
