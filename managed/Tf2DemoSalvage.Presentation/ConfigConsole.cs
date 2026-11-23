@@ -393,6 +393,8 @@ public sealed class ConfigConsole
     public void Load(string? text)
     {
         // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
+        // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
+        bool loading = _loading;
         _loading = true;
 
         try
@@ -401,7 +403,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _loading = false;
+            _loading = loading;
         }
     }
 
@@ -902,6 +904,13 @@ public sealed class ConfigConsole
     /// <summary>Files `exec`ed since the last line run at depth 0 (a file's line or a key); see <see cref="MaximumExecs"/>.</summary>
     private int _execs;
 
+    /// <summary>How many aliases one command at depth 0 may run in all, nested ones included.</summary>
+    /// <remarks>*Interpolated* (B820 review 2): the engine's bound is not read. Far past a real script, which runs tens.</remarks>
+    public const int MaximumAliasRuns = 4096;
+
+    /// <summary>Aliases run since the last line run at depth 0; see <see cref="MaximumAliasRuns"/>.</summary>
+    private int _aliasRuns;
+
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
 
@@ -1272,6 +1281,7 @@ public sealed class ConfigConsole
         if (depth == 0)
         {
             _execs = 0;
+            _aliasRuns = 0;
         }
 
         foreach (string clause in SourceConfig.Clauses(commandLine))
@@ -1289,6 +1299,19 @@ public sealed class ConfigConsole
             // where the name is a `+`/`-` button, which an alias may replace.
             if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
             {
+                // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
+                // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
+                if (++_aliasRuns > MaximumAliasRuns)
+                {
+                    if (_aliasRuns == MaximumAliasRuns + 1)
+                    {
+                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one command; not running the rest.");
+                    }
+
+                    acted = true;
+                    continue;
+                }
+
                 // No key, deliberately — see the remark above.
                 _ = Run(body, key: null, depth + 1);
                 acted = true;

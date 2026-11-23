@@ -141,7 +141,7 @@ public static class Tf2ConfigFiles
             // A name `exec` passes is a config's text, so only a file inside the folder is read (D32); a name with a NUL
             // or one too long is a missing file (B820 review 1, Fable, Sonnet).
             return GameArchives.InsideFolder(ownCustomRoot, path[4..]) is { } file && File.Exists(file) &&
-                File.ReadAllBytes(file) is { Length: > 0 } bytes
+                ReadAtMost(file, MaximumBytes + 1) is { Length: > 0 } bytes
                 ? bytes
                 : null;
         }
@@ -150,6 +150,16 @@ public static class Tf2ConfigFiles
             // An unreadable config is a missing one, as a damaged archive is in GameArchives: the viewer still starts.
             return null;
         }
+    }
+
+    /// <summary>A file's first <paramref name="limit"/> bytes, so one over the cap is refused without being read whole (B820 review 2).</summary>
+    private static byte[] ReadAtMost(string file, int limit)
+    {
+        using FileStream stream = File.OpenRead(file);
+        byte[] bytes = new byte[(int)Math.Min(stream.Length, limit)];
+        stream.ReadExactly(bytes);
+
+        return bytes;
     }
 
     /// <summary>Decodes a config's bytes to text.</summary>

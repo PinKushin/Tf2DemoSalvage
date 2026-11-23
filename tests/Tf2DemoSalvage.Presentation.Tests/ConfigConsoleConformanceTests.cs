@@ -1070,6 +1070,7 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("exec a.b/c", "cfg/a.b/c.cfg")]
     [TestCase("exec A.VPK", "cfg/A.VPK")]
     [TestCase("exec \"a\\b\"", "cfg/a\\b.cfg")]
+    [TestCase("exec a\r", "cfg/a.cfg")]
     public void Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension(string line, string path)
     {
         List<string> asked = [];
@@ -1184,6 +1185,41 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("exec loop");
 
         asked.Count.ShouldBe(ConfigConsole.MaximumExpansion);
+    }
+
+    /// <remarks>
+    /// *Interpolated* budget (B820 review 2, Fable, Sonnet): `alias a "a;a"` and a line `a` is 2^20 runs under the depth
+    /// bound alone, and a config line runs its alias at load. One command runs at most
+    /// <see cref="ConfigConsole.MaximumAliasRuns"/>, says so once, and the next line starts a fresh budget.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasThatRunsItselfTwice_StopsAtTheBudgetAndTheNextLineRuns()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"alias a \"a;a\"\na\n{Alpha} 8");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one command").ShouldBe(1);
+        console.ConVar(Alpha).ShouldBe("8");
+    }
+
+    /// <remarks>
+    /// **A load inside a load leaves the outer one a load** (B820 review 2, Sonnet, Fable): a handler that loads a config while
+    /// one is loading must not end the outer load's quiet one-shots.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerDuringALoad_LeavesTheOuterOneShotsIdle()
+    {
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(_ => null);
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+        console.ConVarSet += (_, _) => console.Load(string.Empty);
+
+        console.Load($"{Alpha} 1\nscreenshot");
+
+        fired.ShouldBeEmpty();
     }
 
     [Test]

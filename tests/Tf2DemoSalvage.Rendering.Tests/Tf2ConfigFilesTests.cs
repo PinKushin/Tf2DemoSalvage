@@ -274,15 +274,21 @@ public sealed class Tf2ConfigFilesTests
     }
 
     /// <remarks>A name the path API rejects is a missing file, not an exception out of a key press (B820 review 1, Fable, Sonnet).</remarks>
-    [Test]
-    public void Finder_ANameWithANul_IsMissing()
+    /// <remarks>The wildcard and pipe cases are B820 review 2's (Grok): a character a file name cannot hold is a missing file too.</remarks>
+    [TestCase("cfg/a\0b.cfg")]
+    [TestCase("cfg/a*.cfg")]
+    [TestCase("cfg/a?.cfg")]
+    [TestCase("cfg/a|b.cfg")]
+    [TestCase("cfg/a<b>.cfg")]
+    [TestCase("cfg/a\"b.cfg")]
+    public void Finder_ANameAFileCannotHave_IsMissing(string name)
     {
         string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-nul-" + Guid.NewGuid());
         Directory.CreateDirectory(root);
 
         try
         {
-            Tf2ConfigFiles.Finder(null, ownCustomRoot: root)("cfg/a\0b.cfg").ShouldBeNull();
+            Tf2ConfigFiles.Finder(null, ownCustomRoot: root)(name).ShouldBeNull();
         }
         finally
         {

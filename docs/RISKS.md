@@ -44516,6 +44516,22 @@ is about a file pasted directly into `custom/`, and the engine finds a nested na
 8. **Not fixed, filed:** the host's binding projection (`KeyBindings` from `LoadFrom`) is not refreshed by a bind an
    alias makes at run time (Sonnet): B821.
 
+**Review 2** (Fable, Sonnet merge; Grok request changes; Gemini pending at writing):
+
+1. **Alias fan-out had no budget** (Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20 runs, now reachable at
+   load. Fixed: `MaximumAliasRuns` (4096, *interpolated*) per line at depth 0, logged once. Test:
+   `Load_AnAliasThatRunsItselfTwice_StopsAtTheBudgetAndTheNextLineRuns`, red with the budget raised.
+2. **`Load` cleared `_loading` instead of restoring it** (Fable, Sonnet). Fixed. Test:
+   `Load_ALoadFromAHandlerDuringALoad_LeavesTheOuterOneShotsIdle`, red when the outer flag is lost.
+3. **A flat file was read whole before the 1 MB cap** (Fable, Sonnet). Fixed: at most `MaximumBytes + 1` bytes are read,
+   so the refusal still fires. Red under the 1 MB test with the read capped at `MaximumBytes`.
+4. **The launch line's one-shots are idle too** (Fable): `RunTheLaunchLine` goes through `Load`, as `main` skipped them
+   before. The item-2 reasoning holds: `stuffcmds` runs at startup, before a demo plays.
+5. **Grok: a wildcard or pipe in a name throws from `Path.GetFullPath`.** Measured false on .NET 10: only a NUL throws;
+   `Finder_ANameAFileCannotHave_IsMissing` pins `*`, `?`, `|`, `<`, `>`, `"` and NUL as missing files. **Grok: a CRLF line
+   keeps its `\r` into the path** — measured false: `exec a\r` reads `cfg/a.cfg` (a case of
+   `Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension`). Both are tests now.
+
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
