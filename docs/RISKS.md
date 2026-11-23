@@ -44636,6 +44636,26 @@ load):
    nested-exec test cannot fail is wrong: without the restore the count after the `exec` is the nested line's 1, and that
    sabotage was red. **Filed:** the BOM the decoder strips is a divergence TF2 does not make (B822).
 
+**Review 8** (Gemini merge at writing pending; Fable, Sonnet merge with fixes; Grok request changes):
+
+1. **The launch line went through a file's line reader** (Fable, Sonnet, Grok): `RunTheLaunchLine` called `Load`, so a
+   launch value's `\\` became `\` and a value past 1023 bytes was split. TF2's `stuffcmds` hands the line to
+   `Cbuf_AddText` (*interpolated*: `stuffcmds` itself is not read). Fixed: `ConfigConsole.Stuff` runs the text straight to
+   the dispatcher with the same startup flags; `RunTheLaunchLine` uses it. Test: `Stuff_ALaunchValueWithTwoBackslashes_KeepsThem`,
+   red when `Stuff` goes through the reader.
+2. **A NUL ends the file** (Fable, Grok): the reader's skip returns null at a 0 byte and `Cmd_Exec_f` stops. Test:
+   `Load_AFileWithANul_StopsThereAndALineAfterABreakDropsItsNonAscii`, which also pins the non-ASCII skip after a break;
+   red with the NUL treated as a break.
+3. **The copy loop's compare, read** (Sonnet asked): `MOVSX ESI,byte ptr [RDI]; CMP ESI,0x1f; JA` at `0x18017734c`, an
+   unsigned compare on the sign-extended byte, so a non-ASCII byte continues the line; the skip is `MOVSX`, `CMP EAX,0x20;
+   JGE`, signed. As implemented.
+4. **Tests pinned harder** (Sonnet, Fable, Grok): the cap test now fails at 1022 and at 1024 (a command ending exactly at
+   byte 1023, then `2`); the bind test covers a plain `bind` (the control), `bind\tk`, one leading space (unescaped) and
+   five (kept); the unescape order is pinned by `"a\\"` becoming the value `a\`.
+5. **Recorded, not changed:** a non-ASCII character straddling byte 1023 is cut whole here, where the engine keeps its lead
+   bytes on the line and skips the rest; a .NET string cannot hold half a character, and it needs a 1023-byte line ending
+   mid-character (Fable, Sonnet, Grok).
+
 ## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
 
 Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it

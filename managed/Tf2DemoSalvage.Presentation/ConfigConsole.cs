@@ -390,18 +390,31 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text)
+    public void Load(string? text) => AtStartup(() => RunFile(text ?? string.Empty, depth: 0));
+
+    /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
+    /// <param name="text">The commands.</param>
+    /// <remarks>
+    /// `Cmd_Exec_f`'s line reader (its 1023-byte cap, its `\"` and `\\` unescape) is a file's (B820 review 8, Sonnet); the
+    /// launch line reaches the buffer whole. *Interpolated*: `stuffcmds` itself is not read; it adds the command line's text.
+    /// </remarks>
+    public void Stuff(string? text) => AtStartup(() => _ = RunCommand(text ?? string.Empty, key: null));
+
+    /// <summary>Runs startup text: a config or the launch line.</summary>
+    /// <remarks>
+    /// A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
+    /// Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
+    /// Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
+    /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
+    /// </remarks>
+    private void AtStartup(Action run)
     {
-        // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
-        // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
-        // Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
-        // A config is never the viewer's own key, even loaded from a handler inside one (B820 review 7, Fable).
         (bool loading, bool viewerIssued) = (_loading, _viewerIssued);
         (_loading, _viewerIssued) = (true, false);
 
         try
         {
-            RunFile(text ?? string.Empty, depth: 0);
+            run();
         }
         finally
         {
@@ -534,10 +547,16 @@ public sealed class ConfigConsole
             yield return isBind ? read : read.Replace("\\\"", "\"", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal);
 
             // The next line starts at the next byte above 0x1f as a SIGNED char (`'\x1f' < (char)b`): a tab is skipped here, so a
-            // line's leading tabs are not counted, and so is any byte of 0x80 or more, a non-ASCII character's.
-            while (at < text.Length && (text[at] < ' ' || text[at] >= (char)0x80))
+            // line's leading tabs are not counted, and so is any byte of 0x80 or more, a non-ASCII character's. A NUL, where
+            // the copy stopped or the skip meets it, is the end of the file: nothing after it is read (B820 review 8, Fable).
+            while (at < text.Length && text[at] != '\0' && (text[at] < ' ' || text[at] >= (char)0x80))
             {
                 at++;
+            }
+
+            if (at < text.Length && text[at] == '\0')
+            {
+                yield break;
             }
         }
     }

@@ -1362,28 +1362,79 @@ public sealed class ConfigConsoleConformanceTests
     [Test]
     public void Load_ALineLongerThanTheReadersCap_ContinuesAsTheNextLine()
     {
+        // Exactly 1023 bytes end in `{Alpha} 1`; the next byte, `2`, starts the next line (B820 review 8, Sonnet): a cap of
+        // 1022 leaves `{Alpha} ` with no value, and one of 1024 makes the value 12. Empty `;` commands pad the front.
         ConfigConsole console = new();
+        string command = $"{Alpha} 1";
 
-        console.Load(new string(' ', 1023) + $"{Alpha} 6");
+        console.Load(new string(';', 1023 - command.Length) + command + "2");
 
-        console.ConVar(Alpha).ShouldBe("6");
+        console.ConVar(Alpha).ShouldBe("1");
     }
 
     /// <remarks>
     /// **A file line that is not a `bind` has `\"` made `"` and `\\` made `\`** (FUN_180177310's two replacements, B820
-    /// review 7); a `bind` line keeps them. The unescaped quote closes the value's quotes, so `5` is the value.
+    /// review 7); a `bind` line keeps them. A line is a `bind` when the word starts it once spaces and tabs are skipped AND
+    /// byte 4 of the line itself is a space or tab: ` bind` (byte 4 is `n`) is unescaped, `bind\tk` is not. The control: the
+    /// plain form binds.
+    /// </remarks>
+    [TestCase("bind k \"+forward\"", true)]
+    [TestCase("bind k \\\"+forward\\\"", false)]
+    [TestCase("bind\tk \\\"+forward\\\"", false)]
+    [TestCase(" bind k \\\"+forward\\\"", true)]
+    [TestCase("     bind k \\\"+forward\\\"", false)]
+    public void Load_ABindLine_KeepsItsEscapesAndAnyOtherLineLosesThem(string line, bool forward)
+    {
+        ConfigConsole console = new();
+
+        console.Load(line);
+        console.KeyDown("k");
+
+        console.IsHeld(ViewerAction.FlyForward).ShouldBe(forward);
+    }
+
+    /// <remarks>
+    /// The unescape on a ConVar line, and its order (B820 review 8, Sonnet): `\"` is made `"` first, then `\\` `\`, so
+    /// `"a\\"` becomes `"a\"`, the value `a\`; the other order would end at `"a""` and the value `a`.
     /// </remarks>
     [Test]
-    public void Load_ALineThatIsNotABind_HasItsEscapesUndone()
+    public void Load_ALineThatIsNotABind_UndoesItsEscapesQuoteFirst()
     {
         ConfigConsole console = new();
 
         console.Load($"{Alpha} \\\"5\\\"");
         console.ConVar(Alpha).ShouldBe("5");
 
-        console.Load("bind k \\\"+forward\\\"");
-        console.KeyDown("k");
-        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse("a bind line keeps its escapes, so k is bound to \\\"+forward\\\"");
+        console.Load("cl_voice_filter \"a\\\\\"");
+        console.ConVar("cl_voice_filter").ShouldBe("a\\");
+    }
+
+    /// <remarks>
+    /// **A NUL ends the file** (FUN_180177310 returns null at a 0 byte and `Cmd_Exec_f` stops; B820 review 8, Fable); and a
+    /// non-ASCII character starting a line after a break is skipped, a signed `char` below 0x20.
+    /// </remarks>
+    [Test]
+    public void Load_AFileWithANul_StopsThereAndALineAfterABreakDropsItsNonAscii()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1\né{Alpha} 2\n\0\n{Alpha} 3");
+
+        console.ConVar(Alpha).ShouldBe("2", "é was skipped, so the second line ran; the third is after the NUL");
+    }
+
+    /// <remarks>
+    /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
+    /// a launch value stays two backslashes where a config line's would become one.
+    /// </remarks>
+    [Test]
+    public void Stuff_ALaunchValueWithTwoBackslashes_KeepsThem()
+    {
+        ConfigConsole console = new();
+
+        console.Stuff("cl_voice_filter \"a\\\\b\"");
+
+        console.ConVar("cl_voice_filter").ShouldBe("a\\\\b");
     }
 
     /// <remarks>
