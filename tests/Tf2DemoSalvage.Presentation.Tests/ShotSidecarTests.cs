@@ -279,6 +279,27 @@ public sealed class ShotSidecarTests
         expanded[2..8].ShouldBe(["+sv_cheats", "1", "+cl_drawhud", "0", "+mat_phong", "0"]);
     }
 
+    /// <remarks>
+    /// **A cheat at its default, or a replicated one, admits nothing** (B811 review 9, Fable, Sonnet, Grok): `cl_drawhud 1`
+    /// is the default and `cl_forwardspeed` is the server's, which the line drops. The control: `cl_drawhud 0` admits.
+    /// </remarks>
+    /// <param name="convars">The sidecar's ConVars.</param>
+    /// <param name="admits">Whether `+sv_cheats 1` is prepended.</param>
+    [TestCase("\"cl_drawhud\": \"0\"", true)]
+    [TestCase("\"cl_drawhud\": \"1\"", false)]
+    [TestCase("\"cl_forwardspeed\": \"500\"", false)]
+    public void Expand_ACheatAtItsDefaultOrReplicated_AdmitsNothing(string convars, bool admits)
+    {
+        string sidecar = Tf2Sidecar.Replace(
+            "\"convars\": { \"mat_hdr_level\": \"2\", \"mat_phong\": \"0\" }",
+            $"\"convars\": {{ {convars} }}",
+            StringComparison.Ordinal);
+
+        sidecar.ShouldNotBe(Tf2Sidecar, "the fixture was rewritten");
+
+        ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => sidecar, (_, _) => { }).Contains("+sv_cheats").ShouldBe(admits);
+    }
+
     [Test]
     public void Expand_WithLikeAndNoDemo_OpensTheDemoBesideTheSidecar()
     {

@@ -400,8 +400,12 @@ public static class ShotSidecar
         // **A shot that held a cheat had it in effect, so its replay admits cheats first** (B811 review 8, Fable, Sonnet):
         // a TF2-side sidecar never records `sv_cheats`, nor did the viewer's before review 7, and a cheat the viewer's own
         // menu or key set (D253) was in effect with `sv_cheats` 0. Without this, `--like` refused every such cheat.
+        // Only a client cheat away from its default asks for it (B811 review 9, Fable, Sonnet, Grok): a replicated one is
+        // dropped from the line anyway, and one at its default needs nothing admitted.
         if (!like.Convars.Keys.Any(name => name.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase)) &&
-            like.Convars.Keys.Any(Scene.ViewerSettings.IsCheat))
+            like.Convars.Any(pair =>
+                Core.Net.EngineConVars.TryByConsoleName(pair.Key, out Core.Net.EngineConVar? declared) &&
+                declared.Cheat && !declared.Replicated && DiffersFromDefault(pair.Value, declared.Default)))
         {
             expanded.Add("+sv_cheats");
             expanded.Add("1");

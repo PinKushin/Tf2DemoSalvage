@@ -42848,6 +42848,14 @@ nothing; sabotage: admitting with 0 reddens it); the upper-case spelling is a se
 Sonnet). Grok's "the sidecar records a value the frame did not run" does not hold: `sv_cheats` is read from the
 console's own list, the gate's value (Fable, Gemini).
 
+**Review 9** (Gemini approves; Fable, Sonnet, Grok low). The admit rule looked at the name only, so a sidecar holding a
+cheat at its default (`cl_drawhud 1`) or only a replicated cheat (`cl_forwardspeed`, which the line drops) turned
+cheats on for nothing. It now counts only a client cheat away from its default. Test
+`Expand_ACheatAtItsDefaultOrReplicated_AdmitsNothing` (each half of the condition, dropped alone, reddens its own case).
+Left, as found: a replay of a shot whose cheat the menu set at `sv_cheats 0` now runs at `sv_cheats 1`, so the replay's
+own sidecar gains `sv_cheats` the original lacks; a TF2 sidecar holding `sv_cheats 0` with a cheat still refuses it, a
+state TF2 itself cannot be in. No test runs `--like` on a committed golden.
+
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
    stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,
