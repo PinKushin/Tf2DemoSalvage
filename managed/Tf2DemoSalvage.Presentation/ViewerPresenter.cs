@@ -593,10 +593,11 @@ public sealed partial class ViewerPresenter : IDisposable
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
     ///
-    /// **Never run beside a worker's read** (B779 review 26 item 1). Its one production caller is the reload after a lost
+    /// **Never run beside a worker's read** (B779 reviews 26-28). Its one production caller is the reload after a lost
     /// world (`FollowUpload`), reached through `ProjectMap` from the frame (held off by the barrier), the map read (fresh
-    /// assets: never a reload) and the window's `OpenDevice` (UI thread, no barrier). `FollowUpload` skips the reload while
-    /// the barrier is up, so the guard sits on the route, not here.
+    /// assets: never a reload) and the window's `OpenDevice` (UI thread, no barrier). The guards sit on that route, not
+    /// here: `ProjectMap` only marks the world while a worker reads, unless the call is the read's own, and `FollowUpload`
+    /// skips the reload while any load is in flight.
     /// </remarks>
     public bool LoadMap(string mapName)
     {
@@ -850,18 +851,8 @@ public sealed partial class ViewerPresenter : IDisposable
             // geometry loader that reads them — a call here instead ran after something else had
             // already added the path with no geometry, and the packer skips a path it has seen.
 
-            // The read's own projection: marked on this thread, so `ProjectMap` runs it inside the barrier (review 27 item 2).
-            _readProjectionThread = Environment.CurrentManagedThreadId;
-
-            try
-            {
-                _view.MapRead();
-            }
-            finally
-            {
-                _readProjectionThread = 0;
-            }
-
+            // The window projects the map it was told of; its call says it is the read's own (`ProjectMap(…, fromTheRead: true)`).
+            _view.MapRead();
             return !map.Outline.IsEmpty;
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -1063,26 +1054,11 @@ public sealed partial class ViewerPresenter : IDisposable
 
     private Task? _awaited;
 
-    /// <summary>Whether a map read is in flight or queued: the last one asked for has not finished its `Apply`.</summary>
-    private bool MapReadInFlightOrQueued
-    {
-        get
-        {
-            lock (_mapReadsGate)
-            {
-                return !_lastMapRead.IsCompleted;
-            }
-        }
-    }
-
     /// <summary>
-    /// The thread running the map read's own projection (`ILoadView.MapRead`), or 0: so `ProjectMap` can tell it from a
-    /// window's projection made while the read runs (review 27 item 2).
+    /// Whether an asynchronous load is in flight — decoding, fetching, queued, reading or applying (review 28 item 2): from
+    /// `LoadDemoAsync`'s start to its last marshal, which counts it down on every path.
     /// </summary>
-    private volatile int _readProjectionThread;
-
-    /// <summary>Whether this call is the map read's own projection.</summary>
-    private bool ProjectingTheRead => _readProjectionThread != 0 && _readProjectionThread == Environment.CurrentManagedThreadId;
+    private bool LoadInFlight => Volatile.Read(ref _loadsInFlight) > 0;
 
     /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
     /// <param name="ticket">The load's ticket.</param>
