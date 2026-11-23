@@ -44481,6 +44481,47 @@ lookup on the same search path `Tf2ConfigFiles` reads (our `custom/`, then the g
 engine's self-`exec` bound is not read (nothing in `Cmd_Exec_f` counts depth); this viewer stops at
 `MaximumExpansion`, as its alias expansion already does, so a looping config cannot hang startup.
 
+**Review 1** (Fable, Sonnet, Grok; Gemini pending at writing):
+
+1. **A key with a viewer default dropped a bound `exec` or `bind`** (Fable). `SetsState` knew no ConCommand of the
+   console's own, so `CommandFor` fell back to the default (`bind F5 "exec x"` took a screenshot). Fixed: it knows
+   `Definers`, and the alias test takes the dispatcher's order (`ConsultsAlias`, one rule for `Run`, `Expand` and
+   `SetsState`). Test: `KeyDown_ADefaultKeyBoundToExec_RunsTheFileNotTheDefault`, red with `Definers` unread.
+2. **A config's one-shot line now fired at load** (Fable, Sonnet): on a game-folder reload `Triggered` listens, so a
+   `screenshot` or `togglefullscreen` line would act mid-session. Fixed: at load a one-shot does nothing; a `+` button
+   is kept. *Interpolated*: TF2 runs its configs at startup before a demo plays, so a view or playback one-shot has
+   nothing to act on, and the viewer's own names are unknown commands to TF2. Test:
+   `Load_AOneShotLine_DoesNothingAndAButtonLineHolds` (control: the same one-shot from a key fires), red with the rule
+   inverted.
+3. **`_loading` moved to `Load` alone**, so a key's `exec` is a run-time command throughout and announces its sets
+   (Sonnet). Test: `KeyDown_AKeysExecAfterALoad_AnnouncesItsConVarSets`, red with the flag left set.
+4. **An empty flat file shadowed the game's copy; the flat lookup reached nested names** (Sonnet, Grok, Fable). Fixed:
+   the flat file stands in only for a name directly below `cfg/` and only when not empty, as before B820; a nested
+   name is found under an addon's `cfg/`, as the engine finds it. Tests in `Tf2ConfigFilesTests`:
+   `Finder_AFlatFileInOwnCustom_AnswersOnlyATopLevelName`, `Read_AnEmptyFlatFileInOwnCustom_LeavesTheGamesCopy`,
+   `Read_AConfigAtAndOverOneMegabyte_IsReadOnlyAtTheLimit`; each red under its own sabotage.
+5. **A NUL in a name threw out of `GameArchives.InsideFolder`** (Fable, Sonnet), and `ReadUntimed`'s catch does not take
+   an `ArgumentException`, so a map's material name with one would have thrown too (found by the new test, not by
+   reading). Fixed at the root: `InsideFolder` answers null for a NUL. Test: `Finder_ANameWithANul_IsMissing`, red with
+   the check off.
+6. **Breadth**: two `exec self` lines read 2^20 files under the depth bound (Fable, Sonnet). Fixed: `MaximumExecs`
+   (256, *interpolated*) per line run at depth 0, logged once; the depth stop is logged too. Test:
+   `Exec_AFileThatExecsItselfTwice_StopsAtTheBudgetAndTheNextCommandGetsItsOwn`, red with the budget raised.
+7. **Test strength** (Fable, Grok): the refusal cases now assert TF2's exact line (they passed with `exec` not
+   dispatched), the 1 MB cases assert the line, a single backslash is shown accepted, the unbind test has a control,
+   and `unbindall` from an alias body and the static projection's alias order (`Applied_ABindToAnAliasNamedAsAConVar_IsNotCounted`)
+   are pinned. CR and LF cannot reach a path here: a line ends at either.
+8. **Not fixed, filed:** the host's binding projection (`KeyBindings` from `LoadFrom`) is not refreshed by a bind an
+   alias makes at run time (Sonnet): B821.
+
+## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
+
+Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
+settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`
+reads live, and not the projection. So the key works and its label is stale. TF2's own binding menu reads the live
+table (*not read*; the key list UI is closed). `Bound` also counts every run-time `bind`, so a toggle alias that rebinds
+on each press grows it; it is reported only at load. Fix shape: refresh the projection on a run-time `bind`. *Not fixed*.
+
 ## B818 — a replicated cheat ConVar's refusal is decided by the launch line alone (2026-11-23) — OPEN
 
 Found in B811 reviews 3-5 (Sonnet, Grok, Fable). `LaunchOptionsReader` refuses `+cl_forwardspeed 500` with TF2's cheat

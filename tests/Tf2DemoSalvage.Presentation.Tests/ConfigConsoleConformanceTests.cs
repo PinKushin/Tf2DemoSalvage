@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Presentation;
 
@@ -1068,6 +1069,7 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("exec a.txt", "cfg/a.txt")]
     [TestCase("exec a.b/c", "cfg/a.b/c.cfg")]
     [TestCase("exec A.VPK", "cfg/A.VPK")]
+    [TestCase("exec \"a\\b\"", "cfg/a\\b.cfg")]
     public void Exec_AName_IsLookedUpUnderCfgWithCfgAddedOnlyWithoutAnExtension(string line, string path)
     {
         List<string> asked = [];
@@ -1080,48 +1082,76 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// `exec` takes exactly one argument; the path is refused when it holds `\\`, `:`, `..`, CR or LF (FUN_180176d10), or
-    /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read.
+    /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read,
+    /// and so is a single backslash. Each refusal is TF2's own line (B820 review 1, Fable, Grok: reading nothing alone
+    /// passed with `exec` not dispatched). CR and LF cannot reach a path here: a line ends at either.
     /// </remarks>
-    [TestCase("exec")]
-    [TestCase("exec a b")]
-    [TestCase("exec ../a")]
-    [TestCase("exec \"c:a\"")]
-    [TestCase("exec \"a\\\\b\"")]
-    [TestCase("exec a.vpk")]
-    [TestCase("exec a.dll.cfg")]
-    [TestCase("exec a.exe")]
-    [TestCase("exec a.vbs")]
-    [TestCase("exec a.com")]
-    [TestCase("exec a.bat")]
-    [TestCase("exec a.ini")]
-    [TestCase("exec a.gcf")]
-    [TestCase("exec a.sys")]
-    [TestCase("exec a.zip")]
-    [TestCase("exec a.blob")]
-    [TestCase("exec a.scr")]
-    public void Exec_ARefusedLine_ReadsNothing(string line)
+    [TestCase("exec", "exec <filename>: execute a script file")]
+    [TestCase("exec a b", "exec <filename>: execute a script file")]
+    [TestCase("exec ../a", "exec cfg/../a.cfg: invalid path.")]
+    [TestCase("exec \"c:a\"", "exec cfg/c:a.cfg: invalid path.")]
+    [TestCase("exec \"a\\\\b\"", "exec cfg/a\\\\b.cfg: invalid path.")]
+    [TestCase("exec a.vpk", "exec cfg/a.vpk: invalid file type.")]
+    [TestCase("exec a.dll.cfg", "exec cfg/a.dll.cfg: invalid file type.")]
+    [TestCase("exec a.exe", "exec cfg/a.exe: invalid file type.")]
+    [TestCase("exec a.vbs", "exec cfg/a.vbs: invalid file type.")]
+    [TestCase("exec a.com", "exec cfg/a.com: invalid file type.")]
+    [TestCase("exec a.bat", "exec cfg/a.bat: invalid file type.")]
+    [TestCase("exec a.ini", "exec cfg/a.ini: invalid file type.")]
+    [TestCase("exec a.gcf", "exec cfg/a.gcf: invalid file type.")]
+    [TestCase("exec a.sys", "exec cfg/a.sys: invalid file type.")]
+    [TestCase("exec a.zip", "exec cfg/a.zip: invalid file type.")]
+    [TestCase("exec a.blob", "exec cfg/a.blob: invalid file type.")]
+    [TestCase("exec a.scr", "exec cfg/a.scr: invalid file type.")]
+    public void Exec_ARefusedLine_ReadsNothingAndSaysWhy(string line, string said)
     {
         List<string> asked = [];
+        RecordingLogger log = new();
         ConfigConsole console = WithFiles(asked);
+        console.Log = log;
 
         console.Load(line);
 
         asked.ShouldBeEmpty();
+        log.Lines.Select(entry => entry.Message).ShouldBe([said]);
     }
 
     /// <remarks>A file over 1,048,576 bytes is refused: `exec %s: file size larger than 1 MB!`.</remarks>
-    [TestCase(1_048_576, "7")]
-    [TestCase(1_048_577, null)]
-    public void Exec_AFileAtAndOverOneMegabyte_RunsOnlyAtTheLimit(int size, string? expected)
+    [TestCase(1_048_576, "7", 0)]
+    [TestCase(1_048_577, null, 1)]
+    public void Exec_AFileAtAndOverOneMegabyte_RunsOnlyAtTheLimit(int size, string? expected, int said)
     {
         string line = $"{Alpha} 7\n";
         string text = line + new string(' ', size - line.Length);
         List<string> asked = [];
+        RecordingLogger log = new();
         ConfigConsole console = WithFiles(asked, ("cfg/big.cfg", text));
+        console.Log = log;
 
         console.Load("exec big");
 
         console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("exec big: file size larger than 1 MB!").ShouldBe(said);
+    }
+
+    /// <remarks>
+    /// *Interpolated* budget (B820 review 1, Fable, Sonnet): two `exec self` lines would read 2^20 files under the depth bound
+    /// alone; one command reads at most <see cref="ConfigConsole.MaximumExecs"/>, says so once, and the next command starts
+    /// a fresh budget.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileThatExecsItselfTwice_StopsAtTheBudgetAndTheNextCommandGetsItsOwn()
+    {
+        List<string> asked = [];
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", "exec loop\nexec loop"), ("cfg/a.cfg", $"{Alpha} 4"));
+        console.Log = log;
+
+        console.Load("exec loop\nexec a");
+
+        asked.Count(path => path == "cfg/loop.cfg").ShouldBe(ConfigConsole.MaximumExecs);
+        log.Count("more than 256 files from one command").ShouldBe(1);
+        console.ConVar(Alpha).ShouldBe("4", "the second line is a new command with its own budget");
     }
 
     /// <remarks>
@@ -1197,11 +1227,104 @@ public sealed class ConfigConsoleConformanceTests
     {
         ConfigConsole console = new();
         console.Load("bind k +forward\nalias drop \"unbind k\"\nbind j drop");
+        console.KeyDown("k");
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue("the control: the bind landed (B820 review 1, Grok)");
+        console.KeyUp("k");
 
         console.KeyDown("j");
         console.KeyDown("k");
 
         console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse();
+    }
+
+    [Test]
+    public void KeyDown_AnAliasThatUnbindsAll_UnbindsEveryKey()
+    {
+        ConfigConsole console = new();
+        console.Load("bind k +forward\nalias clear unbindall\nbind j clear");
+
+        console.KeyDown("j");
+
+        console.Bound.ShouldBe(0);
+        console.KeyDown("k").ShouldBeFalse("nothing is bound to k now");
+    }
+
+    /// <remarks>
+    /// **A key with a viewer default still runs a bound `exec` or `bind`** (B820 review 1, Fable): the default stands in only
+    /// for a bind that does nothing here, and those do something.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ADefaultKeyBoundToExec_RunsTheFileNotTheDefault()
+    {
+        List<string> asked = [];
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.FindConfig = path =>
+        {
+            asked.Add(path);
+            return path == "cfg/a.cfg" ? System.Text.Encoding.UTF8.GetBytes($"{Alpha} 12") : null;
+        };
+        string key = console.Bindings().KeyFor(ViewerAction.Screenshot);
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+        console.Load($"bind \"{key}\" \"exec a\"");
+
+        console.KeyDown(key);
+
+        console.ConVar(Alpha).ShouldBe("12");
+        fired.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// *Interpolated* (B820 review 1, Fable, Sonnet): TF2 runs its configs at startup, before a demo plays, so a config's view
+    /// or playback one-shot has nothing to act on; a `+` button is state and is kept. The control: the same one-shot from a
+    /// key fires.
+    /// </remarks>
+    [Test]
+    public void Load_AOneShotLine_DoesNothingAndAButtonLineHolds()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("screenshot\ntogglefullscreen\ncl_showpos\n+forward\nbind k screenshot");
+
+        fired.ShouldBeEmpty();
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
+
+        console.KeyDown("k");
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **A key's `exec` is a run-time command** (B820 review 1, Sonnet, Fable): its ConVar sets are announced as a key's are,
+    /// and a `Load` before it leaves nothing behind that would silence them.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeysExecAfterALoad_AnnouncesItsConVarSets()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/a.cfg", $"{Alpha} 21"), ("cfg/b.cfg", $"{Alpha} 3"));
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Load("exec b\nbind k \"exec a\"");
+
+        console.KeyDown("k");
+
+        set.ShouldBe([$"{Alpha} 21"], "the load's own set is not announced; the key's is");
+    }
+
+    /// <remarks>
+    /// The static projection takes the dispatcher's order (B820): an alias named as a ConVar is not what a key bound to that
+    /// name runs, so the bind names nothing this viewer implements.
+    /// </remarks>
+    [Test]
+    public void Applied_ABindToAnAliasNamedAsAConVar_IsNotCounted()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"alias {Alpha} +forward\nbind k {Alpha}");
+
+        console.Applied.ShouldBe(0);
     }
 
     /// <remarks>An alias is consulted only when no command or ConVar has the name, so it cannot shadow a ConVar.</remarks>

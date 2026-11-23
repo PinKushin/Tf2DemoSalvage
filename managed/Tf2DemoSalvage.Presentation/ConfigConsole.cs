@@ -105,7 +105,7 @@ public sealed class ConfigConsole
     /// <summary>Where the console prints what TF2 prints to its own: `exec`'s refusals.</summary>
     public ILogger Log { get; set; } = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
-    /// <summary>Whether a config file is being run, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
+    /// <summary>Whether <see cref="Load"/> is running a config, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
     private bool _loading;
 
     /// <summary>How many binds name something this viewer implements.</summary>
@@ -330,10 +330,11 @@ public sealed class ConfigConsole
                 || verb.Equals("incrementvar", StringComparison.OrdinalIgnoreCase)
                 || verb.Equals("multvar", StringComparison.OrdinalIgnoreCase);
 
-            // The same tests `Run` acts on: any alias, and a ConVar `SetConVar` would accept - which is how the console
-            // treats a typed line; a name the game does not declare is no ConVar in the engine either.
-            if (verb.Equals("alias", StringComparison.OrdinalIgnoreCase)
-                || _aliases.ContainsKey(verb)
+            // The same tests `Run` acts on: the console's own ConCommands (`exec` and `bind` included, B820 review 1, Fable),
+            // an alias the dispatcher would consult, and a ConVar `SetConVar` would accept - which is how the console treats
+            // a typed line; a name the game does not declare is no ConVar in the engine either.
+            if (Definers.Contains(verb)
+                || (ConsultsAlias(verb) && _aliases.ContainsKey(verb))
                 || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
                 || (tokens.Count >= 2 && (IsClientConVar(verb) || verb.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))))
             {
@@ -389,24 +390,27 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) => RunFile(text, depth: 0);
-
-    /// <summary>Runs a file's lines through the one dispatcher, each before the next is read, as `Cmd_Exec_f` does (B820).</summary>
-    private void RunFile(string? text, int depth)
+    public void Load(string? text)
     {
-        bool loading = _loading;
+        // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
         _loading = true;
 
         try
         {
-            foreach (string line in (text ?? string.Empty).Split('\n'))
-            {
-                _ = Run(line, key: null, depth);
-            }
+            RunFile(text ?? string.Empty, depth: 0);
         }
         finally
         {
-            _loading = loading;
+            _loading = false;
+        }
+    }
+
+    /// <summary>Runs a file's lines through the one dispatcher, each before the next is read, as `Cmd_Exec_f` does (B820).</summary>
+    private void RunFile(string text, int depth)
+    {
+        foreach (string line in text.Split('\n'))
+        {
+            _ = Run(line, key: null, depth);
         }
     }
 
@@ -806,9 +810,16 @@ public sealed class ConfigConsole
         return new KeyBindings(bound, commands);
     }
 
+    /// <summary>The ConCommands <see cref="Define"/> runs: binds, aliases and `exec` (B820).</summary>
+    private static readonly HashSet<string> Definers =
+        new(["unbindall", "unbind", "alias", "bind", "exec"], StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The ConCommands this console implements itself, found by name before any alias is (B820).</summary>
     private static readonly HashSet<string> BuiltIns =
-        new(["unbindall", "unbind", "alias", "bind", "exec", "toggle", "incrementvar", "multvar"], StringComparer.OrdinalIgnoreCase);
+        new([.. Definers, "toggle", "incrementvar", "multvar"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether the dispatcher looks a name up among the aliases: a `+`/`-` button, or a name no command claims.</summary>
+    private static bool ConsultsAlias(string name) => name.StartsWith('+') || name.StartsWith('-') || !IsCommand(name);
 
     /// <summary>
     /// Whether `Cmd_ExecuteCommand` would find a command or ConVar by this name before it looked at the aliases (B820).
@@ -884,6 +895,13 @@ public sealed class ConfigConsole
     private static readonly string[] RefusedFileTypes =
         [".exe", ".vbs", ".com", ".bat", ".dll", ".ini", ".gcf", ".sys", ".zip", ".vpk", ".blob", ".scr"];
 
+    /// <summary>How many files one command at depth 0 may `exec` in all, its nested files included.</summary>
+    /// <remarks>*Interpolated* (B820 review 1): the engine's bound is not read. Far past a real config tree, which execs tens.</remarks>
+    public const int MaximumExecs = 256;
+
+    /// <summary>Files `exec`ed since the last line run at depth 0 (a file's line or a key); see <see cref="MaximumExecs"/>.</summary>
+    private int _execs;
+
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
 
@@ -901,6 +919,18 @@ public sealed class ConfigConsole
         if (tokens.Count != 2)
         {
             Log.LogInformation("{Message}", "exec <filename>: execute a script file");
+            return;
+        }
+
+        // **A budget per command typed, besides the depth** (B820 review 1, Fable, Sonnet): a file holding `exec self`
+        // twice reads 2^20 files under the depth bound alone. *Interpolated*, as the depth bound is.
+        if (++_execs > MaximumExecs)
+        {
+            if (_execs == MaximumExecs + 1)
+            {
+                Log.LogInformation("{Message}", $"exec: more than {MaximumExecs} files from one command; not executing the rest.");
+            }
+
             return;
         }
 
@@ -943,6 +973,7 @@ public sealed class ConfigConsole
 
         if (depth + 1 >= MaximumExpansion)
         {
+            Log.LogInformation("{Message}", $"exec {name}: nested deeper than {MaximumExpansion}; not executing.");
             return;
         }
 
@@ -1238,6 +1269,11 @@ public sealed class ConfigConsole
             return acted;
         }
 
+        if (depth == 0)
+        {
+            _execs = 0;
+        }
+
         foreach (string clause in SourceConfig.Clauses(commandLine))
         {
             IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
@@ -1251,8 +1287,7 @@ public sealed class ConfigConsole
 
             // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
             // where the name is a `+`/`-` button, which an alias may replace.
-            if ((command.StartsWith('+') || command.StartsWith('-') || !IsCommand(command)) &&
-                _aliases.TryGetValue(command, out string? body))
+            if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
             {
                 // No key, deliberately — see the remark above.
                 _ = Run(body, key: null, depth + 1);
@@ -1305,6 +1340,15 @@ public sealed class ConfigConsole
                 EngineConVars.TryByConsoleName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
             {
                 acted = true;
+                continue;
+            }
+
+            // **A config's one-shot does nothing at load** (B820 review 1, Fable, Sonnet). *Interpolated*: TF2 runs its configs
+            // at startup, before a demo plays, so a view or playback command has nothing to act on, and the viewer's own
+            // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
+            // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act.
+            if (_loading && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
+            {
                 continue;
             }
 
@@ -1390,8 +1434,7 @@ public sealed class ConfigConsole
             }
 
             // The dispatcher's order (B820): see `Run`.
-            if ((tokens[0].StartsWith('+') || tokens[0].StartsWith('-') || !IsCommand(tokens[0])) &&
-                _aliases.TryGetValue(tokens[0], out string? body))
+            if (ConsultsAlias(tokens[0]) && _aliases.TryGetValue(tokens[0], out string? body))
             {
                 found.AddRange(Expand(body, depth + 1));
                 continue;

@@ -122,24 +122,28 @@ public static class Tf2ConfigFiles
         return path => ReadFlat(ownCustomRoot, path) ?? archives.Read(path);
     }
 
-    /// <summary>`custom/&lt;path below cfg/&gt;`, loose in our own folder, or null.</summary>
+    /// <summary>`custom/&lt;name&gt;.cfg`, loose in our own folder and not empty, or null.</summary>
+    /// <remarks>
+    /// **Only a file directly below `cfg/`** (B820 review 1, Sonnet): D193's flat file stands in for `cfg/autoexec.cfg`;
+    /// `exec comfig/comfig` is found as the engine finds it, under an addon's `cfg/`, through the archives. An empty
+    /// flat file falls through to the game's copy, as before B820.
+    /// </remarks>
     private static byte[]? ReadFlat(string? ownCustomRoot, string path)
     {
-        if (string.IsNullOrWhiteSpace(ownCustomRoot))
-        {
-            return null;
-        }
-
-        // Below `cfg/`, so `exec comfig/comfig` finds `custom/comfig/comfig.cfg` and not another folder's `comfig.cfg`.
-        // A name `exec` passes is a config's text, so only a file inside the folder is read (D32).
-        if (GameArchives.InsideFolder(ownCustomRoot, path.StartsWith("cfg/", StringComparison.Ordinal) ? path[4..] : path) is not { } file)
+        if (string.IsNullOrWhiteSpace(ownCustomRoot) || !path.StartsWith("cfg/", StringComparison.Ordinal) ||
+            path.AsSpan(4).IndexOfAny('/', '\\') >= 0)
         {
             return null;
         }
 
         try
         {
-            return File.Exists(file) ? File.ReadAllBytes(file) : null;
+            // A name `exec` passes is a config's text, so only a file inside the folder is read (D32); a name with a NUL
+            // or one too long is a missing file (B820 review 1, Fable, Sonnet).
+            return GameArchives.InsideFolder(ownCustomRoot, path[4..]) is { } file && File.Exists(file) &&
+                File.ReadAllBytes(file) is { Length: > 0 } bytes
+                ? bytes
+                : null;
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {

@@ -248,7 +248,11 @@ public sealed class GameArchives
     /// <returns>The full path, or null.</returns>
     public static string? InsideFolder(string folder, string path)
     {
-        if (Path.IsPathRooted(path))
+        ArgumentNullException.ThrowIfNull(folder);
+        ArgumentNullException.ThrowIfNull(path);
+
+        // A NUL makes `Path.GetFullPath` throw an `ArgumentException` no caller catches; no file has one (B820 review 1).
+        if (Path.IsPathRooted(path) || path.Contains('\0', StringComparison.Ordinal))
         {
             return null;
         }
