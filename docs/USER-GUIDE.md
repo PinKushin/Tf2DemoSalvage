@@ -96,7 +96,10 @@ Without a config, the defaults apply. A bind in your config replaces the default
 | `CTRL+0`, `CTRL+1`, `CTRL+2` | `mat_fullbright 0`, `mat_fullbright 1`, `mat_fullbright 2` |
 
 **Where the viewer looks for your config.** It reads `cfg/config_default.cfg`, then `cfg/config.cfg`, then
-`cfg/autoexec.cfg`, in that order, so each overrides the one before it. It looks in your TF2 `tf` folder,
+`cfg/autoexec.cfg`, in that order, so each overrides the one before it. The viewer's own saved settings (what you
+choose in its menus) take `config.cfg`'s place: a setting `config.cfg` or `config_default.cfg` also holds keeps the
+viewer's saved value, while your `autoexec.cfg` and then the command line win over both, as in TF2. Binds and aliases
+come from every file. It looks in your TF2 `tf` folder,
 including a `.vpk` under `tf/custom` that holds those files, as mastercomfig ships. It also looks in a `custom`
 folder beside `tf2demoview.exe`, which is searched first. There you can use the same `cfg/` layout, or drop a
 `config.cfg` or `autoexec.cfg` straight into `custom`. A file that is missing is normal. If none is found, the

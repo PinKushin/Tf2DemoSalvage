@@ -44450,8 +44450,23 @@ stored when it is read, for what reads the launch before the console runs, and a
 the configs (`LaunchOptions.AfterConfigs`), so the line wins as `stuffcmds` after `exec` gives. Tests:
 `ViewerSessionTests.Build_AnAutoexecsTypedConVars_ReachTheSettings` (red first; control: an autoexec setting neither),
 `Build_ALaunchConVarAlsoInTheAutoexec_EndsAtTheLaunchValue` (control: the autoexec's value alone; sabotage: not handing
-the non-cheat on reddens it and the reader's test). Every config ConVar now logs `(set at run time)` once at startup, as
-the folder reload's already did. Not verified by looking.
+the non-cheat on reddens it and the reader's test). Every `autoexec.cfg` ConVar now logs `(set at run time)` once at
+startup, as the folder reload's already did, and each launch ConVar logs twice (read, then run). Not verified by looking.
+
+**Review 1** (Fable, Sonnet; Gemini, Grok pending at the time of writing):
+1. *TF2's `config.cfg` overrode the viewer's saved menu choices on every start* (Fable, high): it is executed too, and
+   holds every ConVar TF2 archives. Owner's pick, D264: the viewer's saved settings take `config.cfg`'s place, so its
+   ConVars and `config_default.cfg`'s stay in the console's list below them; `autoexec.cfg` and the line win.
+   `Tf2ConfigFiles.IsSaved`, `ConfigConsole._savedLayer`. Test `Build_ASavedConVarAlsoInTf2sConfigCfg_KeepsTheSavedValue`
+   (control: the same line in `autoexec.cfg` wins; sabotage: nothing counted as saved reddens it).
+2. *`spec_autodirector` and `mat_hdr_level` were read once when the line was read, before the configs* (Fable, Sonnet),
+   so an autoexec's value reached the settings but not the lighting or the spectator. Now
+   `ViewerPresenter.ApplyTheStartingSettings` reads them after the configs and the line. Test
+   `Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake` (sabotage: applying them when the line is read reddens it).
+3. Stale comments corrected (the folder reload now replays the whole line; `SettingsPresenter.Attach`'s order).
+4. Recorded, no change: every non-cheat `+name value` now reaches the console as `stuffcmds` would run it, so
+   `+toggle cl_showfps` flips it and `+alias a b` clears alias `a` (only `a` is taken); an autoexec's `sv_cheats 1` then
+   `0` reverts the saved cheats for the run, as TF2's would revert its own.
 
 **As filed:**
 

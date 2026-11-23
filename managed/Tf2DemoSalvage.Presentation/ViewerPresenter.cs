@@ -437,12 +437,6 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         LaunchOptions launch = _settingsOwner.ReadLaunch(arguments);
 
-        // The watcher's `spec_autodirector` (B535).
-        _camera.Spectate(launch.Spectate, _settings.AutoDirector);
-
-        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
-        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
-
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.
@@ -452,6 +446,25 @@ public sealed partial class ViewerPresenter : IDisposable
         CheckWindows = launch.Windows;
 
         return launch;
+    }
+
+    /// <summary>
+    /// Applies what the settings say once the configs and the launch line have run (B816 review 1, Fable, Sonnet): the
+    /// spectator's director and the lighting every loader takes.
+    /// </summary>
+    /// <param name="launch">What the launch line asked for.</param>
+    /// <remarks>
+    /// **After the configs, not when the line is read**: an autoexec's `mat_hdr_level 0` or `spec_autodirector 0` reaches
+    /// the settings only once the configs run, and these are read once, before any map. Read earlier, the settings said
+    /// one value while the run used another.
+    /// </remarks>
+    public void ApplyTheStartingSettings(LaunchOptions launch)
+    {
+        // The watcher's `spec_autodirector` (B535).
+        _camera.Spectate(launch.Spectate, _settings.AutoDirector);
+
+        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
+        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
     }
 
     /// <summary>The picker chose a HUD: draw it from the next overlay, and remember it.</summary>

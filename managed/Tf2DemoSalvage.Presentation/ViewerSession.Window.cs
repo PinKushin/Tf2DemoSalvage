@@ -212,10 +212,11 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** Without it the
         // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
-        // **After `Attach`** (B816): a config's ConVar then reaches the run's settings, where every reader looks, as the
-        // console says a line read after attaching does (D215); before, the settings' own value shadowed it. TF2 runs
-        // `config.cfg` and then `autoexec.cfg` (`cfg/valve.rc`), so a config's value wins over the saved one for this run;
-        // the saved file is untouched (`SettingsPresenter.SetConVar` never saves). Before `OnConVarSet`, as the line is.
+        // **After `Attach`** (B816): an `autoexec.cfg` ConVar then reaches the run's settings, where every reader looks, as
+        // the console says a line read after attaching does (D215); before, the settings' own value shadowed it. TF2 runs
+        // `config.cfg`, then `autoexec.cfg`, then the line (`cfg/valve.rc`); the viewer's own saved settings play
+        // `config.cfg`'s part, so TF2's `config.cfg` and `config_default.cfg` stay below them (D264). The saved file is
+        // untouched (`SettingsPresenter.SetConVar` never saves). Before `OnConVarSet`, as the line is.
         LoadUserConfig();
 
         // **After `Attach`** (B811 review 1): an admitted set reaches the run's settings through `ConVarSet`, where its
@@ -223,6 +224,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // `OnConVarSet`** (review 2): the window's controls do not exist yet while it is being built, and the switches are
         // applied from the settings when the device opens.
         RunTheLaunchLine();
+
+        // What is read once at startup, read now that the configs and the line have run (B816 review 1).
+        _presenter.ApplyTheStartingSettings(_launch);
 
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
@@ -388,8 +392,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             _console.StartCheatsOff();
             LoadUserConfig();
 
-            // The configs ran again, so the line's cheats run after them again, as `stuffcmds` follows `exec` (B811
-            // review 2). Its other ConVars were stored when it was read and are not replayed (B816).
+            // The configs ran again, so the whole line runs after them again, as `stuffcmds` follows `exec` (B811 review 2,
+            // B816): a launch option set before the folder was chosen, by the menu too, ends at the line's value, as the
+            // next launch would.
             RunTheLaunchLine();
             _window.ShowBindings(_bindings);
         }

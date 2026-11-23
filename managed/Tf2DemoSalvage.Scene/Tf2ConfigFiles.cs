@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -40,6 +41,16 @@ public static class Tf2ConfigFiles
     public static IReadOnlyList<string> Order { get; } =
         ["cfg/config_default.cfg", "cfg/config.cfg", "cfg/autoexec.cfg"];
 
+    /// <summary>Whether a config is the engine's saved one, whose part the viewer's own settings file plays (D264).</summary>
+    /// <param name="path">A path from <see cref="Order"/>.</param>
+    /// <returns>True for <c>config_default.cfg</c> and <c>config.cfg</c>.</returns>
+    /// <remarks>
+    /// `config.cfg` is what TF2 last wrote of its menus; the viewer's menus write `settings.cfg`. So a ConVar either sets
+    /// ranks below the viewer's saved value, as `config.cfg` ranks below nothing the player chose since. `autoexec.cfg` is
+    /// the player's hand-written layer and still wins, as in TF2.
+    /// </remarks>
+    public static bool IsSaved(string path) => path != Order[^1];
+
     /// <summary>Reads whichever of the player's configs exist.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
     /// <param name="log">Where to report what was found, or null.</param>
@@ -54,9 +65,18 @@ public static class Tf2ConfigFiles
     /// viewer must start regardless — its own defaults are a working set of controls.
     /// </remarks>
     public static IReadOnlyList<string> Read(
+        string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null) =>
+        [.. ReadFiles(gameFolder, log, ownCustomRoot).Select(file => file.Text)];
+
+    /// <summary>As <see cref="Read(string, Action{string, string}, string)"/>, each config with its path from <see cref="Order"/>.</summary>
+    /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
+    /// <param name="log">Where to report what was found, or null.</param>
+    /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null.</param>
+    /// <returns>The configs in exec order.</returns>
+    public static IReadOnlyList<(string Path, string Text)> ReadFiles(
         string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
     {
-        List<string> configs = [];
+        List<(string Path, string Text)> configs = [];
 
         // **Our own custom/ is one more search path, above the game's (D193).** `exec` reads the FIRST match on the
         // search path, so a config there replaces the game's copy of that file rather than running after it.
@@ -72,7 +92,7 @@ public static class Tf2ConfigFiles
                 continue;
             }
 
-            configs.Add(text);
+            configs.Add((path, text));
             log?.Invoke("config", $"{path}: {text.Length} characters");
         }
 

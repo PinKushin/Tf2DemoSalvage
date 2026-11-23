@@ -856,6 +856,51 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **TF2's `config.cfg` ranks below the viewer's own saved settings, which play its part** (D264, the owner's pick):
+    /// a saved `fps_max 144` survives a `config.cfg` that says 77. The control: the same line in `autoexec.cfg`, the
+    /// player's hand-written layer, wins over the saved value, as in TF2.
+    /// </remarks>
+    [Test]
+    public void Build_ASavedConVarAlsoInTf2sConfigCfg_KeepsTheSavedValue()
+    {
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        ViewerSettings saved = new ViewerSettings { FrameRateLimit = 0 }.Set("fps_max", "144");
+
+        File.WriteAllText(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "fps_max 77\n");
+        using (Rig control = Build(saved))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(77, "the control: autoexec.cfg wins over the saved value");
+        }
+
+        File.Delete(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"));
+        File.WriteAllText(Path.Combine(_gameFolder, "cfg", "config.cfg"), "fps_max 77\n");
+        using Rig rig = Build(saved);
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(144);
+    }
+
+    /// <remarks>
+    /// **What is read once at startup is read after the configs** (B816 review 1, Fable, Sonnet): an autoexec's
+    /// `mat_hdr_level 0` is the lighting every loader takes, as the settings say. The control: without it, the saved 2.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(control.Settings.Current.HdrLevel, "the control: the saved level");
+            control.Settings.Current.HdrLevel.ShouldNotBe(0);
+        }
+
+        using Rig rig = BuildWithAutoexec("mat_hdr_level 0\n");
+
+        rig.Settings.Current.HdrLevel.ShouldBe(0);
+        Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
     /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
     /// </remarks>
