@@ -43818,6 +43818,14 @@ Everything here is the viewer's own threading, not engine parity.
    is in flight. The in-flight row is renamed
    `FollowUpload_AWorldLostWhileALoadIsInFlight_WaitsUnmarkedAndSilentThenReloadsOnce`.
 
+**Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
+1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
+   thread, serialized with the last load's decrement marshal (`MainForm.OnUi` invokes onto that thread), or on the read's
+   worker while that load is still counted. So the count cannot reach zero between the check and the flag. Both sides
+   still take the flag with one `Interlocked.Exchange`; the last load to finish takes it.
+2. *`FakeViewerWindow.ViewportReads`* (Sonnet, test only): counted with `Interlocked.Increment`, since the read's worker
+   and the test's thread can both ask.
+
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.

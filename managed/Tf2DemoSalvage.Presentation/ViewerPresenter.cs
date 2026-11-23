@@ -1078,8 +1078,7 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>
     /// Takes a pending reload, if one is there, and marks the world so the next frame projects it (reviews 29-30). Called
-    /// by the last load to finish, and by the skip after it sets the flag, in case the last load finished in between: a
-    /// mark made twice is harmless, a mark never made loses the reload.
+    /// by the last load to finish, in its marshal (review 31: the skip's re-check was unreachable, D180).
     /// </summary>
     private void TakePendingReload()
     {

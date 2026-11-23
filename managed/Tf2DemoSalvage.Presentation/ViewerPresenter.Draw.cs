@@ -151,13 +151,9 @@ public sealed partial class ViewerPresenter
                     _log.LogInformation("{Message}", $"world textures lost while a load is in flight; reading {open.MapName} again after it");
                 }
 
-                // The last load may have finished between the check above and the flag (review 30 item 1): if none is in
-                // flight now, take the reload here rather than leave it pending into a later load.
-                if (!LoadInFlight)
-                {
-                    TakePendingReload();
-                }
-
+                // No re-check of the count here (review 31, D180): this runs on the UI thread, serialized with the last load's
+                // decrement (its marshal), or on the read's worker while that load is still counted, so the count cannot reach
+                // zero between the check above and the flag. The last load to finish takes the flag.
                 return;
             }
 

@@ -36,7 +36,7 @@ internal sealed class FakeViewerWindow : IViewerWindow
     {
         get
         {
-            ViewportReads++;
+            System.Threading.Interlocked.Increment(ref _viewportReads);
             return _viewport;
         }
 
@@ -45,8 +45,13 @@ internal sealed class FakeViewerWindow : IViewerWindow
 
     private (int Width, int Height) _viewport = (1280, 720);
 
-    /// <summary>How many times the viewport's size was asked for: a projection asks once (B779 review 30).</summary>
-    public int ViewportReads { get; private set; }
+    private int _viewportReads;
+
+    /// <summary>
+    /// How many times the viewport's size was asked for: a projection asks once (B779 review 30). Counted with an interlocked
+    /// add, because the map read's worker and the test's thread can both ask (review 31).
+    /// </summary>
+    public int ViewportReads => System.Threading.Volatile.Read(ref _viewportReads);
 
     /// <inheritdoc/>
     public bool IsActiveApp { get; set; } = true;
