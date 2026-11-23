@@ -44480,6 +44480,15 @@ startup, as the folder reload's already did, and each launch ConVar logs twice (
    `ApplyTheConfiguredSettings` by no session test (no rig reads the spectator's director). A folder picked while a demo
    load is reading its map could change `MatHdrLevel` mid-read (review 3, Fable, Sonnet; not traced whether the folder
    prompt can be open then).
+
+**Review 4** (Gemini, Sonnet approve; Fable holds the gate on one). *This machine's own `autoexec.cfg` now reaches every
+local run* (Fable, medium): it sets `crosshair 0`, `cl_interp 0`, `cl_interp_ratio 1` and `cl_updaterate 66`, which the
+settings shadowed before; the HUD goldens were taken at `crosshair 1`, and every golden was matched at the default
+interpolation. The golden runs now pin them (`Golden.Common` carries `cl_interp 0.1`, `cl_interp_ratio 2`,
+`cl_updaterate 20`; the HUD goldens add `crosshair 1`), so local and CI agree again; the UI phase of the gate is the
+check. Any `--shot`, `--measure` or A/B run on this machine now uses the watcher's config, as it should. Left: a launch
+`+unbind KEY x` or `+unbindall x` now reaches the console after the menu's shortcuts were built from the binds (Fable,
+low); a launch value's quoting is refused for `"` and line breaks (B811 review 10).
 2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
    LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
    `autoexec.cfg`; an untyped ConVar stays readable from the console) and
