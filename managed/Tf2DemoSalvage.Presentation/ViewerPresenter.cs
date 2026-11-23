@@ -530,7 +530,7 @@ public sealed partial class ViewerPresenter : IDisposable
     public bool ReadingMap => _readingMap;
 
     /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
-    public int LoadsInFlight => _loadsInFlight;
+    public int LoadsInFlight => Volatile.Read(ref _loadsInFlight);
 
     /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
     private ObserverRagdoll? CorpseOf(int player, int tick) =>
@@ -926,11 +926,14 @@ public sealed partial class ViewerPresenter : IDisposable
         int ticket = _loads.Take();
 
         _view.Status = DemoLoadResult.Opening(path);
-        _loadsInFlight++;
-        _view.ReportLoading(LoadingDecode, 0d);
 
         try
         {
+            // **Counted inside the region whose `finally` counts it down** (review 29 item 3): a report that throws must
+            // not leave a load counted for ever.
+            Interlocked.Increment(ref _loadsInFlight);
+            _view.ReportLoading(LoadingDecode, 0d);
+
             ILogger demoLog = _demoLog;
             Core.Net.ClientInterp interp = _settings.Interp;
 
@@ -1027,9 +1030,17 @@ public sealed partial class ViewerPresenter : IDisposable
             {
                 // **Hidden only when no newer load is still running**, which would otherwise lose
                 // its overlay to the one it superseded.
-                if (--_loadsInFlight == 0)
+                if (Interlocked.Decrement(ref _loadsInFlight) == 0)
                 {
                     _view.HideLoading();
+
+                    // A world lost while loads were in flight waited for them, marked once (review 29 item 1): the next
+                    // frame projects it, and if it is still lost the reload reads the map now.
+                    if (_reloadPending)
+                    {
+                        _reloadPending = false;
+                        _world.Invalidate();
+                    }
                 }
 
                 return 0;
@@ -1056,9 +1067,17 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>
     /// Whether an asynchronous load is in flight — decoding, fetching, queued, reading or applying (review 28 item 2): from
-    /// `LoadDemoAsync`'s start to its last marshal, which counts it down on every path.
+    /// `LoadDemoAsync`'s start to its last marshal, which counts it down on every path. **Interlocked on both sides**
+    /// (review 29 item 4): it is counted on the UI thread, or inline off it before the window's handle exists, and read
+    /// from the map read's worker as well as the UI thread.
     /// </summary>
     private bool LoadInFlight => Volatile.Read(ref _loadsInFlight) > 0;
+
+    /// <summary>
+    /// A world was lost while loads were in flight, and its reload waits for the last to finish (review 29 item 1): set
+    /// once by the skip, and turned into one mark on the world when the count reaches zero.
+    /// </summary>
+    private volatile bool _reloadPending;
 
     /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
     /// <param name="ticket">The load's ticket.</param>

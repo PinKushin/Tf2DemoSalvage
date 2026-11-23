@@ -584,13 +584,15 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **A lost world is not read again while any load is in flight, and says nothing** (B779 reviews 27-28): a load still
-    /// decoding, or queued and not yet raised — a superseded load's gap is either — would have the reload read the old
-    /// demo's map only for the next load to clear it. Here the upload's answer "lost" while a second load decodes (at its
-    /// decode report, before anything is queued) or at the start of its raising marshal: nothing is read, the world is
-    /// marked, and the status is the load's own, not "Reloading the map…". The control: the barrier was down then.
+    /// **A lost world waits for every load in flight, without looping, and says nothing** (B779 reviews 27-29): a load
+    /// still decoding, or queued and not yet raised — a superseded load's gap is either — would have the reload read the
+    /// old demo's map only for the next load to clear it. Here the upload's answer "lost" twice, as two frames give it,
+    /// while a second load decodes (at its decode report) or at the start of its raising marshal: nothing is read, the
+    /// world is **not** marked again (a mark would have the next frame project and lose it again, a loop for the whole
+    /// decode), and the status is the load's own. After the load the world is marked once, and the same answer then reads
+    /// the map. The control: the barrier was down at the answers.
     /// </remarks>
-    /// <param name="whileDecoding">Whether the answer comes while the load decodes (else once it is queued).</param>
+    /// <param name="whileDecoding">Whether the answer comes before the load is queued — decoded, the map not yet fetched (else once it is queued).</param>
     [TestCase(true)]
     [TestCase(false)]
     public async Task FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing(bool whileDecoding)
@@ -616,20 +618,36 @@ public sealed class ViewerPresenterTests
                 asked = true;
                 barrierUp = loader.ReadingMap;
                 clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
-                loader.WorldProjected();
-                loader.FollowUpload(Lost, map);
-                marked = loader.WorldNeedsProjecting;
+                bool markedOnce = false;
+
+                // Two frames: each clears the mark, projects, and is told the world is lost.
+                for (int frame = 0; frame < 2; frame++)
+                {
+                    loader.WorldProjected();
+                    loader.FollowUpload(Lost, map);
+                    markedOnce |= loader.WorldNeedsProjecting;
+                }
+
+                marked = markedOnce;
                 status = view.Status;
                 clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
             }
 
+            // Before the queue: at the report that the decode is done and the map comes next — counted, not yet queued (the
+            // test window notes the decode's own reports by count, so a late progress post can take the decode report's
+            // place; this report is always noted). Once queued: the first marshal after it, the raise.
             view.Asked = name =>
             {
-                if (whileDecoding && name == "Report: " + FakeLoadView.Decoding && !asked)
+                if (name != "Report: Loading the map")
+                {
+                    return;
+                }
+
+                if (whileDecoding && !asked)
                 {
                     Lose();
                 }
-                else if (!whileDecoding && name == "Report: Loading the map")
+                else if (!whileDecoding)
                 {
                     armed = true;
                 }
@@ -648,8 +666,68 @@ public sealed class ViewerPresenterTests
 
             (asked, barrierUp).ShouldBe((true, (bool?)false), "the control: the barrier was down");
             clearsAfter.ShouldBe(clearsBefore, "nothing read while the load was in flight");
-            marked.ShouldBe(true);
+            marked.ShouldBe(false, "the frames waited rather than looping");
             status.ShouldNotBe(Lost.Problem, "the load's own status stays");
+
+            loader.LoadsInFlight.ShouldBe(0);
+            loader.WorldNeedsProjecting.ShouldBeTrue("the last load to finish marked the world once");
+            int clearsBeforeReload = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            loader.WorldProjected();
+            loader.FollowUpload(Lost, loader.Map.ShouldNotBeNull());
+            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeReload + 1, "then the reload reads the map");
+        }
+    }
+
+    /// <remarks>
+    /// **A load is counted inside the region that counts it down** (B779 review 29 item 3): a decode report that throws,
+    /// a file that is no demo, and a read that throws each leave no load counted — a count left at one would hold a lost
+    /// world's reload for ever. The control: each load did fail.
+    /// </remarks>
+    /// <param name="failure">Where the load fails.</param>
+    [TestCase("report")]
+    [TestCase("decode")]
+    [TestCase("read")]
+    public async Task LoadDemoAsync_ALoadThatFails_LeavesNoLoadCounted(string failure)
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        string path = WriteDemo("fails");
+
+        if (failure == "decode")
+        {
+            await File.WriteAllTextAsync(path, "not a demo").ConfigureAwait(false);
+        }
+
+        view.Asked = name =>
+        {
+            if (failure == "report" && name == "Report: " + FakeLoadView.Decoding)
+            {
+                throw new IOException("a report that fails");
+            }
+
+            if (failure == "read" && name == "Report: Loading models and sounds")
+            {
+                throw new InvalidOperationException("a read that fails");
+            }
+        };
+
+        using (loader)
+        {
+            bool failed;
+
+            try
+            {
+                failed = !(await loader.LoadDemoAsync(path).ConfigureAwait(false)).Loaded;
+            }
+            catch (InvalidOperationException)
+            {
+                failed = true;
+            }
+
+            view.Asked = null;
+
+            failed.ShouldBeTrue("the control: the load failed");
+            loader.LoadsInFlight.ShouldBe(0);
         }
     }
 

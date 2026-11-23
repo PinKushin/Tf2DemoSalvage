@@ -1072,6 +1072,38 @@ public sealed class ViewerSessionTests
         rig.Session.Presenter.DemoPath.ShouldBe(demo);
     }
 
+    /// <remarks>
+    /// **The window's own map-read projection says it is the read's** (B779 review 29 item 2): `ILoadView.MapRead` passes
+    /// `fromTheRead`, so the barrier's guard lets it project. Without it the read's own projection would be held off like a
+    /// window's mid-read projection — and with a real map the world would wait for a frame instead of going up with the
+    /// read. Here a session with a device opens a demo through the playlist (the async load): the read's projection is
+    /// not held off. The control: a projection made while a map reads, from outside the read, is held off and says so.
+    /// </remarks>
+    [Test]
+    public async Task Activate_ADemoWithItsMap_TheReadsOwnProjectionIsNotHeldOff()
+    {
+        string demo = WriteDemo("projected");
+        using Rig rig = Build().WithDevice();
+        bool? controlHeldOff = null;
+
+        rig.Session.Activate(demo);
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Log.Count(ViewerPresenter.HeldOffWhileAMapReads).ShouldBe(0, "the read's own projection ran");
+
+        // The control: the same projection made from outside a read in flight is held off, and the line is written.
+        string second = WriteDemo("control");
+        rig.Window.ProjectingDuringMapRead = () =>
+        {
+            rig.Session.Presenter.ProjectMap(surfaceColours: false, (1280, 720));
+            controlHeldOff = rig.Log.Count(ViewerPresenter.HeldOffWhileAMapReads) == 1;
+        };
+        rig.Session.Activate(second);
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        controlHeldOff.ShouldBe(true);
+    }
+
     [Test]
     public void ReportStartup_WithNothingOpening_LogsTheBootTimeAndAddsItToTheStatus()
     {

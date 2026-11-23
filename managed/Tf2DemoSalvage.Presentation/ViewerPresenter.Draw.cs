@@ -33,6 +33,9 @@ public sealed partial class ViewerPresenter
     /// </remarks>
     private readonly LeafBoxes _leafBoxes;
 
+    /// <summary>The line a projection held off by a map read writes (B779 review 29 item 2).</summary>
+    public const string HeldOffWhileAMapReads = "projection held off while a map reads; the frame after the load projects";
+
     /// <summary>Something a window knows moved the view: the world's projection is stale.</summary>
     public void InvalidateWorld() => _world.Invalidate();
 
@@ -61,6 +64,8 @@ public sealed partial class ViewerPresenter
         // could change.
         if (_readingMap && !fromTheRead)
         {
+            // Said: rare (a viewport recreated mid-read), and the one sign the read's own projection lost its signal.
+            _log.LogInformation("{Message}", HeldOffWhileAMapReads);
             _world.Invalidate();
             return;
         }
@@ -134,10 +139,19 @@ public sealed partial class ViewerPresenter
             // the UI thread** — a full map read, 13 to 18 seconds on a large map (B146), with the window not pumping. That
             // is the cost of recovering a lost device; the read in flight does not recover it, because it uploaded to the
             // device that was lost (review 27 item 3).
+            //
+            // **It waits; it does not loop** (review 29 item 1). Frames run while a load decodes or fetches, and marking the
+            // world here would have each one project, find the world lost, log and mark again — a line and a projection a
+            // frame for the whole decode. So the skip records the reload once and leaves the world unmarked; the last load
+            // to finish marks it once (`LoadDemoAsync`'s last marshal).
             if (reloadWaits)
             {
-                _log.LogInformation("{Message}", $"world textures lost while a load is in flight; reading {open.MapName} again after it");
-                _world.Invalidate();
+                if (!_reloadPending)
+                {
+                    _reloadPending = true;
+                    _log.LogInformation("{Message}", $"world textures lost while a load is in flight; reading {open.MapName} again after it");
+                }
+
                 return;
             }
 

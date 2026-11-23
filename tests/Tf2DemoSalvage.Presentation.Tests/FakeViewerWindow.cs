@@ -52,7 +52,19 @@ internal sealed class FakeViewerWindow : IViewerWindow
     }
 
     /// <inheritdoc/>
-    public void ReportLoading(string stage, double? fraction) => Told.Add("ReportLoading " + stage);
+    public void ReportLoading(string stage, double? fraction)
+    {
+        Told.Add("ReportLoading " + stage);
+
+        // The report the map read makes once its map is read, behind the barrier.
+        if (stage == "Loading models and sounds")
+        {
+            ProjectingDuringMapRead?.Invoke();
+        }
+    }
+
+    /// <summary>Run when the map read reports its models — while the read holds the barrier — for a test that acts then.</summary>
+    public Action? ProjectingDuringMapRead { get; set; }
 
     /// <inheritdoc/>
     public void HideLoading() => Told.Add(nameof(HideLoading));

@@ -43755,6 +43755,40 @@ the viewer's own threading, not engine parity.
 6. *The test name overclaimed*: **true**. It is renamed to what it shows: no frame runs, and the "lost" answer is
    supplied by the test.
 
+**Review 29** (Sonnet OK; Fable one medium; Gemini and Grok still out). Item numbers are the coordinator's. Everything
+here is the viewer's own threading, not engine parity.
+
+1. *The waiting skip repeated every frame*: **true** (review 28 widened the skip into the decode and fetch, when frames
+   still run).
+   - The skip now records a pending reload once (`_reloadPending`, which logs once) and leaves the world unmarked.
+   - The last load to finish (the count reaching zero in `LoadDemoAsync`'s last marshal) marks it once. The next frame
+     then projects, and a world still lost is read again.
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsInFlight_ReadsNothingMarksTheWorldAndSaysNothing`, two cases. Two
+     "lost" answers in a row during a load leave the world unmarked, so no frame re-projects. After the load the world
+     is marked once, and the same answer reads the map.
+   - *Sabotage*: marking on every skip reddens both cases. Dropping the end-of-loads mark reddens both cases (nothing
+     would project again).
+   - The log line's count is not asserted, because no recording logger reaches these presenter rows; the mark is what
+     stops the loop.
+   - *An instrument fault, found and fixed*: the test's decoding case hooked the queued load's decode report. The test
+     window notes decode reports by count, so a late progress post from the first load took the slot and the hook never
+     ran; it failed every time. It now hooks "Loading the map", which comes after the decode and before the fetch wait
+     and the queue. That is always noted, and it is the window the queue key missed.
+2. *The read's signal was untested*: **true**.
+   - *Test*: `ViewerSessionTests.Activate_ADemoWithItsMap_TheReadsOwnProjectionIsNotHeldOff`, a session with a device
+     opening a demo through the playlist. A projection held off by a read now writes one line
+     (`ViewerPresenter.HeldOffWhileAMapReads`), and the read's own projection writes none. The control: a projection
+     made during a second load's read, from outside it, is held off and writes the line.
+   - *Sabotage*: dropping `fromTheRead: true` from `ILoadView.MapRead` reddens it.
+3. *The count was raised before the region that lowers it*: **true**. The increment is now the first statement inside
+   the `try`, ahead of the decode report.
+   - *Test*: `LoadDemoAsync_ALoadThatFails_LeavesNoLoadCounted`, three cases: a decode report that throws, a file that is
+     no demo, and a read that throws.
+   - *Sabotage*: the increment and report back before the `try` reddens the report case alone.
+4. *Mixed atomics on the count*: **true**. It is counted on the UI thread, or inline off it before the window's handle
+   exists, and read from the map read's worker as well. So it now uses `Interlocked` on both sides, with
+   `Volatile.Read` for reads.
+
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
