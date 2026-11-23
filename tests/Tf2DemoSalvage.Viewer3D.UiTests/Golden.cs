@@ -27,16 +27,11 @@ internal sealed record Golden(
     /// therefore measured as it is, and only the viewer's frame is resampled at test time.
     /// </remarks>
     /// <remarks>
-    /// **The interpolation is pinned to the defaults the goldens were compared at** (B816 review 4, Fable): the watcher's
-    /// own `autoexec.cfg` now reaches the run, and one setting `cl_interp 0` moves every entity off the pose these were
-    /// matched against. <see cref="Pinned"/> is the one copy, shared with the HUD goldens.
+    /// The watcher's own TF2 configs are not read by a capture at all (`TF2VIEW_NO_CONFIGS`, set by `CaptureUiTests.Capture`;
+    /// B816 review 5), so nothing a machine's `autoexec.cfg` sets reaches a golden.
     /// </remarks>
-    public static IReadOnlyList<string> Common { get; } =
-        ["+sv_cheats", "1", "+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0",
-         "+cl_interp", "0.1", "+cl_interp_ratio", "2", "+cl_updaterate", "20"];
-
-    /// <summary>The watcher settings every golden run pins over the machine's own configs (B816 review 4): the engine's defaults.</summary>
-    public static IReadOnlyList<string> Pinned => System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Skip(Common, 8));
+    public static readonly IReadOnlyList<string> Common =
+        ["+sv_cheats", "1", "+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 
     /// <summary>cp_granary's BLU-side yard: containers, silos, a lit wall, sky. No particles; the spinning CP hologram is one small sprite.</summary>
     /// <remarks>

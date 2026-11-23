@@ -272,7 +272,14 @@ public static class LaunchOptionsReader
                 // `stuffcmds` runs the whole line after `exec autoexec.cfg`, so a config's `fps_max 123` must not beat a
                 // launch `+fps_max 60` now that the configs reach the run's settings.
                 read = read with { Settings = read.Settings.Set(own, value) };
-                afterConfigs.Add($"{own} \"{value}\"");
+
+                // **A declared ConVar only** (B816 review 5, Fable): an undeclared name is a console line of its own making,
+                // so a `--like` sidecar key `x\nbind q quit` or `x;unbindall` would run as commands. The console sets
+                // nothing for an undeclared name anyway, so only declared ones need the replay.
+                if (declared is not null)
+                {
+                    afterConfigs.Add($"{own} \"{value}\"");
+                }
 
                 log.LogInformation("{Message}", $"{own} {value} (from the command line)");
                 continue;

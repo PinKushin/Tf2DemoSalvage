@@ -44489,6 +44489,18 @@ interpolation. The golden runs now pin them (`Golden.Common` carries `cl_interp 
 check. Any `--shot`, `--measure` or A/B run on this machine now uses the watcher's config, as it should. Left: a launch
 `+unbind KEY x` or `+unbindall x` now reaches the console after the menu's shortcuts were built from the binds (Fable,
 low); a launch value's quoting is refused for `"` and line breaks (B811 review 10).
+
+**Review 5** (Sonnet, Fable, Grok, Gemini). *Pinning setting by setting could not keep up* (all four): beside the
+interpolation, a watcher's autoexec can set `cl_hud_minmode`, `r_drawviewmodel`, `viewmodel_fov`, `cl_drawhud`,
+`hud_deathnotice_time` (this machine's sets 5) and more, each moving a golden or starving a UI wait. Replaced by a
+harness switch: `TF2VIEW_NO_CONFIGS=1` makes a run read none of the machine's TF2 configs (`--help` lists it; a watcher
+never needs it, D210). Every UI launch sets it (`CaptureUiTests.Capture`, `ViewerApplication`); the four tests that
+write their own configs (keyboard binds, menu sync, the two game-folder tests) set it back to 0. Review 4's pins are
+gone. Test `ViewerSessionTests.Build_WithNoConfigs_ReadsNoAutoexec` (control: without it the autoexec is read). *An
+undeclared launch name was handed to the console* (Fable, medium): a `--like` sidecar key such as `x\nbind q quit`
+became a console line of its own. Only a declared ConVar is handed on now; the console sets nothing for an undeclared
+one anyway, so `+alias a b` and `+unbind KEY x` no longer reach it either. Tested in
+`LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleInOrderAndNotStored`.
 2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
    LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
    `autoexec.cfg`; an untyped ConVar stays readable from the console) and

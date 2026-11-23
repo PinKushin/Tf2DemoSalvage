@@ -42,8 +42,21 @@ public sealed partial class ViewerSession
     /// **The two counts are logged together deliberately.** "13 of 78 binds" and "0 of 0" say
     /// different things; "loaded" says neither.
     /// </remarks>
+    /// <summary>The instrument switch that keeps a run from reading the machine's TF2 configs (B816 review 5).</summary>
+    public const string NoConfigsVariable = "TF2VIEW_NO_CONFIGS";
+
     private void LoadUserConfig()
     {
+        // **An instrument's run reads none of the machine's configs** (B816 review 5, Fable, Sonnet, Grok): since the
+        // configs reach the run's settings, whatever the watcher's own `autoexec.cfg` sets would move a golden or a
+        // measurement, and pinning those one ConVar at a time never keeps up. A test harness switch, as `TF2VIEW_SETTINGS`
+        // is; a watcher never needs it (D210).
+        if (_host.Environment(NoConfigsVariable) is "1")
+        {
+            _configLog.LogInformation("{Message}", $"{NoConfigsVariable}=1: the machine's configs are not read");
+            return;
+        }
+
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.

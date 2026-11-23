@@ -924,6 +924,25 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **An instrument's run reads none of the machine's configs** (B816 review 5): `TF2VIEW_NO_CONFIGS=1` leaves an
+    /// autoexec's `fps_max 123` out of the run. The control: without it, 123.
+    /// </remarks>
+    [Test]
+    public void Build_WithNoConfigs_ReadsNoAutoexec()
+    {
+        using (Rig control = BuildWithAutoexec("fps_max 123\n"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(123, "the control: the autoexec is read");
+        }
+
+        _environmentAtStart[ViewerSession.NoConfigsVariable] = "1";
+        using Rig rig = BuildWithAutoexec("fps_max 123\n");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(0, "the rig's saved value");
+        rig.Log.Count("the machine's configs are not read").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
     /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
     /// </remarks>

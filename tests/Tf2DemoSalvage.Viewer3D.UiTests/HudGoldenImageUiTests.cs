@@ -150,10 +150,6 @@ public sealed class HudGoldenImageUiTests
                 // **The portrait the goldens were taken with, whatever the watcher's TF2 config says** (B764): the viewer
                 // execs `cfg/config.cfg`, and one written with this at 0 draws the 2D class image instead of the model.
                 "+cl_hud_playerclass_use_playermodel", "1",
-
-                // The crosshair the goldens show (their sidecars: `crosshair 1`), and the interpolation they were matched
-                // at, over the watcher's own `autoexec.cfg`, which now reaches the run (B816 review 4, Fable).
-                "+crosshair", "1", .. Golden.Pinned,
             ];
 
             (int Exit, string Errors) run = CaptureUiTests.Capture(

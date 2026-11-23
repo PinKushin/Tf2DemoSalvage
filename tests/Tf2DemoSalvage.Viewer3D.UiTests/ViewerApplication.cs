@@ -400,6 +400,11 @@ internal sealed partial class ViewerApplication : IDisposable
         start.Environment[ViewerSettings.PathVariable] = Path.Combine(
             Path.GetTempPath(), "tf2ds-ui-settings", Guid.NewGuid().ToString("N"), "settings.cfg");
 
+        // **No UI run reads the machine's TF2 configs unless it asks to** (B816 review 5, Gemini): they reach the run's
+        // settings, and a watcher's `r_drawviewmodel 0` or `cl_hud_minmode 1` would starve a test that waits on the
+        // viewmodel or measures the HUD. A test that writes its own config sets this back to "0".
+        start.Environment[Tf2DemoSalvage.Presentation.ViewerSession.NoConfigsVariable] = "1";
+
         foreach ((string name, string? value) in environment)
         {
             if (value is null)
