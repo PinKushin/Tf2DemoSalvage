@@ -176,6 +176,16 @@ back-facing brush-entity face is ever outlined, under any value. The viewer's li
 so each `*N` model now keeps its faces' planes (`FaceFan.Faces`) and its outline draws only the faces whose front the
 eye sees (`FacePlane.FacesEye`, the engine's test and tolerance).
 
+**No NOCULL exemption on a brush entity** (review 2). The planes `FUN_1800dcb20` tests come from `FUN_1800df1a0`, which
+builds a model's list once: it walks the model's surfaces, skips only those with `0x20` in the first flag byte
+(*interpolated* to be `SURFDRAW_TRANS`; the engine's surface flags are unpublished, and the brush path's translucent draw
+is `FUN_1800de800`), and keeps each surface's plane pointer (`+4`), shared where surfaces share a plane. `FUN_1800dcb20`
+then tests every plane with no flag read at all; only its last argument (non-zero for a pass that skips the cull) passes
+them all (*read*). So a `$nocull` face on a door is culled from behind like any other, where the world's walk keeps a
+NOCULL surface (`R_DrawLeaf`, `0x200`). The viewer's plane test has no exemption, which matches. And the plane is the
+surface's stored one whatever its area, so a face with no area is culled from behind too; with no triangle to read it
+from, the viewer takes the face's corner normal (`FaceFan.Faces`).
+
 **Translucent displacements.** The translucent path `FUN_1800e61d0` builds each sort group's surface list, draws it, hands
 it to `FUN_1800dc720`, and only then adds the group's displacements and passes them to `FUN_1800c73a0` with its last
 argument 0. That asks `FUN_1800c1240` for the debug flag and calls the same `FUN_1800c2140` as the opaque pass, which
@@ -206,7 +216,10 @@ from `r_modelwireframedecal`, not `mat_wireframe` (*read*; B817). So a model's d
 
 **What the outline costs** (*measured*, the `outline-memory` probe, 2026-11-23): `cp_process_final` 158,550 world
 vertices, a 1.21 MiB index buffer; `cp_granary` 190,260 and 1.45 MiB. The `FaceEdge` mark grows `WorldVertex` from 124
-bytes to 128, 0.6 and 0.8 MB on those lists while they are held.
+bytes to 128, 0.6 and 0.8 MB on those lists while they are held. The brush entities' share, measured in review 2 with
+the same probe: `cp_process_final` 101 models, 1,584 vertices, 12,672 bytes of outline and 250 face planes of 24 bytes
+(6,000 bytes managed, plus an array header each); `cp_granary` 14 models, 912 vertices, 7,296 bytes and 134 planes
+(3,216 bytes).
 
 ## Tests
 

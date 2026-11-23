@@ -43059,11 +43059,12 @@ its fix and shown red by reverting that fix (the sabotage named); each sabotage 
 5. **The cap** (Sonnet). *Fixed*: the model pass hands `ModelVertexCap` to its queued wireframes, triangles and outline.
    Test: `ModelVertexClampRenderTests.DrawModel_ABrushEntityUnderWireframeAndACap_CapsItsOutlineToo` (six cases; the
    four capped ones red with no cap passed).
-6. **Off-path cost** (owner rule, above 0.01 ms counts). *Fixed* to the comparisons before B803: `Raster` and the opaque
-   pass read `_lineFill` only under `mat_wireframe` or when a map's own material is `Wireframe` (`DrawsLines`,
-   `_mapLineFill`); the depth bind reads `_wireframeIgnoresZ` only under the switch; `QueueSurfaceWireframe` returns on
-   one comparison; the model pass looks the outline up only with a queue. *Not measured*: the guards restore the old
-   short-circuits, which no `--measure` run here compared. `DrawsLines`' second term is held by the B808 face test (red
+6. **Off-path cost** (owner rule, above 0.01 ms counts). *Reduced, not to main's* (corrected in review 2): `Raster` and
+   the opaque pass read `_lineFill` only under `mat_wireframe` or when a map's own material is `Wireframe`
+   (`DrawsLines`, `_mapLineFill`); the depth bind reads `_wireframeIgnoresZ` only under the switch;
+   `QueueSurfaceWireframe` returns on one comparison; the model pass looks the outline up only with a queue. What
+   remains over main, with the switch off, is listed in review 2, item 4. *Not measured*: no `--measure` run compared
+   this branch with main. `DrawsLines`' second term is held by the B808 face test (red
    without `_mapLineFill`, whose fixture now uses a map material, as production's debug materials have their own
    table entries).
 7. **Memory** (*measured*, the `outline-memory` probe): the outline is 1.21 MiB on `cp_process_final` (158,550 world
@@ -43098,6 +43099,54 @@ its fix and shown red by reverting that fix (the sabotage named); each sabotage 
 18. **`OffscreenTarget.DrawWorld`'s decal upload** (Grok). *Not a defect*: the target's world renderer is its own,
     never `Device3D`'s, so an offscreen draw cannot clear the viewer's decals; within the target every draw sets them,
     null to none, so none inherits the last. Said in the parameter's doc.
+
+### Review 2 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `639e91df3`. Same rules: each test shown red by reverting its fix (named), restored by
+a precise inverse edit. The reads are in findings 113, "Review 1", under "No NOCULL exemption on a brush entity".
+
+1. **NOCULL on brush entities** (Fable, Sonnet). *Read*: `FUN_1800df1a0` builds the plane list skipping only flag
+   `0x20` (*interpolated* `SURFDRAW_TRANS`), and `FUN_1800dcb20` tests every plane with no flag read. **The engine has no
+   `$nocull` exemption there, so none was added**; the world's walk is where NOCULL is kept. Test: a `$nocull` case on
+   `DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined` pins it. It has no sabotage of its own: the code
+   reads no NOCULL flag for it to lose, and adding an exemption is the only edit that would redden it.
+2. **A real door's shape** (Fable). Tests: `EyeShaderRenderTests.DrawModelPose_ABrushEntityOfFrontAndBackFacesInTwoRuns_OutlinesOnlyItsFronts`
+   (four quads; run one front, back, front; run two a front at vertex 18): red with the run splitting broken (a back
+   face after a front one drawn) and with the second run's offset not doubled. `FirstFaceEnding` returning 0 changed no
+   pixel, since a later run that also redraws an earlier run's faces lands on the same pixels in the same colour, and
+   the old `Math.Max` clamp hid it entirely. The clamp is gone (a run is whole faces, so the search alone decides where
+   its lines start), `DrawLines` refuses an empty range, and
+   `ModelVertexClampRenderTests.DrawModel_ABrushEntitysSecondRunUnderWireframeThree_OutlinesOnlyThatRunsFaces` counts the
+   vertices handed to the GPU: 60, red at 84 with the search returning 0.
+3. **`ModelEye` under a real placement** (Fable, Sonnet, Grok). *Fixed*: `ModelEye` is a static function of the
+   placement and the eye, and answers null with no eye or no inverse, which draws every face (it was the origin, or the
+   world eye). Tests: `ModelEyeTests` (a quarter turn and a move: red with the world eye returned, with the inverse
+   transposed, and, for the null case, with the origin back) and
+   `EyeShaderRenderTests.DrawModelPose_ATurnedAndMovedBrushEntityUnderWireframeThree_OutlinesItsFrontFaceOnly` (front
+   and back: both red with the world eye and with the transpose).
+4. **Off-path cost** (Fable, Sonnet). *Fixed*: the model pass tests `Wireframe != 0` before `modelPath.StartsWith('*')`.
+   Review 1's item 6 said "the comparisons before B803", which was not so: *corrected there*. **What remains over main
+   with the switch off**, per draw: one enum comparison and one integer comparison per opaque world batch (the terrain
+   test, `QueueSurfaceWireframe`) and per blended one, two boolean reads per opaque batch (`DrawsLines`), one integer
+   comparison per world and entity decal (`WireframeDecal`), one per model batch, and a queue-count check per pass and
+   per model; at upload, the outline buffers and the brush entities' face planes (item 8). Read from the code, *not
+   measured*.
+5. **A partial triangle fails no load** (Fable, Sonnet). *Fixed*: `CreateOutline` logs a warning naming the buffer and
+   builds no outline, and the run draws its triangles under 3. `FaceFan.Outline` still throws, and its test stays. Test:
+   `WorldWireframeConformanceTests.DrawWorld_UnderWireframeThreeWithAPartialTriangle_DrawsItsTrianglesInstead` (red, an
+   `ArgumentException` out of the upload, with the guard disabled).
+6. **A face with no area** (Grok). *Read*: the engine tests each surface's stored plane, whatever its area. *Fixed*: a
+   face takes its first triangle with area, and with none, its corner's normal through that corner; only a corner with
+   no normal gives the zero plane. Tests: `FaceFanTests.Faces_WhoseFirstTriangleHasNoArea_TakeThePlaneOfTheNextThatHas`
+   (red with the replacement disabled) and `Faces_OfAFaceWithNoArea_AreItsCornersNormalPlaneAndCullFromBehind` (red with
+   the normal plane zeroed).
+7. **The flip test** (Sonnet). The triangle was wound along +x, like its normal, so it flipped nothing. *Fixed the
+   test*: it is now wound along −x, and forcing the side positive reddens both its faces, not only the quad's.
+8. **Face planes' memory** (Sonnet). *Measured* (the `outline-memory` probe, now counting brush entities): 250 planes of
+   24 bytes on `cp_process_final` (101 models, 1,584 vertices, 12,672 bytes of outline), 134 on `cp_granary` (14 models,
+   912 vertices, 7,296 bytes). Built at every upload whatever the value, as the outlines are.
+9. **`Device3D.Wireframe`'s remark** (Grok). *Fixed*: the debug materials go over the world and its brush entities, and
+   in place of a displacement (opaque or translucent), a world decal and a studio model's materials.
 
 *As found (2026-11-21):*
 
