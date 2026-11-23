@@ -52,7 +52,10 @@ public static class TracerWhiz
 
         UniformRandomStream random = new();
         random.SetSeed(ImpactSounds.SeedFor(tick));
-        return ExplosionSounds.FromWorldAt(entry, random, tick, at, emitted: true) with { Order = order };
+        // `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` resolves it, not being emitted, so no wave is
+        // cleared, and `enginesound->EmitSound` plays the resolved wave without passing `EmitSoundByHandle`
+        // (`FX_TracerSound`, `clientsideeffects_test.cpp:211-289`; B785).
+        return ExplosionSounds.FromWorldAt(entry, random, tick, at, emitted: false) with { Order = order };
     }
 
     /// <summary>Whether a tracer from <paramref name="start"/> to <paramref name="end"/> passes close enough to whiz.</summary>

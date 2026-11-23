@@ -466,23 +466,21 @@ public sealed class SettingsPresenter
         // in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`.
         device.Phong = _settings.Phong;
 
-        // `cl_drawmonitors` from the config, for the same reason (B511).
-        device.DrawMonitors = _settings.DrawMonitors;
-
-        // The golden comparison's three switches, applied where the others are (B161).
-        device.DisableBloom = _settings.DisableBloom;
-
-        // `r_lightmap_bicubic` from the config (B679): the owner's TF2 config sets 1, Valve's default is 0.
-        device.BicubicLightmap = _settings.BicubicLightmap;
+        // Each of these is a ConVar the engine reads where it uses it, handed through the one table a set mid-demo also
+        // takes (`ApplyLive`, B790), in the window's order. `cl_drawmonitors` (B511); the golden comparison's switches
+        // (B161); `r_lightmap_bicubic` (B679: the owner's TF2 config sets 1, Valve's default is 0).
+        Hand(device, ViewerSettings.DrawMonitorsCommand);
+        Hand(device, ViewerSettings.DisableBloomCommand);
+        Hand(device, ViewerSettings.BicubicLightmapCommand);
 
         // `r_glint_alwaysdraw` and `r_glint_procedural` from the config (B725): both user-settable in TF2.
         device.EyeGlint = _settings.EyeGlint;
 
         // `mat_bumpmap` from the config (B720): TF2's own `low.cfg` sets 0.
         device.BumpMap = _settings.BumpMap;
-        device.ForceToneMapScale = _settings.ForceToneMapScale;
-        device.ShaderSrgb = _settings.ShaderSrgb;
-        device.DrawHud = _settings.DrawHud;
+        Hand(device, ViewerSettings.ForceToneMapScaleCommand);
+        Hand(device, ViewerSettings.ShaderSrgbCommand);
+        Hand(device, ViewerSettings.DrawHudCommand);
 
         // **`mat_specular` and `mat_fullbright` from the config or the command line** (B521). Both were menu items
         // only: a `+mat_specular 0` was logged as set by the launch options and reached nothing, so a picture taken
@@ -498,18 +496,71 @@ public sealed class SettingsPresenter
             setFullbright(_settings.Fullbright);
         }
 
-        // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
-        // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
-        // the null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`,
-        // where the default and the ignored setting agree and nothing looks wrong.
-        device.Draw3dSky = _settings.ThreeDimensionalSky;
+        // `r_3dsky`, `cl_detaildist` and `cl_detailfade`: a config's `r_3dsky 0` or `cl_detaildist 0` (which
+        // `tf/cfg/low.cfg` ships: no grass) is otherwise dropped under the device's Valve default (see the table).
+        Hand(device, ViewerSettings.ThreeDimensionalSkyCommand);
+        Hand(device, ViewerSettings.DetailDistanceCommand);
+        Hand(device, ViewerSettings.DetailFadeCommand);
 
-        // **`cl_detaildist` and `cl_detailfade`, applied for the reason `r_3dsky` above is.**
-        // The device defaults them to Valve's 1200 and 400, so a config saying
-        // `cl_detaildist 0` — which `tf/cfg/low.cfg` ships, and which means draw no grass at
-        // all — would be silently dropped: the default and the ignored setting would agree
-        // everywhere except on the one machine that set it.
-        device.DetailDistance = _settings.DetailDistance;
-        device.DetailFadeWidth = _settings.DetailFade;
+        // Held once it has every setting, so a hand-over that throws part-way leaves no device for a later set.
+        _handed = device;
     }
+
+    /// <summary>Hands the device one ConVar of <see cref="LiveDeviceConVars"/>, by name.</summary>
+    private void Hand(IViewerDevice device, string name) =>
+        Array.Find(LiveDeviceConVars, live => live.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Apply(device, _settings);
+
+    /// <summary>
+    /// The ConVars the engine reads where it uses them, each with how it reaches the device — so the hand-over and a set
+    /// mid-demo (<see cref="ApplyLive"/>) take one route (B790).
+    /// </summary>
+    /// <remarks>
+    /// **Each is handed over at creation for the reason `mat_phong` is**: the device defaults it to Valve's value, so a
+    /// config's `r_3dsky 0` or `cl_detaildist 0` (which `tf/cfg/low.cfg` ships: no grass) would be silently dropped — the
+    /// null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`. **And each
+    /// is the switch when set later**, because the engine reads it at its use: `r_lightmap_bicubic` in the shader's dynamic
+    /// combo (`lightmappedgeneric_dx9_helper.cpp:932`), `mat_disable_bloom` and `mat_force_tonemap_scale` in the
+    /// post-process pass (`viewpostprocess.cpp:1435`, `:1136`), `cl_drawmonitors` and `r_3dsky` in the view
+    /// (`viewrender.cpp:2075`, `:4845-4849`), `cl_drawhud` each frame (`clientmode_shared.cpp:620-622`), `cl_detaildist` and
+    /// `cl_detailfade` in the detail props' frame (`detailobjectsystem.cpp:2057-2060`, `:2821-2822`; their level-load
+    /// rewrite is B800). `r_shader_srgb`'s read point (`shaderapidx9.dll`) is not read; it is taken as read at use like the
+    /// rest (interpolated). Not here: `mat_vsync` and `mat_queue_mode`, which a device takes at its creation (their read
+    /// points are in the closed material system, not read).
+    /// </remarks>
+    private static readonly (string Name, Action<IViewerDevice, ViewerSettings> Apply)[] LiveDeviceConVars =
+    [
+        (ViewerSettings.DrawMonitorsCommand, static (device, settings) => device.DrawMonitors = settings.DrawMonitors),
+        (ViewerSettings.DisableBloomCommand, static (device, settings) => device.DisableBloom = settings.DisableBloom),
+        (ViewerSettings.BicubicLightmapCommand, static (device, settings) => device.BicubicLightmap = settings.BicubicLightmap),
+        (ViewerSettings.ForceToneMapScaleCommand, static (device, settings) => device.ForceToneMapScale = settings.ForceToneMapScale),
+        (ViewerSettings.ShaderSrgbCommand, static (device, settings) => device.ShaderSrgb = settings.ShaderSrgb),
+        (ViewerSettings.DrawHudCommand, static (device, settings) => device.DrawHud = settings.DrawHud),
+        (ViewerSettings.ThreeDimensionalSkyCommand, static (device, settings) => device.Draw3dSky = settings.ThreeDimensionalSky),
+        (ViewerSettings.DetailDistanceCommand, static (device, settings) => device.DetailDistance = settings.DetailDistance),
+        (ViewerSettings.DetailFadeCommand, static (device, settings) => device.DetailFadeWidth = settings.DetailFade),
+    ];
+
+    /// <summary>The device <see cref="ApplyOver"/> last configured, or null before one exists or after it is let go.</summary>
+    private IViewerDevice? _handed;
+
+    /// <summary>Hands the device the value a ConVar the engine reads at its use was just set to (B790).</summary>
+    /// <param name="name">The ConVar's name.</param>
+    /// <returns>Whether it is one of those ConVars; the device, when there is one, now has its value.</returns>
+    internal bool ApplyLive(string name)
+    {
+        if (!Array.Exists(LiveDeviceConVars, live => live.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (_handed is { } device)
+        {
+            Hand(device, name);
+        }
+
+        return true;
+    }
+
+    /// <summary>The device is going away: no later set reaches it.</summary>
+    internal void ForgetDevice() => _handed = null;
 }

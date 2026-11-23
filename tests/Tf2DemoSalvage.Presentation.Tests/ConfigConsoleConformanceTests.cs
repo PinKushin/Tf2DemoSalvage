@@ -645,6 +645,147 @@ public sealed class ConfigConsoleConformanceTests
         console.RefusedCheats.ShouldBe(["mat_fullbright"]);
     }
 
+    /// <remarks>
+    /// **`mat_wireframe` is `FCVAR_CHEAT` in TF2** (`engine.dll` `0x180007b94`, flags `0x4000`; *read*), so a config's set
+    /// meets D253's refusal (B791). Before, it was undeclared and nothing marked it a cheat.
+    /// </remarks>
+    [Test]
+    public void Load_MatWireframeWithCheatsOff_IsRefused()
+    {
+        ConfigConsole console = new();
+
+        console.Load("mat_wireframe 1");
+
+        console.ConVar("mat_wireframe").ShouldBeNull();
+        console.RefusedCheats.ShouldBe(["mat_wireframe"]);
+    }
+
+    /// <remarks>
+    /// **A config's bind to `mat_wireframe` is TF2's command, refused with cheats off; the viewer's default key is not** (B791;
+    /// the default key's exemption is B792's question and unchanged here). Before, `mat_wireframe 1` fell through to the
+    /// viewer's wireframe one-shot and toggled it, and a bare `mat_wireframe` did the same, whatever `sv_cheats` said.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AConfigsBindsToMatWireframeWithCheatsOff_TriggerNothingAndTheDefaultKeyStillDoes()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        List<ViewerAction> triggered = [];
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load(
+            "bind \"x\" \"mat_wireframe 1\"\nbind \"y\" \"mat_wireframe\"\nalias \"wire\" \"mat_wireframe\"\nbind \"z\" \"wire\"\n" +
+            "bind \"u\" \"MAT_WIREFRAME 1\"\nbind \"v\" \"Mat_Wireframe\"");
+        console.KeyDown("x");
+        console.KeyDown("y");
+        console.KeyDown("z");
+        console.KeyDown("u");
+        console.KeyDown("v");
+
+        triggered.ShouldBeEmpty("none toggles, whatever the case: the console finds a ConVar case-insensitively (B791 review 8)");
+        console.RefusedCheats.ShouldBe(
+            ["mat_wireframe", "mat_wireframe"], "the sets are refused; the bare name is no set, TF2 prints the value");
+
+        console.KeyDown("CTRL+w");
+
+        triggered.ShouldBe([ViewerAction.Wireframe], "the viewer's own default key");
+    }
+
+    /// <remarks>
+    /// **With `sv_cheats 1` a config's bare `mat_wireframe` is the viewer's one-shot and toggles** (B788 review 4): TF2
+    /// prints the value instead, which is B792's owner question; this pins what ours does until it is answered.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AConfigsBareMatWireframeBindWithCheatsOn_TriggersTheWireframeOneShot()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        List<ViewerAction> triggered = [];
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load("sv_cheats 1\nbind \"y\" \"mat_wireframe\"");
+        console.KeyDown("y");
+
+        triggered.ShouldBe([ViewerAction.Wireframe]);
+        console.RefusedCheats.ShouldBeEmpty();
+    }
+
+    /// <remarks>With `sv_cheats 1` a bind's `mat_wireframe 1` is a ConVar set like any other, announced for the host (D215).</remarks>
+    [Test]
+    public void KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        List<ViewerAction> triggered = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load("sv_cheats 1\nbind \"x\" \"mat_wireframe 1\"");
+        console.KeyDown("x");
+
+        set.ShouldBe(["mat_wireframe 1"]);
+        triggered.ShouldBeEmpty();
+        console.RefusedCheats.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **`toggle` and `incrementvar` on `mat_wireframe` are sets too, refused with cheats off** (B791 review 5, Sonnet): both
+    /// reach `SetConVar`, so neither announces a set nor triggers the one-shot.
+    /// </remarks>
+    [TestCase("toggle mat_wireframe")]
+    [TestCase("incrementvar mat_wireframe 0 1 1")]
+    [TestCase("toggle MAT_WIREFRAME")]
+    [TestCase("incrementvar Mat_Wireframe 0 1 1")]
+    public void KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused(string command)
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        List<ViewerAction> triggered = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Triggered += (_, e) => triggered.Add(e.Action);
+
+        console.Load($"bind \"x\" \"{command}\"");
+        console.KeyDown("x");
+
+        set.ShouldBeEmpty();
+        triggered.ShouldBeEmpty();
+        console.RefusedCheats.ShouldBe(["mat_wireframe"]);
+    }
+
+    /// <remarks>
+    /// **A config line read once the settings are attached is announced under the ConVar's own name too** (B791 review 10,
+    /// Fable): `MAT_WIREFRAME 1` from a cfg exec'd at run time reaches the settings as `mat_wireframe 1`.
+    /// </remarks>
+    [Test]
+    public void Load_AMixedCaseLineAfterTheSettingsAreAttached_AnnouncesTheConVarsOwnName()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.ReadSettingsFrom(_ => null);
+
+        console.Load("sv_cheats 1\nMAT_WIREFRAME 1\nCL_SHOWFPS 1");
+
+        set.ShouldBe(
+            ["sv_cheats 1", "mat_wireframe 1", "cl_showfps 1"], "a non-cheat ConVar in another case is set too (B791 review 12)");
+    }
+
+    /// <remarks>
+    /// **With cheats on, a mixed-case `toggle` toggles** (B791 review 9): the current value is found case-insensitively, so
+    /// `toggle MAT_WIREFRAME` announces `mat_wireframe 1` as the lower-case one does.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AMixedCaseToggleOfMatWireframeWithCheatsOn_AnnouncesTheSet()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Load("sv_cheats 1\nbind \"x\" \"toggle MAT_WIREFRAME\"\nbind \"y\" \"MAT_WIREFRAME 2\"");
+        console.KeyDown("x");
+        console.KeyDown("y");
+
+        set.ShouldBe(["mat_wireframe 1", "mat_wireframe 2"], "announced under the ConVar's own name, so the settings find it");
+    }
+
     /// <remarks>`sv_cheats` is read as the engine reads it, `(int)atof`: 0.5 is off, so a cheat ConVar is still refused.</remarks>
     [TestCase("0.5", false)]
     [TestCase("1abc", true)]

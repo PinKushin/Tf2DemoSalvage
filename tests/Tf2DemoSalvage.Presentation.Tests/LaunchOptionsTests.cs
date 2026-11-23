@@ -340,6 +340,47 @@ public sealed class LaunchOptionsTests
         Read("+sv_cheats", "1", "+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(12f);
     }
 
+    /// <remarks>`mat_wireframe` is a cheat ConVar in TF2 (`engine.dll` `0x180007b94`, flags `0x4000`), so the launch line's set
+    /// meets the same refusal (B791).</remarks>
+    [Test]
+    public void Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats()
+    {
+        Read("+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBeNull("refused with cheats off");
+        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The launch line finds a ConVar in any case, as the console does** (B791 review 9, Sonnet; the console's lookup is the
+    /// closed `vstdlib`'s, *interpolated*): `+MAT_FULLBRIGHT 1` is refused with cheats off, and with them `+MAT_WIREFRAME 1`
+    /// is stored under its own name.
+    /// </remarks>
+    [Test]
+    public void Read_ACheatConVarInUpperCase_IsGatedAndStoredLikeLowerCase()
+    {
+        string? unset = Read("a.dem").Settings.ConVarText("mat_fullbright");
+
+        unset.ShouldNotBe("1", "the control: no launch option, no fullbright");
+        Read("+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe(unset, "refused with cheats off");
+        Read("+sv_cheats", "1", "+MAT_FULLBRIGHT", "1", "a.dem").Settings.ConVarText("mat_fullbright").ShouldBe("1");
+        Read("+sv_cheats", "1", "+MAT_WIREFRAME", "1", "a.dem").Settings.ConVarText("mat_wireframe").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **`+DEMO_TIMESCALE 8` is the playback speed as `+demo_timescale 8` is** (B791 review 11, Fable): the console finds a
+    /// command in any case; before, the upper-case one fell to the generic branch and set no speed.
+    /// </remarks>
+    [Test]
+    public void Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed() =>
+        Read("+DEMO_TIMESCALE", "8", "a.dem").PlaybackSpeed.ShouldBe(8d);
+
+    /// <remarks>
+    /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
+    /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
+    /// </remarks>
+    [Test]
+    public void Parse_AClientConVarInUpperCase_IsKept() =>
+        ViewerSettings.Parse("TF_HUD_TARGET_ID_ALPHA 50", null).ConVarText("tf_hud_target_id_alpha").ShouldBe("50");
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }

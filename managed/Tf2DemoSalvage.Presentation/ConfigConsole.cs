@@ -322,7 +322,7 @@ public sealed class ConfigConsole
             if (verb.Equals("alias", StringComparison.OrdinalIgnoreCase)
                 || _aliases.ContainsKey(verb)
                 || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
-                || (tokens.Count >= 2 && IsClientConVar(verb)))
+                || (tokens.Count >= 2 && (IsClientConVar(verb) || verb.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))))
             {
                 return true;
             }
@@ -827,9 +827,13 @@ public sealed class ConfigConsole
         // they are its one copy (D215), so a config line read after that reaches them as a run-time set does.
         if (SetConVar(tokens) && _settingValue is not null)
         {
-            ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+            ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
         }
     }
+
+    /// <summary>A typed ConVar name as the ConVar spells it, or as typed when nothing declares it (B791 review 9).</summary>
+    private static string OwnName(string typed) =>
+        EngineConVars.TryByConsoleName(typed, out EngineConVar? declared) ? declared.Name : typed;
 
     /// <summary>A client ConVar's value as last set — through the attached settings, else the configs — or null when none did.</summary>
     /// <param name="name">The ConVar's engine name.</param>
@@ -838,7 +842,7 @@ public sealed class ConfigConsole
 
     /// <summary>Whether a name is a client ConVar this console sets: declared, and not the server's (FCVAR_REPLICATED).</summary>
     private static bool IsClientConVar(string name) =>
-        EngineConVars.TryByName(name, out EngineConVar? declared) && !declared.Replicated;
+        EngineConVars.TryByConsoleName(name, out EngineConVar? declared) && !declared.Replicated;
 
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
@@ -867,18 +871,13 @@ public sealed class ConfigConsole
             return true;
         }
 
-        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared))
+        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
         {
             return false;
         }
 
-        // **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer,
-        // unless the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print.
-        if (declared.Cheat && !CheatsOn && !_viewerIssued)
+        if (RefuseCheat(declared, tokens[1]))
         {
-            _refusedCheats.Add(declared.Name);
-            _refusedNow = true;
-            CheatRefused?.Invoke(this, new ConVarSetEventArgs(declared.Name, tokens[1]));
             return false;
         }
 
@@ -888,6 +887,25 @@ public sealed class ConfigConsole
             _conVars[declared.Name] = tokens[1];
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer, unless
+    /// the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print. The viewer's own
+    /// default keys are exempt (D253 as <see cref="KeyDown"/> applies it; B792).
+    /// </summary>
+    /// <returns>Whether it was refused.</returns>
+    private bool RefuseCheat(EngineConVar declared, string value)
+    {
+        if (!declared.Cheat || CheatsOn || _viewerIssued)
+        {
+            return false;
+        }
+
+        _refusedCheats.Add(declared.Name);
+        _refusedNow = true;
+        CheatRefused?.Invoke(this, new ConVarSetEventArgs(declared.Name, value));
         return true;
     }
 
@@ -933,7 +951,10 @@ public sealed class ConfigConsole
             {
                 _conVars[cheat.Name] = cheat.Default;
             }
-            else if (_settingValue(cheat.Name) is { } now && MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
+            // The value as `CurrentValue` reads it — the settings, then a config's line the console keeps — so a cheat a
+            // watcher config set is reverted too (B791 review 15).
+            else if ((_settingValue(cheat.Name) ?? _conVars.GetValueOrDefault(cheat.Name)) is { } now &&
+                MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
             {
                 // Only what differs from its default is announced, so the host logs and applies a real change.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
@@ -1022,7 +1043,7 @@ public sealed class ConfigConsole
     /// they were attached; then the declared default.
     /// </remarks>
     private string? CurrentValue(string name) =>
-        !EngineConVars.TryByName(name, out EngineConVar? declared) ? null
+        !EngineConVars.TryByConsoleName(name, out EngineConVar? declared) ? null
             : _settingValue?.Invoke(declared.Name) ?? _conVars.GetValueOrDefault(declared.Name) ?? declared.Default;
 
     /// <summary>Reads ConVar values from the viewer's settings, which then hold every ConVar they implement (D215).</summary>
@@ -1123,13 +1144,24 @@ public sealed class ConfigConsole
             {
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
                 // after startup is announced for the host to apply (D215). A config line at load is not.
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+                // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
                 acted = true;
                 continue;
             }
 
             // A refused cheat ConVar is the console's answer, as TF2's is: it ends the clause (B718).
             if (_refusedNow)
+            {
+                acted = true;
+                continue;
+            }
+
+            // **A bare cheat ConVar's name is the viewer's one-shot for it** (`mat_wireframe` toggles the view), and on TF2's
+            // command paths it does nothing without cheats (B791). TF2 prints the value and sets nothing, so it is not a refused
+            // SET either: no refusal is reported (B788 review 3).
+            if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
+                EngineConVars.TryByConsoleName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
             {
                 acted = true;
                 continue;

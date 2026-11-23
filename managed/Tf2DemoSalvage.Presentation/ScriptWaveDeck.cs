@@ -102,12 +102,15 @@ public sealed class ScriptWaveDeck
     /// <summary>A script sound with what its `GetParametersForSound` draws now; anything else as it is.</summary>
     /// <param name="sound">The sound, as its producer made it: drawn against a full deck.</param>
     /// <param name="scripts">Every soundscript entry the game loaded, by name.</param>
-    /// <returns>The sound with its wave and soundlevel, and — for a draw after another on its stream — its volume and pitch.</returns>
+    /// <returns>
+    /// The sound with its wave and soundlevel, and — for a draw after another on its stream — its volume and pitch; null for
+    /// a script sound whose script the catalog does not declare, which plays nothing (B789).
+    /// </returns>
     /// <remarks>
     /// A first draw's volume and pitch come before any wave, so its producer already has them, and a producer may have
     /// replaced them (a footstep's volume, a patch's pitch): those are left alone.
     /// </remarks>
-    public SceneSound Deal(SceneSound sound, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+    public SceneSound? Deal(SceneSound sound, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
     {
         ArgumentNullException.ThrowIfNull(scripts);
 
@@ -116,17 +119,17 @@ public sealed class ScriptWaveDeck
             return sound;
         }
 
-        if (!scripts.TryGetValue(draw.Script, out SoundScriptEntry entry) || entry.Waves.Count == 0)
+        if (!Declares(draw, scripts, out SoundScriptEntry entry))
         {
             // The engine's `GetParametersForSoundEx` fails here and `EmitSoundByHandle` returns, so nothing plays
-            // (`SoundEmitterSystem.cpp:465-468`); ours still plays the sound as its producer drew it — B789, open. Either
-            // way this is the follower its head was held for, so it releases it.
+            // (`SoundEmitterSystem.cpp:465-468`, B789; a script with no wave is its `!params.soundname[0]` return, `:470`).
+            // It is still the follower its head was held for, so it releases it.
             if (draw.After is { } before)
             {
                 _heads.Remove(before);
             }
 
-            return sound;
+            return null;
         }
 
         StartAt(draw, scripts);
@@ -153,6 +156,19 @@ public sealed class ScriptWaveDeck
         }
 
         return draw.After is null ? dealt : dealt with { Volume = drawn.Volume, Pitch = drawn.Pitch };
+    }
+
+    /// <summary>Whether the catalog declares a draw's script with a wave to play — what `EmitSoundByHandle` needs to emit it.</summary>
+    /// <param name="draw">The draw.</param>
+    /// <param name="scripts">Every soundscript entry the game loaded, by name.</param>
+    /// <param name="entry">The entry, when declared.</param>
+    /// <returns>True when it can play (B789).</returns>
+    public static bool Declares(ScriptWaveDraw draw, IReadOnlyDictionary<string, SoundScriptEntry> scripts, out SoundScriptEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        return scripts.TryGetValue(draw.Script, out entry) && entry.Waves.Count > 0;
     }
 
     /// <summary>

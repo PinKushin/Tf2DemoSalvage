@@ -189,8 +189,27 @@ public sealed partial class ViewerSession
 
     /// <summary>Valve's <c>mat_wireframe</c>.</summary>
     /// <param name="on">Whether to draw edges only.</param>
-    public void SetWireframe(bool on) =>
-        SetRenderToggle("mat_wireframe", on, static (device, value) => device.Wireframe = value);
+    /// <remarks>
+    /// The menu is ungated by <c>sv_cheats</c> (D253), and records the value for this run as <see cref="SetFullbright"/>
+    /// does (D215), so a later <c>toggle mat_wireframe</c> reads what the menu set and <c>sv_cheats 0</c> reverts it (B791).
+    /// </remarks>
+    public void SetWireframe(bool on)
+    {
+        // The client value wherever it lives — the settings, or a watcher config's line the console keeps — so a config's
+        // `mat_wireframe 2` is not recorded over as "1" when the device opens (B791 review 14).
+        if (Wireframes(ClientConVar(WireframeCommand) ?? "0") != on)
+        {
+            _settingsOwner.SetConVar(WireframeCommand, on ? "1" : "0");
+        }
+
+        SetRenderToggle(WireframeCommand, on, static (device, value) => device.Wireframe = value);
+    }
+
+    /// <summary>Valve's name for the wireframe switch, a cheat ConVar (B791).</summary>
+    private const string WireframeCommand = "mat_wireframe";
+
+    /// <summary>Whether a <c>mat_wireframe</c> value draws wireframe: its integer, as `WireFrameMode()` reads it (`view.h:68`).</summary>
+    private static bool Wireframes(string value) => (int)Core.Primitives.CStdlib.Atof(value) != 0;
 
     /// <summary>Valve's <c>r_drawworld</c>.</summary>
     /// <param name="on">Whether to draw the level's brushwork.</param>
@@ -266,6 +285,13 @@ public sealed partial class ViewerSession
             SetFullbright((Fullbright)_settingsOwner.Fullbright);
         }
 
+        // **`mat_wireframe` from a config, a bind or a launch line** (B791), which the console admits only with `sv_cheats`:
+        // the menu's tick is the switch, and the menu reaches the device by its own route.
+        else if (set.Name.Equals(WireframeCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            _window.ShowWireframe(Wireframes(set.Value));
+        }
+
         // **The glint ConVars too** (B725): the studio render reads both at every eye draw (`studiorender.dll`
         // `0x18001e071`, `0x18001e0ad`), so a set from anywhere is the switch.
         else if (set.Name.Equals(Scene.ViewerSettings.GlintAlwaysDrawCommand, StringComparison.OrdinalIgnoreCase) ||
@@ -280,6 +306,14 @@ public sealed partial class ViewerSession
                 device.EyeGlint = glint;
             }
 
+            _window.Redraw();
+        }
+
+        // **Every other ConVar the engine reads where it uses it** (B790): `r_lightmap_bicubic`, `mat_disable_bloom`,
+        // `r_3dsky` and the rest, handed to the device by the settings' own table, as at the hand-over.
+        else if (_settingsOwner.ApplyLive(set.Name))
+        {
+            _renderLog.LogInformation("{Message}", $"{set.Name} {set.Value}");
             _window.Redraw();
         }
     }

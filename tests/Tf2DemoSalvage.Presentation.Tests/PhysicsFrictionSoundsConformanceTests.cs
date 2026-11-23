@@ -39,7 +39,7 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         IReadOnlyList<SceneSound> played = sounds.Step(100, 1.0, [Scrape(7750f)], At, Surfaces, Scripts());
 
         // The patch's script volume is its own draw's, which is drawn when it plays (B782).
-        SceneSound loop = new ScriptWaveDeck().Deal(played.ShouldHaveSingleItem(), Scripts());
+        SceneSound loop = new ScriptWaveDeck().Deal(played.ShouldHaveSingleItem(), Scripts()).ShouldNotBeNull();
         loop.Name.ShouldBe("physics/flesh/rough.wav");
         loop.EntityIndex.ShouldBe(Corpse);
         loop.Channel.ShouldBe(1, "the script's channel, not the CHAN_BODY the caller asked for");

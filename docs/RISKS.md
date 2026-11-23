@@ -42442,6 +42442,141 @@ before it. *Read* for the engine; ours *read* from the code, not measured. The f
 that an item panel's draw moves the viewport cache's target. Whether any shipped item model has eyes, which decides
 whether the panel's own draw could look different, is not counted.
 
+## B802 — a server world impact's stand-in trace stops at grates, where `Impact`'s clip uses `MASK_SHOT` (2026-11-21) — OPEN
+
+Found in B797's review (rounds 2 and 3, Fable and Sonnet). `ServerImpacts.From` traces each server world impact with
+`MapLevel.Trace`'s `MaskSolid` (`MapLevel.cs:227`; `BspLeafTree.cs:107-108`), which holds `CONTENTS_GRATE` and lacks
+`CONTENTS_DEBRIS` and `CONTENTS_HITBOX`. The engine's decal path clips with `MASK_SHOT` (`AddBrushModelDecal`,
+`c_baseentity.cpp:3707`; the no-decal branch `fx_impact.cpp:170`, `:177`), which is the other way round
+(`bspflags.h:106`, `:126`). So a grate brush stops ours and not the engine's — the impact takes the grate's normal and
+surface, and a prop behind it is not struck — and a debris-content brush stops the engine's and not ours, so the impact
+lands on the surface behind or is dropped. The mask is fixed inside the `MapLevel.Trace` overloads, so the fix needs a
+trace that takes one. Predates B797 for world impacts; the mask `AddDecalToStaticProp` uses is closed engine and not
+read. *Read from published source; not measured.*
+
+## B801 — a server impact on an entity the client does not have still sounds; `ImpactCallback` returns at a null entity (2026-11-21) — OPEN
+
+Found in B796's review (round 1, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:30-33`) returns at once when
+`ParseImpactData` finds no entity for the dispatch — nothing at all. Ours (`ServerImpacts.Impacts( dispatch, timeline )`)
+reads an entity with no player in the frame and no track alive at the tick as team 0, which passes the team gate, so
+`LandingsOver` sounds it. *Not checked:* whether every entity the client would have is a track here (a brush entity, a
+door), so a null answer may also mean "not tracked" rather than "not present"; the fix must tell the two apart. *Read
+from published source; not measured.*
+
+## B799 — the client's own bullets carry damage type 0, where `FireBullet` dispatches the weapon's damage bits (2026-11-21) — OPEN
+
+Found implementing B796. `ShotImpact.DamageType` is 0 for a bullet the client fires itself: the weapon's `GetDamageType`
+bits are not built. `FireBullet` hands them to `UTIL_ImpactTrace( &trace, nDamageType )` (`tf_player_shared.cpp:10526`),
+which dispatches them as `m_nDamageType` (`baseentity_shared.cpp:684`), and `ImpactCallback` reads them for its team
+gate (`tf_fx_impacts.cpp:35-49`, B796), the shrapnel's exactly-`DMG_BULLET` test (`:85`), `Impact`'s
+`GetImpactDecal( pEntity, iMaterial, iDamageType )` and `FX_AffectRagdolls( …, iDamageType )` (`fx_impact.cpp:124`,
+`:129`). Every hitscan weapon's bits in `g_aWeaponDamageTypes` (`tf_shareddefs.cpp:715-828`) carry more than
+`DMG_BULLET`, so the gate and the shrapnel cannot fire for a real weapon either way; what 0 changes is whatever else
+reads the bits — not yet read: which decal `GetImpactDecal` picks and what the ragdoll push does for 0 against the
+weapon's bits. *Read from published source; not measured.*
+
+## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — FIXED
+
+**Fixed (2026-11-21).** `ServerImpacts.From` now takes the world with a hitbox too, and gives the impact
+`StaticProp = HitBox − 1`, so it joins the client's bullets on static props: `DecalReplay` sends it to `ShootProp`
+(`AddDecalToStaticProp`), and `DecalEffects.LandingsOver` sounds it through `WorldLanding`. `ImpactDecals.Surface`
+answers a server static-prop impact from the dispatch's own surfaceprop (`ParseImpactData`'s `m_nSurfaceProp`), as
+`SurfacePropOf` already did, with the studio surface's flags (none). *Interpolated:* the world trace's first hit stands in
+for `AddDecalToStaticProp`'s trace against that one prop, and, like a world impact, the impact is kept only where that
+trace hit — the miss case, where `Impact` returns false but `PlayImpactSound` still plays, is B795's open half. Tests:
+`ServerImpactsConformanceTests.From_AnImpactOnAStaticProp_IsAServerImpactOnThatProp`,
+`From_AnImpactOnTheWorldWithNoHitbox_IsOnNoStaticProp`; `DecalEffectsTests.LandingsOver_AServerImpactOnAStaticProp_SoundsWithTheDispatchsSurfaceAtItsOrigin`,
+`StepOver_AServerImpactOnAStaticProp_HoldsThePropsDecal`. Not verified by looking or listening.
+
+**Review 1 (Fable, Sonnet, Gemini).** The stand-in trace is `MapLevel.Trace`, which takes "brushes, terrain, static props
+and brush entities", so it strikes the prop itself and gives the prop's surface and normal; the residual
+interpolation is something else standing on the ray in front of the prop (the engine's trace is against that prop
+alone). And the SOUND's surface now follows `PlayImpactSound` (`fx_impact.cpp:378-381`): a server impact whose
+surfaceprop is 0 sounds as the client's trace found it — a prop's `$surfaceprop`, carried from the trace as
+`StudioSurfaceProp` — while the decal and effects keep `ParseImpactData`'s, as the engine's do
+(`ImpactDecals.SoundSurfacePropOf`; `LandingsOver_AServerPropImpactNamingNoSurface_SoundsAsThePropsOwn`, red before:
+surface 0's sound; the row naming flesh is the control). Terrain's slot is not carried, so a server impact on terrain
+with surfaceprop 0 keeps it.
+
+**As filed:**
+
+Found in B785/B786's review (round 3, Fable). A server impact on a static prop arrives as `"Impact"` on entity 0 with a
+non-zero hitbox — the prop's index plus one: `ImpactTrace` sends the trace's `hitbox` (`baseentity_shared.cpp:684-685`), and
+a world trace's `hitbox` is the static prop's index plus one (read where the server uses it, `physics.cpp:1314-1316`,
+review 4, Gemini) — and `Impact` takes that branch to `AddDecalToStaticProp` (`fx_impact.cpp:149-152`). Entity 0 is team 0, so
+`ImpactCallback`'s gate passes, and it plays `PlayImpactSound` within its 1024-unit cull (`tf_fx_impacts.cpp:75`), with
+`PerformCustomEffects` and the `Bounce.Shrapnel` ricochet when the prop decal hits (`:79-89`). Ours drops the dispatch on
+both roads: `ServerImpacts.OnEntities` keeps only `Entity > 0` (`ServerImpacts.cs:45`), and `ServerImpacts.From` (the world
+walk) skips any `HitBox != 0` (`:90`). So a server bullet on a static prop has no landing (`DecalEffects.LandingsOver`) and
+no decal (`OnEntities` also feeds the entity decals, `DecalEffects.cs:978`); the client's own bullets on static props are
+handled (`ShotImpact.StaticProp`, `DecalReplay.cs:158`). *Read from published source and our code; how many such
+dispatches a real match carries is not measured.*
+
+## B796 — a landing on an entity sounds whatever the team gate says; `ImpactCallback` plays nothing when the damage bits equal the struck entity's team number (2026-11-21) — FIXED
+
+**Fixed (2026-11-21).** The gate is one function, `ServerImpacts.Impacts( damageType, team, disguiseTeam )` —
+`damageType == team ? team < FIRST_GAME_TEAM : disguiseTeam != damageType`, the disguise asked only while
+`TF_COND_DISGUISED` (the `ScenePlayer` overload, over `GetDisguiseTeam`) — and every road into `ImpactCallback` takes it:
+- **Server impacts on entities** (`DecalEffects.LandingsOver`) through `Impacts( dispatch, timeline )`, built at load: a
+  player is read from the frame at the impact's tick (`PlayersAt`), team and conditions and disguise team; any other
+  entity from its track alive then (`TrackFor( entity, tick ).TeamNumber`). *Interpolated:* that team is the last the
+  track stated, a non-player entity taken never to change team mid-life.
+- **The client's own bullets** (`StepModelDecals`), after `FireBullet`'s teammate rule: no sound and no decal. *Arithmetic
+  from `g_aWeaponDamageTypes` (`tf_shareddefs.cpp:715-828`):* every hitscan weapon's bits carry more than `DMG_BULLET`
+  (`DMG_USEDISTANCEMOD`, `DMG_BUCKSHOT`, `DMG_USE_HITLOCATIONS`), so for real bullets this half cannot fire; and ours carry
+  `ShotImpact.DamageType` 0 for a client bullet, the weapon's `GetDamageType` bits not being built (B799: it
+  also keeps a client bullet's `Bounce.Shrapnel` from ever being offered). The gate is wired so it holds once they are.
+- **The player decal** (`ModelDecalFor`) now asks the same function instead of `DamageType == Team`, which adds the
+  `< FIRST_GAME_TEAM` exemption; the disguise half was already covered by `AddDecal`'s return.
+Tests: `ServerImpactsConformanceTests.Impacts_*` (eight cases, the gate and its disguise half);
+`DecalEffectsTests.LandingsOver_AServerImpactWhoseDamageBitsEqualTheStruckPlayersTeam_IsSilent` and its control,
+`LandingsOver_AServerImpactOnAnEntityOfTheDamageBitsTeam_IsSilent` with `…OfAnotherTeam_Sounds` and
+`…BelowTheFirstGameTeam_Sounds`, `StepOver_AClientBulletWhoseDamageBitsEqualTheVictimsTeam_IsSilentAndLeavesNothing`.
+*Not built:* MvM's robot and tank impact sounds, which this gate also silences; we play none of them. *Untested
+through the timeline:* the disguise half on a server impact (`Impacts( dispatch, timeline )` handing the frame
+player's conditions on) — the synthetic player schema the decal tests build on carries no `DT_TFPlayerShared`, and adding
+one collides with the fixtures that add their own (review 1); the half is held by the unit rows. An entity the client
+does not have is B801. Not verified by looking or listening.
+
+**As filed:**
+
+Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:35-49`):
+`bImpact = ( data.m_nDamageType != pEntity->GetTeamNumber() || pEntity->GetTeamNumber() < FIRST_GAME_TEAM )`, and false
+again for a disguised player whose disguise team equals `m_nDamageType` (`:37-49`). With `bImpact` false nothing follows —
+no `Impact`, no ricochet draw, no impact sound, MvM's robot and tank sounds included (`:51-134`). For a bullet,
+`m_nDamageType` is the damage BITS (`FireBullet`'s `UTIL_ImpactTrace( &trace, nDamageType )`, `tf_player_shared.cpp:10526`),
+not a team: the gate fires when the bits numerically equal the struck entity's team number, and `DMG_BULLET` is 2,
+`TF_TEAM_RED` — so every exactly-`DMG_BULLET` impact on a RED entity makes no sound and no decal. *Arithmetic from the
+source: `CBaseEntity::ImpactTrace` sets `data.m_nDamageType = iDamageType` (`baseentity_shared.cpp:684`, review 3,
+Gemini); which weapons send exactly 2 is not checked.* A non-player entity on team 0 or 1 always impacts (a player there
+could still be cleared by the disguise half). For a PLAYER the decal already matches: `ModelDecalFor`, which takes only a
+`ScenePlayer`, refuses the equal-number decal (`DecalEffects.cs:557`) and every disguised player (`:562`, `AddDecal`'s
+return at `c_tf_player.cpp:7891-7894`), so there the gap is the SOUND alone; a non-player entity's decal is not checked
+here. The sound has no gate: server impacts on
+entities (`DecalEffects.LandingsOver`, `:658-666`) are ungated, and the client's own bullets (`:464-471`) test only
+`victim.Team == bullet.Team`, which is `FireBullet`'s teammate rule (`tf_player_shared.cpp:10524`), not this gate.
+*Read from published source; not measured on the corpus.*
+
+## B795 — a landing `Impact` refuses still draws the ricochet number and can ricochet (2026-11-21) — OPEN
+
+Found in B785/B786's review (rounds 1 and 2, Fable and Sonnet). `ImpactCallback` (`tf_fx_impacts.cpp:79-90`) draws
+`RandomInt( 1, 10 )` and offers `Bounce.Shrapnel` only inside `if ( Impact( … ) )`, while the impact sound
+(`:92-134`) plays either way — on the server's origin and surfaceprop when the client's trace did not hit
+(`fx_impact.cpp:378-390`), which is what a server landing already uses. `Impact` (`fx_impact.cpp:102-187`) zeroes the
+trace (`:109-110`) and returns false when `decalNumber` is -1 (`:131-132`), when `FX_AffectRagdolls` hit a ragdoll
+(`:122-125`, `:183` — asked only for a struck entity the client did not create, and answering false at once when more
+than one ragdoll is simulating, `:77`), and when its decal trace found nothing (`tr.fraction == 1`, `:183`), which a player decal does
+whenever `C_TFPlayer::AddDecal` (`c_tf_player.cpp:7883-7927`) returns before tracing — the victim stealthed, disguised,
+a miniboss or invulnerable (its `tr.startsolid` test is dead on this path, the trace having been zeroed) — and also when
+`AddStudioDecal`'s `ClipRayToEntity` misses the hitboxes (`c_baseentity.cpp:3620-3624`), or a flesh decal is skipped
+(Pyro vision, low violence, truce, `fx_impact.cpp:138-145`). Ours takes every landing as accepted
+(`ImpactSounds.For`, B786): an own bullet on an enemy (`DecalEffects.cs:471`) and a server impact on an entity (`:661`)
+draw the number and can ricochet in those cases. `ModelDecalFor` (`:554-610`) already tests most of them for the decal;
+a server landing is built at load, before any player's conditions at its tick are known. A world landing is kept only
+where the decal trace hit (`ServerImpacts.cs:110-113`), so its `decalNumber == -1` and ragdoll cases are open. Not
+checked: the invulnerable return's `g_pEffects->Ricochet` (`c_tf_player.cpp:7900-7906`), which may be an effect we
+lack. *Read from published source.*
+
 ## B794 — four sound producers seed from one `FirstSeed + x` range, so two of them can draw the same stream (2026-11-21) — OPEN
 
 Found in B784/B787's review (round 1, Sonnet and Fable). `ImpactSounds.SeedFor( x )` is `2^20 + x`, and four producers
@@ -42475,9 +42610,38 @@ while `sv_cheats` is 0 on TF2's command paths — a config, a bound key, a launc
 D253's text does not say that, the exemption is not in `ABOVE-VALVE.md`, and no owner decision records it. In TF2 a key
 bound to a cheat ConVar is refused like any other bind (D253, B718). **The question for the owner** (D246, CLAUDE.md:
 parity never removes a feature without asking): keep the default keys ungated as a feature above Valve (then list it in
-`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split.
+`ABOVE-VALVE.md` with its test), or refuse them as TF2 does. B791 rests on the same split. The same question covers a
+config's bare one-shot name (`mat_wireframe` alone in a bind) with `sv_cheats 1`: ours toggles the view, TF2 prints the
+value and sets nothing (B791 review 2). And a config that opens with `unbindall` and binds its own key to
+`mat_wireframe` leaves, with cheats off, no key that toggles wireframe: `unbindall` drops `CTRL+w` to the defaults'
+fallback, the config's bind claims the action so the fallback is not offered, and the config's key is refused (B791) —
+TF2's own outcome, but the menu still shows that key as the item's shortcut (B791 review 5, Fable). Only the menu click
+works then.
 
-## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — OPEN
+## B798 — a stop of a patch the deck does not hold names the producer's wave, which can stop another voice (2026-11-21) — OPEN
+
+Found in B789's review (round 3, Fable). `ScriptWaveDeck.Named` (`ScriptWaveDeck.cs`, ~:182-185) returns a stop
+unchanged when its patch is not held — a start never dealt, or a patch `ForgetPlaying` forgot on a reload or on a swap
+to a catalog that still declares the script — so the stop carries the wave its producer drew, and `Start`'s stop branch
+silences the first voice on that entity and channel playing that wave. In the engine a patch that was shut down
+(`CSoundControllerImp::SystemReset`, `soundenvelope.cpp:862-878`) is not playing, so a later `Shutdown` is a no-op
+(`:480`), and no stop is issued at all. B789 closed the undeclared-script case; this is the declared one. *Read from
+published source; not measured.*
+
+## B789 — a script sound whose script the deal-time catalog lacks still plays; the engine's emit fails (2026-11-20) — FIXED 2026-11-21
+
+**Fixed:** `ScriptWaveDeck.Deal` returns nothing for a script sound whose script the catalog does not declare (still
+releasing the head it followed), and every caller (`SoundPresenter.Dealt`: the pass's scheduled and emitted starts, a
+skip frame's deal count and hash) plays and counts nothing for it. A CHANGE of a patch whose script the catalog lacks
+plays nothing either, where it fell through to a start of its own (review 1, Fable); and its STOP stops nothing, where
+it named the producer's wave and could stop another voice playing it (review 2, Fable;
+`Update_APatchTheCatalogDeclaresOrNotThenAStop_SilencesOnlyItsDeclaredStart`, red before: 1 silenced). Tests:
+`Update_AScriptSoundTheCatalogDeclaresOrNot_PlaysOnlyWhenDeclared` and its emitted twin (red before: the undeclared one
+started; the declared row the control), `Update_APatchTheCatalogDeclaresOrNotThenAChange_PlaysNothingWhenUndeclared`
+(red before: 1 start), and `Deal_AnImpactWhoseScriptIsMissingAtDealTime_PlaysNothingAndReleasesItsShrapnel`. The skip
+frame's count and hash, a log line's, are untested. Not verified by listening.
+
+**As filed:**
 
 Found by B782's review round 4. **Not fixed here.** `CSoundEmitterSystem::EmitSoundByHandle`
 (`game/shared/SoundEmitterSystem.cpp:465-468`): `if ( !soundemitterbase->GetParametersForSoundEx( ep.m_pSoundName,
@@ -42517,9 +42681,15 @@ collide — a scrape loop on entity 64 at tick t and one on entity 0 at t + 1 �
 record, and the first stop removes it for both: the other's later change or stop then names nothing (its change keeps
 the carried volume without the script volume, B782's `Named`).
 
-## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — OPEN
+## B786 — a bullet impact draws the ricochet's `RandomInt( 1, 10 )` only for `DMG_BULLET`; the engine draws it for any hit (2026-11-20) — FIXED 2026-11-21
 
-Found by B782's review round 1. **Not fixed here.** `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
+**Fixed:** `ImpactSounds.For` draws `RandomInt( 1, 10 )` first for every landing (each TAKEN as a hit `Impact`
+accepted, which a hit on a stealthed, disguised or übercharged player, or one missing the hitboxes, is not: B795), and
+only then tests `Ricochets` (exactly `DMG_BULLET`). Test: `For_ALandingOfAnyDamage_DrawsTheRicochetNumberBeforeItsImpact`,
+the impact's draws starting one number on for a non-bullet hit (red before: 0 numbers), the bullet row its control. The
+camera gate before the draw is B783, still open. Not verified by listening.
+
+**As filed:** found by B782's review round 1. `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:79-89`):
 `if ( Impact( … ) ) { … if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3 && ( iDamageType == DMG_BULLET ) ) … }` —
 the `&&` evaluates left to right, so every in-range impact that `Impact` accepts takes the number, and only then is the
 damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs:85`) asks
@@ -42527,9 +42697,16 @@ damage type tested. Ours (`ImpactSounds.For`, `managed/Tf2DemoSalvage.Presentati
 `DMG_BULLET`" — so a non-bullet hit skips the draw and its impact sound starts one number early (volume, pitch, wave,
 soundlevel all shift). *Read from published source.* Related: B783 (the camera test comes first of all).
 
-## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — OPEN
+## B785 — the tracer whiz deals `Bullets.DefaultNearmiss`; the engine only reads it (2026-11-20) — FIXED 2026-11-21
 
-Found by B782's review round 1. **Not fixed here.** `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
+**Fixed:** `TracerWhiz.SoundAt` resolves the script with `emitted: false`, so the whiz clears no wave. **The citation
+below is the wrong function:** `FX_TFTracerSound` is called only by the `BrightTracer` effect (`tf_fx_tracers.cpp:114`);
+TF2's tracers reach the shared `FX_TracerSound` (`clientsideeffects_test.cpp:211-289`, its 24-unit whiz and random
+0.1-0.1 s wait are ours), which reads the script the same way — `C_BaseEntity::GetParametersForSound( pszSoundName,
+params, NULL )` then `enginesound->EmitSound` — so the finding stands. Test:
+`Producers_EverySoundEmittedByName_DealsAndTheWhizDoesNot` (red before: the whiz emitted). Not verified by listening.
+
+**As filed** (the function cited is the wrong one, see above): found by B782's review round 1. `FX_TFTracerSound` (`game/client/tf/tf_fx_tracers.cpp:77-88`)
 resolves the script with `C_BaseEntity::GetParametersForSound( pszSoundName, params, NULL )` — a plain
 `GetParametersForSound`, `isbeingemitted` false, so FUN_180003370 clears no wave — and plays the resolved WAVE with
 `enginesound->EmitSound( filter, SOUND_FROM_WORLD, CHAN_STATIC, params.soundname, … )`, which never passes through
@@ -42585,9 +42762,63 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
-## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — OPEN
+## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — OPEN
 
-Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
+Found in B791's review 16 (Sonnet). `LaunchOptionsReader` gates a `+cheat value` against `sv_cheats` as the launch line
+alone sets it (`cheats` starts false, `LaunchOptions.cs:114`), and it runs before the watcher's configs are read. So an
+`autoexec.cfg` with `sv_cheats 1` plus a launch `+mat_wireframe 1` is refused here. In TF2 the command line's `+`
+commands are executed by `stuffcmds` ("execute command line parameters", a string in `engine.dll`, *read*), which the
+startup script runs after the configs (*interpolated*: `valve.rc` was not found loose or by name in the VPKs, so the
+order is not read), so TF2 would accept it. Pre-existing for every cheat ConVar since B718; B791 makes it reach
+`mat_wireframe`. Next: read the order `stuffcmds` runs in (the startup script or the engine's call), then gate the launch
+line after the configs. *Not fixed*.
+
+## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — OPEN
+
+Found in B788's review 7 (Fable). Ours applies `mat_wireframe`'s fill to every pass through a wireframe twin of each
+rasteriser state (`WorldRenderer`), so a model whose forced material wins over the studio render's wireframe material
+(a gold corpse, B788) draws its forced material as edges. In the SDK the wireframe fill is the WIREFRAME shader's own
+flag, `SET_FLAGS( MATERIAL_VAR_WIREFRAME )` (`wireframe_dx9.cpp:37`, *read*); whether the material system or shader API
+also forces a line fill under `mat_wireframe` for any other material is in closed code (shaderlib, shaderapidx9,
+materialsystem) and not read. If the flag is the only source, TF2 draws that gold corpse SOLID under `mat_wireframe`.
+`DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne` reads only an edge pixel, so it holds either way.
+Next: disassemble where `MATERIAL_VAR_WIREFRAME` becomes a poly mode (shaderapidx9's shadow state) and whether anything
+else sets it under `mat_wireframe`. The world's brushes are the same question, B803.
+
+## B807 — a map's own `Wireframe` material is resolved as a full VertexLitGeneric, where the shader reads none of its parameters (2026-11-21) — OPEN
+
+Found in B788's review 4 (Fable). `Wireframe_DX9` hands VertexLitGeneric's helper a default-constructed
+`VertexLitGeneric_DX9_Vars_t` (`wireframe_dx9.cpp:32`, `:42`, `:48`), which the constructor fills with 0xFF, every index
+-1 (`vertexlitgeneric_dx9_helper.h:28`, *read*): the shader reads no `$basetexture`, `$envmap`, `$detail`, `$bumpmap` or
+`$phong`, so its base is white whatever the VMT says; `$color`, `$alpha` and the flags still apply (they are the base
+shader's). Ours resolves a `Wireframe` material through the same path as VertexLitGeneric (`MapAssets` `StandardBase`
+and the texture, bump, cubemap and phong resolution), so a `Wireframe` VMT that names a texture would draw it. **No
+difference for the studio render's `debugmrmwireframe`**, which names none (B788); only a map or custom file shipping
+its own `Wireframe` VMT would differ. *Read*; not measured on any shipped file.
+
+## B806 — the other material-system debug views are not checked against D253's cheat gate or the engine's draw (2026-11-21) — OPEN
+
+Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but the debug views beside it —
+`mat_luxels` (`FCVAR_CHEAT` per the review), `mat_drawflat`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`,
+`mat_showlowresimage` — were not checked: whether each is `FCVAR_CHEAT` in `EngineConVars` (so D253 refuses it from a
+config, a bind or a launch option without `sv_cheats`), and whether what ours draws for each is what the engine binds.
+*Not read*; the flags are the review's, not re-read by the lead. Filed so B791 stays the one ConVar it names.
+
+## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — OPEN
+
+Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
+`mat_wireframe`; the world's brushes, displacements and the 3D skybox still draw with their own materials in wireframe
+fill (`WorldRenderer.Wireframe`). What the engine binds for a brush surface under `mat_wireframe` — a material of its
+own, the surface's, or a fill mode only — is in the closed `engine.dll` world renderer and not read. *Not read;
+filed so B788's scope stays the studio models it names.* **Brush entities too** (a `*N` model: doors, func_brush):
+`R_DrawBrushModel` draws them, never the studio render, so B788's swap skips them (`!modelPath.StartsWith('*')`,
+`DrawModelPose_UnderWireframe_SwapsAStudioModelAndNotABrushEntity`) and they keep their own shaders in wireframe fill
+like the world's brushes. A lead for the read: `studiorender.dll` also names `debug/debugworldwireframe`
+(`0x180080ce8`, held at `+0x8e8`, per B788's review 1, Fable; not re-read by the lead).
+
+## B788 — under `mat_wireframe` a studio model keeps its own materials, where the studio render swaps in its wireframe material (2026-11-20) — FIXED (2026-11-21)
+
+*As found (2026-11-20; the present tense below is the state when filed, fixed in the **Fixed** paragraph).* Found in B725's glint review (round 1, item 6, Fable). **Read** from TF2's x64 binaries (disassembled; closed):
 `engine.dll` `UpdateStudioRenderConfig` (`0x1800f56c0`) sets `StudioRenderConfig_t::bWireframe` (byte +0x24, bit 7 —
 `istudiorender.h:62-69`, the bitfields from bit 0) to `sv_cheats && mat_wireframe` (`0x1800f5855`-`0x1800f5873`; the
 ConVars at `0x180731d30` and `0x1806a0640`), and `bSoftwareSkin` (bit 1) with it. `studiorender.dll`
@@ -42603,11 +42834,59 @@ only the menus; the default-key exemption is that code's, for a built-in `mat_fu
 supersedes D75's sentence that a pasted config setting them works. So under `mat_wireframe` a model's edges are lit and textured as
 its material, where TF2's are the wireframe material's flat colour. **Ported from it so far**: the glint — an `Eyes`
 draw under `mat_wireframe` binds `vgui/black` (`DrawModelPose_EyesUnderTheGlintSwitches_DrawAsTheEngineChooses`, the
-wireframe row). **Open**: the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) is not read.
+wireframe row). **Open when filed** (closed below): the material swap itself; the wireframe material's own VMT (`+0x8a8`'s name) was not read.
 
-## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — OPEN
+**Fixed** (2026-11-21; how it was settled: `docs/findings/75-a-tf2-face-is-the-scene-not-the-wire.md`, "The studio
+render's wireframe material"). The material is `debug/debugmrmwireframe` (the string at `studiorender.dll` `0x180080b18`;
+the load at `0x1800527eb` puts it in `+0x8a8`, review 1's read, not re-read by the lead), and `UpdateStudioRenderConfig` never sets
+`bDrawZBufferedWireframe`, so the `zbuffer` twin is never used (*read*). Its VMT (`platform_misc`, `hl2_misc`): `Wireframe`,
+`$color [0 1 1]`, `$ignorez 1`, no `$basetexture`; the shader is VertexLitGeneric's helper run unlit, with `NOFOG`
+(`wireframe_dx9.cpp`). Ported:
+`MapAssets.Wireframe` loads it at map load (white: no base); `ModelMaterialShading.TakesDiffuseLighting` takes the
+`Wireframe` shader as UNLIT, because `Wireframe_DX9` runs VertexLitGeneric's helper with `bVertexLitGeneric` false
+(`wireframe_dx9.cpp:33`, `:43`, `:49`; review 1, Fable — the first port lit it); `WorldRenderer.DrawModel` draws every
+STUDIO model mesh with it under `mat_wireframe` unless a forced material is set (`0x1800041f2`), a face's meshes included,
+and binds the drawn material's animation frame rather than the batch's own (review 1, Sonnet; a forced material's too);
+a brush entity keeps its own (B803); static props are swapped as studio models (*interpolated*: the static-prop draw going
+through `R_StudioSetupSkinAndLighting` is not read); `SetMaterial` gives it no depth test or write (`$ignorez`,
+*interpolated* render state); `FogModeOf` gives the `Wireframe` shader no fog (`NOFOG` is read; what it does at draw is the
+closed shaderlib's, *interpolated* as no fog). Without a TF2 install the material is absent and models keep their own, the glint row above still covering
+the eye. Tests (`Tf2DemoSalvage.Rendering.Tests`): `EyeShaderRenderTests.DrawModelPose_UnderWireframe_DrawsTheStudioRendersWireframeMaterial`
+(VertexLitGeneric and Eyes: (0, 255, 255) on the edge at tone-map scale 1, black off it), `…_UnderWireframe_SwapsAStudioModelAndNotABrushEntity`,
+`…_UnderWireframeOnAnAnimatedMaterial_BindsTheWireframesTexture`, `…_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ`,
+`…_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne`, `…_UnderWireframeInFullFog_DrawsTheEdgeUnfogged`,
+`…_WithAForcedAnimatedMaterial_BindsTheForcedMaterialsFrame`, `FogModeOf_TheWireframeShader_IsNone`, and
+`OverrideMaterialLoadingTests.Wireframe_AfterALoadFromTheGameArchives_IsTheStudioRendersMaterialAsItsVmtSays` (real
+install). Each reddened under its own sabotage. Review 3: the model path bound the animation frame BEFORE
+`SetMaterial` ran the proxy chain that writes `$frame`, so a model showed the previous draw's frame (B343's order, which
+the world path keeps; Sonnet) — now after it, `…_AnAnimatedMaterial_BindsTheFrameItsProxyChainWrote` (red (89, 0, 0)
+before, green after); the selection is one method, `DrawnMaterial`, so the draw's two diagnostic lines name the material
+bound (B243; Fable); the material loads from the game archives only, not the map's pakfile, since the studio render names
+it on the `PLATFORM` search path (`//platform/…`; the path reading *interpolated*; Fable; held by the code only — no test
+loads a map whose pakfile ships its own copy, review 4); a device opened again with the
+menu already ticked is told directly (`ViewerSessionTests.OpenDevice_AgainWithTheWireframeMenuAlreadyTicked_TellsTheNewDevice`;
+Sonnet); a config's bare `mat_wireframe` without cheats is no longer reported as a refused set (TF2 prints the value;
+Sonnet); `…_UnderWireframeWithNoWireframeMaterial_KeepsItsOwn`. Review 4: `…_WithTheWireframeMaterialLoaded_OtherMaterialsStillTestDepth`
+(reddened with `wire.Material == materialIndex` widened to every material). Review 5: the batch's category, tint and
+paint still reach `SetMaterial` under the swap, which is no defect — category and tint only feed the category view's
+colour, paint only the drawn material's proxies (the wireframe material has none), and the chequer test reads the
+drawn material; after a wireframe batch the depth state left bound is `_depthIgnored`, so a later draw that sets none of
+its own would draw through everything (none found; every pass sets its own, the rule a pass must establish its own
+state); the real-install test asserts the material is appended last, which `OcclusionQueriesRenderTests` relies on.
+Review 6: the pass filter keys on the drawn material, so under the swap a mesh whose own material is translucent draws in
+the opaque pass with the (opaque) wireframe material; what studiorender does with that split under wireframe is not read
+(*interpolated* from the swap happening before the material is asked anything). Review 7, known and left: at the first
+device open the real menu's tick reports into `SetWireframe` as well as the direct call, so `mat_wireframe 1` is logged
+and redrawn twice (nothing drawn differs); the two diagnostic lines through `DrawnMaterial` are read, not asserted by a
+test; `MainForm.ShowWireframe`, the window end of the config-to-device route, is covered by no test (the presentation
+tests use `FakeViewerWindow`; `ShowSpecular` has the same gap). Fable's review 7 also found the fill question filed as
+B808.
+*Not verified by looking*: no viewer was launched. Out of this entry: the
+world's brushwork and brush entities under `mat_wireframe` still draw their own shaders in wireframe fill, B803.
 
-Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
+## B791 — a config's `mat_wireframe 1` is not refused under `sv_cheats 0`, which D253 says TF2's command paths do (2026-11-20) — FIXED (2026-11-21)
+
+*As found (2026-11-20; the present tense below is the state when filed, fixed in the **Fixed** paragraph).* Found in B725's glint review (round 2, item 2). **D253** (the owner's pick, "Copy TF2"): a cheat ConVar is refused
 while `sv_cheats` is 0 on TF2's own command paths — a config, a bound key, a `+name value` launch option — and reverted
 when `sv_cheats` returns to 0. The refusal reads `EngineConVar.Cheat` (`ConfigConsole.cs:877`, `:927`;
 `LaunchOptions.cs:227`), and `mat_wireframe` is not in `EngineConVars`, so nothing marks it a cheat: a config's
@@ -42621,7 +42900,100 @@ viewer's default binding stay ungated; a config, a user's bind and a launch opti
 its own route; `r_drawworld` and `r_drawentities` (both `FCVAR_CHEAT` in the SDK) are the same question and not read
 here.
 
-## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — OPEN
+**Fixed** (2026-11-21). What the code did was worse than the entry said: undeclared, a config's `mat_wireframe 1` line set
+nothing, but a bind's `mat_wireframe 1` (or a bare `mat_wireframe`) fell through to the viewer's wireframe one-shot and
+TOGGLED it, cheats or not. Now: `EngineConVars` declares `mat_wireframe` "0", cheat (`viewdebug.cpp:46`; `engine.dll`
+`0x180007b94`), so a config's, a bind's and a launch option's set is refused under `sv_cheats 0`, and a bare
+`mat_wireframe` bound by a config does nothing and is not reported as a refused set (`ConfigConsole.Run`; TF2 prints the
+value; review 3); with cheats on the set reaches the
+menu's tick (`ViewerSession.OnConVarSet`, `IViewerWindow.ShowWireframe`), which reaches the device by the menu's own route;
+the menu records its value for the run as fullbright's does, so `toggle mat_wireframe` reads it and `sv_cheats 0` reverts it.
+The menu and the default `CTRL+w` key stay ungated (D253; the key is B792's question, unchanged). Found on the way and fixed
+with it: a bind to `sv_cheats` on a key that has a viewer default (`F8`) lost the key to the default, because `sv_cheats`
+is replicated and `ConfigConsole.SetsState` did not count it. Review 8 (Fable): the gate looked the name up case-sensitively while the one-shot table did not, so a config's
+`MAT_WIREFRAME 1` or bare `Mat_Wireframe` toggled wireframe with cheats off; a typed name now goes through
+`EngineConVars.TryByConsoleName`, case-insensitive as the console's lookup is (*interpolated*: `CCvar::FindCommandBase` is
+in the closed `vstdlib`), while a name off the wire stays ordinal (`…TriggerNothingAndTheDefaultKeyStillDoes`, red with both
+spellings toggling before). Review 9 (all three): round 8 had reached the console's set only. Now every typed path finds
+the name in any case — `ConfigConsole.CurrentValue` (`toggle`, `incrementvar`), `ViewerSettings.IsCheat` (the launch
+line's gate) and `ViewerSettings.Parse` (stored under the ConVar's own name) — a set is announced under the ConVar's own
+name so the settings keep it, and this applies to every client ConVar, not only cheats (`CL_SHOWFPS 1` now sets
+`cl_showfps`, where it was ignored); and `OpenDevice` reads a watcher config's own `mat_wireframe` line, which the console
+keeps rather than the settings. Tests: `LaunchOptionsTests.Read_ACheatConVarInUpperCase_IsGatedAndStoredLikeLowerCase`,
+`ConfigConsoleConformanceTests.KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused` (mixed-case rows),
+`…KeyDown_AMixedCaseToggleOfMatWireframeWithCheatsOn_AnnouncesTheSet`,
+`ViewerSessionTests.OpenDevice_AfterAConfigSetMatWireframeWithCheats_DrawsWireframe`, `EngineConVarsLookupTests`
+(Core.Tests); each reddened red-first or under its sabotage. Review 10: a config line read after the settings attach is
+announced under the ConVar's own name as well (`…Load_AMixedCaseLineAfterTheSettingsAreAttached_AnnouncesTheConVarsOwnName`,
+red with the typed case), and the launch line's refusal names the ConVar as it spells itself. **Not gated, by D253**: the
+viewer's own settings file — a hand-written `mat_wireframe 1` there turns wireframe on at the device's opening with
+`sv_cheats 0`, as `mat_fullbright` there always has, because that file keeps the menus' choices
+(`OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice` pins it). Review 11: `+DEMO_TIMESCALE 8` is the
+playback speed as the lower-case one is (`Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed`, red with an ordinal match);
+the launch line logs an accepted set under the ConVar's own name (the stored value was already found in any case);
+`sv_cheats 0` reverting a menu-set wireframe is pinned
+(`KeyPressed_SvCheatsZeroAfterTheMenuSetWireframe_ClearsTheDevice`, red without the menu's record). Untested and left:
+the launch line's log text (the tests read it through a null logger; only the stored values are asserted);
+`ViewerSettings.ConVarText`'s typed-setting lookup stays ordinal, as every caller passes the engine's own name;
+the no-install branch of `LoadWireframeMaterial` (a test cannot reach the loader without an install), and the opaque
+pass taking a translucent mesh under the swap (the engine's split unread, as above). Reviews 13-15: `SetWireframe` records
+the menu's value only when the client value differs (`KeyPressed_ABindOfMatWireframeTwoWithCheats_KeepsTheValueTwo`) and
+reads that value where it lives, the settings or a watcher config's line the console keeps, so a config's `mat_wireframe 2`
+survives the device opening and `toggle mat_wireframe 2 0` goes 2 to 0
+(`KeyPressed_ATwoZeroToggleAfterAConfigsWireframeTwo_TurnsItOff`, red before); and `sv_cheats 0` reverts every cheat
+ConVar wherever it was set, a config's line included — `RevertCheats` reads as `CurrentValue` does
+(`KeyPressed_SvCheatsZeroAfterAConfigsWireframe_ClearsTheDevice`, red before; the hole was on main for any untyped cheat a
+config set, B718, hidden for wireframe until review 14). That reverses, for `sv_cheats` alone, the rule that a
+replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
+default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
+nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's
+set does nothing and there is nothing to refuse; they are engine ConVars (`view.cpp:296` finds `r_drawentities` by name;
+the game's own declaration of neither is in the SDK — `matsys_controls/mdlpanel.cpp:272` declares an `r_drawentities`
+`FCVAR_CHEAT`, but that is the tool panel's own static, not the engine's; review 3, Fable — so the entry's "`FCVAR_CHEAT` in
+the SDK" does not describe the engine's), and their flags in `engine.dll` are not
+read. Tests (`Tf2DemoSalvage.Presentation.Tests`): `ConfigConsoleConformanceTests.Load_MatWireframeWithCheatsOff_IsRefused`,
+`…KeyDown_AConfigsBindsToMatWireframeWithCheatsOff_TriggerNothingAndTheDefaultKeyStillDoes`,
+`…KeyDown_AConfigsBindToMatWireframeWithCheatsOn_AnnouncesTheSet`,
+`…KeyDown_AConfigsBareMatWireframeBindWithCheatsOn_TriggersTheWireframeOneShot` (review 4),
+`…KeyDown_AConfigsToggleOfMatWireframeWithCheatsOff_IsRefused` (`toggle` and `incrementvar`, review 5), `LaunchOptionsTests.Read_MatWireframeOnTheLine_AppliesOnlyAfterSvCheats`,
+`ViewerSessionTests.KeyPressed_AConfigsBindToMatWireframe_IsRefusedWithoutCheatsAndIsTheSwitchWithThem`,
+`…KeyPressed_AToggleAfterTheMenuSetWireframe_ActsOnTheMenusValue`; and `DebugDrawConformanceTests.Wireframe_ValvesDeclaration_IsACheatAndSoIsOurs`
+(Rendering.Tests). And `+sv_cheats 1 +mat_wireframe 1` on the launch line, once stored, reached nothing at startup — no
+hand-over read `mat_wireframe` — so `ViewerSession.OpenDevice` ticks the menu from the settings
+(`ViewerSessionTests.OpenDevice_WithMatWireframe1InTheSettings_TicksTheMenuWhichTellsTheDevice`).
+**The bare name** (review 2): the no-op of a config's bare name without cheats (`ConfigConsole.Run`; silent, not a
+refused set, since review 3) covers any cheat ConVar that is also a viewer one-shot name; today that is `mat_wireframe`
+alone — a bare `mat_fullbright` bind triggers nothing and is refused nothing (*measured* 2026-11-21 with a test, then removed as asserting nothing), and of the one-shot names (`ViewerAction`'s command table) only `mat_wireframe` is a declared cheat: `cl_drawhud` is a cheat but no one-shot, and `mat_drawflat`, `mat_luxels` and the other debug views are not declared at all (B806; review 6). With `sv_cheats 1` a config's bare
+`mat_wireframe` toggles the view, where TF2 prints the value and sets nothing (*read*, the code's own comment): that is
+the viewer's bare-name one-shot convention, the same for every one-shot name and not this entry's — it goes with B792's
+owner question about the viewer's own keys and names.
+
+## B800 — a live `cl_detaildist` / `cl_detailfade` keeps the map's cap and outlives the level; the engine's overrides the cap and reverts at the next level (2026-11-21) — OPEN
+
+Found in B790's review (round 1, Fable). `CDetailObjectSystem::Init` captures the two ConVars once (`detailobjectsystem.cpp:370-371`), and
+`LevelInitPostEntity` overwrites them at every level load with `MIN( captured, env_detail_controller )`, or the captured
+pair with no controller (`:1524-1534`); the frame reads the ConVars themselves (`:2057-2060`, `:2821-2822`). So in TF2 a
+set mid-level takes effect at once — above a controller's cap too — and the next level load puts the captured value back.
+Ours (`Device3D.LiveDetailFade` → `DetailFade.ForLevel`) keeps the pair the settings hold and applies the map's `MIN` on
+the way out: since B790 a live set reaches the device, but it stays under the map's cap and survives the next level load.
+No map TF2 ships has a controller (0 of 234, `DetailFade.ForLevel`'s remark), so the cap half is for community maps; the
+revert half is every map. *Read from published source; not measured.*
+
+## B790 — `r_lightmap_bicubic`, `mat_disable_bloom` and `r_shader_srgb` set mid-demo never reach the device (2026-11-20) — FIXED 2026-11-21
+
+**Fixed, and six more of the same kind:** `SettingsPresenter.LiveDeviceConVars` is one table of the ConVars the engine
+reads where it uses them — the three here and `cl_drawmonitors`, `mat_force_tonemap_scale`, `cl_drawhud`, `r_3dsky`,
+`cl_detaildist`, `cl_detailfade`, which had the same gap — each with how it reaches the device. The hand-over
+(`ApplyOver`, its order unchanged) and a set from a key, the console or an exec'd cfg (`ViewerSession.OnConVarSet` →
+`ApplyLive`) both take it; the device the hand-over configured is held until `DetachDevice` lets it go. Tests:
+`KeyPressed_AKeyBoundToADeviceConVar_ReachesTheDevice`, nine rows (red before: no set reached the device; the hand-over's
+one set is the control) and `ApplyLive_ToTheHandedDeviceAndAfterItIsForgotten_SetsItOnlyWhileHeld` (a no-op forget
+reddens it). Review 1: the device is held only once the hand-over finished, and an opening that fails after it lets it
+go through `DetachDevice` (`KeyPressed_ADeviceConVarAfterTheDeviceIsLetGo_ReachesNothing`, a released and a failed
+device); the read sites are cited at the table. `r_shader_srgb`'s read point stays unread, taken as read at use
+(interpolated). The detail pair's level-load rewrite is B800. Not verified by looking.
+
+**As filed:**
 
 Found in B725's glint review (round 2, item 1, where the same gap was fixed for the two glint ConVars). The three are
 handed to the device once, at its creation (`SettingsPresenter.ApplyOver`, `device.DisableBloom`,

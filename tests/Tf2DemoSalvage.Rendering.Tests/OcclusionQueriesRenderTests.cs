@@ -62,7 +62,9 @@ public sealed class OcclusionQueriesRenderTests
             // An 8 by 8 grid of world quads in clip space, each its own material, spread over the map's table.
             List<WorldVertex> grid = [];
             List<WorldBatch> batches = [];
-            int materials = assets.Textures.Count;
+            // The map's and its models' materials: the studio render's wireframe material, appended last (B788), is not
+            // the map's, and counting it would move every pick below and the measured two-scene difference with them.
+            int materials = assets.Textures.Count - (assets.Wireframe is null ? 0 : 1);
 
             for (int cell = 0; cell < 64; cell++)
             {

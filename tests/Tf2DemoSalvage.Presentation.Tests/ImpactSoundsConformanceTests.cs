@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
@@ -33,6 +34,23 @@ public sealed class ImpactSoundsConformanceTests
 
         bounces.ShouldBeInRange(240, 360, "three in ten of a thousand");
         ImpactSounds.For([new BulletLanding(1, default, null, Ricochets: false)], Scripts("Bounce.Shrapnel")).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// B786. `ImpactCallback` (`tf_fx_impacts.cpp:85`): `bPlaySound &amp;&amp; random->RandomInt( 1, 10 ) &lt;= 3 &amp;&amp;
+    /// ( iDamageType == DMG_BULLET )`, inside `if ( Impact( … ) )`. The `&amp;&amp;` runs left to right, so every hit
+    /// `Impact` accepts takes the number before its damage type is tested: the impact sound's draws start one number on,
+    /// for a bullet or not. The bullet row is the control.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void For_ALandingOfAnyDamage_DrawsTheRicochetNumberBeforeItsImpact(bool bullet)
+    {
+        SceneSound impact = ImpactSounds.For(
+            new BulletLanding(50, default, "Concrete.BulletImpact", Ricochets: bullet), seed: 7, Scripts("Concrete.BulletImpact"))
+            .ShouldHaveSingleItem();
+
+        impact.WaveDraw!.Stream.ShouldBe(new RandomStreamPosition(7, 1));
     }
 
     [Test]

@@ -189,5 +189,14 @@ public sealed class VmtMaterialTests
         Parse("\"UnlitGeneric\"\n{\n\"%compilenodraw\" \"1\"\n}\n").BaseTexture.ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `$ignorez`, as `debugmrmwireframe.vmt` states it (B788): read from the VMT, false when absent. Without an install the
+    /// real-file test skips, so this is the only test CI runs on the flag (B788 review 8, Sonnet).
+    /// </remarks>
+    [TestCase("\"Wireframe\"\n{\n\"$color\" \"[0 1 1]\"\n\"$ignorez\" \"1\"\n}\n", true)]
+    [TestCase("\"Wireframe\"\n{\n\"$color\" \"[0 1 1]\"\n}\n", false)]
+    public void IgnoresZ_TheVmtsIgnoreZ_IsTheFlag(string text, bool ignores) =>
+        Parse(text).IgnoresZ.ShouldBe(ignores);
+
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }

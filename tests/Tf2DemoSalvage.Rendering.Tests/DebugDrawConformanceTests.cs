@@ -97,14 +97,15 @@ public sealed class DebugDrawConformanceTests
     }
 
     [Test]
-    public void Wireframe_ValvesDeclaration_IsACheatAndOursIsNot()
+    public void Wireframe_ValvesDeclaration_IsACheatAndSoIsOurs()
     {
-        // **A divergence stated rather than absorbed (D75).** Valve gates the debug draws behind
-        // sv_cheats because a player could otherwise see through walls. There is no server here and
-        // no opponent, so the gate is ceremony — but it is recorded, and this test fails if Valve's
-        // side of it ever stops being true.
+        // **D75 said the gate was ceremony; D253 superseded that for TF2's command paths** (B791): a config's, a bind's
+        // or a launch option's `mat_wireframe` is refused with `sv_cheats 0`, so our declaration carries the flag Valve's
+        // does. The menu is the viewer's own and stays ungated (D253).
         Sdk("src/game/client/viewdebug.cpp").ShouldContain(
             "ConVar mat_wireframe( \"mat_wireframe\", \"0\", FCVAR_CHEAT )", Case.Sensitive);
+        Core.Net.EngineConVars.ByName("mat_wireframe")
+            .ShouldBe(new Core.Net.EngineConVar("mat_wireframe", "0", Replicated: false, Cheat: true));
 
         // And the case that proves the distinction is real rather than convenient: the 3D skybox
         // toggle is NOT a cheat, so "Valve gates debug views" is not a blanket rule we are ignoring.

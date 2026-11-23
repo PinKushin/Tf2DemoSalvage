@@ -1127,7 +1127,8 @@ public sealed record ViewerSettings
     /// <summary>Whether a command is a cheat ConVar (B718).</summary>
     /// <param name="command">The command's name.</param>
     /// <returns>True for a declared ConVar flagged <c>FCVAR_CHEAT</c>.</returns>
-    public static bool IsCheat(string command) => EngineConVars.TryByName(command, out EngineConVar? declared) && declared.Cheat;
+    /// <remarks>A typed name, so found in any case as the console finds it (B791 review 9; <see cref="EngineConVars.TryByConsoleName"/>).</remarks>
+    public static bool IsCheat(string command) => EngineConVars.TryByConsoleName(command, out EngineConVar? declared) && declared.Cheat;
 
     /// <summary>Parses config text.</summary>
     /// <param name="text">The file's contents.</param>
@@ -1458,7 +1459,8 @@ public sealed record ViewerSettings
 
         foreach ((string name, string value) in values)
         {
-            if (EngineConVars.TryByName(name, out EngineConVar? declared) && !declared.Replicated)
+            // A typed name, found in any case and kept under the ConVar's own (B791 review 9).
+            if (EngineConVars.TryByConsoleName(name, out EngineConVar? declared) && !declared.Replicated)
             {
                 conVars ??= new(settings.ConVars, StringComparer.OrdinalIgnoreCase);
                 conVars[declared.Name] = value;

@@ -247,6 +247,7 @@ public static class EngineConVars
         new("r_shader_srgb", "0", Replicated: false, Cheat: false),                          // shaderapidx9.dll 0x180001120
         new("mat_specular", "1", Replicated: false, Cheat: false),                           // engine; help
         new("mat_fullbright", "0", Replicated: false, Cheat: true),                          // c_rope.cpp:82
+        new("mat_wireframe", "0", Replicated: false, Cheat: true),                           // viewdebug.cpp:46; engine.dll 0x180007b94, B791
         new("r_dopixelvisibility", "1", Replicated: false, Cheat: false),                    // c_pixel_visibility.cpp:24
         new("cl_drawhud", "1", Replicated: false, Cheat: true),                              // clientmode_shared.cpp:81
         new("hud_medichealtargetmarker", "0", Replicated: false, Cheat: false),              // tf/tf_weapon_medigun.cpp:205
@@ -345,6 +346,10 @@ public static class EngineConVars
     private static readonly Dictionary<string, EngineConVar> ByEngineName =
         BuildIndex(Declarations);
 
+    /// <summary>The same declarations for a name a person typed: the console finds a ConVar case-insensitively.</summary>
+    private static readonly Dictionary<string, EngineConVar> ByConsoleName =
+        new(ByEngineName, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every ConVar this project depends on the value of.</summary>
     public static IReadOnlyList<EngineConVar> All => Declarations;
 
@@ -387,6 +392,23 @@ public static class EngineConVars
         ArgumentNullException.ThrowIfNull(name);
 
         return ByEngineName.TryGetValue(name, out declared);
+    }
+
+    /// <summary>The declaration for a name typed at the console, a config or a bind, case aside.</summary>
+    /// <param name="name">The name as written.</param>
+    /// <param name="declared">What Valve declares, or null.</param>
+    /// <returns>Whether anything here declares that name in any case.</returns>
+    /// <remarks>
+    /// **Case-insensitive, where <see cref="TryByName"/> is not** (B791 review 8, Fable): a name off the wire is the
+    /// engine's own spelling, but a person's config may write `MAT_WIREFRAME 1`, and the cheat gate must find it as the
+    /// console does. *Interpolated*: `CCvar::FindCommandBase` is in the closed `vstdlib`; this project's console verbs and
+    /// one-shot names already match case-insensitively (`KeyBindings.ActionOf`, `sv_cheats`).
+    /// </remarks>
+    public static bool TryByConsoleName(string name, [NotNullWhen(true)] out EngineConVar? declared)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return ByConsoleName.TryGetValue(name, out declared);
     }
 
     private static Dictionary<string, EngineConVar> BuildIndex(EngineConVar[] declarations)

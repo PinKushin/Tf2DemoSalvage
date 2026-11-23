@@ -503,6 +503,16 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // logged as set and drew nothing, so a `--shot` with either was its control's picture.
             attach(_device, () => _window.ShowSpecular(false), mode => SetFullbright((Fullbright)mode));
 
+            // `mat_wireframe` from the launch line (with `+sv_cheats 1`) or the config, through the menu's tick as a set at
+            // run time goes (B791): nothing else at startup reads it.
+            // The device is told directly as well: a menu item already ticked (a device opened again) reports no change.
+            // The settings first, then a watcher config's own line, which the console keeps (B791 review 9, Fable).
+            if (Wireframes(ClientConVar(WireframeCommand) ?? "0"))
+            {
+                _window.ShowWireframe(true);
+                SetWireframe(true);
+            }
+
             _renderLog.LogInformation(
                 "{Message}",
                 _settingsOwner.FrameRateLine);
@@ -532,8 +542,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
         {
             // Held before the hand-over (B671), so let go of it here: a session must not draw through a device its status
-            // line calls unavailable.
+            // line calls unavailable — nor hand it geometry or a ConVar set later (B790).
             _device = null;
+            _presenter.DetachDevice();
             _window.Status = "Direct3D unavailable: " + failure.Message;
             _renderLog.LogWarning(failure, "{Message}", "creating the Direct3D device");
 

@@ -189,7 +189,9 @@ public static class LaunchOptionsReader
 
             // **`demo_timescale` is Valve's command for demo replay speed**, and a runtime one rather than a saved setting,
             // so it is read here instead of going on to the config parser. Gate phase 3 plays at 8x through it (D189).
-            if (argument == "+" + DemoTimescaleCommand && pending.Count > 0)
+            // In any case, as the console finds a command (B791 review 11).
+            if (argument.Length == DemoTimescaleCommand.Length + 1 && argument[0] == '+' &&
+                argument.AsSpan(1).Equals(DemoTimescaleCommand, StringComparison.OrdinalIgnoreCase) && pending.Count > 0)
             {
                 string value = pending.Dequeue();
 
@@ -235,16 +237,19 @@ public static class LaunchOptionsReader
                     continue;
                 }
 
+                // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
+                string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
+
                 if (ViewerSettings.IsCheat(command) && !cheats)
                 {
                     log.LogInformation(
-                        "{Message}", $"Can't use cheat cvar {command} in multiplayer, unless the server has sv_cheats set to 1.");
+                        "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
                     continue;
                 }
 
-                read = read with { Settings = read.Settings.Set(command, value) };
+                read = read with { Settings = read.Settings.Set(own, value) };
 
-                log.LogInformation("{Message}", $"{command} {value} (from the command line)");
+                log.LogInformation("{Message}", $"{own} {value} (from the command line)");
                 continue;
             }
 

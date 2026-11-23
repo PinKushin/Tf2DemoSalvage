@@ -71,10 +71,13 @@ public sealed class DecalEffectsTests
         null, null, null, new Dictionary<int, string>(), null, null, null, [], [], [], [], null, new VertexNormals([], []));
 
     /// <summary>A shooter and a victim standing still, and the server's impact on the victim arriving at tick 100.</summary>
-    private static readonly DemoTimeline Timeline = DemoTimeline.Build(SyntheticEffects.Demo(
+    private static readonly DemoTimeline Timeline = ImpactTimeline(Blue);
+
+    /// <summary>The same with the victim on <paramref name="victimTeam"/>, and the impact's damage bits <see cref="Red"/>.</summary>
+    private static DemoTimeline ImpactTimeline(int victimTeam) => DemoTimeline.Build(SyntheticEffects.Demo(
         [
             new(Shooter, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(100f, 0f, -40f, Red)),
-            new(Victim, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, -40f, Blue)),
+            new(Victim, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, -40f, victimTeam)),
         ],
         [string.Empty, "Impact"],
         [],
@@ -857,5 +860,137 @@ public sealed class DecalEffectsTests
                 Reliable = dispatch.Reliable,
             },
         ]);
+    }
+
+    /// <remarks>
+    /// B796: `ImpactCallback` (`tf_fx_impacts.cpp:35`) plays nothing when `m_nDamageType` — the damage BITS — equals the
+    /// struck entity's team number; `DMG_BULLET` is 2, `TF_TEAM_RED`. The fixture's bits are <see cref="Red"/>.
+    /// </remarks>
+    [Test]
+    public void LandingsOver_AServerImpactWhoseDamageBitsEqualTheStruckPlayersTeam_IsSilent() =>
+        DecalEffects.LandingsOver([], Decals(), Surfaces, ImpactTimeline(Red)).ShouldBeEmpty();
+
+    [Test]
+    public void LandingsOver_AServerImpactWhoseDamageBitsNameAnotherTeam_Sounds() =>
+        DecalEffects.LandingsOver([], Decals(), Surfaces, ImpactTimeline(Blue)).ShouldHaveSingleItem();
+
+    /// <summary>A non-player entity — a weapon, standing in for a building — on a team, and the server's impact on it.</summary>
+    private static DemoTimeline EntityImpactTimeline(int entityTeam)
+    {
+        const int Struck = 5;
+
+        return DemoTimeline.Build(SyntheticEffects.Demo(
+            [
+                new(Shooter, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(100f, 0f, -40f, Blue)),
+                new(Struck, SyntheticEffects.WeaponClass, new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+                {
+                    // An item and a place (its owner's) make a track; a building has its model and origin.
+                    ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(13),
+                    ["m_fEffects"] = PropertyValue.FromInt(0x001),
+
+                    // A handle is slot and serial; the fixture gives each entity its slot as its serial.
+                    ["m_hOwnerEntity"] = PropertyValue.FromInt(Shooter | (Shooter << 11)),
+                    ["DT_BaseEntity.m_iTeamNum"] = PropertyValue.FromInt(entityTeam),
+                }),
+            ],
+            [string.Empty, "Impact"],
+            [],
+            [],
+            new SyntheticEffects.Effect(100, "CTEEffectDispatch", new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["m_iEffectName"] = PropertyValue.FromInt(1),
+                ["entindex"] = PropertyValue.FromInt(Struck),
+                ["m_vStart[0]"] = PropertyValue.FromFloat(100f),
+                ["m_nSurfaceProp"] = PropertyValue.FromInt(Flesh + 1),
+                ["m_nDamageType"] = PropertyValue.FromInt(Red),
+            })));
+    }
+
+    [TestCase(Red, 0, TestName = "LandingsOver_AServerImpactOnAnEntityOfTheDamageBitsTeam_IsSilent")]
+    [TestCase(Blue, 1, TestName = "LandingsOver_AServerImpactOnAnEntityOfAnotherTeam_Sounds")]
+    [TestCase(1, 1, TestName = "LandingsOver_AServerImpactOnAnEntityBelowTheFirstGameTeam_Sounds")]
+    public void LandingsOver_AServerImpactOnANonPlayer_IsGatedByItsTeam(int entityTeam, int expected)
+    {
+        DemoTimeline timeline = EntityImpactTimeline(entityTeam);
+
+        // The control: the struck entity's track is alive at the impact and states the team asked for.
+        timeline.TrackFor(5, timeline.Dispatches.All.Single().Tick).ShouldNotBeNull().TeamNumber.ShouldBe(entityTeam);
+
+        DecalEffects.LandingsOver([], Decals(), Surfaces, timeline).Count.ShouldBe(expected);
+    }
+
+    [Test]
+    public void StepOver_AClientBulletWhoseDamageBitsEqualTheVictimsTeam_IsSilentAndLeavesNothing()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        decals.StepOver(Frame(BulletTick), Content([Pellet() with { DamageType = Blue }]), device)
+            .ShouldBeEmpty("ImpactCallback: no Impact and no sound");
+
+        decals.ModelDecalCount.ShouldBe(0);
+    }
+
+    /// <summary>B797: the server's impact on static prop 0 — the world with hitbox 1 — coming along −x.</summary>
+    private static ShotImpact OnStaticPropZero(int surfaceProp) =>
+        new(-1, 0, 50, 0, 0, (100f, 0f, 0f), (0f, 0f, 0f), (8.8f, 0f, 0f), -1, Normal: (1f, 0f, 0f), SurfaceProp: surfaceProp)
+        {
+            StaticProp = 0,
+        };
+
+    [Test]
+    public void LandingsOver_AServerImpactOnAStaticProp_SoundsWithTheDispatchsSurfaceAtItsOrigin()
+    {
+        IReadOnlyList<BulletLanding> landings = DecalEffects.LandingsOver([OnStaticPropZero(Flesh)], Decals(), Surfaces, Timeline);
+
+        // `PlayImpactSound` with the server's surfaceprop, which the trace's own does not replace on the same entity.
+        landings[0].ShouldBe(
+            new BulletLanding(50, (0f, 0f, 0f), "flesh.bulletimpact", false)
+            {
+                Order = BulletStrikes.ShotOrder(Timeline, -1, 0),
+                Reliable = Timeline.Dispatches.All[0].Reliable,
+            });
+    }
+
+    /// <remarks>
+    /// B797 review 1: `PlayImpactSound` (`fx_impact.cpp:378-381`) takes the client trace's surface when the server named
+    /// none (surfaceprop 0) — a static prop's `$surfaceprop`. The control names flesh itself, which the trace's does not
+    /// replace.
+    /// </remarks>
+    [TestCase(0, ExpectedResult = "flesh.bulletimpact")]
+    [TestCase(Flesh, ExpectedResult = "flesh.bulletimpact")]
+    public string? LandingsOver_AServerPropImpactNamingNoSurface_SoundsAsThePropsOwn(int serverSurface) =>
+        DecalEffects.LandingsOver(
+            [OnStaticPropZero(serverSurface) with { StudioSurfaceProp = serverSurface == 0 ? Flesh : 0 }], Decals(), Surfaces, Timeline)[0]
+            .ImpactSound;
+
+    [Test]
+    public void StepOver_AServerImpactOnAStaticProp_HoldsThePropsDecal()
+    {
+        (DecalEffects decals, FakeDecalUpload device, FakePosedEntities models, _) = Presenter();
+
+        models.Fractions.Clear();
+
+        DecalAssets assets = Assets() with
+        {
+            Shaders = [string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, "DecalModulate"],
+            PlacedProps = new Dictionary<int, PlacedProp>
+            {
+                [0] = new PlacedProp(
+                    new PropShape(
+                        [new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, 2f), new Vector3(0f, -2f, -2f)],
+                        [Vector3.UnitX, Vector3.UnitX, Vector3.UnitX]),
+                    PropTransform.Identity),
+            },
+        };
+
+        decals.StepOver(
+            Frame(50),
+            new DecalContent(new DecalMap(Empty, [OnStaticPropZero(0)], Decals(), SolidBrushEntities.None, assets), Surfaces, Scripts),
+            device);
+
+        device.ModelDecals.ShouldNotBeNull()
+            .For(DecalReplay.KeyOf(PropModels.FirstStaticPropEntityIndex))
+            .ShouldNotBeNull("AddDecalToStaticProp, with the server's surfaceprop's decal")
+            .Batches.ShouldHaveSingleItem().MaterialIndex.ShouldBe(6, "decals/concrete/shot1");
     }
 }

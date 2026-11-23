@@ -120,7 +120,7 @@ public static class ModelMaterialShading
 
     /// <summary>Whether a shader sends its modulation colour through <see cref="ModulationToLinear"/>.</summary>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>True for <c>VertexLitGeneric</c>, <c>UnlitGeneric</c> and <c>UnlitTwoTexture</c>.</returns>
+    /// <returns>True for <c>VertexLitGeneric</c>, <c>UnlitGeneric</c>, <c>UnlitTwoTexture</c> and <c>Wireframe</c> (VertexLitGeneric's helper, unlit).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="shader"/> is null.</exception>
     public static bool ConvertsModulation(string shader)
     {
@@ -131,13 +131,17 @@ public static class ModelMaterialShading
 
     /// <summary>Whether a shader's pixel shader reads any diffuse light.</summary>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>False for <c>UnlitGeneric</c> and <c>UnlitTwoTexture</c>.</returns>
+    /// <returns>False for <c>UnlitGeneric</c>, <c>UnlitTwoTexture</c> and <c>Wireframe</c>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="shader"/> is null.</exception>
+    /// <remarks>
+    /// <c>Wireframe</c> runs VertexLitGeneric's helper with <c>bVertexLitGeneric</c> false at init, setup and draw
+    /// (`wireframe_dx9.cpp:33`, `:43`, `:49`), so it takes no lighting — UnlitGeneric's path (B788 review 1).
+    /// </remarks>
     public static bool TakesDiffuseLighting(string shader)
     {
         ArgumentNullException.ThrowIfNull(shader);
 
-        return !Is(shader, "UnlitGeneric") && !Is(shader, "UnlitTwoTexture");
+        return !Is(shader, "UnlitGeneric") && !Is(shader, "UnlitTwoTexture") && !Is(shader, "Wireframe");
     }
 
     /// <summary>A shader by name, case aside; a hardware fallback's suffix (<c>_DX8</c>) counts as the same shader.</summary>
