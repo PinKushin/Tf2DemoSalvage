@@ -44636,7 +44636,7 @@ load):
    nested-exec test cannot fail is wrong: without the restore the count after the `exec` is the nested line's 1, and that
    sabotage was red. **Filed:** the BOM the decoder strips is a divergence TF2 does not make (B822).
 
-**Review 8** (Gemini merge at writing pending; Fable, Sonnet merge with fixes; Grok request changes):
+**Review 8** (Gemini merge, its two findings being items 1 and 5; Fable, Sonnet merge with fixes; Grok request changes):
 
 1. **The launch line went through a file's line reader** (Fable, Sonnet, Grok): `RunTheLaunchLine` called `Load`, so a
    launch value's `\\` became `\` and a value past 1023 bytes was split. TF2's `stuffcmds` hands the line to
