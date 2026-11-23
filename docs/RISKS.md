@@ -44680,13 +44680,9 @@ printed `Unknown command "�"` and then only `bom_second_line_ran`; a control f
 owner kept the strip above Valve (D265); `docs/ABOVE-VALVE.md` lists it with
 `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole`, red with the strip shortened to two bytes.
 
-
-Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it
-becomes part of the first token — which turns a leading `unbindall` into an unknown command which is skipped in
-silence"*. That is what TF2 does: `Cmd_Exec_f`'s line reader (`engine.dll` FUN_180177310) copies the file's first byte
-whatever it is and the rest as ordinary bytes, so the BOM joins the first token. The strip is not listed in
-`docs/ABOVE-VALVE.md`, so it is either an addition to list there with its test or a divergence to remove; removing it
-changes what a config saved with a mark does (D246). (Current Windows Notepad saves UTF-8 without a mark unless asked.)
+Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`. TF2 does not: `Cmd_Exec_f`'s line reader
+(`engine.dll` FUN_180177310) copies the file's first byte whatever it is and the rest as ordinary bytes, so the BOM joins
+the first token. (Current Windows Notepad saves UTF-8 without a mark unless asked.)
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 

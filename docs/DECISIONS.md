@@ -11738,7 +11738,7 @@ bom_first_line_ran` + `echo bom_second_line_ran` printed `Unknown command "�"`
 a control file without the mark printing its line (B822). The strip is listed in `docs/ABOVE-VALVE.md` with its test.
 
 **Provenance: voiced.** Asked whether to remove the strip for parity or keep it above Valve, the owner: *"keep it as a above
-valve, we dont want hte configs to break the viewer"*. Before that, the owner doubted the claim that TF2 breaks
+valve, we dont want the configs to break the viewer"*. Before that, the owner doubted the claim that TF2 breaks
 (*"test it i think you are wrong"*); the live test above settled it.
 
 **Why it follows.** A config is the user's, and a mark an editor added invisibly would cost them their first command in the
