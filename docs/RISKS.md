@@ -44551,7 +44551,10 @@ is about a file pasted directly into `custom/`, and the engine finds a nested na
 6. **Not fixed, recorded:** a loose `tf/cfg/` or `custom/*/cfg/` file is still read whole by `GameArchives.Read` before
    `Exec` checks its size (Fable). A memory cost on the player's own files, not a hang or an escape; the cap itself holds.
 
-**Review 4** (Fable, Sonnet merge with findings; Gemini, Grok pending at writing):
+**Review 4** (Fable, Sonnet, Gemini merge; Grok request changes, its two code findings, the truncated walk and the
+per-line reset, being items 2 and 1 below; its set-union point is moot, every consumer of `Expand` reading membership, as
+Fable and Sonnet checked; the exec-tree budget test now asserts its handler ran, and the fan-out test's timeout covers the
+load):
 
 1. **One command's alias work was bounded only by 256 files of 1 MB lines** (Sonnet, Fable): the per-line budget resets on
    each line of a nested `exec`. Fixed: `MaximumCommandAliasRuns` (2^20, *interpolated*, about a second) per command at

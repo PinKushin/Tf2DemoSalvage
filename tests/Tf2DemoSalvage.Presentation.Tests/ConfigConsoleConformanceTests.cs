@@ -1291,11 +1291,12 @@ public sealed class ConfigConsoleConformanceTests
     public void KeyDown_AKeyBoundToAnAliasThatFansOut_EndsPromptly()
     {
         ConfigConsole console = new();
-        console.Load("alias a \"a;a;a;a;+forward\"\nbind x a");
 
         Should.CompleteIn(
             () =>
             {
+                // The load inside the limit too (B820 review 4, Grok), should it ever project eagerly.
+                console.Load("alias a \"a;a;a;a;+forward\"\nbind x a");
                 console.Applied.ShouldBe(1);
                 console.KeyDown("x");
             },
@@ -1336,10 +1337,16 @@ public sealed class ConfigConsoleConformanceTests
         List<string> asked = [];
         ConfigConsole console = WithFiles(asked, ("cfg/loop.cfg", $"{Alpha} 1\nexec loop\nexec loop"));
         console.ReadSettingsFrom(_ => null);
-        console.ConVarSet += (_, _) => console.Load(string.Empty);
+        int handled = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load(string.Empty);
+        };
 
         Should.CompleteIn(() => console.Load("exec loop"), TimeSpan.FromSeconds(10));
 
+        handled.ShouldBeGreaterThan(0, "the control (B820 review 4, Grok): the handler loaded inside the tree");
         asked.Count.ShouldBe(ConfigConsole.MaximumExecs);
     }
 
