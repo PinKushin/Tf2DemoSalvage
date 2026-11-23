@@ -515,33 +515,33 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    private static readonly WorldUpload Lost = new(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
+
     /// <remarks>
-    /// **A lost world is not read again beside a worker's read** (B779 review 26 item 1): the window's `OpenDevice` projects
-    /// the map on the UI thread with no barrier check, and a world lost then asks for a reload. Here a second load's map
-    /// read, and in it the upload's answer "lost, read it again": nothing is read (no clear), the load's HUD stays fixed
-    /// (HUD B chosen then, the lists read A's), and the world asks to be projected again. The control: the same answer after
-    /// the load reads the map.
+    /// **While a map reads, only the read itself projects; a window's projection marks the world, and the mark outlives
+    /// the load** (B779 review 27 items 1 and 2). The window's `OpenDevice` projects on the UI thread with no barrier check;
+    /// here it is `ProjectMap` from another thread during a second load's map read, with the world's mark cleared first as
+    /// the frame does. It projects nothing and marks the world. The read's own projection on its thread runs (the control:
+    /// it leaves the mark clear). **After the load the mark is still set** — Grok's claim that the read's completion clears
+    /// it is false — so the first frame projects: the frame clears the mark, the upload answers that the world is lost,
+    /// and the map is read again (a clear), with no mark left behind.
     /// </remarks>
     [Test]
-    public async Task FollowUpload_AWorldLostWhileAWorkerReads_ReadsNothingAndProjectsAfter()
+    public async Task ProjectMap_FromAWindowWhileAMapReads_MarksTheWorldAndTheFrameAfterTheLoadReloads()
     {
         WriteMap();
-        string hudA = HudWithDoors("hud_a", DoorsA);
-        string hudB = HudWithDoors("hud_b", DoorsB);
         (ViewerPresenter loader, FakeLoadView view, _) = Loader();
         view.Loads = 2;
-        WorldUpload lost = new(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
 
         using (loader)
         {
             (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
-            loader.SetChosenHud(hudA);
             bool asked = false;
+            bool? barrierUp = null;
+            bool? markedByTheReadsOwn = null;
+            bool? markedByTheWindow = null;
             int clearsBefore = 0;
             int clearsAfter = 0;
-            bool? barrierUp = null;
-            bool? projectsAgain = null;
-            (bool A, bool B)? lists = null;
             view.Asked = name =>
             {
                 if (name != nameof(ILoadView.MapRead) || asked)
@@ -551,27 +551,116 @@ public sealed class ViewerPresenterTests
 
                 asked = true;
                 barrierUp = loader.ReadingMap;
-                loader.WorldProjected();
                 clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
-                loader.FollowUpload(lost, loader.Map.ShouldNotBeNull());
+
+                loader.WorldProjected();
+                loader.ProjectMap(surfaceColours: false, (800, 600));
+                markedByTheReadsOwn = loader.WorldNeedsProjecting;
+
+                // A thread of its own, as the window's UI thread is: a pool task waited on here can run inline on this
+                // thread, which is the read's, and then rightly counts as the read's own projection.
+                Thread window = new(() =>
+                {
+                    loader.WorldProjected();
+                    loader.ProjectMap(surfaceColours: false, (800, 600));
+                });
+                window.Start();
+                window.Join();
+                markedByTheWindow = loader.WorldNeedsProjecting;
                 clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
-                projectsAgain = loader.WorldNeedsProjecting;
-                loader.SetChosenHud(hudB);
-                HashSet<string> needed = DemoModels.Needed(null, loader.Game.ShouldNotBeNull());
-                lists = (needed.Contains(DoorsA), needed.Contains(DoorsB));
             };
 
             (await loader.LoadDemoAsync(WriteDemo("second")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
             view.Asked = null;
 
             barrierUp.ShouldBe(true, "the control: a worker was reading");
+            markedByTheReadsOwn.ShouldBe(false, "the control: the read's own projection runs");
+            markedByTheWindow.ShouldBe(true, "the window's projection only marks the world");
             clearsAfter.ShouldBe(clearsBefore, "nothing read beside the worker");
-            lists.ShouldBe((true, false), "the load's HUD stayed fixed");
-            projectsAgain.ShouldBe(true, "the world asks to be projected after the load");
+            loader.WorldNeedsProjecting.ShouldBeTrue("the mark outlives the load");
 
-            int clearsBeforeReload = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
-            loader.FollowUpload(lost, loader.Map.ShouldNotBeNull());
-            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeReload + 1, "the control: after the load it reads");
+            // The first frame after the load: the mark cleared, then the upload's answer for a world the lost device took.
+            int clearsBeforeFrame = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            loader.WorldProjected();
+            loader.FollowUpload(Lost, loader.Map.ShouldNotBeNull());
+
+            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeFrame + 1, "the map read again");
+            loader.WorldNeedsProjecting.ShouldBeFalse("the reload leaves no mark");
+        }
+    }
+
+    /// <remarks>
+    /// **A lost world is not read again while a load is queued** (B779 review 27 item 4): between a queued load's place in
+    /// the queue and its read — or in a superseded load's gap — a reload would read the old demo's map only for the next
+    /// load to clear it. Here the upload's answer "lost" at the start of a second load's raising marshal (the first marshal
+    /// after it reports loading the map): nothing is read, and the world is marked. The control: the barrier was down then.
+    /// </remarks>
+    [Test]
+    public async Task FollowUpload_AWorldLostWhileALoadIsQueued_ReadsNothingAndMarksTheWorld()
+    {
+        WriteMap();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            LoadedMap map = loader.Map.ShouldNotBeNull();
+            bool loadingTheMap = false;
+            bool asked = false;
+            bool? barrierUp = null;
+            bool? marked = null;
+            int clearsBefore = 0;
+            int clearsAfter = 0;
+            view.Asked = name =>
+            {
+                if (name == "Report: Loading the map")
+                {
+                    loadingTheMap = true;
+                }
+            };
+            view.Marshalling = () =>
+            {
+                if (!loadingTheMap || asked)
+                {
+                    return;
+                }
+
+                asked = true;
+                barrierUp = loader.ReadingMap;
+                clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+                loader.WorldProjected();
+                loader.FollowUpload(Lost, map);
+                marked = loader.WorldNeedsProjecting;
+                clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("queued")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+            view.Marshalling = null;
+
+            (asked, barrierUp).ShouldBe((true, (bool?)false), "the control: the barrier was down");
+            clearsAfter.ShouldBe(clearsBefore, "nothing read while the load was queued");
+            marked.ShouldBe(true);
+        }
+    }
+
+    /// <remarks>
+    /// **A lost world with no demo says nothing** (B779 review 27 item 5): "Reloading the map…" would overwrite the status —
+    /// often why the load failed — and nothing reloads with no demo. The control: the status the window had is kept.
+    /// </remarks>
+    [Test]
+    public void FollowUpload_AWorldLostWithNoDemo_LeavesTheStatus()
+    {
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+
+        using (loader)
+        {
+            view.Status = "Could not open broken.dem";
+
+            loader.FollowUpload(Lost, SyntheticMap.Read());
+
+            view.Status.ShouldBe("Could not open broken.dem");
         }
     }
 

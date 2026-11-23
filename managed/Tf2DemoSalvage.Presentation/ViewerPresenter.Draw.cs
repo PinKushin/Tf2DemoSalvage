@@ -52,6 +52,17 @@ public sealed partial class ViewerPresenter
     /// <param name="size">The viewport's size in pixels.</param>
     public void ProjectMap(bool surfaceColours, (int Width, int Height) size)
     {
+        // **Only the read itself projects while a map reads** (B779 review 27 item 2). The window's `OpenDevice` reaches here
+        // on the UI thread with no barrier check, and projecting then runs the upload beside the worker's own on the same
+        // map (its texture lists swapped under the upload) and lets go of model vertices the worker is appending to. It
+        // marks the world instead, and the first frame after the load projects it. The read's own projection (`MapRead`,
+        // on the worker, inside the barrier) is told apart by its thread.
+        if (_readingMap && !ProjectingTheRead)
+        {
+            _world.Invalidate();
+            return;
+        }
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } map || map.Outline.IsEmpty)
         {
@@ -93,7 +104,9 @@ public sealed partial class ViewerPresenter
     /// <param name="map">The map it uploaded.</param>
     internal void FollowUpload(WorldUpload result, LoadedMap map)
     {
-        if (result.Problem is { } problem)
+        // A lost world with no demo to read again says nothing: "Reloading the map…" would overwrite whatever the status
+        // said (often why the load failed) and nothing reloads (review 27 item 5).
+        if (result.Problem is { } problem && !(result.NeedsReload && _demo is null))
         {
             _view.Status = problem;
         }
@@ -108,14 +121,17 @@ public sealed partial class ViewerPresenter
         // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
         if (result.NeedsReload && _demo is { } open)
         {
-            // **Not while a worker reads a map** (B779 review 26 item 1). This method has three callers: the frame
-            // (`ProjectWorld`, held off by the barrier), the map read itself (`MapRead`, whose assets are fresh, so it never
-            // asks), and the window's `OpenDevice`, on the UI thread with no barrier check. A viewport recreated during a
-            // read would otherwise clear the map and read a second one into the entity set beside the worker, and release
-            // that load's HUD view. The load in flight uploads its own map, so skip, and project again once it is done.
-            if (_readingMap)
+            // **Not while a map read is in flight or queued** (B779 reviews 26-27). `ProjectMap` already does nothing but mark
+            // the world while a worker reads, so this is reached then only by the read's own projection, whose assets are
+            // fresh. Between reads — a queued load not yet raised, or a superseded load's gap (review 27 item 4) — a reload
+            // here would read the old demo's map only for the next load to clear it. So mark the world and wait: the first
+            // frame with no read in flight or queued projects, the upload answers that the world is lost, and this reads
+            // the map again **synchronously, on the UI thread** — a full map read, 13 to 18 seconds on a large map (B146),
+            // with the window not pumping. That is the cost of recovering a lost device; the read in flight does not
+            // recover it, because it uploaded to the device that was lost (review 27 item 3).
+            if (MapReadInFlightOrQueued)
             {
-                _log.LogInformation("{Message}", $"world textures lost during a map read; the read in flight replaces {open.MapName}");
+                _log.LogInformation("{Message}", $"world textures lost while a map read is in flight or queued; reading {open.MapName} again after it");
                 _world.Invalidate();
                 return;
             }

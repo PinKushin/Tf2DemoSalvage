@@ -850,7 +850,18 @@ public sealed partial class ViewerPresenter : IDisposable
             // geometry loader that reads them — a call here instead ran after something else had
             // already added the path with no geometry, and the packer skips a path it has seen.
 
-            _view.MapRead();
+            // The read's own projection: marked on this thread, so `ProjectMap` runs it inside the barrier (review 27 item 2).
+            _readProjectionThread = Environment.CurrentManagedThreadId;
+
+            try
+            {
+                _view.MapRead();
+            }
+            finally
+            {
+                _readProjectionThread = 0;
+            }
+
             return !map.Outline.IsEmpty;
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
@@ -1051,6 +1062,27 @@ public sealed partial class ViewerPresenter : IDisposable
     internal bool MapReadWaiting => Volatile.Read(ref _awaited) is { IsCompleted: false };
 
     private Task? _awaited;
+
+    /// <summary>Whether a map read is in flight or queued: the last one asked for has not finished its `Apply`.</summary>
+    private bool MapReadInFlightOrQueued
+    {
+        get
+        {
+            lock (_mapReadsGate)
+            {
+                return !_lastMapRead.IsCompleted;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The thread running the map read's own projection (`ILoadView.MapRead`), or 0: so `ProjectMap` can tell it from a
+    /// window's projection made while the read runs (review 27 item 2).
+    /// </summary>
+    private volatile int _readProjectionThread;
+
+    /// <summary>Whether this call is the map read's own projection.</summary>
+    private bool ProjectingTheRead => _readProjectionThread != 0 && _readProjectionThread == Environment.CurrentManagedThreadId;
 
     /// <summary>The map read behind the barrier, and the demo shown in the same marshal that lowers it.</summary>
     /// <param name="ticket">The load's ticket.</param>

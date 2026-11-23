@@ -43673,6 +43673,56 @@ Everything here is the viewer's own threading, not engine parity.
 4. *Review 23 items 6 and 8 named a renamed test and a deleted refusal*: **true**. Item 6 gives the current test name,
    and item 8 has a pointer to what superseded it.
 
+*Corrected in review 27*: item 1's "the load in flight uploads its own map" is false, and so is "the route is closed".
+Only the reload branch was guarded; the rest of `ProjectMap` still ran beside the worker. Both are fixed in review 27.
+
+**Review 27** (Fable and Sonnet OK; Grok high; Gemini still out). Item numbers are the coordinator's. Everything here is
+the viewer's own threading, not engine parity.
+
+1. *Grok: the skip loses the reload*: **false, settled by a test**. Grok said the read's completion marks the world
+   projected, so no later frame reloads. Only the frame clears the mark (`WorldProjected`, ViewerSession.Frame.cs:908);
+   nothing in the load does.
+   - *Test*: `ProjectMap_FromAWindowWhileAMapReads_MarksTheWorldAndTheFrameAfterTheLoadReloads`. The mark set during
+     the read is still set after the load. The frame's step then clears it and the upload answers "lost", and the map is
+     read again (a clear) with no mark left behind.
+   - *Limit*: the upload's "lost" answer is supplied by the test. A map whose upload answers that by itself needs
+     textured surfaces and released assets, which no synthetic fixture here has. Everything around that answer is real.
+   - The round-26 test sampled the mark inside the read; this test replaces it.
+   - *An instrument fault, found and fixed*: the test's first form ran the window's projection as a pool task and
+     waited on it. In the full suite the wait ran the task inline on the read's own thread, which the guard rightly
+     treats as the read's projection, so the test failed there and passed when run alone. It now uses a dedicated
+     thread, as the window's UI thread is, and passed in three full Presentation runs.
+2. *`OpenDevice`'s projection still ran beside the worker*: **true** (pre-existing). The guard now sits at the top of
+   `ProjectMap`. While a worker reads, any projection other than the read's own only marks the world. The read's own
+   projection is told apart by its thread (`_readProjectionThread`, set around `ILoadView.MapRead`).
+   - This closes `FollowUpload`'s release of the model vertices the worker appends to, and the UI upload running beside
+     the worker's on the same map.
+   - *Test*: the item-1 row drives `ProjectMap` itself, from another thread during the read, which is the `OpenDevice`
+     route. The read's own projection on its thread is the control.
+   - *Sabotage*: removing the guard reddens it (the window's projection does not mark). Never setting the thread mark
+     reddens its control (the read's own projection marks instead of running).
+3. *Wrong rationale*: **true**. The read in flight does not recover a lost device, because it uploaded to the device
+   that was lost. Recovery is the first frame with no read in flight or queued. The upload answers that the world is
+   lost, and `LoadMap` reads the map again **synchronously, on the UI thread**: a full map read, 13 to 18 seconds on a
+   large map (B146), with the window not pumping. The comment in `FollowUpload` and review 26 now say this.
+4. *A reload in a superseded load's gap reads a map the next load clears*: **true, fixed**. The reload now waits while
+   any map read is in flight or queued (`MapReadInFlightOrQueued`). It only marks the world and skips, with no throw.
+   - *Test*: `FollowUpload_AWorldLostWhileALoadIsQueued_ReadsNothingAndMarksTheWorld`. The world is lost at the start of
+     a queued load's raising marshal, with the barrier down.
+   - *Sabotage*: keying the skip on the barrier alone (round 26's form) reddens it.
+5. *"Reloading the map…" with no demo overwrote the status*: **true, fixed** in one line. A lost world with no demo
+   sets no status.
+   - *Test*: `FollowUpload_AWorldLostWithNoDemo_LeavesTheStatus`.
+   - *Sabotage*: setting the status anyway reddens it.
+6. *A lost-device reload forgets the demo's precached models*: **true, recorded (pre-existing)**.
+   - `LoadMap` clears the map. `ClearMap` calls `_levels.Shutdown()`, whose `MomentScene` system calls
+     `EntityModelSet.LevelShutdown`, which forgets every packed model.
+   - The re-read packs the map's detail models (`LevelSystems.Load`), but not the demo's precache. That runs only in a
+     demo load (`DemoModels.Precache`, on the worker and in `Apply`).
+   - After a lost-device reload, the demo's models pack on sight. That is slower, with a hitch at each model's first
+     appearance, but not broken.
+   - Not fixed here: precaching again in `LoadMap` is a separate change, filed with this note.
+
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
