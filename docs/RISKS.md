@@ -44288,9 +44288,10 @@ behind both, so neither is engine parity.
      - **B815's text corrected** (item 3): every upload is `UploadNow`'s after item 1, the per-path names are written
        late rather than never, and the frame is named.
      - **When 0 new vertices is legitimate** (item 4). `PackModels` sets `Grown` before it asks for the geometry, so a
-       model that fails to load, or has no geometry, grows the set with no vertices. That is the one legitimate case.
-       Otherwise 0 new is a fault: `Pack` reaches the upload with nothing grown only when the device has no models,
-       which after a release is an empty device.
+       model that fails to load, or has no geometry, grows the set with no vertices. That is one legitimate case;
+       the other (review 36, Sonnet and Gemini) is nothing packed at all, as on an empty first frame, where `Pack` reaches
+       the upload with nothing grown because the device has no models. After a release with models packed, 0 new while the
+       device holds none is a fault.
 
 **Review 31** (Fable, Sonnet and Gemini OK; Grok: the re-check is dead). Fixed by the coordinator:
 1. *The skip's re-check of the count* (review 30 item 1) is unreachable, so it is deleted (D180). The skip runs on the UI
