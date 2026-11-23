@@ -289,6 +289,75 @@ public sealed class CaptureUiTests
         }
     }
 
+    /// <summary><c>mat_wireframe 1</c> outlines a real frame's world in <c>debugworldwireframe</c>'s pink (B803 review 1).</summary>
+    /// <remarks>
+    /// **The output-level assertion the rule asks for** (`docs/memory/output-level-assertion-or-it-is-not-done.md`): the
+    /// production path, from the ConVar on the command line through the session, the device and the world pass, read back
+    /// from the PNG. The value 0 is the control. A pixel counts as the outline's when its hue is the material's
+    /// `$color [0.9 .5 .5]`: green and blue within a tenth of each other and between 0.45 and 0.65 of red, red at least
+    /// 100. Counted by hue because the frame's tone-map scale moves every channel. Measured 2026-11-23 on this capture: 441
+    /// under 0 and 2,580 under 1, twice, so the bound is half the difference; with the surface outline queue disabled, 0
+    /// under 1 (the 441 presumably on models, which the switch turns cyan; not looked at). Findings 113 has the live
+    /// demo's first-person frame, a nearer view with more edges in it (76 to 57,675).
+    /// </remarks>
+    [Test]
+    public void Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink()
+    {
+        if (!File.Exists(DemoPath))
+        {
+            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
+            return;
+        }
+
+        string folder = Path.Combine(Path.GetTempPath(), "tf2ds-shot", Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            int off = PinkAt(folder, 0);
+            int on = PinkAt(folder, 1);
+
+            TestContext.Out.WriteLine($"mat_wireframe pink pixels: 0 draws {off}, 1 draws {on}");
+            (on - off).ShouldBeGreaterThan(1_000, "the world's every edge is outlined under 1, and none under 0");
+        }
+        finally
+        {
+            Clean(folder);
+        }
+    }
+
+    /// <summary>One capture at a <c>mat_wireframe</c> value, read back as its count of the outline's pink.</summary>
+    private static int PinkAt(string folder, int wireframe)
+    {
+        string png = Path.Combine(folder, $"wireframe{wireframe}.png");
+        (int Exit, string Errors) run = Capture(
+            DemoPath, png, LongEnoughToBeAHang, ShotTick, "+sv_cheats", "1", "+cl_drawhud", "0",
+            "+mat_wireframe", wireframe.ToString(CultureInfo.InvariantCulture));
+
+        run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
+
+        using System.Drawing.Bitmap picture = new(png);
+        int pink = 0;
+
+        for (int y = 0; y < picture.Height; y++)
+        {
+            for (int x = 0; x < picture.Width; x++)
+            {
+                System.Drawing.Color pixel = picture.GetPixel(x, y);
+                double green = pixel.G / (double)Math.Max(1, (int)pixel.R);
+                double blue = pixel.B / (double)Math.Max(1, (int)pixel.R);
+
+                if (pixel.R >= 100 && green is >= 0.45 and <= 0.65 && Math.Abs(green - blue) <= 0.1)
+                {
+                    pink++;
+                }
+            }
+        }
+
+        return pink;
+    }
+
     /// <summary>One capture at a <c>mat_hdr_level</c>, read back as the sum of its three channel means.</summary>
     private static double MeanAt(string folder, int level)
     {
