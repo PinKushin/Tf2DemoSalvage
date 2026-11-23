@@ -39,7 +39,7 @@ public sealed class Tf2ConfigFilesTests
         configs.Count.ShouldBeGreaterThan(0, "a real install has at least config_default.cfg");
 
         ConfigConsole console = ConfigConsole.WithDefaults();
-        console.Load(configs);
+        configs.ForEach(console.Load);
 
         TestContext.Out.WriteLine($"{console.Applied} of {console.Bound} binds applied");
 

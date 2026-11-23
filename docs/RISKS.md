@@ -44480,6 +44480,16 @@ startup, as the folder reload's already did, and each launch ConVar logs twice (
    `ApplyTheConfiguredSettings` by no session test (no rig reads the spectator's director). A folder picked while a demo
    load is reading its map could change `MatHdrLevel` mid-read (review 3, Fable, Sonnet; not traced whether the folder
    prompt can be open then).
+2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
+   LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
+   `autoexec.cfg`; an untyped ConVar stays readable from the console) and
+   `LoadFrom_SvCheatsOnThenOffWithASavedCheat_RevertsItOnlyFromAutoexec`. Dropping `|| _savedLayer` from either branch
+   reddens them.
+3. USER-GUIDE corrected: a typed ConVar in `config.cfg` never takes effect, since the settings answer it with the saved
+   value or the default; an untyped one is still read from it. `ReadLaunch`'s summary corrected.
+
+**Review 3** (Fable, Sonnet, Grok, Gemini): the director half's test (`CameraPresenterTests`) and the mid-read note, in
+item 1 above.
 
 **Review 4** (Gemini, Sonnet approve; Fable holds the gate on one). *This machine's own `autoexec.cfg` now reaches every
 local run* (Fable, medium): it sets `crosshair 0`, `cl_interp 0`, `cl_interp_ratio 1` and `cl_updaterate 66`, which the
@@ -44506,15 +44516,9 @@ one anyway, so `+alias a b` and `+unbind KEY x` no longer reach it either. Teste
 set the switch, so "every UI launch" was not true; it does now. The switch also skips the program's own `custom/`
 config, which `--help` and the log now say. `Tf2ConfigFiles.Read` had only test callers after B816 (D180), so it is
 gone and its tests read `ReadFiles`, one asserting the path each config carries. A doc comment that had moved off
-`LoadUserConfig` is back. UI runs no longer exercise a real machine config, only the three tests' own (Sonnet, a
-trade-off: what a real config does is pinned by `Tf2ConfigFilesTests` on the install).
-2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
-   LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
-   `autoexec.cfg`; an untyped ConVar stays readable from the console) and
-   `LoadFrom_SvCheatsOnThenOffWithASavedCheat_RevertsItOnlyFromAutoexec`. Dropping `|| _savedLayer` from either branch
-   reddens them.
-3. USER-GUIDE corrected: a typed ConVar in `config.cfg` never takes effect, since the settings answer it with the saved
-   value or the default; an untyped one is still read from it. `ReadLaunch`'s summary corrected.
+`LoadUserConfig` is back. UI runs no longer exercise a real machine config, only the config-writing tests' own (Sonnet,
+a trade-off: what a real config does is pinned by `Tf2ConfigFilesTests` on the install).
+`Tf2ConfigFiles.DefaultGameFolder`, read by nothing after B811 dropped its fallback, is removed (D180; review 7, Sonnet).
 
 **As filed:**
 

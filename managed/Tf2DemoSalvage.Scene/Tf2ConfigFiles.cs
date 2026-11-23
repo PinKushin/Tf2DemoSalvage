@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -145,11 +144,4 @@ public static class Tf2ConfigFiles
         return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false)
             .GetString(span);
     }
-
-    /// <summary>This machine's <c>tf</c> folder, from <see cref="SteamInstall"/>.</summary>
-    /// <remarks>
-    /// Was a hand-typed Program Files guess until 2026-10-02; it now asks the one resolver. Null —
-    /// "no config found" — is a correct outcome, not a failure.
-    /// </remarks>
-    public static string? DefaultGameFolder => SteamInstall.Machine.GameFolder();
 }

@@ -888,16 +888,26 @@ public sealed class ViewerSessionTests
     [NonParallelizable]
     public void Build_AnAutoexecsMatHdrLevel_IsTheLightingTheLoadersTake()
     {
-        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        // The level is process-wide: put back what this found, so no later test loads a map at 0 (review 7, Grok).
+        int before = Content.Bsp.BspHdr.MatHdrLevel;
+
+        try
         {
-            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(control.Settings.Current.HdrLevel, "the control: the saved level");
-            control.Settings.Current.HdrLevel.ShouldNotBe(0);
+            using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+            {
+                Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(control.Settings.Current.HdrLevel, "the control: the saved level");
+                control.Settings.Current.HdrLevel.ShouldNotBe(0);
+            }
+
+            using Rig rig = BuildWithAutoexec("mat_hdr_level 0\n");
+
+            rig.Settings.Current.HdrLevel.ShouldBe(0);
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
         }
-
-        using Rig rig = BuildWithAutoexec("mat_hdr_level 0\n");
-
-        rig.Settings.Current.HdrLevel.ShouldBe(0);
-        Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+        finally
+        {
+            Content.Bsp.BspHdr.MatHdrLevel = before;
+        }
     }
 
     /// <remarks>
@@ -912,15 +922,25 @@ public sealed class ViewerSessionTests
         Directory.CreateDirectory(Path.Combine(tf, "cfg"));
         File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
         File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "mat_hdr_level 0\n");
-        using Rig rig = Build();
+        int before = Content.Bsp.BspHdr.MatHdrLevel;
 
-        Content.Bsp.BspHdr.MatHdrLevel.ShouldNotBe(0, "the control: the saved level before the folder");
+        try
+        {
+            using Rig rig = Build();
 
-        _gameFolder = tf;
-        rig.Session.GameFolderChosen(tf);
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldNotBe(0, "the control: the saved level before the folder");
 
-        rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
-        Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+            _gameFolder = tf;
+            rig.Session.GameFolderChosen(tf);
+
+            rig.Window.Status.ShouldNotBeNull().ShouldStartWith(SettingsPresenter.GameFolderSet, Case.Sensitive, "the folder taken");
+            Content.Bsp.BspHdr.MatHdrLevel.ShouldBe(0);
+        }
+        finally
+        {
+            // Process-wide: put back what this found (review 7, Grok).
+            Content.Bsp.BspHdr.MatHdrLevel = before;
+        }
     }
 
     /// <remarks>

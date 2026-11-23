@@ -387,26 +387,6 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>Executes several configs in order, as a set of files layered on one another.</summary>
-    /// <param name="texts">The configs' contents, earliest first.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="texts"/> is null.</exception>
-    /// <remarks>
-    /// **A bind and the alias it names routinely live in different files.** The owner's `config.cfg`
-    /// binds `w` to `+mfwd`, and `+mfwd` is defined in `autoexec.cfg`. Loading either alone finds no
-    /// movement bindings at all — which is what happened, and what fifteen synthetic tests built
-    /// from `config_default.cfg` could not show, because that file binds movement directly and so
-    /// contains no alias to miss.
-    /// </remarks>
-    public void Load(IEnumerable<string> texts)
-    {
-        ArgumentNullException.ThrowIfNull(texts);
-
-        foreach (string text in texts)
-        {
-            Load(text);
-        }
-    }
-
     /// <summary>Presses a key, running whatever it is bound to.</summary>
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
     /// <returns>
@@ -657,7 +637,7 @@ public sealed class ConfigConsole
 
             // **The program's own custom/ folder is checked even with no TF2 install found** (D193):
             // a config a player pasted in there does not depend on the game being installed at all.
-            // `Tf2ConfigFiles.Read` already treats a null/empty gameFolder as "nothing from the
+            // `Tf2ConfigFiles.ReadFiles` already treats a null/empty gameFolder as "nothing from the
             // game", so passing `game` through unconditionally is enough.
             IReadOnlyList<(string Path, string Text)> configs = Tf2ConfigFiles.ReadFiles(game, loggers.LogTo(), ownCustomRoot);
 
