@@ -201,7 +201,14 @@ public static class FaceFan
             return Undecided(first);
         }
 
-        if (length == 0f)
+        // **A sliver is no area** (B803 review 4, Fable): a first triangle along one edge, a T-junction's corner, has a
+        // cross product of rounding noise, and its direction is then a plane at a random angle about that edge. Below a
+        // sine of 1e-4 (0.006°) the next triangle decides. The engine tests the face's stored plane instead
+        // (`FUN_1800dcb20` reads the surface's), which the packed vertices do not carry; measured on cp_process_final and
+        // cp_granary, no first triangle comes near it (the `outline-memory` probe, none under 1e-3).
+        float edges = MathF.Sqrt((ux * ux) + (uy * uy) + (uz * uz)) * MathF.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
+
+        if (length <= SliverSine * edges)
         {
             return null;
         }
@@ -232,6 +239,9 @@ public static class FaceFan
 
         return Finite(new FacePlane(first, 3, nx, ny, nz, (nx * corner.X) + (ny * corner.Y) + (nz * corner.Depth)));
     }
+
+    /// <summary>The sine of a triangle's angle below which its cross product is taken for rounding, not a direction.</summary>
+    private const float SliverSine = 1e-4f;
 
     /// <summary>The zero plane, which faces every eye: a face drawn whole.</summary>
     private static FacePlane Undecided(int first) => new(first, 3, 0f, 0f, 0f, 0f);

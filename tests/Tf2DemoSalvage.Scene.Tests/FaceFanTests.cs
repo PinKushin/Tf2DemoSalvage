@@ -178,13 +178,15 @@ public sealed class FaceFanTests
     /// - a later run from 18: (18, 24), nothing of the faces before it;
     /// - a run cut mid-face, from 15 (as a cap on the run before can leave it): (15, 24), the face at 12 only from 15;
     /// - a run capped mid-face, to 9: (0, 6) only, the back face's part dropped; to 3, (0, 3), a partial outline of the
-    ///   first face, which is what was drawn of it (the cap is a development control and draws what it keeps).
+    ///   first face, which is what was drawn of it (the cap is a development control and draws what it keeps);
+    /// - a run cut mid-face in the culled face, 9 to 18: (12, 18), none of the culled face's part (review 4).
     /// </remarks>
     [TestCase(0, 18, new[] { 0, 6, 12, 18 })]
     [TestCase(18, 24, new[] { 18, 24 })]
     [TestCase(15, 24, new[] { 15, 24 })]
     [TestCase(0, 9, new[] { 0, 6 })]
     [TestCase(0, 3, new[] { 0, 3 })]
+    [TestCase(9, 18, new[] { 12, 18 })]
     public void Runs_OfARunAmongFaces_StayInsideIt(int first, int end, int[] expected)
     {
         FacePlane Up(int at) => new(at, 6, 0f, 0f, 1f, -1f);
@@ -194,6 +196,45 @@ public sealed class FaceFanTests
         FaceFan.Runs([Up(0), Down(6), Up(12), Up(18)], first, end, (0f, 0f, 0f), translucent: false, noCull: false, runs);
 
         runs.SelectMany(run => new[] { run.First, run.End }).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **`Runs` hands the pass's rule through** (B803 review 4, Fable, Sonnet): one face 0.005 ahead of the eye's back (its
+    /// plane z = 0.005 facing up, the eye at the origin). Opaque, the −0.01 tolerance keeps it; translucent, the exact test
+    /// culls it; translucent and `$nocull`, it is kept. Swapping the two flags anywhere on the way reads otherwise.
+    /// </remarks>
+    [TestCase(false, false, new[] { 0, 6 })]
+    [TestCase(true, false, new int[0])]
+    [TestCase(true, true, new[] { 0, 6 })]
+    public void Runs_OfAFaceJustBehindTheEye_TakeTheRunsPassRule(bool translucent, bool noCull, int[] expected)
+    {
+        List<(int First, int End)> runs = [];
+
+        FaceFan.Runs([new FacePlane(0, 6, 0f, 0f, 1f, 0.005f)], 0, 6, (0f, 0f, 0f), translucent, noCull, runs);
+
+        runs.SelectMany(run => new[] { run.First, run.End }).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **A first triangle that is a sliver does not set the plane** (B803 review 4, Fable): corners (0, 0, 0), (1000, 0, 0)
+    /// and (2000, 0.0005, 0.0007) are a T-junction's line, their cross product (0, −0.7, 0.5) rounding-sized against edges
+    /// of 1000 and 2000 (a sine of 4e-7), yet a direction 54° from the face. The second triangle, to (0, 1000, 0), spans
+    /// the face in z = 0, and decides: (0, 0, 1) to a thousandth.
+    /// </remarks>
+    [Test]
+    public void Faces_WhoseFirstTriangleIsASliver_TakeThePlaneOfTheNext()
+    {
+        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0f, NormalZ: 1f, FaceEdge: faceEdge);
+
+        FacePlane face = FaceFan.Faces(
+        [
+            Corner(0f, 0f, 0f, true), Corner(1000f, 0f, 0f, true), Corner(2000f, 0.0005f, 0.0007f, false),
+            Corner(0f, 0f, 0f, false), Corner(2000f, 0.0005f, 0.0007f, true), Corner(0f, 1000f, 0f, true),
+        ]).ShouldHaveSingleItem();
+
+        (face.First, face.Count).ShouldBe((0, 6));
+        face.NormalZ.ShouldBeGreaterThan(0.999f, $"was ({face.NormalX}, {face.NormalY}, {face.NormalZ})");
     }
 
     /// <remarks>

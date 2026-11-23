@@ -7876,8 +7876,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>
     /// The runs <see cref="DrawQueuedWireframes"/> draws next, each already carrying its wireframe material, beside the
-    /// material it was drawn with (review 3: a translucent or <c>$nocull</c> face is culled by the other rule).
+    /// surface's own material (review 3: a translucent or <c>$nocull</c> face is culled by the other rule).
     /// </summary>
+    /// <remarks>
+    /// **The surface's own, not the one drawn** (review 4, Fable): the cull reads the surface's flags (`FUN_1800dbdb0`
+    /// reads `0x20`, `0x200` and `0x40` off the surface record, `FUN_1800df1a0` the same `0x20`), which the engine sets
+    /// from the surface's own material when the map loads, so a skin or an entity's material override, which changes only
+    /// what is bound, does not move a surface between the rules. The pass filter's choice of material is a separate
+    /// question this does not answer. *Interpolated*: that the flags are set at load from the texinfo's material (the
+    /// loader was not read for this).
+    /// </remarks>
     private readonly List<(WorldBatch Run, int Source)> _wireframeQueue = [];
 
     /// <summary>The rasteriser a debug wireframe material draws with: its own shader's, not a decal pass's (B803 review 1).</summary>
@@ -9205,7 +9213,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // A brush entity's outline leaves out its back faces by plane, and takes the cap its solid draw took (B803 review 1).
         if (_wireframeQueue.Count != 0)
         {
-            (ComPtr<ID3D11Buffer> outline, FacePlane[]? faces) = _modelOutlines.GetValueOrDefault(modelPath);
+            // Looked up only for 3, the one value that draws it (review 4): the path's hash is a case-insensitive one.
+            (ComPtr<ID3D11Buffer> outline, FacePlane[]? faces) = Wireframe == 3 ? _modelOutlines.GetValueOrDefault(modelPath) : default;
 
             DrawQueuedWireframes(context, outline, faces, matrix, ModelVertexCap);
         }

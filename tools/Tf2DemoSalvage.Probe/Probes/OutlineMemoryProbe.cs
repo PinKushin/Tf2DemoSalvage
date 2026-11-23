@@ -66,19 +66,36 @@ public sealed class OutlineMemoryProbe : IProbe
         output.WriteLine($"outline index buffer: {outline:N0} bytes ({outline / (1024.0 * 1024.0):0.00} MiB) on the GPU");
         output.WriteLine($"WorldVertex: {vertexSize} bytes, {Before} before the mark; {(long)(vertexSize - Before) * vertices:N0} bytes more for this list");
 
-        // The brush entities' outlines and face planes (review 2): each model's corners packed as the upload packs them
-        // (EntityModelSet.Packed) and its planes the array FaceFan.Faces returns, the one the renderer keeps (review 3, B243).
+        // The brush entities' outlines and face planes (reviews 2-4): packed by the model set the viewer uses
+        // (EntityModelSet.Precache), each model's run of its vertices sliced from the lowest to the highest vertex its
+        // batches name, as Device3D.UploadModels slices it, and the planes FaceFan.Faces makes of that run, which is what
+        // WorldRenderer.UploadModels hands it. The slice arithmetic is the upload's, repeated here (Device3D's Slice is
+        // private to the Render assembly), and is the one step of this not carried from the code that runs.
+        IReadOnlyDictionary<string, PropModels.ModelFrames> brush =
+            BrushModels.Build(level.BrushModels ?? [], level.Surfaces, assets.Lightmaps);
+        EntityModelSet set = new() { Geometry = model => brush.GetValueOrDefault(model) };
+
+        set.Precache(brush.Keys);
+
         long brushVertices = 0;
         long faces = 0;
         int submodels = 0;
+        (int Faces, int Below3, int Below5) slivers = (0, 0, 0);
 
-        foreach (PropModels.ModelFrames model in BrushModels.Build(level.BrushModels ?? [], level.Surfaces, assets.Lightmaps).Values)
+        foreach (string model in brush.Keys)
         {
-            IReadOnlyList<PropVertex> corners = model.Geometry[0];
+            List<WorldVertex> run = Uploaded(set, model);
 
             submodels++;
-            brushVertices += corners.Count;
-            faces += FaceFan.Faces([.. corners.Select(corner => EntityModelSet.Packed(corner, corner))]).Length;
+            brushVertices += run.Count;
+
+            foreach (FacePlane face in FaceFan.Faces(run))
+            {
+                faces++;
+                float sine = Sine(run[face.First], run[face.First + 1], run[face.First + 2]);
+
+                slivers = (slivers.Faces + (face.Count > 3 && sine < 1e-2f ? 1 : 0), slivers.Below3 + (sine < 1e-3f ? 1 : 0), slivers.Below5 + (sine < 1e-5f ? 1 : 0));
+            }
         }
 
         int planeSize = Unsafe.SizeOf<FacePlane>();
@@ -86,5 +103,38 @@ public sealed class OutlineMemoryProbe : IProbe
         output.WriteLine(
             $"{submodels} brush entities, {brushVertices:N0} vertices: outlines {brushVertices * 2 * sizeof(uint):N0} bytes on the GPU; "
             + $"{faces:N0} face planes of {planeSize} bytes, {faces * planeSize:N0} bytes managed (plus an array header each)");
+        output.WriteLine(
+            $"first triangles by the sine of their angle: {slivers.Faces} of faces with more than one triangle under 1e-2, "
+            + $"{slivers.Below3} of all faces under 1e-3, {slivers.Below5} under 1e-5");
+    }
+
+    /// <summary>A model's vertices as the upload slices them from the set (Device3D.UploadModels).</summary>
+    private static List<WorldVertex> Uploaded(EntityModelSet set, string path)
+    {
+        int lowest = int.MaxValue;
+        int highest = 0;
+
+        foreach (IReadOnlyList<WorldBatch> frame in set.AllFrames(path))
+        {
+            foreach (WorldBatch batch in frame)
+            {
+                lowest = Math.Min(lowest, batch.FirstVertex);
+                highest = Math.Max(highest, batch.FirstVertex + batch.VertexCount);
+            }
+        }
+
+        return lowest == int.MaxValue || highest <= lowest
+            ? []
+            : [.. set.Vertices.Skip(lowest - set.VertexBase).Take(highest - lowest)];
+    }
+
+    /// <summary>The sine of a triangle's angle at its first corner: its cross product over its two edges' lengths.</summary>
+    private static float Sine(WorldVertex a, WorldVertex b, WorldVertex c)
+    {
+        System.Numerics.Vector3 u = new(b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
+        System.Numerics.Vector3 v = new(c.X - a.X, c.Y - a.Y, c.Depth - a.Depth);
+        float lengths = u.Length() * v.Length();
+
+        return lengths == 0f ? 0f : System.Numerics.Vector3.Cross(u, v).Length() / lengths;
     }
 }

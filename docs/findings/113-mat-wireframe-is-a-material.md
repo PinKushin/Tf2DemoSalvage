@@ -229,7 +229,10 @@ vertices, a 1.21 MiB index buffer; `cp_granary` 190,260 and 1.45 MiB. The `FaceE
 bytes to 128, 0.6 and 0.8 MB on those lists while they are held. The brush entities' share, measured in review 2 with
 the same probe: `cp_process_final` 101 models, 1,584 vertices, 12,672 bytes of outline and 250 face planes of 24 bytes
 (6,000 bytes managed, plus an array header each); `cp_granary` 14 models, 912 vertices, 7,296 bytes and 134 planes
-(3,216 bytes).
+(3,216 bytes). Review 4 counted again through the model set's packing and the upload's slice, the same 250 and 134,
+and measured the first triangle each face's plane is taken from: none on either map has a sine under 1e-3 (5 on
+`cp_granary` under 1e-2), so no plane there comes from a rounding-sized cross product; a triangle under 1e-4 is now
+passed over for the next.
 
 ## Tests
 

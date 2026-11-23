@@ -43202,6 +43202,55 @@ On `fix/b803-wireframe-3-r1` at `29768b1c3`. Same rules. New reads in findings 1
     (`WorldRenderer.Monitor.cs`) and the 3D sky each set their own camera through it, so a model pass in those views
     tests its faces against that view's eye; a reflection's is the mirrored one, as the engine's model origin is there.
 
+### Review 4 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
+
+1. **A sliver first triangle** (Fable). *Measured first* (the `outline-memory` probe, through the model set's packing and
+   the upload's slice): of 250 face planes on `cp_process_final`, no first triangle has a sine under 1e-2; of 134 on
+   `cp_granary`, 5 faces of more than one triangle are under 1e-2 and none under 1e-3. None is rounding-sized. The
+   engine's stored plane (`FUN_1800dcb20` reads the surface's) is not reachable from the packed vertices without a new
+   per-face path through the packing's reorder. *Fixed* with the relative threshold the review offered: a triangle whose
+   sine is at most 1e-4 is no area and the next decides, said in `FaceFan.PlaneOf`. Test:
+   `FaceFanTests.Faces_WhoseFirstTriangleIsASliver_TakeThePlaneOfTheNext` (a T-junction line of sine 4e-7 whose cross
+   product points 54° off; red with the threshold at 0).
+2. **`Runs` with the flags** (Fable, Sonnet). Test: `Runs_OfAFaceJustBehindTheEye_TakeTheRunsPassRule` (0.005 behind:
+   opaque kept, translucent culled, translucent `$nocull` kept). Red with the two flags swapped through locals; Sonar's
+   S2234 refuses the plain swap at build, which is a guard of its own on that call.
+3. **A run cut mid-face in a culled face** (Fable, Sonnet). Case `Runs_OfARunAmongFaces_StayInsideIt(9, 18)` → (12, 18).
+   Red with the face search returning 0 (a reversed (9, 6)); removing the clamp alone leaves it right, since the culled
+   face never opens a range.
+4. **The off-path list, exactly** (Fable, Grok, Sonnet; read from the code, *not measured*). With `mat_wireframe` 0,
+   over main:
+   - per opaque world batch: one enum comparison (terrain) and, for a terrain batch, one integer (`EngineWireframe`);
+     one integer (`QueueSurfaceWireframe`); `DrawsLines`, one integer and one boolean, the set read only when a map's
+     own material is `Wireframe` (`&&` short-circuits it otherwise); and the `lines ||` in front of `IsWater`, one
+     boolean;
+   - per blended world batch: the enum, the terrain integer, and `QueueSurfaceWireframe`'s integer;
+   - per `Raster` call: `DrawsLines`' integer and boolean;
+   - per material bind: one integer (the depth guard);
+   - per decal batch, world or entity: `WireframeDecal`'s integer; and in `DrawDecalBatch`, the call into `BindDecalRun`
+     and the test of its returned boolean;
+   - per kept model batch: one integer; per model: one queue count;
+   - per pass that ends in `DrawQueuedWireframes` (the opaque world, the world after the additive pass, the translucent
+     world, each translucent leaf): one queue count;
+   - at upload: a shader-name prefix test per material (`_lineFill`), the `_wireframeIgnoresZ` entries, `_mapLineFill`
+     over the line-fill set, the world's outline buffer, and each brush entity's outline and face planes.
+   Review 3's item 2 said "exactly" and was not; this list supersedes it.
+5. **The outline lookup at 1 and 2** (Fable). *Fixed*: the model pass reads `_modelOutlines` only under 3. No test: a
+   hash's cost, and the values 1 and 2 never read what it found.
+6. **Which material's flags** (Fable). *Read*: the cull reads the surface record's own flags (`FUN_1800dbdb0`,
+   `FUN_1800df1a0`), which a skin or an entity's override does not change; the queue already carried the surface's own
+   material, and its remark now says so (that the flags come from the texinfo's material at load is *interpolated*).
+   Test: `EyeShaderRenderTests.DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial`
+   (an opaque back face under a translucent `$nocull` override; red with the drawn material queued instead).
+7. **`0x200` as `$nocull`** (Fable). `DrawOutline`'s remark now names it: the world walk's NOCULL bit, read in B457
+   (`0x1800fa3d0`), with that read's own interpolation that it follows the material's `$nocull`.
+8. **The probe's second route** (Fable, Sonnet, Grok). *Fixed*: it packs with the model set the viewer uses
+   (`EntityModelSet.Precache`) and slices each model's run as `Device3D.UploadModels` does, then counts `FaceFan.Faces`
+   of it; the comment says the slice arithmetic is the one step repeated rather than carried (`Device3D`'s slice is
+   private to Render). The counts are unchanged: 250 and 134.
+
 *As found (2026-11-21):*
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under

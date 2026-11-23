@@ -101,7 +101,9 @@ internal sealed unsafe partial class WorldRenderer
     /// flag `0x20` that is NOCULL (`0x200`) or whose plane-back flag (`0x40`) matches the eye's side of its node, no
     /// tolerance; both lists reach `FUN_1800dc720`. *Interpolated*: that flag `0x20` is the viewer's blended materials
     /// (`IsBlendedMaterial`), that a face's node plane is its own, and that an eye exactly on a plane-back face's plane is
-    /// negligible. A line is never culled by the rasteriser, so without the planes a door seen from behind was outlined
+    /// negligible. Flag `0x200` as the viewer's <c>$nocull</c> set (<c>_noCull</c>) is *read*, the world walk's NOCULL
+    /// surface bit (`0x1800fa3d0`, B457, <see cref="IsTwoSidedMaterial"/>); that the surface's bit follows its material's
+    /// <c>$nocull</c> is that read's own interpolation. A line is never culled by the rasteriser, so without the planes a door seen from behind was outlined
     /// under 3 and not under 1 or 2. The world needs none: its walk already leaves out a surface whose plane the eye is
     /// behind (<c>VisibleWorld.Surfaces</c>, `R_DrawLeaf`), keeping a NOCULL one.
     /// </remarks>

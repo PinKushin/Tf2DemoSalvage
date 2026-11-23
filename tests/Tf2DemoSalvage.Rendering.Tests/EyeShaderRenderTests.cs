@@ -860,6 +860,28 @@ public sealed class EyeShaderRenderTests
         (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
+    /// <remarks>
+    /// **A brush face is culled by its own material's rule, not an override's** (B803 review 4, Fable): the engine's cull
+    /// reads the surface's flags, set from its own material, and an entity's material override changes only what is bound.
+    /// An opaque back face drawn with a translucent `$nocull` override is culled by the opaque rule and not outlined under
+    /// 3, where the override's rule would keep it.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(target, [.. BrushFace(0f, 50f, front: false)], [new WorldBatch(0, 0, 6)], Identity4, overrideMaterial: "forced.vmt");
+
+        OutlinePixels(target, 20, 44).ShouldBe(0);
+    }
+
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
     internal static WorldVertex[] BrushFace(float x, float half, bool front)
     {
@@ -890,15 +912,23 @@ public sealed class EyeShaderRenderTests
 
     /// <summary>Draws <c>*1</c> both-sided, as <see cref="Draw"/> does, with a red face and <c>debugworldwireframe</c> loaded.</summary>
     internal static void DrawBrush(
-        OffscreenTarget target, List<WorldVertex> vertices, WorldBatch[] batches, float[] placement, MapTexture? face = null)
+        OffscreenTarget target,
+        List<WorldVertex> vertices,
+        WorldBatch[] batches,
+        float[] placement,
+        MapTexture? face = null,
+        string? overrideMaterial = null)
     {
+        // Material 2 is a translucent `$nocull` override, `forced.vmt`, for a draw that names it.
         MapAssets assets = MapAssets.ForMaterials(
             [
                 face ?? Uniform4(255, 0, 0, 255),
                 Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+                Uniform4(0, 0, 255, 128) with { IsTranslucent = true, IsNoCull = true },
             ],
-            ["VertexLitGeneric", "Wireframe"],
-            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) },
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
 
         target.Clear(0f, 0f, 0f);
         target.DrawModelPose(
@@ -910,6 +940,7 @@ public sealed class EyeShaderRenderTests
             light: Uniform,
             bothSides: true,
             toneMapScale: 1f,
+            overrideMaterial: overrideMaterial,
             modelPath: "*1");
     }
 
