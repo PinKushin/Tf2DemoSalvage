@@ -267,6 +267,13 @@ dropped, not run. The same threshold makes `Tokenize`'s check unreachable from t
 64 (*"…overflows the argument buffer.. Clamped!"* once the 64th is taken), are what bound one alias run's work in TF2:
 an alias body is one command.
 
+**A file is not one text, and its CR is not counted** (*disassembly*, `engine.dll` FUN_180177310, `Cmd_Exec_f`'s line
+reader). Believed in review 6: a CRLF line's CR counts toward the length, because `GetNextCommandLength` counts it. What
+killed it, in review 7: the CR never reaches the buffer. The reader copies a line until any control byte but tab, caps it
+at 1023 bytes (the rest is the next line), skips everything not above 0x1f as a signed `char` before the next line (so
+leading tabs and non-ASCII bytes there go), unescapes `\"` and `\\` on every line that is not a `bind`, and hands each line
+to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, not of the file.
+
 **What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;
 `exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in
 `Cmd_Exec_f` counts depth, so the engine's bound on a file that execs itself is not read; the viewer stops at the alias

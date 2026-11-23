@@ -44608,6 +44608,42 @@ load):
    inside a built-in key's command leaves it built in.
 6. Each of items 1, 2 and 4 was red under its own sabotage (the rest of a refused text still run, spaces and CR not
    counted, the warning at 65, the alias count not restored).
+7. A blank command of any length is skipped, not refused: `AddText` skips a command whose `ParseArgV0` finds no first
+   token before `InsertCommand` (`commandbuffer.cpp:230-232`). Found by the lead before review 7.
+
+**Review 7** (Fable, Sonnet, Gemini, Grok merge; Fable and Sonnet asked for the file case to be read):
+
+1. **How a file reaches the buffer, read** (Fable, Sonnet; `engine.dll` FUN_180177310, `Cmd_Exec_f`'s line reader, and
+   FUN_180166e30, `Cbuf_AddText`, by disassembly through Ghidra). Review 6 item 1 counted a CRLF line's CR; that was wrong
+   for a file. The reader copies a line's bytes until any control byte but tab, so a CR ends the line and is never
+   counted; it caps a line at 1023 bytes and reads the rest as the next line; between lines it skips every byte not above
+   0x1f as a SIGNED char, so a line's leading tabs and any non-ASCII bytes there are dropped (the file's first line keeps
+   them: its first byte is copied whatever it is); and on every line that is not a `bind` (that word at the start once
+   spaces and tabs are skipped, and a space or tab at byte 4 of the line) it makes `\"` into `"` and `\\` into `\`. Each
+   line is then `Cbuf_AddText`'d on its own, so a refused command drops the rest of its line only. Implemented as
+   `ConfigConsole.ExecLines`, used for every file. Tests: the CR, tab and first-line cases of
+   `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt`, `Load_ALineLongerThanTheReadersCap_ContinuesAsTheNextLine`,
+   `Load_ALineThatIsNotABind_HasItsEscapesUndone`, and the four-backslash case of `Exec_ARefusedLine_ReadsNothingAndSaysWhy`;
+   each red under its own sabotage (no unescape, no cap, tabs kept after a break, CR not ending a line).
+2. **The blank skip is `ParseArgV0`'s** (Fable, Sonnet): an empty first token, so `""` counts and Unicode whitespace does
+   not. `wait`, which `AddText` also consumes there, is not implemented. Test: the `""` case, red under its sabotage.
+3. **A config loaded from a handler inside the viewer's own key is a config** (Fable): `Load` clears `_viewerIssued` and
+   restores it. Test: `Load_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats`, red when the outer flag is kept.
+4. **Not changed, with reasons:** the refusal's logged text is at most one file line (1023 bytes) or a 510-byte command, so
+   it needs no cap (Fable 4); the static projections still split with `SourceConfig.Clauses`, which cannot differ for a
+   bind or an alias body, since neither can hold a command too long (Fable 5, Sonnet); the decoded byte count differs from
+   the file's only for an invalid byte (U+FFFD, 3 against 1), near the limit (Fable 3, Sonnet). Grok's claim that the
+   nested-exec test cannot fail is wrong: without the restore the count after the `exec` is the nested line's 1, and that
+   sabotage was red. **Filed:** the BOM the decoder strips is a divergence TF2 does not make (B822).
+
+## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
+
+Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it
+becomes part of the first token — which turns a leading `unbindall` into an unknown command which is skipped in
+silence"*. That is what TF2 does: `Cmd_Exec_f`'s line reader (`engine.dll` FUN_180177310) copies the file's first byte
+whatever it is and the rest as ordinary bytes, so the BOM joins the first token. The strip is not listed in
+`docs/ABOVE-VALVE.md`, so it is either an addition to list there with its test or a divergence to remove; removing it
+changes what a Notepad-saved config does (D246). **Needs the owner.** *Not fixed*.
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 

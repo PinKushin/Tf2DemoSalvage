@@ -395,8 +395,9 @@ public sealed class ConfigConsole
         // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
         // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
         // Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
-        bool loading = _loading;
-        _loading = true;
+        // A config is never the viewer's own key, even loaded from a handler inside one (B820 review 7, Fable).
+        (bool loading, bool viewerIssued) = (_loading, _viewerIssued);
+        (_loading, _viewerIssued) = (true, false);
 
         try
         {
@@ -404,7 +405,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _loading = loading;
+            (_loading, _viewerIssued) = (loading, viewerIssued);
         }
     }
 
@@ -476,15 +477,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                // UTF-8 bytes, as the engine's `char` loop counts: a surrogate pair is four, counted on its first half.
-                length += c switch
-                {
-                    < (char)0x80 => 1,
-                    < (char)0x800 => 2,
-                    _ when char.IsHighSurrogate(c) => 4,
-                    _ when char.IsLowSurrogate(c) => 0,
-                    _ => 3,
-                };
+                length += Utf8Size(c);
                 command.Append(c);
                 at++;
             }
@@ -499,10 +492,70 @@ public sealed class ConfigConsole
         }
     }
 
+    /// <summary>
+    /// A file's lines as `Cmd_Exec_f` reads them, each handed to `Cbuf_AddText` on its own (`engine.dll` FUN_180177310, read
+    /// in B820 review 7): a line ends at any control byte but tab, so a CRLF line's CR ends it and is not counted; leading
+    /// spaces are kept and leading tabs and non-ASCII characters dropped (the skip between lines is a signed `char` compare);
+    /// a line is cut at 1023 bytes and the rest read as the next; and a line that is not a `bind` (the word
+    /// at the start once spaces and tabs are skipped, with a space or tab at byte 4 of the line) has `\"` made `"` and `\\`
+    /// made `\`.
+    /// </summary>
+    private static IEnumerable<string> ExecLines(string text)
+    {
+        const int MaximumLine = 0x3ff;
+        int at = 0;
+
+        while (at < text.Length)
+        {
+            System.Text.StringBuilder line = new();
+            int bytes = 0;
+
+            // The first byte is copied whatever it is; the copy then stops at a control byte but tab, or at the cap.
+            do
+            {
+                char c = text[at];
+                int size = Utf8Size(c);
+
+                if (bytes + size > MaximumLine)
+                {
+                    break;
+                }
+
+                line.Append(c);
+                bytes += size;
+                at++;
+            }
+            while (at < text.Length && (text[at] >= ' ' || text[at] == '\t'));
+
+            string read = line.ToString();
+            string body = read.TrimStart(' ', '\t');
+            bool isBind = body.StartsWith("bind", StringComparison.Ordinal) && read.Length > 4 && read[4] is ' ' or '\t';
+
+            yield return isBind ? read : read.Replace("\\\"", "\"", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal);
+
+            // The next line starts at the next byte above 0x1f as a SIGNED char (`'\x1f' < (char)b`): a tab is skipped here, so a
+            // line's leading tabs are not counted, and so is any byte of 0x80 or more, a non-ASCII character's.
+            while (at < text.Length && (text[at] < ' ' || text[at] >= (char)0x80))
+            {
+                at++;
+            }
+        }
+    }
+
+    /// <summary>A character's UTF-8 bytes, as the engine's `char` loops count: a surrogate pair is four, on its first half.</summary>
+    private static int Utf8Size(char c) => c switch
+    {
+        < (char)0x80 => 1,
+        < (char)0x800 => 2,
+        _ when char.IsHighSurrogate(c) => 4,
+        _ when char.IsLowSurrogate(c) => 0,
+        _ => 3,
+    };
+
     /// <summary>The lines of <see cref="RunFile"/>.</summary>
     private void RunLines(string text, int depth)
     {
-        foreach (string line in text.Split('\n'))
+        foreach (string line in ExecLines(text))
         {
             // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
             // whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
@@ -1441,9 +1494,12 @@ public sealed class ConfigConsole
             // and `AddText` (`:242-243`) then returns, so the commands after it in that file line, bind or alias body never run.
             // The strings are in TF2's `engine.dll`, so the engine links this tier1 code. *Interpolated*: that an alias body is
             // inserted through `AddText` as a bind and an exec'd line are.
-            // `ParseArgV0` finding no first token skips the command before `InsertCommand` measures it (`:230-232`), so a
-            // blank command of any length is no command, not a refused one.
-            if (string.IsNullOrWhiteSpace(clause))
+            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
+
+            // `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it (`:230-232`):
+            // a blank command, or one whose first token is `""`, is no command of any length, not a refused one (B820
+            // reviews 6 and 7, Fable). *Not implemented*: `wait`, which `AddText` consumes there too.
+            if (tokens.Count == 0 || tokens[0].Length == 0)
             {
                 continue;
             }
@@ -1452,13 +1508,6 @@ public sealed class ConfigConsole
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
                 return acted;
-            }
-
-            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
-
-            if (tokens.Count == 0)
-            {
-                continue;
             }
 
             // **At most 64 arguments, said once the 64th is taken** (`CCommand::Tokenize`, `src/tier1/convar.cpp:416,460-464`;

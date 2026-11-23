@@ -1084,14 +1084,15 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// `exec` takes exactly one argument; the path is refused when it holds `\\`, `:`, `..`, CR or LF (FUN_180176d10), or
     /// any of twelve file types anywhere in it. Both tests are case-sensitive substring tests, so `A.VPK` above is read,
-    /// and so is a single backslash. Each refusal is TF2's own line (B820 review 1, Fable, Grok: reading nothing alone
+    /// and so is a single backslash. A file's line has `\\` made `\` before `exec` sees it (FUN_180177310), so the double
+    /// backslash case is written as four. Each refusal is TF2's own line (B820 review 1, Fable, Grok: reading nothing alone
     /// passed with `exec` not dispatched). CR and LF cannot reach a path here: a line ends at LF and the tokenizer trims a CR (`exec a\r` above).
     /// </remarks>
     [TestCase("exec", "exec <filename>: execute a script file")]
     [TestCase("exec a b", "exec <filename>: execute a script file")]
     [TestCase("exec ../a", "exec cfg/../a.cfg: invalid path.")]
     [TestCase("exec \"c:a\"", "exec cfg/c:a.cfg: invalid path.")]
-    [TestCase("exec \"a\\\\b\"", "exec cfg/a\\\\b.cfg: invalid path.")]
+    [TestCase("exec \"a\\\\\\\\b\"", "exec cfg/a\\\\b.cfg: invalid path.")]
     [TestCase("exec a.vpk", "exec cfg/a.vpk: invalid file type.")]
     [TestCase("exec a.dll.cfg", "exec cfg/a.dll.cfg: invalid file type.")]
     [TestCase("exec a.exe", "exec cfg/a.exe: invalid file type.")]
@@ -1304,20 +1305,24 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A command of 511 bytes or more is skipped** (`CCommand::Tokenize`, `src/tier1/convar.cpp:404-409`), with TF2's line;
-    /// 510 runs. An alias definition is one such command, which is what bounds what one alias run can do.
+    /// **A command of 511 bytes or more is refused** (`CCommandBuffer::InsertCommand`, `src/tier1/commandbuffer.cpp:120-126`),
+    /// with TF2's line; 510 runs. An alias definition is one such command, which is what bounds what one alias run can do.
     /// </remarks>
     [TestCase(510, "5", ' ', "", "")]
     [TestCase(511, null, ' ', "", "")]
     [TestCase(510, null, 'é', "", "")]
     [TestCase(509, null, ' ', "  ", "")]
-    [TestCase(510, null, ' ', "", "\r")]
+    [TestCase(509, "5", ' ', "\r\n\t\t", "")]
+    [TestCase(509, null, ' ', "\t\t", "")]
+    [TestCase(510, "5", ' ', "", "\r")]
     [TestCase(510, "5", ' ', "", "// a comment the buffer does not count")]
     [TestCase(510, null, ' ', "", " // the space before a comment is counted")]
     public void Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt(int length, string? expected, char pad, string lead, string tail)
     {
         // `GetNextCommandLength` measures the raw command (B820 review 6, Fable, Sonnet): bytes (the 'é' case is 510
-        // characters), leading spaces and a CRLF line's CR counted, a `//` comment not. The refused command's line is TF2's.
+        // characters), leading spaces counted, a `//` comment not. The file's line reader (`FUN_180177310`, review 7) ends
+        // a line at its CR and drops the tabs that start a line after a break, so neither is counted; the file's first line
+        // keeps them (its first byte is copied whatever it is). The refused command's line is TF2's.
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
         string command = $"{Alpha} 5 \"";
@@ -1329,23 +1334,81 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **The commands after a refused one in the same text never run** (`CCommandBuffer::AddText` returns at the refusal,
-    /// `src/tier1/commandbuffer.cpp:242-243`; B820 review 6, Fable): a file's line, which `Cmd_Exec_f` adds whole. The one
-    /// before it does. (A bind or an alias cannot hold one: its own definition would be the command too long.)
+    /// **A config loaded from a handler inside the viewer's own key is a config** (B820 review 7, Fable): the built-in
+    /// `CTRL+1` sets the cheat `mat_fullbright` with cheats off (D253), and a load its set sets off refuses its own cheat line.
     /// </remarks>
     [Test]
-    public void Load_ABlankCommandOfAnyLength_IsSkippedNotRefused()
+    public void Load_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats()
     {
-        // `ParseArgV0` finds no first token, so `AddText` skips it before `InsertCommand` (`commandbuffer.cpp:230-232`).
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ConVarSet += (_, e) =>
+        {
+            if (e.Name == "mat_fullbright")
+            {
+                console.Load("mat_wireframe 1");
+            }
+        };
+
+        console.KeyDown("CTRL+1");
+
+        console.ConVar("mat_fullbright").ShouldBe("1", "the control: the viewer's own key set its cheat");
+        console.RefusedCheats.ShouldContain("mat_wireframe");
+    }
+
+    /// <remarks>
+    /// **A file line is cut at 1023 bytes and the rest read as the next line** (`Cmd_Exec_f`'s line reader, `engine.dll`
+    /// FUN_180177310, B820 review 7): a 1023-byte line of spaces then `{Alpha} 6` runs the ConVar as a line of its own.
+    /// </remarks>
+    [Test]
+    public void Load_ALineLongerThanTheReadersCap_ContinuesAsTheNextLine()
+    {
+        ConfigConsole console = new();
+
+        console.Load(new string(' ', 1023) + $"{Alpha} 6");
+
+        console.ConVar(Alpha).ShouldBe("6");
+    }
+
+    /// <remarks>
+    /// **A file line that is not a `bind` has `\"` made `"` and `\\` made `\`** (FUN_180177310's two replacements, B820
+    /// review 7); a `bind` line keeps them. The unescaped quote closes the value's quotes, so `5` is the value.
+    /// </remarks>
+    [Test]
+    public void Load_ALineThatIsNotABind_HasItsEscapesUndone()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} \\\"5\\\"");
+        console.ConVar(Alpha).ShouldBe("5");
+
+        console.Load("bind k \\\"+forward\\\"");
+        console.KeyDown("k");
+        console.IsHeld(ViewerAction.FlyForward).ShouldBeFalse("a bind line keeps its escapes, so k is bound to \\\"+forward\\\"");
+    }
+
+    /// <remarks>
+    /// `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it
+    /// (`commandbuffer.cpp:230-232`): a blank command, or one whose first token is `""`, of any length.
+    /// </remarks>
+    [TestCase(" ")]
+    [TestCase("\"\" ")]
+    public void Load_ABlankCommandOfAnyLength_IsSkippedNotRefused(string start)
+    {
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
 
-        console.Load($"{new string(' ', 600)};{Alpha} 3");
+        console.Load($"{start}{new string(' ', 600)};{Alpha} 3");
 
         log.Count("Command too long").ShouldBe(0);
         console.ConVar(Alpha).ShouldBe("3");
     }
 
+    /// <remarks>
+    /// **The commands after a refused one in the same text never run** (`CCommandBuffer::AddText` returns at the refusal,
+    /// `src/tier1/commandbuffer.cpp:242-243`; B820 review 6, Fable): a file's line, which `Cmd_Exec_f` hands `Cbuf_AddText`
+    /// on its own (FUN_180177310). The one before it does. (A bind or an alias cannot hold one: its own definition would be
+    /// the command too long.)
+    /// </remarks>
     [Test]
     public void Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter()
     {
