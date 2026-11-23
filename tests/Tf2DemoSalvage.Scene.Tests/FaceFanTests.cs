@@ -219,13 +219,14 @@ public sealed class FaceFanTests
     /// **A first triangle that is a sliver does not set the plane** (B803 review 4, Fable): corners (0, 0, 0), (1000, 0, 0)
     /// and (2000, 0.0005, 0.0007) are a T-junction's line, their cross product (0, −0.7, 0.5) rounding-sized against edges
     /// of 1000 and 2000 (a sine of 4e-7), yet a direction 54° from the face. The second triangle, to (0, 1000, 0), spans
-    /// the face in z = 0, and decides: (0, 0, 1) to a thousandth.
+    /// the face in z = 0, and decides: (0, 0, 1) to a thousandth. The corners' normal is tilted, (0, 0.6, 0.8), so the
+    /// corner-normal plane, the no-area fallback, reads apart from the next triangle's (review 5).
     /// </remarks>
     [Test]
     public void Faces_WhoseFirstTriangleIsASliver_TakeThePlaneOfTheNext()
     {
         WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
-            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0f, NormalZ: 1f, FaceEdge: faceEdge);
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0.6f, NormalZ: 0.8f, FaceEdge: faceEdge);
 
         FacePlane face = FaceFan.Faces(
         [
@@ -235,6 +236,60 @@ public sealed class FaceFanTests
 
         (face.First, face.Count).ShouldBe((0, 6));
         face.NormalZ.ShouldBeGreaterThan(0.999f, $"was ({face.NormalX}, {face.NormalY}, {face.NormalZ})");
+    }
+
+    /// <remarks>
+    /// **Far from the origin a sliver's noise is the coordinates' rounding, not its edges'** (B803 review 5, Fable): at
+    /// (4096, 4096, 0) an ulp is 4.9e-4. A T-junction two units along the oblique edge (1, 2, 2)/3 from the fan's base,
+    /// and the edge's far end 1000 along it, are each rounded to that, and their triangle's sine clears the 1e-4 floor
+    /// while its cross product is rounding (printed). The ulp floor takes it as no area, and the second triangle, up z
+    /// by 1000, decides: the plane of (1, 2, 2) and z, normal (2, −1, 0)/√5, to a thousandth. The corners' normal is
+    /// tilted off it, so the fallback reads apart.
+    /// </remarks>
+    [Test]
+    public void Faces_WhoseFirstTriangleIsASliverFarFromTheOrigin_TakeThePlaneOfTheNext()
+    {
+        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0.8f, NormalY: -0.2f, NormalZ: 0.565f, FaceEdge: faceEdge);
+
+        const float Base = 4096f;
+        float Along(float distance, float share) => Base + (distance * share);
+
+        WorldVertex a = Corner(Base, Base, 0f, true);
+        WorldVertex b = Corner(Along(2f, 1f / 3f), Along(2f, 2f / 3f), 2f * 2f / 3f, true);
+        WorldVertex c = Corner(Along(1000f, 1f / 3f), Along(1000f, 2f / 3f), 1000f * 2f / 3f, false);
+        WorldVertex up = Corner(Base, Base, 1000f, true);
+
+        System.Numerics.Vector3 u = new(b.X - a.X, b.Y - a.Y, b.Depth - a.Depth);
+        System.Numerics.Vector3 v = new(c.X - a.X, c.Y - a.Y, c.Depth - a.Depth);
+        TestContext.Out.WriteLine($"first triangle's sine {System.Numerics.Vector3.Cross(u, v).Length() / (u.Length() * v.Length()):E2}");
+
+        FacePlane face = FaceFan.Faces([a, b, c, a with { FaceEdge = false }, c with { FaceEdge = true }, up]).ShouldHaveSingleItem();
+
+        (face.First, face.Count).ShouldBe((0, 6));
+        System.Numerics.Vector3 normal = new(face.NormalX, face.NormalY, face.NormalZ);
+        (normal - new System.Numerics.Vector3(2f, -1f, 0f) / MathF.Sqrt(5f)).Length().ShouldBeLessThan(1e-3f, $"was {normal}");
+    }
+
+    /// <remarks>
+    /// **A real thin triangle keeps its own plane** (B803 review 5, Grok): (0, 0, 0), (1000, 0, 0), (2000, 2, 0), a sine
+    /// of 1e-3, lies in z = 0 and is no sliver; the second triangle is tilted 10° off it, to (0, 1000, 176), and the
+    /// corners' normal is tilted otherwise, so only keeping the first triangle's plane reads (0, 0, 1). A floor as loose
+    /// as 1e-2 takes the second's.
+    /// </remarks>
+    [Test]
+    public void Faces_WhoseFirstTriangleIsThinButReal_KeepItsPlane()
+    {
+        WorldVertex Corner(float x, float y, float z, bool faceEdge) =>
+            new(x, y, z, 0f, 0f, 0f, 0f, 0f, NormalX: 0f, NormalY: 0.6f, NormalZ: 0.8f, FaceEdge: faceEdge);
+
+        FacePlane face = FaceFan.Faces(
+        [
+            Corner(0f, 0f, 0f, true), Corner(1000f, 0f, 0f, true), Corner(2000f, 2f, 0f, false),
+            Corner(0f, 0f, 0f, false), Corner(2000f, 2f, 0f, true), Corner(0f, 1000f, 176f, true),
+        ]).ShouldHaveSingleItem();
+
+        face.NormalZ.ShouldBeGreaterThan(0.99999f, $"was ({face.NormalX}, {face.NormalY}, {face.NormalZ})");
     }
 
     /// <remarks>

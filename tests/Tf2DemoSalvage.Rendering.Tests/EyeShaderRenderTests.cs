@@ -864,10 +864,12 @@ public sealed class EyeShaderRenderTests
     /// **A brush face is culled by its own material's rule, not an override's** (B803 review 4, Fable): the engine's cull
     /// reads the surface's flags, set from its own material, and an entity's material override changes only what is bound.
     /// An opaque back face drawn with a translucent `$nocull` override is culled by the opaque rule and not outlined under
-    /// 3, where the override's rule would keep it.
+    /// 3, where the override's rule would keep it. The front face under the same override is the control: outlined, so
+    /// the override draws, queues and reaches the outline (review 5).
     /// </remarks>
-    [Test]
-    public void DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial()
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial(bool front, bool outlined)
     {
         using OffscreenTarget? target = Target();
 
@@ -877,9 +879,9 @@ public sealed class EyeShaderRenderTests
         }
 
         target.Wireframe = 3;
-        DrawBrush(target, [.. BrushFace(0f, 50f, front: false)], [new WorldBatch(0, 0, 6)], Identity4, overrideMaterial: "forced.vmt");
+        DrawBrush(target, [.. BrushFace(0f, 50f, front)], [new WorldBatch(0, 0, 6)], Identity4, overrideMaterial: "forced.vmt");
 
-        OutlinePixels(target, 20, 44).ShouldBe(0);
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
 
     /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>

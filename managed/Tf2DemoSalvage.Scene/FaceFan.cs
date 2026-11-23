@@ -201,14 +201,20 @@ public static class FaceFan
             return Undecided(first);
         }
 
-        // **A sliver is no area** (B803 review 4, Fable): a first triangle along one edge, a T-junction's corner, has a
-        // cross product of rounding noise, and its direction is then a plane at a random angle about that edge. Below a
-        // sine of 1e-4 (0.006°) the next triangle decides. The engine tests the face's stored plane instead
-        // (`FUN_1800dcb20` reads the surface's), which the packed vertices do not carry; measured on cp_process_final and
-        // cp_granary, no first triangle comes near it (the `outline-memory` probe, none under 1e-3).
-        float edges = MathF.Sqrt((ux * ux) + (uy * uy) + (uz * uz)) * MathF.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
+        // **A sliver is no area** (B803 reviews 4-5, Fable): a first triangle along one edge, a T-junction's corner, has a
+        // cross product of rounding noise, and its direction is then a plane at a random angle about that edge, so the
+        // next triangle decides. Two floors, either enough: a sine of 1e-4 (0.006°), and a cross product within
+        // RoundingUlps units in the last place of the corners' largest coordinate times the two edges' lengths, which is
+        // the size each corner's rounding gives it (`|δu × v| + |u × δv|`): far from the origin a short edge's noise
+        // passes the sine floor alone (at 4096 an ulp is 4.9e-4, and a corner two units along an oblique edge reads a sine
+        // over 2e-4). The engine tests the face's stored plane (`FUN_1800dcb20` reads the surface's), which the packed
+        // vertices do not carry.
+        float uLength = MathF.Sqrt((ux * ux) + (uy * uy) + (uz * uz));
+        float vLength = MathF.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
+        float largest = MathF.Max(Largest(a), MathF.Max(Largest(b), Largest(c)));
+        float ulp = MathF.BitIncrement(largest) - largest;
 
-        if (length <= SliverSine * edges)
+        if (length <= SliverSine * uLength * vLength || length <= RoundingUlps * ulp * (uLength + vLength))
         {
             return null;
         }
@@ -242,6 +248,13 @@ public static class FaceFan
 
     /// <summary>The sine of a triangle's angle below which its cross product is taken for rounding, not a direction.</summary>
     private const float SliverSine = 1e-4f;
+
+    /// <summary>How many units in the last place of a corner's coordinates its rounding is allowed, a few for the subtractions.</summary>
+    private const float RoundingUlps = 4f;
+
+    /// <summary>A corner's largest coordinate, unsigned.</summary>
+    private static float Largest(WorldVertex corner) =>
+        MathF.Max(MathF.Abs(corner.X), MathF.Max(MathF.Abs(corner.Y), MathF.Abs(corner.Depth)));
 
     /// <summary>The zero plane, which faces every eye: a face drawn whole.</summary>
     private static FacePlane Undecided(int first) => new(first, 3, 0f, 0f, 0f, 0f);

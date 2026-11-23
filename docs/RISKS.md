@@ -43208,7 +43208,8 @@ On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
 
 1. **A sliver first triangle** (Fable). *Measured first* (the `outline-memory` probe, through the model set's packing and
    the upload's slice): of 250 face planes on `cp_process_final`, no first triangle has a sine under 1e-2; of 134 on
-   `cp_granary`, 5 faces of more than one triangle are under 1e-2 and none under 1e-3. None is rounding-sized. The
+   `cp_granary`, 5 faces of more than one triangle are under 1e-2 and none under 1e-3 (*overstated; corrected in review 5,
+   item 5*). The
    engine's stored plane (`FUN_1800dcb20` reads the surface's) is not reachable from the packed vertices without a new
    per-face path through the packing's reorder. *Fixed* with the relative threshold the review offered: a triangle whose
    sine is at most 1e-4 is no area and the next decides, said in `FaceFan.PlaneOf`. Test:
@@ -43236,7 +43237,8 @@ On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
      world, each translucent leaf): one queue count;
    - at upload: a shader-name prefix test per material (`_lineFill`), the `_wireframeIgnoresZ` entries, `_mapLineFill`
      over the line-fill set, the world's outline buffer, and each brush entity's outline and face planes.
-   Review 3's item 2 said "exactly" and was not; this list supersedes it.
+   Review 3's item 2 said "exactly" and was not; this list supersedes it. *It was not exact either: review 5, item 4,
+   supersedes it.*
 5. **The outline lookup at 1 and 2** (Fable). *Fixed*: the model pass reads `_modelOutlines` only under 3. No test: a
    hash's cost, and the values 1 and 2 never read what it found.
 6. **Which material's flags** (Fable). *Read*: the cull reads the surface record's own flags (`FUN_1800dbdb0`,
@@ -43250,6 +43252,52 @@ On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
    (`EntityModelSet.Precache`) and slices each model's run as `Device3D.UploadModels` does, then counts `FaceFan.Faces`
    of it; the comment says the slice arithmetic is the one step repeated rather than carried (`Device3D`'s slice is
    private to Render). The counts are unchanged: 250 and 134.
+
+### Review 5 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `d6d7af98a`, then rebased onto main. Same rules.
+
+1. **The sliver floor far from the origin** (Fable, Grok). *Fixed*: a triangle is no area when its sine is at most
+   1e-4 **or** its cross product is within 4 units in the last place of the corners' largest coordinate times the sum
+   of its two edges' lengths (the size the corners' rounding gives it). Tests:
+   `FaceFanTests.Faces_WhoseFirstTriangleIsASliverFarFromTheOrigin_TakeThePlaneOfTheNext` (at 4096, a T-junction two
+   units along an oblique edge: sine 1.12e-4, above the old floor; red with the ulp floor off, its plane then
+   (−0.49, −0.49, 0.73) against the face's (0.89, −0.45, 0)); and, pinning it from above,
+   `Faces_WhoseFirstTriangleIsThinButReal_KeepItsPlane` (a sine of 1e-3 keeps its plane; red with the sine floor at
+   1e-2).
+2. **The sliver test's fallback** (Fable, Sonnet). The corners' normal is now (0, 0.6, 0.8), so only taking the next
+   triangle's plane passes; red, with both no-area tests and the far sliver one, when the next triangle does not
+   replace the fallback.
+3. **The override test's control** (Fable, Grok). A front face under the same override is now a case, outlined; the
+   back face's 0 has its positive beside it.
+4. **The off-path list, exactly** (Fable, Sonnet; read from the code, *not measured*; supersedes review 4's item 4).
+   With `mat_wireframe` 0, over main:
+   - per call of `DrawOpaqueBatches` (the world's opaque pass and the props', which share it), per batch: one enum
+     comparison (terrain) and, for a terrain batch, one integer (`EngineWireframe`); one integer
+     (`QueueSurfaceWireframe`); `DrawsLines`, one integer and one boolean, the set read only when a map's own material is
+     `Wireframe`; and the `lines ||` before `IsWater`, one boolean;
+   - per blended world batch: the enum, the terrain integer, and `QueueSurfaceWireframe`'s integer;
+   - per `Raster` call: `DrawsLines`' integer and boolean;
+   - per material bind: one integer (the depth guard);
+   - per decal batch, world or entity: `WireframeDecal`'s integer; in `DrawDecalBatch`, the call into `BindDecalRun` and
+     the test of its returned boolean;
+   - per kept model batch: one integer; per model: one queue count;
+   - three draining calls, one queue count each: the end of `DrawOpaqueBatches` (WorldRenderer.cs:5144),
+     `DrawTranslucentWorld` (:4924, after both the translucent and the additive passes) and `DrawTranslucentLeaf` (:8169,
+     per leaf); the model pass's (:9220) is the per-model count above;
+   - at each map load: the four engine debug materials resolved and their VMTs read (`MapAssets`, beside the studio
+     render's one); at the world's build, three `FaceFan.IsFaceEdge` calls per fanned triangle in `MapWorldBuilder` and
+     in `BrushModels`, and the `FaceEdge` mark itself, `WorldVertex` 124 to 128 bytes and a `bool` on `PropVertex`, copied
+     by the packing;
+   - at upload: a shader-name prefix test per material (`_lineFill`), the `_wireframeIgnoresZ` entries, `_mapLineFill`
+     over the line-fill set, the world's outline buffer; per model a `StartsWith(BrushModels.SubmodelPrefix)`, one `char`
+     comparison, and for each `*N` its outline buffer and `FaceFan.Faces`.
+5. **What review 4's item 1 measured** (Fable, Grok, Sonnet). Exactly: the probe's 1e-2 counter counts faces of more
+   than one triangle only (`cp_granary` 5, `cp_process_final` 0); the 1e-3 and 1e-5 counters count every face (0 and 0 on
+   both). That none is rounding-sized is inferred from the sine alone. The measurement did not choose 1e-4: it shows the
+   floor inert on those two maps.
+6. **What is read about the flags** (Sonnet). Both remarks now say only: `0x200` is NOCULL from `$nocull`, *read*
+   (B457, `0x1800fa3d0`); `0x20` and `0x40` set the same way, from the surface's own material and plane, *not read*.
 
 *As found (2026-11-21):*
 

@@ -7883,8 +7883,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// reads `0x20`, `0x200` and `0x40` off the surface record, `FUN_1800df1a0` the same `0x20`), which the engine sets
     /// from the surface's own material when the map loads, so a skin or an entity's material override, which changes only
     /// what is bound, does not move a surface between the rules. The pass filter's choice of material is a separate
-    /// question this does not answer. *Interpolated*: that the flags are set at load from the texinfo's material (the
-    /// loader was not read for this).
+    /// question this does not answer. *Read*: `0x200` is NOCULL, set from the material's <c>$nocull</c> (B457,
+    /// `0x1800fa3d0`). *Not read*: that `0x20` (translucent) and `0x40` (plane-back) are set at load the same way, from
+    /// the surface's own material and plane.
     /// </remarks>
     private readonly List<(WorldBatch Run, int Source)> _wireframeQueue = [];
 
