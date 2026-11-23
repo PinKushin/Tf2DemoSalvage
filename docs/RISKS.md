@@ -42858,6 +42858,9 @@ harmless side. Test `Expand_AReplicatedCheat_AdmitsNothingAndAClientCheatAdmitsA
 `name "value"` and would run as further console lines, from a `--like` sidecar as much as a typed line. Test
 `LaunchOptionsTests.Read_ACheatValueThatBreaksItsQuotes_IsRefused`. A `;` is not refused: TF2's `stuffcmds` runs the
 line through the same tokenizer, and how it treats one there is not read.
+**Review 11** (Gemini, Sonnet, Grok approve; Fable lows): a NUL is refused too, since the console's tokenizer ends a
+quoted token at one; the guard is tested on the `+sv_cheats` and non-cheat branches as well
+(`Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused`).
 Left, as found: a replay of a shot whose cheat the menu set at `sv_cheats 0` now runs at `sv_cheats 1`, so the replay's
 own sidecar gains `sv_cheats` the original lacks; a TF2 sidecar holding `sv_cheats 0` with a cheat still refuses it, a
 state TF2 itself cannot be in. No test runs `--like` on a committed golden.
