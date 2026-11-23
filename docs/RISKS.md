@@ -44567,6 +44567,25 @@ load):
    command count is restored with it.
 4. **The alias budget test's lower bound** (Sonnet): now half the budget, so a stop after a handful passes no longer.
 
+**Review 5** (Gemini merge; Sonnet merge with findings; Fable, Grok request changes):
+
+1. **The engine bounds a command's length, and the viewer did not** (Fable): `CCommand::Tokenize` skips a command of 511
+   bytes or more with *"CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!"* and keeps
+   at most 64 arguments (`src/tier1/convar.cpp:404-409`, `:416`; `COMMAND_MAX_LENGTH` 512 and `COMMAND_MAX_ARGC` 64 at
+   `src/public/tier1/convar.h:206-207`). An alias definition is one such command, which is what bounds one alias run's work
+   in TF2. Implemented in `Run`, per clause, in bytes. Tests: `Load_ACommandAtAndPastTheTokenizersLength_RunsOnlyUnderIt`
+   (510 runs, 511 skipped with the line) and `Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour` (a `toggle` over 70
+   values wraps at the 62nd), each red under its own sabotage.
+2. **The command bound counted alias runs, not work** (Sonnet, Fable): replaced by `MaximumCommandClauses` (2^20,
+   *interpolated*), counting every clause run, so it bounds work whatever a body holds, logs exactly once and ends the
+   command. Grok's short-circuit and repeated-log findings were about the alias-run counter it replaces.
+3. **Only `Load` restored budgets; a key pressed from a handler reset the outer command's** (Fable): one `RunCommand` now
+   starts every depth-0 command (a key, and each line `Load` reads), saving and restoring all three budgets. Tests:
+   `Load_ALoadFromAHandlerInsideALongExecTree_KeepsTheOuterClauseCount` (red when the clause count is not restored) and the
+   command test's next line running (`{Alpha} 8`).
+4. **Test controls** (Fable): the deep-then-shallow test binds `y` to the cut route alone, which must not count; the
+   budget tests stay inside the 510-byte command, as TF2 would run them.
+
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the

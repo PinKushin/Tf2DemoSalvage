@@ -394,8 +394,8 @@ public sealed class ConfigConsole
     {
         // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
         // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
-        // The budgets too: a load from a handler must not hand the outer command fresh ones (B820 review 3, Fable, Sonnet).
-        (bool loading, int execs, int aliasRuns, int commandAliasRuns) = (_loading, _execs, _aliasRuns, _commandAliasRuns);
+        // Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
+        bool loading = _loading;
         _loading = true;
 
         try
@@ -404,7 +404,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _execs, _aliasRuns, _commandAliasRuns) = (loading, execs, aliasRuns, commandAliasRuns);
+            _loading = loading;
         }
     }
 
@@ -415,6 +415,12 @@ public sealed class ConfigConsole
         {
             // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
             // whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+            if (depth == 0)
+            {
+                _ = RunCommand(line, key: null);
+                continue;
+            }
+
             _aliasRuns = 0;
             _ = Run(line, key: null, depth);
         }
@@ -447,11 +453,31 @@ public sealed class ConfigConsole
         {
             // The key travels with the command because a button tracks WHICH keys hold it — see
             // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
-            return Run(command, key!, depth: 0);
+            return RunCommand(command, key!);
         }
         finally
         {
             _viewerIssued = false;
+        }
+    }
+
+    /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
+    /// <remarks>
+    /// The one place budgets start (B820 review 5, Fable): a key, and each line of a file <see cref="Load"/> reads. Saved and
+    /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
+    /// </remarks>
+    private bool RunCommand(string line, string? key)
+    {
+        (int execs, int aliasRuns, int clauses) = (_execs, _aliasRuns, _commandClauses);
+        (_execs, _aliasRuns, _commandClauses) = (0, 0, 0);
+
+        try
+        {
+            return Run(line, key, depth: 0);
+        }
+        finally
+        {
+            (_execs, _aliasRuns, _commandClauses) = (execs, aliasRuns, clauses);
         }
     }
 
@@ -497,7 +523,7 @@ public sealed class ConfigConsole
 
         // Stryker restore all
 
-        _ = Run(string.Concat("-", command.AsSpan(1)), key!, depth: 0);
+        _ = RunCommand(string.Concat("-", command.AsSpan(1)), key!);
     }
 
     /// <summary>Lets go of every button, leaving the binds and aliases in place.</summary>
@@ -918,15 +944,22 @@ public sealed class ConfigConsole
     /// <summary>Aliases run since the last line began; see <see cref="MaximumAliasRuns"/>.</summary>
     private int _aliasRuns;
 
-    /// <summary>How many aliases one command at depth 0 may run in all, every exec'd file's lines included.</summary>
-    /// <remarks>
-    /// *Interpolated* (B820 review 4, Sonnet): the per-line budget resets on each line of a nested `exec`, so without this a
-    /// command's work was bounded only by 256 files of 1 MB lines, each line 4096 runs. A million runs takes about a second.
-    /// </remarks>
-    public const int MaximumCommandAliasRuns = 1 << 20;
+    /// <summary>`COMMAND_MAX_LENGTH`: a command of this many bytes less one or more is skipped (`src/public/tier1/convar.h:207`).</summary>
+    public const int MaximumCommandLength = 512;
 
-    /// <summary>Aliases run since the last command at depth 0; see <see cref="MaximumCommandAliasRuns"/>.</summary>
-    private int _commandAliasRuns;
+    /// <summary>`COMMAND_MAX_ARGC`: the arguments a command keeps (`src/public/tier1/convar.h:206`).</summary>
+    public const int MaximumArguments = 64;
+
+    /// <summary>How many clauses one command at depth 0 may run in all: every alias body's and exec'd file's included.</summary>
+    /// <remarks>
+    /// *Interpolated* (B820 reviews 4 and 5, Sonnet): the per-line budget resets on each line of a nested `exec`, and counts
+    /// alias runs rather than what a body does, so without this a command's work was bounded only by 256 files of 1 MB
+    /// lines and by the length of an alias body. A clause is the unit of work, so this bounds the work itself.
+    /// </remarks>
+    public const int MaximumCommandClauses = 1 << 20;
+
+    /// <summary>Clauses run since the last command at depth 0; see <see cref="MaximumCommandClauses"/>.</summary>
+    private int _commandClauses;
 
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
@@ -1295,20 +1328,38 @@ public sealed class ConfigConsole
             return acted;
         }
 
-        if (depth == 0)
-        {
-            _execs = 0;
-            _aliasRuns = 0;
-            _commandAliasRuns = 0;
-        }
-
         foreach (string clause in SourceConfig.Clauses(commandLine))
         {
+            // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).
+            if (++_commandClauses > MaximumCommandClauses)
+            {
+                if (_commandClauses == MaximumCommandClauses + 1)
+                {
+                    Log.LogInformation("{Message}", $"more than {MaximumCommandClauses} commands run from one command; not running the rest.");
+                }
+
+                return acted;
+            }
+
+            // **A command of 511 bytes or more is skipped, and at most 64 arguments are kept** (`CCommand::Tokenize`,
+            // `src/tier1/convar.cpp:404-409` and `:416`; `COMMAND_MAX_LENGTH` 512, `COMMAND_MAX_ARGC` 64 in
+            // `src/public/tier1/convar.h:206-207`). It bounds an alias body too, which is one such command (B820 review 5, Fable).
+            if (System.Text.Encoding.UTF8.GetByteCount(clause) >= MaximumCommandLength - 1)
+            {
+                Log.LogInformation("{Message}", "CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!");
+                continue;
+            }
+
             IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
 
             if (tokens.Count == 0)
             {
                 continue;
+            }
+
+            if (tokens.Count > MaximumArguments)
+            {
+                tokens = [.. tokens.Take(MaximumArguments)];
             }
 
             string command = tokens[0];
@@ -1319,15 +1370,11 @@ public sealed class ConfigConsole
             {
                 // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
                 // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
-                if (++_aliasRuns > MaximumAliasRuns || ++_commandAliasRuns > MaximumCommandAliasRuns)
+                if (++_aliasRuns > MaximumAliasRuns)
                 {
                     if (_aliasRuns == MaximumAliasRuns + 1)
                     {
                         Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
-                    }
-                    else if (_commandAliasRuns == MaximumCommandAliasRuns + 1)
-                    {
-                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumCommandAliasRuns} alias runs from one command; not running the rest.");
                     }
 
                     acted = true;

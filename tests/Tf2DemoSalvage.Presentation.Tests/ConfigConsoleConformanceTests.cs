@@ -1250,21 +1250,91 @@ public sealed class ConfigConsoleConformanceTests
         sets.ShouldBeLessThanOrEqualTo(ConfigConsole.MaximumAliasRuns + 1);
     }
 
+    /// <summary>
+    /// An alias `wa` whose body runs 150 of `wb`, each running 240 unknown commands: 36,151 clauses a line, inside the engine's
+    /// 510-byte command and under the per-line alias budget; 30 such lines pass the command's budget. <paramref name="lead"/>
+    /// goes first in `wa`'s body.
+    /// </summary>
+    private static string WideAliases(string lead = "") =>
+        $"alias wb \"{string.Join(';', Enumerable.Repeat("x", 240))}\"\n" +
+        $"alias wa \"{lead}{string.Join(';', Enumerable.Repeat("wb", 150))}\"";
+
     /// <remarks>
-    /// **…and one command runs at most <see cref="ConfigConsole.MaximumCommandAliasRuns"/> in all** (B820 review 4, Sonnet): the
-    /// per-line budget resets on every line of an exec'd file, so 300 lines each under it still stop at the command's.
+    /// **…and one command runs at most <see cref="ConfigConsole.MaximumCommandClauses"/> clauses in all** (B820 reviews 4 and 5,
+    /// Sonnet): the per-line budget resets on every line of an exec'd file and counts alias runs, not what a body does, so 20
+    /// lines each under it still stop at the command's. Said once, and the next command runs.
     /// </remarks>
     [Test]
     public void Exec_AFileWhoseLinesStayUnderTheLineBudget_StopsAtTheCommandBudget()
     {
         RecordingLogger log = new();
-        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("a", 300))));
+        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("wa", 30))));
         console.Log = log;
 
-        console.Load($"alias n \"\"\nalias a \"{string.Join(';', Enumerable.Repeat("n", 4000))}\"\nexec big");
+        console.Load($"{WideAliases()}\nexec big\n{Alpha} 8");
 
-        log.Count($"more than {ConfigConsole.MaximumCommandAliasRuns} alias runs from one command").ShouldBe(1);
+        log.Count($"more than {ConfigConsole.MaximumCommandClauses} commands run from one command").ShouldBe(1);
         log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(0);
+        log.Count("overflows the tokenizer buffer").ShouldBe(0, "every command is inside the engine's length");
+        console.ConVar(Alpha).ShouldBe("8", "the next command has a budget of its own (B820 review 5, Fable)");
+    }
+
+    /// <remarks>
+    /// **A load from a handler keeps the outer command's clause count** (B820 review 5, Sonnet, Fable): the handler's `Load`
+    /// runs commands of its own, and without the restore the exec tree above never reaches the command's budget.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideALongExecTree_KeepsTheOuterClauseCount()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("wa", 30))));
+        console.Log = log;
+        console.ReadSettingsFrom(_ => null);
+        int handled = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            handled++;
+            console.Load("x");
+        };
+
+        console.Load($"{WideAliases($"{Alpha} 1;")}\nexec big");
+
+        handled.ShouldBeGreaterThan(0, "the control: the handler loaded inside the tree");
+        log.Count($"more than {ConfigConsole.MaximumCommandClauses} commands run from one command").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A command of 511 bytes or more is skipped** (`CCommand::Tokenize`, `src/tier1/convar.cpp:404-409`), with TF2's line;
+    /// 510 runs. An alias definition is one such command, which is what bounds what one alias run can do.
+    /// </remarks>
+    [TestCase(510, "5")]
+    [TestCase(511, null)]
+    public void Load_ACommandAtAndPastTheTokenizersLength_RunsOnlyUnderIt(int length, string? expected)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string command = $"{Alpha} 5";
+
+        console.Load(command + new string(' ', length - command.Length - 2) + "\"\"");
+
+        console.ConVar(Alpha).ShouldBe(expected);
+        log.Count("CCommand::Tokenize: Encountered command which overflows the tokenizer buffer.. Skipping!")
+            .ShouldBe(expected is null ? 1 : 0);
+    }
+
+    /// <remarks>
+    /// **A command keeps at most 64 arguments** (`COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`; the tokenizer's loop,
+    /// `src/tier1/convar.cpp:416`). `toggle` and the name are two, so values 1 to 62 are kept of 1 to 70; from 62, the last
+    /// kept, it wraps to 1, where all 70 would go on to 63.
+    /// </remarks>
+    [Test]
+    public void Load_ACommandWithMoreThanSixtyFourArguments_KeepsSixtyFour()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 62\ntoggle {Alpha} {string.Join(' ', Enumerable.Range(1, 70))}");
+
+        console.ConVar(Alpha).ShouldBe("1");
     }
 
     /// <remarks>
@@ -1278,9 +1348,9 @@ public sealed class ConfigConsoleConformanceTests
         IEnumerable<string> chain = Enumerable.Range(1, 19)
             .Select(at => $"alias c{at} {(at < 19 ? $"c{at + 1}" : "s")}");
 
-        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"");
+        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
 
-        console.Applied.ShouldBe(1);
+        console.Applied.ShouldBe(1, "x counts; y, whose only route to s is the cut one, does not (B820 review 5, Fable)");
     }
 
     /// <remarks>
