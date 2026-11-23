@@ -593,11 +593,13 @@ public sealed partial class ViewerPresenter : IDisposable
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">A worker is reading a map (review 24 item 1).</exception>
+    /// <remarks>
+    /// **Never beside a worker's read, and so not guarded against one** (B779 review 25 item 1): its one production caller
+    /// is the frame's reload after a lost device (`NeedsReload`, `ViewerPresenter.Draw`), inside `RenderFrame`, which returns
+    /// while the barrier is up. Rounds 23-24 added a refusal here that nothing in production could reach; it was removed.
+    /// </remarks>
     public bool LoadMap(string mapName)
     {
-        RefuseBesideAWorkerRead();
-
         try
         {
             return ReadDemoMap(mapName).Drawn;
@@ -605,26 +607,6 @@ public sealed partial class ViewerPresenter : IDisposable
         finally
         {
             EndLevelHud();
-        }
-    }
-
-    /// <summary>
-    /// The synchronous routes — `LoadMap` (the frame's reload after a lost device, `ViewerPresenter.Draw`) and `LoadDemo`
-    /// (`MainForm.LoadDemo`, the tests) — refuse while a worker is reading a map (B779 reviews 23-24): they run on the UI
-    /// thread and do not queue, and beside a worker they would clear the map and read into the same entity set.
-    /// </summary>
-    /// <remarks>
-    /// **Keyed on the barrier, not on the queue** (review 24 item 1): only a raised barrier means a worker is reading. A
-    /// queued load that has not raised it yet, or one that has lowered it, has no worker in the entity set, and a reload
-    /// then reads as it always did. Checked first, on the UI thread, before anything is changed (item 3) or begun (item 2):
-    /// the barrier is raised and lowered only in UI marshals, so it cannot change during the call.
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">A worker is reading a map.</exception>
-    private void RefuseBesideAWorkerRead()
-    {
-        if (_readingMap)
-        {
-            throw new InvalidOperationException("a synchronous map read was asked for while a worker is reading a map");
         }
     }
 
@@ -887,12 +869,12 @@ public sealed partial class ViewerPresenter : IDisposable
     /// selection state needs a created window handle, so a form that was never shown reports no
     /// selection at all — which made the first version of this test fail for a reason that had
     /// nothing to do with loading.
+    ///
+    /// **Tests' only** (B779 review 25 item 1): its one other caller, `MainForm.LoadDemo`, is itself called only by
+    /// `Viewer3D.Tests`. Kept, because a test needs a load that has finished when the call returns.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">A worker is reading a map (review 24 item 3: refused before anything changes).</exception>
     public DemoLoadResult LoadDemo(string path)
     {
-        RefuseBesideAWorkerRead();
-
         // **Takes a ticket it never asks about**, so that starting a synchronous load supersedes any
         // async one already decoding. Both paths end by assigning the same fields.
         _loads.Take();
@@ -933,9 +915,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// slower one must not overwrite the faster: each takes a ticket and only the newest is shown.
     /// Without that, opening a big demo and changing your mind leaves you looking at the big one.
     ///
-    /// **The synchronous <see cref="LoadDemo"/> stays** for `MainForm.LoadDemo` and the tests, where a
-    /// caller that returns before the demo exists is simply wrong (review 24 item 6: the command line
-    /// and `--shot` open demos through this method, not that one).
+    /// **The synchronous <see cref="LoadDemo"/> stays** for the tests, where a caller that returns
+    /// before the demo exists is simply wrong. Every production route opens demos through this method:
+    /// the playlist, the command line and `--shot` (review 25 item 4).
     /// </remarks>
     public async Task<DemoLoadResult> LoadDemoAsync(string path)
     {
@@ -1147,13 +1129,21 @@ public sealed partial class ViewerPresenter : IDisposable
         }
         catch
         {
-            // A read that throws lowers the barrier on its way out, and lets its fixed HUD go; the caller says why.
+            // A read that throws lowers the barrier on its way out, and lets its fixed HUD go — in the same UI marshal, as
+            // the success path does (review 25 item 2); the caller says why.
             _view.OnUi(() =>
             {
-                _readingMap = false;
+                try
+                {
+                    _readingMap = false;
+                }
+                finally
+                {
+                    EndLevelHud();
+                }
+
                 return 0;
             });
-            EndLevelHud();
             throw;
         }
 
@@ -1334,14 +1324,14 @@ public sealed partial class ViewerPresenter : IDisposable
         // caller to write into.
 
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
-        // that and passes what it found; the synchronous path (`LoadDemo`: `MainForm.LoadDemo` and the
-        // tests) passes null and reads it here.
+        // that and passes what it found; the synchronous `LoadDemo`, which only tests call, passes null
+        // and reads it here.
         (bool haveMap, IReadOnlyList<string> mapSaid) = read ?? ReadDemoMap(_demo.MapName);
 
         // **Here as well as on the load worker, because there are TWO load paths and only one of
-        // them went through the worker.** `LoadDemoAsync` is the playlist's, the command line's and
-        // `--shot`'s route today; `LoadDemo` is `MainForm.LoadDemo`'s and the tests', and it calls Apply
-        // directly (review 24 item 6: the command line used it when this was written). The first attempt
+        // them went through the worker.** `LoadDemoAsync` is every production route today — the
+        // playlist, the command line and `--shot`; `LoadDemo`, which only tests call, calls Apply directly
+        // (review 25 item 4: the command line used it when this was written). The first attempt
         // put the precache only in the async path, so launching with a demo on the command line
         // precached nothing at all and the 425 ms stall was still in the log — which is
         // `docs/memory/one-place-or-it-drifts.md`, and the log is what caught it.
@@ -1355,7 +1345,7 @@ public sealed partial class ViewerPresenter : IDisposable
         //
         // **This path reads `_game` rather than a returned value** (B208), unlike the one in
         // `LoadDemoAsync`, and the difference is real: here the map may have been read on either
-        // path — `read ?? LoadMap(...)` — so there is no single call whose result could carry it.
+        // path — `read ?? ReadDemoMap(...)` — so there is no single call whose result could carry it.
         // The comment above is the whole of the guarantee here, which is exactly why the other call
         // site was changed to carry it structurally instead.
         DemoModels.Precache(_models, _timeline, _game, _renderLog);

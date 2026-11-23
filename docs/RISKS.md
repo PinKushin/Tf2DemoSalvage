@@ -43551,7 +43551,9 @@ facts it follows are that it loads one level at a time and draws no world while 
 The queue tests passed in five more runs in a row.
 
 **Review 24** (Fable, Sonnet; Grok's points folded in; Gemini still out). Item numbers are the coordinator's, and Grok's
-are marked G. Everything here is the viewer's own threading, not engine parity.
+are marked G. Everything here is the viewer's own threading, not engine parity. *Superseded by review 25 item 1*: the
+synchronous refusal that items 1-3 shape was unreachable in production and has been removed, with its rows. Items 1-3
+below record what was done and why it was undone; item 4's release rows stay.
 
 1. *The synchronous refusal could crash the render loop*: **true**.
    - `NeedsReload` (ViewerPresenter.Draw.cs:100-104) calls `LoadMap` from inside the frame. The refusal keyed on an
@@ -43584,7 +43586,8 @@ are marked G. Everything here is the viewer's own threading, not engine parity.
    code change: with no install published, the precache does not run.
 6. *Stale route comments*: **true**.
    - `LoadDemoAsync` is the playlist's, the command line's (`ViewerSession.Capture.cs:522`) and `--shot`'s route.
-   - `LoadDemo` is `MainForm.LoadDemo`'s and the tests'.
+   - `LoadDemo` is called by `MainForm.LoadDemo` and the tests, and `MainForm.LoadDemo` is called only by
+     `Viewer3D.Tests` (review 25 item 4). No production route reaches `LoadDemo`.
    - `LoadMap` is the frame's reload.
    - The comments now name these callers. Review 22 item 4 now names the new place of the begin.
 
@@ -43605,6 +43608,37 @@ Grok's items:
   production. No change.
 - **G5** (the Scene row never selects stock): **false**. `ChosenHud` is null, which is stock, from the first part of the
   row. The row now asserts that as a control and says so in its comment.
+
+**Review 25** (Fable OK to merge; Sonnet nothing high; Gemini and Grok still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The synchronous refusal is unreachable in production*: **true**. It is removed, together with its two rows
+   (`LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed`, `LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap`)
+   and the claims about it. **Do not re-add it.** The reason, from a search of every caller:
+   - `LoadMap`'s one production caller is the frame's reload after a lost device (`NeedsReload`,
+     ViewerPresenter.Draw.cs:100-104). It runs inside `RenderFrame`, which returns while the barrier is up, so it never
+     runs beside a worker's read. The coordinator also named `MapRead` and `OpenDevice` as callers; neither calls
+     `LoadMap` in this tree.
+   - `LoadDemo`'s one non-test caller is `MainForm.LoadDemo` (MainForm.cs:892), which only `Viewer3D.Tests` calls. Both
+     are kept for tests, which need a load that has finished when the call returns. No comment calls them a production
+     route any more.
+2. *The failure path's release ran on the worker, after the marshal*: **true**. It now runs in that marshal, in a
+   `finally`, on the UI thread, as the success path's does. The failure row
+   (`LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo`) pins that it runs. Which thread it runs on is not
+   cheaply observable.
+3. *A mapless read installs while `_game` stays null or old*: **true, recorded**. `BeginLevelHud` calls
+   `_levels.Install` at the top of every map read, so on a mapless or missing-map read `LevelSystems` holds the install
+   while the presenter's `_game` stays as it was until a map is read (`ReadMap`). Publishing `_game` there would make a
+   mapless first load precache against the install, which D224 does not support, so it is left. The fixed view is then
+   read by nothing (review 24 item 5).
+4. *Stale wording*: **true**. The remarks at `LoadDemo`, `LoadDemoAsync` and `Apply`, and review 24 item 6, now say
+   that only tests reach `LoadDemo`.
+
+Gemini's two points on review 24:
+- *`MainForm.LoadDemo` breaks its "reported, never thrown" contract*: **false**. That contract, MainForm.cs:901-903, is
+  `LoadSelected`'s, the method at :905. `LoadDemo` (:892) states none. It forwards to `ViewerPresenter.LoadDemo`, which
+  reports I/O and invalid-data failures through `CouldNotOpen`, and removing the refusal removed the one new exception.
+- *A stale `read ?? LoadMap(...)` in `Apply`'s comment*: **true**. It now reads `read ?? ReadDemoMap(...)`.
 
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
