@@ -1441,6 +1441,13 @@ public sealed class ConfigConsole
             // and `AddText` (`:242-243`) then returns, so the commands after it in that file line, bind or alias body never run.
             // The strings are in TF2's `engine.dll`, so the engine links this tier1 code. *Interpolated*: that an alias body is
             // inserted through `AddText` as a bind and an exec'd line are.
+            // `ParseArgV0` finding no first token skips the command before `InsertCommand` measures it (`:230-232`), so a
+            // blank command of any length is no command, not a refused one.
+            if (string.IsNullOrWhiteSpace(clause))
+            {
+                continue;
+            }
+
             if (length >= MaximumCommandLength - 1)
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");

@@ -1334,6 +1334,19 @@ public sealed class ConfigConsoleConformanceTests
     /// before it does. (A bind or an alias cannot hold one: its own definition would be the command too long.)
     /// </remarks>
     [Test]
+    public void Load_ABlankCommandOfAnyLength_IsSkippedNotRefused()
+    {
+        // `ParseArgV0` finds no first token, so `AddText` skips it before `InsertCommand` (`commandbuffer.cpp:230-232`).
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"{new string(' ', 600)};{Alpha} 3");
+
+        log.Count("Command too long").ShouldBe(0);
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    [Test]
     public void Load_ALineWithACommandTooLong_RunsWhatCameBeforeItAndNothingAfter()
     {
         ConfigConsole console = new();
