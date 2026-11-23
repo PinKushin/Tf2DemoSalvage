@@ -44481,7 +44481,9 @@ lookup on the same search path `Tf2ConfigFiles` reads (our `custom/`, then the g
 engine's self-`exec` bound is not read (nothing in `Cmd_Exec_f` counts depth); this viewer stops at
 `MaximumExpansion`, as its alias expansion already does, so a looping config cannot hang startup.
 
-**Review 1** (Fable, Sonnet, Grok; Gemini pending at writing):
+**Review 1** (Fable, Sonnet, Grok; Gemini approved with no findings, and read the nested flat lookup and the empty
+flat file's shadow as D193's intent, where the other three read them as regressions; item 4 takes theirs, because D193
+is about a file pasted directly into `custom/`, and the engine finds a nested name under an addon's `cfg/`):
 
 1. **A key with a viewer default dropped a bound `exec` or `bind`** (Fable). `SetsState` knew no ConCommand of the
    console's own, so `CommandFor` fell back to the default (`bind F5 "exec x"` took a screenshot). Fixed: it knows
