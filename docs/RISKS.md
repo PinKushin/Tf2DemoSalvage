@@ -44337,10 +44337,14 @@ Found in B779 review 34 (Fable). Pre-existing; the review-33 upload line made it
 ## B819 — a lost-device reload is a level change: it ends the level's sounds and state, where the engine restores only the device (2026-11-23) — OPEN
 
 Found in B814 review 2 (Fable). When the world is lost after its pixels were released, `FollowUpload` reloads through
-`LoadMap`, which runs `ClearMap` (every level system shut down) and a full map read. The read sets
-`SoundPresenter.Scripts`, whose setter ends every level patch (`ForgetPatches`), and the next pass stops them, so a
-looping patch the kept schedule started (a medigun heal loop, a corpse scrape) stays silent until its next start; the
-soundscape's voices are stopped too (B814 review 1, Sonnet). B814 re-runs the demo's precache after it. A device reset in
+`LoadMap`, which runs `ClearMap` (every level system shut down) and a full map read. Read from the viewer's code: the
+read sets `SoundPresenter.Scripts`, whose setter ends every level patch (`ForgetPatches`), and the next pass stops them
+(`StopLevelPatches`), so a looping patch the kept schedule started (a medigun heal loop, a corpse scrape) is silenced;
+that it then stays silent until its next scheduled start is *inferred*, not traced through `SoundSchedule`. The
+soundscape's voices are stopped (`SoundscapeSystem.LevelShutdownPreEntity`). Not only sound (B814 review 3, Fable,
+Sonnet): `ClearMap` also runs `_effects.ClearMap` and the read `_effects.LevelInit`, the read drops the corpse record and
+`_models.Corpses`, and `EndLevelHud` runs the HUD's level shutdown (`TfHudCrosshair`, `TfTargetId`,
+`TfHudVoiceStatus`); what each of those drops on screen is not read. B814 re-runs the demo's precache after it. A device reset in
 Source restores the material system's resources and is not a level change; *recalled, not read*: what the engine's
 device-restore path touches is to be read before the fix (the closed `materialsystem` / `shaderapidx9` restore
 functions, and the engine's own handler). Fix shape, pending that read: a reload that re-uploads the device's resources
@@ -44350,7 +44354,7 @@ from the level the viewer still holds, without shutting the level down. Same on 
 
 **Fixed, and wider than filed.** The reload's `ClearMap` resets the packed models (`EntityModelSet` at level shutdown);
 its map read resets the sound cache's list (`LevelSystems.Load` calls `SoundCache.Level`) and drops the corpse record
-(`ReadMapNamed`). What a demo's load precaches once its map is read is now one method,
+(`ReadMap`, once the map file is found). What a demo's load precaches once its map is read is now one method,
 `ViewerPresenter.PrecacheTheDemosLevel` (models, sounds including the client's effect sounds, the corpse record),
 called by the load and by `LoadMap` when a demo is open. The **sound schedule is not rebuilt**: it is the demo's (B228)
 and survives the reload, so the effect sounds are scheduled by the load alone and their list (`_emitted`, emptied with
@@ -44361,8 +44365,12 @@ and the schedule is the same object (control: a reload with no demo open runs no
 call on no demo open reddens it, and so does assigning the schedule on reload. **What it cannot see**: the fixture's
 install is empty, so neither precache packs or decodes anything, `AddEffectSounds` returns before it schedules, and
 there are no corpses; so re-adding `AddEffectSounds` to the reload, dropping `_emitted` from the sound precache, and
-the record's restart all stay green. Those are held by the code's shape, not by a test. Not verified by looking: no
-lost device was provoked.
+the record's restart all stay green. Nor can it see (review 3, Fable, Sonnet, Grok): the order (the precache moved above
+the map read, which then wipes it, stays green, since it counts log lines); the `_emitted` resets at a demo's set and a
+failed open (they matter only if `Apply` throws an unlisted exception between the reset and the schedule, and the test
+loads one demo); the production route through `FollowUpload` and its in-flight guard (the test calls `LoadMap`); and the
+async load path. Those are held by the code's shape, not by a test. Not verified by looking: no lost device was
+provoked.
 
 **Review 1** (Fable, Gemini, Sonnet, Grok): the first fix re-ran `AddEffectSounds` on the reload, which replaced the
 demo's live schedule and restarted every sound mid-playback (`SoundPresenter.Schedule`'s setter resets the cursor; the
@@ -44377,6 +44385,12 @@ corrected. `_emitted` is emptied when a demo is set and when one fails to open. 
 stops every looping patch the kept schedule had started (the map read sets `SoundPresenter.Scripts`, which ends the
 level's patches), so a medigun loop stays silent until its next start. Same on main; filed as B819 with the reload's
 other level-change effects.
+
+**Review 3** (Gemini passes; Fable, Sonnet, Grok approve with findings). Done: the reload's precache now catches what
+the load's does (`IOException`, `InvalidDataException`), logged, so a failed archive read on the frame's path leaves the
+models to pack on sight, as before B814, rather than ending the frame (Sonnet; *no test*: no fixture can fail an
+archive read on the reload). The corpse record's drop is `ReadMap`, not `ReadMapNamed` (Fable). The "cannot see" list
+above is completed, and B819 now lists the reload's non-sound effects and marks what is inferred.
 
 **As filed:**
 

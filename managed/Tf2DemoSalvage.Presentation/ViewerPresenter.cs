@@ -608,7 +608,16 @@ public sealed partial class ViewerPresenter : IDisposable
             // The open demo's level set up again, as its load did (B814), keeping the schedule it made.
             if (_demo is not null && _timeline is { } timeline)
             {
-                PrecacheTheDemosLevel(timeline);
+                try
+                {
+                    PrecacheTheDemosLevel(timeline);
+                }
+                catch (Exception failure) when (failure is IOException or InvalidDataException)
+                {
+                    // The load's own catch (`Apply`), here on the frame's path (B814 review 3, Sonnet): an archive that
+                    // fails to read leaves the demo's models to pack on sight, as before B814, rather than ending the frame.
+                    _log.LogWarning(failure, "{Message}", $"precaching the demo again on {mapName} after the lost device");
+                }
             }
 
             return drawn;
@@ -633,7 +642,7 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <remarks>
     /// **Run by every load and by the reload after a lost world** (B814): the reload's `ClearMap` shuts the level's
     /// systems down, which resets the packed models (`EntityModelSet` at level shutdown); its map read resets the sound
-    /// cache's list (`LevelSystems.Load` calls `SoundCache.Level`) and drops the corpse record (`ReadMapNamed`); the read
+    /// cache's list (`LevelSystems.Load` calls `SoundCache.Level`) and drops the corpse record (`ReadMap`); the read
     /// restores only the map's own. **The schedule is the demo's and survives** (B228: `DemoSystems.Open` owns it), so the
     /// effect sounds are scheduled by the load alone, before this, and never here: a new schedule would restart every
     /// sound in flight mid-playback (B814 review 1, Fable, Gemini, Sonnet). Not the engine's shape: a reload that re-reads
