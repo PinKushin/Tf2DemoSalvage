@@ -44656,7 +44656,7 @@ load):
    bytes on the line and skips the rest; a .NET string cannot hold half a character, and it needs a 1023-byte line ending
    mid-character (Fable, Sonnet, Grok).
 
-**Review 9** (Sonnet merge; Fable merge after one fix; Gemini pending at writing; Grok request changes):
+**Review 9** (Sonnet merge; Fable and Gemini merge after one fix, the leading NUL, item 1; Grok request changes):
 
 1. **A file beginning with a NUL ran the rest** (Fable, Grok): `Cmd_Exec_f` loops while the line's `strlen` is above 0,
    and the first byte is copied whatever it is, so such a file runs nothing. Fixed. Test:
