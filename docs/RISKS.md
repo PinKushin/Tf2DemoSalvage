@@ -44673,14 +44673,20 @@ load):
 test and are back above it (Fable, Sonnet); `Stuff`'s `_viewerIssued` clear is pinned by
 `Stuff_FromAHandlerInsideTheViewersOwnKey_RefusesItsCheats` (Fable), red with `AtStartup` removed.
 
-## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — OPEN
+## B822 — a config's UTF-8 byte order mark is stripped, where TF2 runs it as part of the first command (2026-11-23) — DECIDED 2026-11-23: kept above Valve (D265)
+
+**Decided.** Measured on live TF2: a file `EF BB BF` + `echo bom_first_line_ran` + `echo bom_second_line_ran`, `exec`'d,
+printed `Unknown command "�"` and then only `bom_second_line_ran`; a control file without the mark printed its line. The
+owner kept the strip above Valve (D265); `docs/ABOVE-VALVE.md` lists it with
+`Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole`, red with the strip shortened to two bytes.
+
 
 Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`; its own comment says why: *"left in place it
 becomes part of the first token — which turns a leading `unbindall` into an unknown command which is skipped in
 silence"*. That is what TF2 does: `Cmd_Exec_f`'s line reader (`engine.dll` FUN_180177310) copies the file's first byte
 whatever it is and the rest as ordinary bytes, so the BOM joins the first token. The strip is not listed in
 `docs/ABOVE-VALVE.md`, so it is either an addition to list there with its test or a divergence to remove; removing it
-changes what a Notepad-saved config does (D246). **Needs the owner.** *Not fixed*.
+changes what a config saved with a mark does (D246). (Current Windows Notepad saves UTF-8 without a mark unless asked.)
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 

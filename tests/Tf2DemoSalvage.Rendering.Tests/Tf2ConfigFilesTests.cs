@@ -324,6 +324,30 @@ public sealed class Tf2ConfigFilesTests
         }
     }
 
+    /// <remarks>
+    /// **Above Valve (D265, B822): a config's UTF-8 byte order mark is stripped.** Measured on live TF2 (2026-11-23): `exec`
+    /// of a file `EF BB BF` + `echo …` prints `Unknown command "�"` and runs only the second line, as `Cmd_Exec_f`'s line reader
+    /// copies the first byte whatever it is. The owner: *"keep it as a above valve, we dont want the configs to break the
+    /// viewer"*. The control: the same text without the mark reads the same.
+    /// </remarks>
+    [Test]
+    public void Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "tf2ds-owncustom-bom-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        File.WriteAllBytes(Path.Combine(root, "autoexec.cfg"), [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.ASCII.GetBytes("unbindall")]);
+        File.WriteAllBytes(Path.Combine(root, "config.cfg"), System.Text.Encoding.ASCII.GetBytes("unbindall"));
+
+        try
+        {
+            Texts(null, ownCustomRoot: root).ShouldBe(["unbindall", "unbindall"], "the control is config.cfg, with no mark");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()
     {
