@@ -32,7 +32,7 @@ public sealed class Tf2ConfigFilesTests
             return;
         }
 
-        IReadOnlyList<string> configs = Tf2ConfigFiles.Read(tf);
+        List<string> configs = Texts(tf);
 
         TestContext.Out.WriteLine($"{configs.Count} configs found under {tf}");
 
@@ -68,9 +68,9 @@ public sealed class Tf2ConfigFilesTests
     {
         // The viewer must start on a machine with no TF2 installed. Its own defaults are a complete
         // set of controls, so this is a normal outcome and not a degraded one.
-        Tf2ConfigFiles.Read(null).ShouldBeEmpty();
-        Tf2ConfigFiles.Read(string.Empty).ShouldBeEmpty();
-        Tf2ConfigFiles.Read("   ").ShouldBeEmpty();
+        Texts(null).ShouldBeEmpty();
+        Texts(string.Empty).ShouldBeEmpty();
+        Texts("   ").ShouldBeEmpty();
     }
 
     [Test]
@@ -83,7 +83,7 @@ public sealed class Tf2ConfigFilesTests
 
         try
         {
-            Tf2ConfigFiles.Read(empty).ShouldBeEmpty();
+            Texts(empty).ShouldBeEmpty();
         }
         finally
         {
@@ -136,7 +136,7 @@ public sealed class Tf2ConfigFilesTests
 
         // The claim under test is that discovery goes through the archives at all, which is what
         // makes a VPK readable without this file knowing what one is.
-        Tf2ConfigFiles.Read(tf).Count.ShouldBeGreaterThan(0);
+        Texts(tf).Count.ShouldBeGreaterThan(0);
     }
 
     [Test]
@@ -151,7 +151,7 @@ public sealed class Tf2ConfigFilesTests
 
         try
         {
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(null, ownCustomRoot: root);
+            List<string> configs = Texts(null, ownCustomRoot: root);
 
             configs.ShouldContain(text => text.Contains("+forward", StringComparison.Ordinal));
         }
@@ -170,9 +170,10 @@ public sealed class Tf2ConfigFilesTests
 
         try
         {
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(null, ownCustomRoot: root);
+            IReadOnlyList<(string Path, string Text)> files = Tf2ConfigFiles.ReadFiles(null, ownCustomRoot: root);
 
-            configs.ShouldContain(text => text.Contains("+use", StringComparison.Ordinal));
+            // Each config carries its path from `Order`, which ranks it (D264, B816).
+            files.ShouldContain(file => file.Path == "cfg/config.cfg" && file.Text.Contains("+use", StringComparison.Ordinal));
         }
         finally
         {
@@ -195,7 +196,7 @@ public sealed class Tf2ConfigFilesTests
 
         try
         {
-            Tf2ConfigFiles.Read(game, ownCustomRoot: custom).ShouldBe(["bind \"e\" \"+ours\""]);
+            Texts(game, ownCustomRoot: custom).ShouldBe(["bind \"e\" \"+ours\""]);
         }
         finally
         {
@@ -206,7 +207,11 @@ public sealed class Tf2ConfigFilesTests
     [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()
     {
-        Tf2ConfigFiles.Read(null, ownCustomRoot: null).ShouldBeEmpty();
-        Tf2ConfigFiles.Read(null, ownCustomRoot: "   ").ShouldBeEmpty();
+        Texts(null, ownCustomRoot: null).ShouldBeEmpty();
+        Texts(null, ownCustomRoot: "   ").ShouldBeEmpty();
     }
+
+    /// <summary>The configs' text alone, in exec order.</summary>
+    private static List<string> Texts(string? gameFolder, string? ownCustomRoot = null) =>
+        [.. System.Linq.Enumerable.Select(Tf2ConfigFiles.ReadFiles(gameFolder, ownCustomRoot: ownCustomRoot), file => file.Text)];
 }

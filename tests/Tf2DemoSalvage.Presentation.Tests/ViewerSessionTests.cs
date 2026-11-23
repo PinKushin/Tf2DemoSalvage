@@ -939,7 +939,7 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("fps_max 123\n");
 
         rig.Settings.Current.FrameRateLimit.ShouldBe(0, "the rig's saved value");
-        rig.Log.Count("the machine's configs are not read").ShouldBe(1);
+        rig.Log.Count("no config is read").ShouldBe(1);
     }
 
     /// <remarks>

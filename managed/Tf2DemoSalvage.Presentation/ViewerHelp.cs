@@ -151,7 +151,8 @@ public static class ViewerHelp
                                      A cap that is not a multiple of 3 draws partial triangles: use 3 or 0.
           TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
-          TF2VIEW_NO_CONFIGS         "1": read none of the machine's TF2 configs (tests, goldens).
+          TF2VIEW_NO_CONFIGS         "1": read no TF2 config, the game's or the program's own custom/
+                                     one (tests, goldens).
           TF2VIEW_PICK               "x y": log what lies under that pixel of a --shot.
           TF2VIEW_SEEK_THROUGH       "60000 5000": ticks a --shot seeks through before its own.
           TF2VIEW_FIXED_FRAME        "0.0125": playback advances this many seconds every frame.

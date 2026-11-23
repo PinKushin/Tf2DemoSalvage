@@ -47,8 +47,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="AfterConfigs">
 /// The console lines the launch line hands to the console after the configs, in the line's order, as TF2's `stuffcmds`
 /// runs them after `exec autoexec.cfg` (`cfg/valve.rc`, B811): every `+sv_cheats` and every client cheat ConVar, so the
-/// console's gate decides each against `sv_cheats` as the configs and the line so far left it; and every other `+name value`,
-/// so the line wins over the configs (B816). Null when there are none.
+/// console's gate decides each against `sv_cheats` as the configs and the line so far left it; and every other declared
+/// ConVar's `+name value`, so the line wins over the configs (B816). Null when there are none.
 /// </param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,

@@ -27,6 +27,9 @@ public sealed partial class ViewerSession
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private (int X, int Y)? _dragFrom;
 
+    /// <summary>The instrument switch that keeps a run from reading any TF2 config, the game's or the program's own (B816 review 5).</summary>
+    public const string NoConfigsVariable = "TF2VIEW_NO_CONFIGS";
+
     /// <summary>Runs the player's own TF2 configs over the shipped defaults.</summary>
     /// <remarks>
     /// **Their controls, not ours, and that is the requirement in one line (D69).** Someone running
@@ -42,9 +45,6 @@ public sealed partial class ViewerSession
     /// **The two counts are logged together deliberately.** "13 of 78 binds" and "0 of 0" say
     /// different things; "loaded" says neither.
     /// </remarks>
-    /// <summary>The instrument switch that keeps a run from reading the machine's TF2 configs (B816 review 5).</summary>
-    public const string NoConfigsVariable = "TF2VIEW_NO_CONFIGS";
-
     private void LoadUserConfig()
     {
         // **An instrument's run reads none of the machine's configs** (B816 review 5, Fable, Sonnet, Grok): since the
@@ -53,7 +53,7 @@ public sealed partial class ViewerSession
         // is; a watcher never needs it (D210).
         if (_host.Environment(NoConfigsVariable) is "1")
         {
-            _configLog.LogInformation("{Message}", $"{NoConfigsVariable}=1: the machine's configs are not read");
+            _configLog.LogInformation("{Message}", $"{NoConfigsVariable}=1: no config is read, the game's or the program's own");
             return;
         }
 

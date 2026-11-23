@@ -44501,6 +44501,13 @@ undeclared launch name was handed to the console* (Fable, medium): a `--like` si
 became a console line of its own. Only a declared ConVar is handed on now; the console sets nothing for an undeclared
 one anyway, so `+alias a b` and `+unbind KEY x` no longer reach it either. Tested in
 `LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleInOrderAndNotStored`.
+
+**Review 6** (Fable, Grok approve; Sonnet holds for the UI phase): `PlaybackUiTests` built its own launch and did not
+set the switch, so "every UI launch" was not true; it does now. The switch also skips the program's own `custom/`
+config, which `--help` and the log now say. `Tf2ConfigFiles.Read` had only test callers after B816 (D180), so it is
+gone and its tests read `ReadFiles`, one asserting the path each config carries. A doc comment that had moved off
+`LoadUserConfig` is back. UI runs no longer exercise a real machine config, only the three tests' own (Sonnet, a
+trade-off: what a real config does is pinned by `Tf2ConfigFilesTests` on the install).
 2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
    LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
    `autoexec.cfg`; an untyped ConVar stays readable from the console) and

@@ -51,28 +51,20 @@ public static class Tf2ConfigFiles
     /// </remarks>
     public static bool IsSaved(string path) => path != Order[^1];
 
-    /// <summary>Reads whichever of the player's configs exist.</summary>
+    /// <summary>Reads whichever of the player's configs exist, each with its path from <see cref="Order"/>.</summary>
     /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
     /// <param name="log">Where to report what was found, or null.</param>
     /// <param name="ownCustomRoot">
     /// The program's own <c>custom/</c> folder, or null — searched above the game, as <c>tf/custom</c> is
     /// (<see cref="GameArchives.WithOwnCustom"/>).
     /// </param>
-    /// <returns>The configs' text in exec order; empty when the game is not installed.</returns>
+    /// <returns>The configs in exec order; empty when the game is not installed.</returns>
     /// <remarks>
     /// **Missing files are normal and are not errors.** A fresh install has no `config.cfg` until
     /// the game has run once, and most players have never created an `autoexec.cfg` at all. The
-    /// viewer must start regardless — its own defaults are a working set of controls.
+    /// viewer must start regardless — its own defaults are a working set of controls. The path ranks each config
+    /// (<see cref="IsSaved"/>, D264).
     /// </remarks>
-    public static IReadOnlyList<string> Read(
-        string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null) =>
-        [.. ReadFiles(gameFolder, log, ownCustomRoot).Select(file => file.Text)];
-
-    /// <summary>As <see cref="Read(string, Action{string, string}, string)"/>, each config with its path from <see cref="Order"/>.</summary>
-    /// <param name="gameFolder">The <c>tf</c> folder, or null to read nothing.</param>
-    /// <param name="log">Where to report what was found, or null.</param>
-    /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null.</param>
-    /// <returns>The configs in exec order.</returns>
     public static IReadOnlyList<(string Path, string Text)> ReadFiles(
         string? gameFolder, Action<string, string>? log = null, string? ownCustomRoot = null)
     {

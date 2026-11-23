@@ -79,6 +79,9 @@ public sealed class PlaybackUiTests
             RedirectStandardOutput = true,
         };
 
+        // No machine configs, as every UI launch (B816 review 6, Fable): this run builds its own start.
+        start.Environment[Tf2DemoSalvage.Presentation.ViewerSession.NoConfigsVariable] = "1";
+
         foreach (string argument in (string[])
         [
             .. ViewerApplication.Silent,
