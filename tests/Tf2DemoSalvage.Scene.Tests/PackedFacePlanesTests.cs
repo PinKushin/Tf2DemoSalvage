@@ -100,6 +100,65 @@ public sealed class PackedFacePlanesTests
         models.PackedFacePlanes(Path).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A triangle the packing rotates has no planes** (review 9, Fable): materials A A A | B B A | B B B, the last two
+    /// triangles one quad, pack as [0, 1, 2, 5, 3, 4, 6, 7, 8]. Every packed triple is one source triangle's corners, but
+    /// the second opens on corner 5, whose face edge is the quad's diagonal, so the quad goes uncounted while the packed
+    /// faces and the planes still agree on one. Each packed triangle must be its source triangle in order; none instead.
+    /// The control: the packing did put corner 5 fourth.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_OfATriangleThePackingRotates_AreNone()
+    {
+        PropVertex Corner(float x, int material, bool faceEdge = true) => new(x, 0f, 0f, 0f, 0f, material, FaceEdge: faceEdge);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [
+                    new PropVertex[]
+                    {
+                        Corner(0f, 5), Corner(1f, 5), Corner(2f, 5),
+                        Corner(3f, 7), Corner(4f, 7), Corner(5f, 5, false),
+                        Corner(3f, 7, false), Corner(5f, 7), Corner(6f, 7),
+                    },
+                ],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [new StoredPlane(1f, 0f, 0f, 0f, false), new StoredPlane(0f, 1f, 0f, 0f, false)]),
+        };
+
+        models.Precache([Path]);
+
+        models.Vertices.Select(vertex => vertex.X).ShouldBe([0f, 1f, 2f, 5f, 3f, 4f, 3f, 5f, 6f], "the control: corner 5 packed fourth");
+        models.PackedFacePlanes(Path).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Corners that are not whole triangles have no planes** (review 9, Sonnet, Grok): seven corners, the seventh left
+    /// out of the face count and so out of the planes' check. None instead.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_OfCornersThatAreNotWholeTriangles_AreNone()
+    {
+        PropVertex Corner(float x) => new(x, 0f, 0f, 0f, 0f, 5);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new PropVertex[] { Corner(0f), Corner(1f), Corner(2f), Corner(3f), Corner(4f), Corner(5f), Corner(6f) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [new StoredPlane(1f, 0f, 0f, 0f, false), new StoredPlane(0f, 1f, 0f, 0f, false)]),
+        };
+
+        models.Precache([Path]);
+
+        models.PackedFacePlanes(Path).ShouldBeNull();
+    }
+
     /// <remarks>A studio model has no faces' planes: none, and the outline derives nothing for it, since it draws none.</remarks>
     [Test]
     public void PackedFacePlanes_OfAModelWithoutThem_AreNone()

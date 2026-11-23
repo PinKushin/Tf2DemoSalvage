@@ -8427,11 +8427,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // A brush entity's outline faces and outline buffer, made before anything of the model is registered (reviews
-            // 7-8), so a failure leaves the model unregistered and the next upload tries it again, rather than registered
-            // without its outline for the rest of the map.
+            // A brush entity's outline faces, made before anything of the model is registered (review 7); they own nothing.
             FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
-            ComPtr<ID3D11Buffer> outline = faces is not null ? CreateOutline(device, model.Vertices, path) : default;
 
             // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
             // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
@@ -8457,41 +8454,75 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 BindFlags = (uint)BindFlag.VertexBuffer,
             };
 
-            ComPtr<ID3D11Buffer> buffer = default;
-
-            try
-            {
-                fixed (float* first = data)
+            // The outline buffer, then the vertex buffer, and only then is anything of the model registered (reviews 7-9):
+            // nothing that can throw runs between the outline's creation and the step that releases it on a failure. A
+            // brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps to
+            // `debugmrmwireframe` instead (B788) and needs none.
+            CreateAndRegister(
+                () => faces is not null ? CreateOutline(device, model.Vertices, path) : default,
+                () => CreateImmutableVertexBuffer(device, description, data),
+                (outline, buffer) =>
                 {
-                    SubresourceData initial = new() { PSysMem = first };
+                    _modelBuffers[path] = buffer;
 
-                    SilkMarshal.ThrowHResult(
-                        device.CreateBuffer(in description, in initial, ref buffer));
-                }
-            }
-            catch
-            {
-                // The outline made above is the model's alone and is not registered yet: released here, then the failure
-                // goes on to the caller as before (review 8).
-                if (outline.Handle is not null)
-                {
-                    outline.Dispose();
-                }
-
-                throw;
-            }
-
-            _modelBuffers[path] = buffer;
-
-            // A brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps
-            // to `debugmrmwireframe` instead (B788) and needs none.
-            if (faces is not null)
-            {
-                _modelOutlines[path] = (outline, faces);
-            }
+                    if (faces is not null)
+                    {
+                        _modelOutlines[path] = (outline, faces);
+                    }
+                });
         }
 
         _modelBatches = batches;
+    }
+
+    /// <summary>Makes a model's outline, then its vertex buffer, and registers both; on a failure, neither (B803 review 9).</summary>
+    /// <param name="createOutline">Makes the outline, which this owns until it is registered.</param>
+    /// <param name="createVertices">Makes the vertex buffer, or throws.</param>
+    /// <param name="register">Registers both; called only once both exist.</param>
+    /// <remarks>
+    /// The outline is released when the vertex buffer throws, and the failure goes on to the caller, so a model is never
+    /// registered without its outline and the next upload tries it again (reviews 8-9).
+    /// </remarks>
+    internal static void CreateAndRegister<TOutline, TBuffer>(
+        Func<TOutline> createOutline,
+        Func<TBuffer> createVertices,
+        Action<TOutline, TBuffer> register)
+        where TOutline : IDisposable
+    {
+        TOutline outline = createOutline();
+        TBuffer vertices;
+
+        try
+        {
+            vertices = createVertices();
+        }
+        catch
+        {
+            // Not registered yet, so the outline is this method's alone to release; the failure is rethrown unchanged.
+            outline.Dispose();
+            throw;
+        }
+
+        register(outline, vertices);
+    }
+
+    /// <summary>An immutable vertex buffer holding <paramref name="data"/>, as <paramref name="description"/> sizes it.</summary>
+    private static ComPtr<ID3D11Buffer> CreateImmutableVertexBuffer(
+        ComPtr<ID3D11Device> device,
+        BufferDesc description,
+        float[] data)
+    {
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        fixed (float* first = data)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(
+                device.CreateBuffer(in description, in initial, ref buffer));
+        }
+
+        return buffer;
     }
 
     /// <summary>A brush entity's outline faces, on its stored planes where they fit its faces (B803 reviews 6-7).</summary>

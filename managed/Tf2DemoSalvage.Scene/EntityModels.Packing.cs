@@ -672,8 +672,9 @@ public sealed partial class EntityModelSet
         }
 
         // A model whose packing or planes do not match its corners has none, which the upload reports (review 7): never a
-        // list that pairs a face with another's plane.
-        if (order.Length != corners.Count)
+        // list that pairs a face with another's plane. Whole triangles only (review 9): a trailing one or two corners would
+        // otherwise be left out of the face count below and the planes' check with them.
+        if (order.Length != corners.Count || corners.Count % 3 != 0)
         {
             return null;
         }
@@ -696,9 +697,11 @@ public sealed partial class EntityModelSet
 
         for (int at = 0; at + 2 < order.Length; at += 3)
         {
-            // Each packed triangle must be one of the corners' own (review 8): a triangle whose corners differ in the
-            // packing's key would be split across groups, and its slots would pair faces with others' planes.
-            if (order[at] / 3 != order[at + 1] / 3 || order[at] / 3 != order[at + 2] / 3)
+            // Each packed triangle must be one of the corners' own, its corners in their own order (reviews 8-9): a
+            // triangle split across the packing's groups pairs faces with others' planes, and one whose corners are all
+            // its own but start elsewhere, as A A A | B B A | B B B packs its second, opens on a corner whose face edge
+            // is not its first's, so a face goes uncounted while both counts still agree.
+            if (order[at] % 3 != 0 || order[at + 1] != order[at] + 1 || order[at + 2] != order[at] + 2)
             {
                 return null;
             }

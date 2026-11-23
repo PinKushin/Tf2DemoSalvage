@@ -43435,10 +43435,38 @@ On `fix/b803-wireframe-3-r1` at `9d2ed8557`. Same rules.
    count, with the brush entities that fall back. *Measured*: `cp_process_final` 250 of 250 faces, 0 falling back;
    `cp_granary` 134 of 134, 0 falling back. The other figures are unchanged from review 7.
 7. **A triangle split across material groups** (Fable). *Fixed*: `EntityModelSet.PackedFacePlanes` returns none when
-   any packed triangle holds corners of more than one source triangle. This covers a group whose corner count is not a
-   multiple of 3, since such a group must split a triangle. Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
+   any packed triangle holds corners of more than one source triangle. (This said the check also covered a group whose
+   corner count is not a multiple of 3; it did not, since trailing corners were ignored, and missed a rotated triangle.
+   Both are fixed in review 9, item 2.) Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
    Red with the check removed: it returned a two-plane list. A real brush face's corners share one material, so a real
    brush entity does not reach this check.
+
+### Review 9 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `b7c9b7a13`. Same rules.
+
+1. **The outline leaked if packing threw** (Fable, Sonnet, Grok). *Fixed*: `WorldRenderer.UploadModels` packs the
+   vertices first. Then `WorldRenderer.CreateAndRegister` makes the outline, then the vertex buffer, and registers both.
+   If the vertex buffer throws, it releases the outline and rethrows, and the registration is never called. Nothing that
+   can throw runs between the outline's creation and that step. The buffer creation is handed in, so the failure is
+   tested (Grok): `CreateAndRegisterTests`. Red (outline released 0 times, not 1) with the release removed. The control
+   is the success case: both registered, nothing released.
+2. **The split check missed a rotated triangle and trailing corners** (Fable, Sonnet, Grok). *Fixed*:
+   `EntityModelSet.PackedFacePlanes` requires each packed triangle to be its source triangle in order, and whole
+   triangles only. Materials A A A | B B A | B B B pack the second triangle as corners 5, 3, 4: all one source
+   triangle's, but it opens on a corner whose face edge is the quad's diagonal, so a face went uncounted while both
+   counts agreed. Tests: `PackedFacePlanes_OfATriangleThePackingRotates_AreNone` (red with review 8's check: one plane
+   for two faces) and `PackedFacePlanes_OfCornersThatAreNotWholeTriangles_AreNone` (red with the count check removed).
+   Review 8 item 7's sentence is corrected.
+3. **The two-misfit test's control** (Fable, Grok). *Fixed*: the second upload swaps its quads, front on the right. The
+   test asserts the left unoutlined and the right outlined after it. Only the second upload's own geometry outlines the
+   right. Only the triangles' planes leave its back face out. The offscreen target clears its models before every
+   upload that is not `sameModel`, so the second upload is not skipped by `ContainsKey`, and the swapped picture shows
+   it. Red, `(True, True)` for `(False, True)`, with the fallback's planes zeroed.
+4. **The eye-on-plane test's distance** (Fable). *Fixed*: the stored plane's distance is minus the eye's y as
+   `EyePosition.From` recovers it from the test's camera, the same call the renderer makes. The eye is on the plane by
+   construction, not only if the recovery returns −300 exactly. Red again with the translucent rule replaced by
+   `FacesEye`.
 
 *As found (2026-11-21):*
 

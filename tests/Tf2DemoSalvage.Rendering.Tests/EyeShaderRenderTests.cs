@@ -935,8 +935,10 @@ public sealed class EyeShaderRenderTests
 
     /// <remarks>
     /// **The fallback is reported once a map, not once a brush entity** (review 8, Fable): one cause, a builder bug, would
-    /// otherwise name every model. Two uploads of a misfit model in one map, one line; the control is that each upload did
-    /// fall back, the second outlining its front face as the first did.
+    /// otherwise name every model. Two uploads of a misfit model in one map, one line. The control is that the second
+    /// upload was made and fell back (reviews 8-9, Fable, Grok): its quads swap sides, so only its own geometry outlines
+    /// the right-hand one, and its back face is left out, which only the triangles' planes do (zeroed planes, drawing
+    /// every face whole, outline both).
     /// </remarks>
     [Test]
     public void DrawModelPose_TwoMisfitBrushEntitiesInOneMap_AreReportedOnce()
@@ -946,17 +948,21 @@ public sealed class EyeShaderRenderTests
 
         target.Wireframe = 3;
         DrawMisfitBrush(target, -1);
-        DrawMisfitBrush(target, 3);
+        DrawMisfitBrush(target, 3, frontLeft: false);
 
-        OutlinePixels(target, 19, 30).ShouldBeGreaterThan(0, "the control: the second upload drew on its triangles");
+        (OutlinePixels(target, 19, 30) > 0, OutlinePixels(target, 34, 45) > 0).ShouldBe(
+            (false, true), "the control: the second upload drew its own quads on its triangles");
         DerivedPlaneLines(loggers).ShouldBe(1);
     }
 
-    /// <summary>A front face then a back face, as <c>*1</c>, with <paramref name="planes"/> stored planes, or none if negative.</summary>
-    private static void DrawMisfitBrush(OffscreenTarget target, int planes) =>
+    /// <summary>
+    /// A front face and a back face, as <c>*1</c>, the front on the left unless <paramref name="frontLeft"/> is false, with
+    /// <paramref name="planes"/> stored planes, or none if negative.
+    /// </summary>
+    private static void DrawMisfitBrush(OffscreenTarget target, int planes, bool frontLeft = true) =>
         DrawBrush(
             target,
-            [.. BrushFace(-70f, 50f, front: true), .. BrushFace(70f, 50f, front: false)],
+            [.. BrushFace(-70f, 50f, front: frontLeft), .. BrushFace(70f, 50f, front: !frontLeft)],
             [new WorldBatch(0, 0, 12)],
             Identity4,
             facePlanes: planes < 0 ? null : [.. Enumerable.Repeat(new StoredPlane(0f, -1f, 0f, 0f, false), planes)]);
@@ -996,7 +1002,9 @@ public sealed class EyeShaderRenderTests
 
     /// <remarks>
     /// **The eye on a translucent face's plane: only the node's rule drops the odd-bit face** (review 8, Grok). The stored
-    /// plane (0, −1, 0) at 300 puts the camera at y −300 exactly on it. `FUN_1800dbdb0` keeps a face when its `0x40` flag
+    /// plane (0, −1, 0) at minus the eye's y, as the renderer recovers the eye from the camera (`EyePosition.From`; review
+    /// 9, Fable: not 300 typed in, which is exact only if the recovery is), puts the eye exactly on it, the distance 0 by
+    /// construction. `FUN_1800dbdb0` keeps a face when its `0x40` flag
     /// equals `node dist &lt; 0`, with no tolerance; the node's distance is 0, not below it, so the face with the bit is
     /// dropped and the one without is kept. `FUN_1800dcb20`'s opaque rule, `dot − dist ≥ −0.01`, keeps both, so a
     /// translucent face culled by the opaque rule outlines the odd-bit one. The face without the bit is the control.
@@ -1019,7 +1027,7 @@ public sealed class EyeShaderRenderTests
             [new WorldBatch(0, 0, 6)],
             Identity4,
             Uniform4(255, 0, 0, 128) with { IsTranslucent = true },
-            facePlanes: [new StoredPlane(0f, -1f, 0f, 300f, planeBack)]);
+            facePlanes: [new StoredPlane(0f, -1f, 0f, -EyePosition.From(BrushCamera()).ShouldNotBeNull().Y, planeBack)]);
 
         (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
     }
@@ -1079,7 +1087,7 @@ public sealed class EyeShaderRenderTests
         target.DrawModelPose(
             vertices,
             batches,
-            new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f, NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f) }.ToMatrix(),
+            BrushCamera(),
             placement,
             assets,
             light: Uniform,
@@ -1089,6 +1097,10 @@ public sealed class EyeShaderRenderTests
             modelPath: "*1",
             facePlanes: facePlanes);
     }
+
+    /// <summary><see cref="DrawBrush"/>'s camera: at y −300, looking along +y at the quads.</summary>
+    private static float[] BrushCamera() =>
+        new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f, NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f) }.ToMatrix();
 
     internal static readonly float[] Identity4 =[1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
 
