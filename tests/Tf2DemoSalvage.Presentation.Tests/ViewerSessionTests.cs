@@ -807,9 +807,51 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A typed cheat ConVar set after the configs reaches the settings its readers read** (B811 review 1, Fable):
+    /// `cl_drawhud` is read from `ViewerSettings.DrawHud`, not from the console. An autoexec's `sv_cheats 1` and a launch
+    /// `+cl_drawhud 0`: the run's settings say no HUD. The control: without `sv_cheats`, they still draw it.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchClDrawhudAfterAnAutoexecsSvCheats_ReachesTheSettings()
+    {
+        using (Rig refused = BuildWithAutoexec("cl_showfps 0\n", "+cl_drawhud", "0"))
+        {
+            refused.Settings.Current.DrawHud.ShouldBeTrue("the control: cheats off, the launch line is refused");
+        }
+
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\n", "+cl_drawhud", "0");
+
+        rig.Settings.Current.DrawHud.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A launch cheat nothing admits is refused with TF2's line** (B811 review 1, Fable): no `sv_cheats` anywhere.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCheatNothingAdmits_LogsTf2sRefusal()
+    {
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+mat_wireframe", "1");
+
+        rig.Log.Count("Can't use cheat cvar mat_wireframe in multiplayer").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **The launch line runs in its own order after the configs** (B811): an autoexec's `sv_cheats 1`, then the line's
     /// `+mat_wireframe 1 +sv_cheats 0`, ends with wireframe off, as `sv_cheats 0` puts every cheat ConVar back.
     /// </remarks>
+    [Test]
+    public void OpenDevice_ALaunchMatWireframeBeforeItsSvCheatsOne_DrawsSolid()
+    {
+        // The line's order (review 1, Fable): with no cheats in the configs, `+mat_wireframe 1 +sv_cheats 1` refuses the
+        // wireframe before the line admits cheats; a reversed replay would draw it.
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+mat_wireframe", "1", "+sv_cheats", "1");
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.WithDevice();
+
+        rig.Device.Wireframe.ShouldBeFalse();
+    }
+
     [Test]
     public void OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid()
     {

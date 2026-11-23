@@ -347,7 +347,7 @@ public sealed class LaunchOptionsTests
     [Test]
     public void Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleAfterTheConfigsInOrder()
     {
-        Read("+mat_wireframe", "1", "+sv_cheats", "0", "a.dem").AfterConfigs.ShouldBe(["mat_wireframe 1", "sv_cheats 0"]);
+        Read("+mat_wireframe", "1", "+sv_cheats", "0", "a.dem").AfterConfigs.ShouldBe(["mat_wireframe \"1\"", "sv_cheats 0"]);
         Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats 1"], "admitted on the line");
         Read("+cl_showfps", "1", "a.dem").AfterConfigs.ShouldBeNull("the control: no cheat, nothing handed");
     }

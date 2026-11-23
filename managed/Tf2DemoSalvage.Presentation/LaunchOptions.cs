@@ -218,8 +218,9 @@ public static class LaunchOptionsReader
                 string command = argument[1..];
                 string value = pending.Dequeue();
 
-                // **A launch option is a console command, so a cheat ConVar meets the same refusal** (B718, measured on live
-                // TF2): refused while `sv_cheats` is 0, which an earlier `+sv_cheats 1` on the line changes.
+                // **A launch option is a console command, so a cheat ConVar meets the same gate** (B718, measured on live
+                // TF2): admitted here after an earlier `+sv_cheats 1` on the line, otherwise handed to the console after the
+                // configs, where a config's `sv_cheats 1` admits it or TF2's refusal is logged (B811).
                 if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
                 {
                     bool wereOn = cheats;
@@ -251,7 +252,16 @@ public static class LaunchOptionsReader
                 // there, with TF2's line, if nothing has.
                 if (ViewerSettings.IsCheat(command) && !cheats)
                 {
-                    afterConfigs.Add($"{own} {value}");
+                    // A replicated cheat is the server's, which no client set admits (B811 review 1, Sonnet): refused here.
+                    if (declared is { Replicated: true })
+                    {
+                        log.LogInformation(
+                            "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                        continue;
+                    }
+
+                    // Quoted, so the console's tokenizer reads the value as the one argument the line gave (review 1, Sonnet).
+                    afterConfigs.Add($"{own} \"{value}\"");
                     log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                     continue;
                 }

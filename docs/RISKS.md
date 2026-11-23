@@ -42762,6 +42762,17 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
+## B816 — a config's typed ConVar stays in the console, so a reader of the run's settings never sees it (2026-11-23) — OPEN
+
+Found in B811's review 1 (Fable, Sonnet), confirmed with a test (`fps_max 123` and `sv_cheats 1; cl_drawhud 0` in an
+autoexec leave the run's `ViewerSettings` at their defaults). The watcher's configs load before
+`SettingsPresenter.Attach`, so their lines are kept in the console's own list (`ConfigConsole.SetConVar`), by design
+("configs keep their own lines"). A reader that asks `ClientConVar` sees them; a reader of a typed `ViewerSettings`
+field does not: `SettingsPresenter.ApplyOver` reads `DrawHud`, `Fullbright` and the tonemap scale, and the device hand-over
+reads the screen-fade sizes, from the settings. So an autoexec's `cl_drawhud 0` under `sv_cheats 1` (TF2 hides the HUD)
+draws it here. Which readers miss a config value, ConVar by ConVar, is not yet counted. Fix shape: every typed reader goes
+through `ClientConVar`, or the configs' lines reach the run's settings as the command line's now do (B811). *Not fixed*.
+
 ## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — FIXED 2026-11-23
 
 **Fixed.** The order is now *read*, from the game's shipped data: `cfg/valve.rc` in `tf2_misc_dir.vpk` (the probe
@@ -42773,6 +42784,21 @@ admits is still stored in the run's settings as before. Tests: `ViewerSessionTes
 (red first; control: the same line under an autoexec without cheats is refused; sabotage: not replaying the deferred line
 reddens it), `OpenDevice_ALaunchSvCheatsZeroAfterItsMatWireframe_DrawsSolid` (the line's own order), and
 `LaunchOptionsTests.Read_CheatsAndSvCheatsOnTheLine_AreHandedToTheConsoleAfterTheConfigsInOrder`. Not verified by looking.
+
+**Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
+1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
+   stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,
+   `r_screenfademinsize`, `mat_force_tonemap_scale` and others read. Only `mat_wireframe`, read through `ClientConVar`,
+   worked. Now the replay runs after `Attach` and the `OnConVarSet` subscription: an admitted set reaches the run's
+   settings (not the saved file) and wins over the saved value, as the command line does in TF2. Test
+   `ViewerSessionTests.Build_ALaunchClDrawhudAfterAnAutoexecsSvCheats_ReachesTheSettings` (control: cheats off, refused).
+2. *The refusal line was lost*: `CheatRefused` had no subscriber yet. Test `Build_ALaunchCheatNothingAdmits_LogsTf2sRefusal`.
+   Both tests redden when the replay moves back before `Attach`.
+3. *Order*: `OpenDevice_ALaunchMatWireframeBeforeItsSvCheatsOne_DrawsSolid` (a reversed replay would draw wireframe).
+4. *A replicated cheat* is refused on the line with TF2's line again, as before (no client set admits it); the value is
+   quoted in the replayed line, so the console reads it as one argument.
+5. *Found, not this entry's*: a config's own typed cheat (`sv_cheats 1` then `cl_drawhud 0` in an autoexec) stays in the
+   console and does not reach readers of the run's settings. Filed as B816.
 
 **As filed:**
 
