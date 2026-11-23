@@ -592,11 +592,11 @@ public sealed partial class ViewerPresenter : IDisposable
     /// **A missing or unreadable map is not an error.** A demo of a community map nobody has still
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
-    /// </remarks>
-    /// <remarks>
-    /// **Never beside a worker's read, and so not guarded against one** (B779 review 25 item 1): its one production caller
-    /// is the frame's reload after a lost device (`NeedsReload`, `ViewerPresenter.Draw`), inside `RenderFrame`, which returns
-    /// while the barrier is up. Rounds 23-24 added a refusal here that nothing in production could reach; it was removed.
+    ///
+    /// **Never run beside a worker's read** (B779 review 26 item 1). Its one production caller is the reload after a lost
+    /// world (`FollowUpload`), reached through `ProjectMap` from the frame (held off by the barrier), the map read (fresh
+    /// assets: never a reload) and the window's `OpenDevice` (UI thread, no barrier). `FollowUpload` skips the reload while
+    /// the barrier is up, so the guard sits on the route, not here.
     /// </remarks>
     public bool LoadMap(string mapName)
     {
@@ -870,8 +870,8 @@ public sealed partial class ViewerPresenter : IDisposable
     /// selection at all — which made the first version of this test fail for a reason that had
     /// nothing to do with loading.
     ///
-    /// **Tests' only** (B779 review 25 item 1): its one other caller, `MainForm.LoadDemo`, is itself called only by
-    /// `Viewer3D.Tests`. Kept, because a test needs a load that has finished when the call returns.
+    /// **Reached only from tests**: its one other caller, `MainForm.LoadDemo`, is itself called only by `Viewer3D.Tests`.
+    /// Whether it stays as a test seam or goes is B813.
     /// </remarks>
     public DemoLoadResult LoadDemo(string path)
     {

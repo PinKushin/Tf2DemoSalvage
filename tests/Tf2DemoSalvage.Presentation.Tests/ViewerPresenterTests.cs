@@ -516,6 +516,66 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
+    /// **A lost world is not read again beside a worker's read** (B779 review 26 item 1): the window's `OpenDevice` projects
+    /// the map on the UI thread with no barrier check, and a world lost then asks for a reload. Here a second load's map
+    /// read, and in it the upload's answer "lost, read it again": nothing is read (no clear), the load's HUD stays fixed
+    /// (HUD B chosen then, the lists read A's), and the world asks to be projected again. The control: the same answer after
+    /// the load reads the map.
+    /// </remarks>
+    [Test]
+    public async Task FollowUpload_AWorldLostWhileAWorkerReads_ReadsNothingAndProjectsAfter()
+    {
+        WriteMap();
+        string hudA = HudWithDoors("hud_a", DoorsA);
+        string hudB = HudWithDoors("hud_b", DoorsB);
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
+        view.Loads = 2;
+        WorldUpload lost = new(Uploaded: false, Problem: "Reloading the map…", NeedsReload: true);
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("warm")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            loader.SetChosenHud(hudA);
+            bool asked = false;
+            int clearsBefore = 0;
+            int clearsAfter = 0;
+            bool? barrierUp = null;
+            bool? projectsAgain = null;
+            (bool A, bool B)? lists = null;
+            view.Asked = name =>
+            {
+                if (name != nameof(ILoadView.MapRead) || asked)
+                {
+                    return;
+                }
+
+                asked = true;
+                barrierUp = loader.ReadingMap;
+                loader.WorldProjected();
+                clearsBefore = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+                loader.FollowUpload(lost, loader.Map.ShouldNotBeNull());
+                clearsAfter = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+                projectsAgain = loader.WorldNeedsProjecting;
+                loader.SetChosenHud(hudB);
+                HashSet<string> needed = DemoModels.Needed(null, loader.Game.ShouldNotBeNull());
+                lists = (needed.Contains(DoorsA), needed.Contains(DoorsB));
+            };
+
+            (await loader.LoadDemoAsync(WriteDemo("second")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+            view.Asked = null;
+
+            barrierUp.ShouldBe(true, "the control: a worker was reading");
+            clearsAfter.ShouldBe(clearsBefore, "nothing read beside the worker");
+            lists.ShouldBe((true, false), "the load's HUD stayed fixed");
+            projectsAgain.ShouldBe(true, "the world asks to be projected after the load");
+
+            int clearsBeforeReload = view.Names.Count(static n => n == nameof(ILoadView.ClearWorld));
+            loader.FollowUpload(lost, loader.Map.ShouldNotBeNull());
+            view.Names.Count(static n => n == nameof(ILoadView.ClearWorld)).ShouldBe(clearsBeforeReload + 1, "the control: after the load it reads");
+        }
+    }
+
+    /// <remarks>
     /// **A synchronous load lets its fixed HUD view go** (B779 review 24 item 4): `LoadMap` and `LoadDemo` each end the load
     /// they began, so afterwards the lists read the HUD as it is now. HUD A chosen, the load, HUD B chosen during its map
     /// read; after it, the lists read B's doors. The control: during the read, they read A's.

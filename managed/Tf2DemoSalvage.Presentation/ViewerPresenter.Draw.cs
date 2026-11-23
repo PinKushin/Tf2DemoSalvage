@@ -85,6 +85,14 @@ public sealed partial class ViewerPresenter
             size,
             _loggers);
 
+        FollowUpload(result, map);
+    }
+
+    /// <summary>What follows the world's upload: its problem said, the models' copies let go, a lost world read again.</summary>
+    /// <param name="result">What the upload answered.</param>
+    /// <param name="map">The map it uploaded.</param>
+    internal void FollowUpload(WorldUpload result, LoadedMap map)
+    {
         if (result.Problem is { } problem)
         {
             _view.Status = problem;
@@ -92,7 +100,7 @@ public sealed partial class ViewerPresenter
 
         // **The world is up and the map's copies are gone, so the entity models' can go too** (B407). Armed only now, because a
         // failure before this point clears the renderer's model buffers and must be able to re-upload from memory.
-        if (result.Uploaded && map?.Assets is { Released: true })
+        if (result.Uploaded && map.Assets is { Released: true })
         {
             _models.ReleaseUploaded();
         }
@@ -100,6 +108,18 @@ public sealed partial class ViewerPresenter
         // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
         if (result.NeedsReload && _demo is { } open)
         {
+            // **Not while a worker reads a map** (B779 review 26 item 1). This method has three callers: the frame
+            // (`ProjectWorld`, held off by the barrier), the map read itself (`MapRead`, whose assets are fresh, so it never
+            // asks), and the window's `OpenDevice`, on the UI thread with no barrier check. A viewport recreated during a
+            // read would otherwise clear the map and read a second one into the entity set beside the worker, and release
+            // that load's HUD view. The load in flight uploads its own map, so skip, and project again once it is done.
+            if (_readingMap)
+            {
+                _log.LogInformation("{Message}", $"world textures lost during a map read; the read in flight replaces {open.MapName}");
+                _world.Invalidate();
+                return;
+            }
+
             _log.LogWarning("{Message}", $"world textures lost after their pixels were released; reading {open.MapName} again");
             LoadMap(open.MapName);
         }

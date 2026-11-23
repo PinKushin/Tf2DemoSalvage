@@ -43527,13 +43527,15 @@ facts it follows are that it loads one level at a time and draws no world while 
    - The test reads, at the start of A's last marshal, whether B still waits on A.
    - *Sabotage*: releasing before that marshal (Grok's form) reddens it.
 6. *A throwing read lowering the barrier was untested*: **true**.
-   - *Test*: `LoadDemoAsync_AReadThatThrows_LowersTheBarrier`.
+   - *Test*: `LoadDemoAsync_AReadThatThrows_LowersTheBarrierAndLetsItsHudGo` (named
+     `LoadDemoAsync_AReadThatThrows_LowersTheBarrier` until review 24 item 4 widened it).
    - *Sabotage*: removing the lowering in the catch reddens it, and the item-4 row too.
 7. *The superseded path's flag gap*: **not fixed**. Review 22 item 3's wording is corrected above. Keeping a superseded
    load's barrier up until the next one raises it would risk the barrier never coming down if the next load fails
    before its read.
 8. *The synchronous path could overlap a queued read*: **true**. `ReadDemoMap` now refuses while a queued read is in
-   flight.
+   flight. *Superseded*: review 24 moved the refusal and keyed it on the barrier, review 25 removed it as unreachable,
+   and review 26 item 1 puts the real guard on the one reachable route, the window's `OpenDevice` reload.
    - *Test*: `LoadMap_WhileAnAsyncReadIsInFlight_Refuses`.
    - *Sabotage*: no refusal reddens it.
    - The first form of this test recursed under the sabotage (the unrefused `LoadMap` reached the same hook again) and
@@ -43588,7 +43590,8 @@ below record what was done and why it was undone; item 4's release rows stay.
    - `LoadDemoAsync` is the playlist's, the command line's (`ViewerSession.Capture.cs:522`) and `--shot`'s route.
    - `LoadDemo` is called by `MainForm.LoadDemo` and the tests, and `MainForm.LoadDemo` is called only by
      `Viewer3D.Tests` (review 25 item 4). No production route reaches `LoadDemo`.
-   - `LoadMap` is the frame's reload.
+   - `LoadMap` is the world's reload after a lost device. *Corrected in review 26*: it is reached through `ProjectMap`,
+     which has three callers — the frame, the map read, and the window's `OpenDevice`.
    - The comments now name these callers. Review 22 item 4 now names the new place of the begin.
 
 Grok's items:
@@ -43600,7 +43603,9 @@ Grok's items:
   - The synchronous routes run on the UI thread, and an async load's steps that matter — its install hand-off, its
     raise, and its worker's begin after the raise — need the UI thread first.
   - A synchronous read therefore finishes, and releases its view, before an async read can begin.
-  - An async read already begun refuses the synchronous one (item 1).
+  - An async read already begun: *restated in review 26 item 2*. The one synchronous route that can reach a read during
+    a worker's — the window's `OpenDevice` projecting a lost world — skips its reload while the barrier is up
+    (`FollowUpload`, review 26 item 1). The others run inside the frame, which returns while the barrier is up.
 - **G4** (the queue test samples before `Apply`): **true as written, harmless in production**. The real window runs
   marshals one at a time on its thread, so the next load's raise cannot begin until the whole of A's last marshal,
   `Apply` included, has run, wherever inside it the queue is released. A superseded A runs no `Apply`, and nothing in its
@@ -43615,10 +43620,13 @@ Everything here is the viewer's own threading, not engine parity.
 1. *The synchronous refusal is unreachable in production*: **true**. It is removed, together with its two rows
    (`LoadMap_WhileAWorkerReads_RefusesAndLeavesTheLoadsHudFixed`, `LoadMap_BeforeAQueuedLoadRaisesTheBarrier_ReadsTheMap`)
    and the claims about it. **Do not re-add it.** The reason, from a search of every caller:
-   - `LoadMap`'s one production caller is the frame's reload after a lost device (`NeedsReload`,
-     ViewerPresenter.Draw.cs:100-104). It runs inside `RenderFrame`, which returns while the barrier is up, so it never
-     runs beside a worker's read. The coordinator also named `MapRead` and `OpenDevice` as callers; neither calls
-     `LoadMap` in this tree.
+   - `LoadMap`'s one production caller is the reload after a lost world (`NeedsReload`, ViewerPresenter.Draw.cs).
+     *Corrected in review 26 item 1*: this said it runs only inside the frame and that `MapRead` and `OpenDevice` do
+     not reach it. That was wrong, because the search was for `LoadMap` and not for its caller `ProjectMap`, which has
+     three entries. The frame (`ProjectWorld`) is held off by the barrier. The map read (`MapRead`) has fresh assets and
+     never asks for a reload. The window's `OpenDevice` runs on the UI thread with no barrier check, so a viewport
+     recreated during a worker's read did reach `LoadMap` beside it. The refusal was still the wrong place for the
+     guard; review 26 puts it on the reload itself.
    - `LoadDemo`'s one non-test caller is `MainForm.LoadDemo` (MainForm.cs:892), which only `Viewer3D.Tests` calls. Both
      are kept for tests, which need a load that has finished when the call returns. No comment calls them a production
      route any more.
@@ -43640,9 +43648,49 @@ Gemini's two points on review 24:
   reports I/O and invalid-data failures through `CouldNotOpen`, and removing the refusal removed the one new exception.
 - *A stale `read ?? LoadMap(...)` in `Apply`'s comment*: **true**. It now reads `read ?? ReadDemoMap(...)`.
 
+**Review 26** (Sonnet and Grok OK; Fable OK with three lows; Gemini still out). Item numbers are the coordinator's.
+Everything here is the viewer's own threading, not engine parity.
+
+1. *The reachability record was wrong, and one route was real*: **true**. Review 25 searched for `LoadMap`'s callers
+   and not for those of its caller `ProjectMap`, which has three:
+   - `ProjectWorld`, the frame, is held off by the barrier.
+   - `ILoadView.MapRead`, on the worker, has fresh assets and so never asks for a reload.
+   - `OpenDevice` (ViewerSession.Window.cs:528) runs on the UI thread with no barrier check. If the viewport is
+     recreated during a worker's read, after that read's upload released the assets, the reload ran `LoadMap` beside
+     the worker: it cleared the map, read a second one into the same entity set, and released the worker's HUD view.
+
+   **Fix**: what follows an upload is now `ViewerPresenter.FollowUpload`. It skips the reload while the barrier is up,
+   because the load in flight uploads its own map, and invalidates the world so that the first frame after the load
+   projects it.
+   - *Test*: `FollowUpload_AWorldLostWhileAWorkerReads_ReadsNothingAndProjectsAfter`. During a second load's map read,
+     the reload answer reads nothing (no clear), leaves the load's HUD view fixed, and leaves the world asking to be
+     projected. The control: the same answer after the load does read.
+   - *Sabotage*: removing the guard reddens it (a third clear).
+   - Reviews 24 and 25 are corrected above.
+2. *G2's "cannot happen" cited the deleted refusal*: **true**. It now rests on the item-1 guard.
+3. *The `LoadDemo` exemption conflicts with D180*: **true, filed as B813**. The code comment now points there instead
+   of claiming an exemption.
+4. *Review 23 items 6 and 8 named a renamed test and a deleted refusal*: **true**. Item 6 gives the current test name,
+   and item 8 has a pointer to what superseded it.
+
 **Re-measured, review 21** (four demos): 0 asked paths unlisted. Both lists agree on every ask, in both directions. No
 layout lies outside `Layouts`. The class control holds on both POV demos (soldier; soldier and spy) and does not apply on
 the two f12 demos.
+
+## B813 — the synchronous `LoadDemo` is a route only tests take (2026-11-22) — OPEN
+
+Found in B779 review 26 (Fable).
+- **The route.** `ViewerPresenter.LoadDemo` is the synchronous load. Its one non-test caller, `MainForm.LoadDemo`
+  (MainForm.cs:892), is called only by `Viewer3D.Tests`. Every production route opens demos through `LoadDemoAsync`:
+  the playlist, the command line and `--shot`.
+- **The conflict.** D180 says that a reader only a test reaches is not a reader, so by that rule the method is dead
+  code that about 35 test calls keep alive.
+- **Why it is not simply deleted.** These tests want a load that has finished when the call returns. The synchronous
+  route also has an `Apply` path (`read ?? ReadDemoMap(...)`) that the async route never takes, and that path's own
+  rows exist only to test it.
+- **Two ways out.** Either give the tests a seam that awaits `LoadDemoAsync` and delete the synchronous route with its
+  `Apply` branch, or record in D180 why a synchronous test seam is allowed. *Not decided*: this is the owner's call.
+  Until then, the code comments point here instead of claiming an exemption.
 
 ## B812 — a panel model no preload names never loads: the match doors and round sign (2026-11-22) — FIXED (on B779's branch, review 19)
 
