@@ -44551,6 +44551,19 @@ is about a file pasted directly into `custom/`, and the engine finds a nested na
 6. **Not fixed, recorded:** a loose `tf/cfg/` or `custom/*/cfg/` file is still read whole by `GameArchives.Read` before
    `Exec` checks its size (Fable). A memory cost on the player's own files, not a hang or an escape; the cap itself holds.
 
+**Review 4** (Fable, Sonnet merge with findings; Gemini, Grok pending at writing):
+
+1. **One command's alias work was bounded only by 256 files of 1 MB lines** (Sonnet, Fable): the per-line budget resets on
+   each line of a nested `exec`. Fixed: `MaximumCommandAliasRuns` (2^20, *interpolated*, about a second) per command at
+   depth 0, logged once. Test: `Exec_AFileWhoseLinesStayUnderTheLineBudget_StopsAtTheCommandBudget`, red with it raised.
+2. **An alias first reached at the depth bound was marked walked and lost its actions at a shallower visit** (Sonnet,
+   Fable): `Expand` now remembers the shallowest depth and walks again from a shallower one. Test:
+   `Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction`, red when a shallower visit is skipped.
+3. **The alias half of `Load`'s restore was untested** (Fable). Test:
+   `Load_ALoadFromAHandlerInsideAnAliasFanOut_KeepsTheOuterAliasBudget`, red when the alias count is not restored. The
+   command count is restored with it.
+4. **The alias budget test's lower bound** (Sonnet): now half the budget, so a stop after a handful passes no longer.
+
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the

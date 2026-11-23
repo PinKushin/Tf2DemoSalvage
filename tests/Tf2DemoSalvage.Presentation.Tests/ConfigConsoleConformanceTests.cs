@@ -1204,7 +1204,10 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"alias a \"a;a;{Alpha} 1\"\na\n{Alpha} 8");
 
         log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
-        sets.Count.ShouldBeInRange(2, ConfigConsole.MaximumAliasRuns + 1, "the stop itself (B820 review 3, Fable): 2^19 sets without it");
+        sets.Count.ShouldBeInRange(
+            ConfigConsole.MaximumAliasRuns / 2,
+            ConfigConsole.MaximumAliasRuns + 1,
+            "the stop itself (B820 reviews 3 and 4, Fable, Sonnet): 2^19 sets without it, and the budget's worth with it");
         sets[^1].ShouldBe("8", "the next line runs");
     }
 
@@ -1222,6 +1225,62 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("alias a \"a;a\"\nexec fan");
 
         log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A load from a handler keeps the outer line's alias budget too** (B820 review 4, Fable): a handler that loads on every
+    /// set would otherwise zero it each time, and `a` would run 2^19 sets.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerInsideAnAliasFanOut_KeepsTheOuterAliasBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        int sets = 0;
+        console.ConVarSet += (_, _) =>
+        {
+            sets++;
+            console.Load(string.Empty);
+        };
+
+        Should.CompleteIn(() => console.Load($"alias a \"a;a;{Alpha} 1\"\na"), TimeSpan.FromSeconds(10));
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(1);
+        sets.ShouldBeLessThanOrEqualTo(ConfigConsole.MaximumAliasRuns + 1);
+    }
+
+    /// <remarks>
+    /// **…and one command runs at most <see cref="ConfigConsole.MaximumCommandAliasRuns"/> in all** (B820 review 4, Sonnet): the
+    /// per-line budget resets on every line of an exec'd file, so 300 lines each under it still stop at the command's.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileWhoseLinesStayUnderTheLineBudget_StopsAtTheCommandBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = WithFiles([], ("cfg/big.cfg", string.Join('\n', Enumerable.Repeat("a", 300))));
+        console.Log = log;
+
+        console.Load($"alias n \"\"\nalias a \"{string.Join(';', Enumerable.Repeat("n", 4000))}\"\nexec big");
+
+        log.Count($"more than {ConfigConsole.MaximumCommandAliasRuns} alias runs from one command").ShouldBe(1);
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs from one line").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
+    /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
+    /// </remarks>
+    [Test]
+    public void Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction()
+    {
+        ConfigConsole console = new();
+        IEnumerable<string> chain = Enumerable.Range(1, 19)
+            .Select(at => $"alias c{at} {(at < 19 ? $"c{at + 1}" : "s")}");
+
+        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"");
+
+        console.Applied.ShouldBe(1);
     }
 
     /// <remarks>

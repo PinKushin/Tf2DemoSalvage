@@ -395,7 +395,7 @@ public sealed class ConfigConsole
         // A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
         // Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
         // The budgets too: a load from a handler must not hand the outer command fresh ones (B820 review 3, Fable, Sonnet).
-        (bool loading, int execs, int aliasRuns) = (_loading, _execs, _aliasRuns);
+        (bool loading, int execs, int aliasRuns, int commandAliasRuns) = (_loading, _execs, _aliasRuns, _commandAliasRuns);
         _loading = true;
 
         try
@@ -404,7 +404,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _execs, _aliasRuns) = (loading, execs, aliasRuns);
+            (_loading, _execs, _aliasRuns, _commandAliasRuns) = (loading, execs, aliasRuns, commandAliasRuns);
         }
     }
 
@@ -918,6 +918,16 @@ public sealed class ConfigConsole
     /// <summary>Aliases run since the last line began; see <see cref="MaximumAliasRuns"/>.</summary>
     private int _aliasRuns;
 
+    /// <summary>How many aliases one command at depth 0 may run in all, every exec'd file's lines included.</summary>
+    /// <remarks>
+    /// *Interpolated* (B820 review 4, Sonnet): the per-line budget resets on each line of a nested `exec`, so without this a
+    /// command's work was bounded only by 256 files of 1 MB lines, each line 4096 runs. A million runs takes about a second.
+    /// </remarks>
+    public const int MaximumCommandAliasRuns = 1 << 20;
+
+    /// <summary>Aliases run since the last command at depth 0; see <see cref="MaximumCommandAliasRuns"/>.</summary>
+    private int _commandAliasRuns;
+
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
 
@@ -1289,6 +1299,7 @@ public sealed class ConfigConsole
         {
             _execs = 0;
             _aliasRuns = 0;
+            _commandAliasRuns = 0;
         }
 
         foreach (string clause in SourceConfig.Clauses(commandLine))
@@ -1308,11 +1319,15 @@ public sealed class ConfigConsole
             {
                 // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
                 // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
-                if (++_aliasRuns > MaximumAliasRuns)
+                if (++_aliasRuns > MaximumAliasRuns || ++_commandAliasRuns > MaximumCommandAliasRuns)
                 {
                     if (_aliasRuns == MaximumAliasRuns + 1)
                     {
                         Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
+                    }
+                    else if (_commandAliasRuns == MaximumCommandAliasRuns + 1)
+                    {
+                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumCommandAliasRuns} alias runs from one command; not running the rest.");
                     }
 
                     acted = true;
@@ -1447,14 +1462,15 @@ public sealed class ConfigConsole
     /// <param name="commandLine">The command line.</param>
     /// <param name="depth">How deep the expansion is.</param>
     /// <param name="walked">
-    /// The aliases already expanded in this projection. Each is walked once, because the answer is a set of actions and
-    /// the table does not change while it is read: `alias a "a;a;a;a"` bound to a key is otherwise 4^20 calls from
-    /// <see cref="CommandFor"/> (B820 review 3, Sonnet).
+    /// The aliases already expanded in this projection, each with the shallowest depth it was reached at. An alias is walked
+    /// again only from a shallower depth, where the depth bound cuts less of it (B820 review 4, Sonnet); the answer is a set
+    /// of actions and the table does not change while it is read, so `alias a "a;a;a;a"` bound to a key costs at most
+    /// <see cref="MaximumExpansion"/> walks of each alias rather than 4^20 calls (B820 review 3, Sonnet).
     /// </param>
-    private List<ViewerAction> Expand(string commandLine, int depth, HashSet<string>? walked = null)
+    private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null)
     {
         List<ViewerAction> found = [];
-        walked ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        walked ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         if (depth >= MaximumExpansion)
         {
@@ -1474,8 +1490,9 @@ public sealed class ConfigConsole
             // The dispatcher's order (B820): see `Run`.
             if (ConsultsAlias(tokens[0]) && _aliases.TryGetValue(tokens[0], out string? body))
             {
-                if (walked.Add(tokens[0]))
+                if (!walked.TryGetValue(tokens[0], out int reached) || depth < reached)
                 {
+                    walked[tokens[0]] = depth;
                     found.AddRange(Expand(body, depth + 1, walked).Where(action => !found.Contains(action)));
                 }
 
