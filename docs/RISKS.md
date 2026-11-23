@@ -44475,7 +44475,11 @@ startup, as the folder reload's already did, and each launch ConVar logs twice (
    `mat_hdr_level` or `spec_autodirector` reached the settings and not the lighting or the spectator, and no map has been
    read yet then. `ViewerPresenter.ApplyTheConfiguredSettings` (the director, leaving whom it follows, and the lighting)
    now runs after the reload's line too. Test `GameFolderChosen_WhoseAutoexecSetsMatHdrLevel_IsTheLightingTheLoadersTake`
-   (sabotage: not calling it reddens it).
+   (sabotage: not calling it reddens it). That test sees only the lighting (review 3, Fable, Sonnet): the director half
+   is held by `CameraPresenterTests.UseAutoDirector_AfterASpectateChoice_ChangesOnlyTheDirector`, and the call itself in
+   `ApplyTheConfiguredSettings` by no session test (no rig reads the spectator's director). A folder picked while a demo
+   load is reading its map could change `MatHdrLevel` mid-read (review 3, Fable, Sonnet; not traced whether the folder
+   prompt can be open then).
 2. *The saved layer's two branches were untested* (Fable, Sonnet): `ConfigConsoleLoadFromTests.
    LoadFrom_AConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec` (`config.cfg`, `config_default.cfg`,
    `autoexec.cfg`; an untyped ConVar stays readable from the console) and

@@ -361,4 +361,22 @@ public sealed class CameraPresenterTests
         spectator.AutoDirector.ShouldBeFalse();
         camera.Followed(BothAlive).ShouldBe(Second);
     }
+
+    /// <remarks>
+    /// **A config's `spec_autodirector` read again leaves whom the spectator follows** (B816 reviews 2, 3): a game folder
+    /// chosen later applies its configs' director without the launch line's `--spectate` resetting the choice. The control:
+    /// the director was on before.
+    /// </remarks>
+    [Test]
+    public void UseAutoDirector_AfterASpectateChoice_ChangesOnlyTheDirector()
+    {
+        (CameraPresenter camera, _, SpectatorView spectator) = Camera(SourceTv());
+        camera.Spectate(Second, autoDirector: true);
+        spectator.AutoDirector.ShouldBeTrue("the control: the director was on");
+
+        camera.UseAutoDirector(false);
+
+        spectator.AutoDirector.ShouldBeFalse();
+        spectator.Spectating.ShouldBe(Second);
+    }
 }
