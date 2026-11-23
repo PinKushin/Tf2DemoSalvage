@@ -42838,6 +42838,16 @@ Tests `ShotSidecarTests.Expand_ASidecarWithSvCheats_PutsItBeforeEveryCheat` and
 `ViewerSessionTests.RenderFrame_OnACaptureRunWithCheats_RecordsSvCheatsInTheSidecar` (sabotage: each half alone reddens
 its test). The USER-GUIDE's `sv_cheats 0` sentence now says a server-side cheat keeps the demo's value (Grok).
 
+**Review 8** (Gemini approves; Fable, Sonnet approve with one fix; Grok). *Review 7's `--like` fix held only for a viewer
+sidecar written with cheats on* (Fable, Sonnet): a TF2-side sidecar never records `sv_cheats` (three committed goldens
+hold `cl_drawhud 0` without it), nor did an older viewer sidecar, and a cheat the viewer's own menu or key set (D253)
+was in effect with `sv_cheats` 0; `--like` refused all of them, and a typed `+sv_cheats 1` could not repair it, since
+the sidecar's lines come first. `ShotSidecar.Expand` now prepends `+sv_cheats 1` when the sidecar holds a cheat and no
+`sv_cheats`. Test `Expand_ASidecarWithACheatAndNoSvCheats_AdmitsCheatsFirst` (control: a sidecar without a cheat gains
+nothing; sabotage: admitting with 0 reddens it); the upper-case spelling is a second case of the ordering test (Fable,
+Sonnet). Grok's "the sidecar records a value the frame did not run" does not hold: `sv_cheats` is read from the
+console's own list, the gate's value (Fable, Gemini).
+
 **Review 1** (Fable, Sonnet; the first fix replayed before the console was attached to the settings):
 1. *A deferred typed cheat was admitted and read by nobody.* The replay ran before `SettingsPresenter.Attach`, so the value
    stayed in the console's own list and no `ConVarSet` reached the run's settings, which `cl_drawhud`, `mat_fullbright`,

@@ -397,6 +397,16 @@ public static class ShotSidecar
 
         List<string> expanded = ["--tick", like.Tick.ToString(CultureInfo.InvariantCulture)];
 
+        // **A shot that held a cheat had it in effect, so its replay admits cheats first** (B811 review 8, Fable, Sonnet):
+        // a TF2-side sidecar never records `sv_cheats`, nor did the viewer's before review 7, and a cheat the viewer's own
+        // menu or key set (D253) was in effect with `sv_cheats` 0. Without this, `--like` refused every such cheat.
+        if (!like.Convars.Keys.Any(name => name.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase)) &&
+            like.Convars.Keys.Any(Scene.ViewerSettings.IsCheat))
+        {
+            expanded.Add("+sv_cheats");
+            expanded.Add("1");
+        }
+
         // **`sv_cheats` first** (B811 review 7, Fable): the line now runs in its order after the configs, so a cheat sorted
         // before it would be refused. The rest by name, so a sidecar expands the same way every time.
         foreach ((string name, string value) in like.Convars
