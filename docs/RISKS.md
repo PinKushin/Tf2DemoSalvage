@@ -45980,7 +45980,7 @@ test failed before it or under a sabotage.
    - Fable: a quoted `+` name holding a space (`+"sv_cheats 1" x`) skips the line's cheat tracking; the console still
      decides, only the reader's own refusal line can be wrong. Present since before this entry.
 
-**Review 4 (2026-11-24): Sonnet, Fable, Grok.** No blockers.
+**Review 4 (2026-11-24): Sonnet, Fable, Grok; Gemini no findings, read at the fix commit.** No blockers.
 
 1. *Test gaps (Fable, Sonnet).* No case had a comment after a closing quote, so a `Parse` that never closed a quote
    survived; `cl_screenshot_folder "shots" // note` now reads `shots`, and that mutant reddens. No case pinned that `\r`
