@@ -45420,10 +45420,13 @@ control that its bind took; it asserts `KeyFor` first. *Not changed* (Fable): `o
 the key's press, so a release during it re-adds a released key; the stale entry clears on the next press and release,
 and no failing case was found.
 
-**Review 8 (2026-11-24).** Sonnet, Grok: no findings. Fable, nits only: nothing pinned CTRL or ALT with Escape as a chord,
-so a key-code-only mask would pass (`ProcessCmdKey_AChordedEscapeInFullScreen_StaysInFullScreen`, both cases; Windows
-takes these presses first in practice); the Shift+Escape test's remark claimed more than it proves, now narrowed; and the
-`keys.cpp` citation is marked interpolated.
+**Review 8 (2026-11-24).** Sonnet, Grok, Gemini: no findings. Fable, nits only: nothing pinned CTRL or ALT with Escape as
+a chord, so a key-code-only mask went uncaught; `ProcessCmdKey_AChordedEscapeInFullScreen_StaysInFullScreen` now catches
+it, both cases red under that mask (Windows takes these presses first in practice). The Shift+Escape test's remark claimed
+more than it proves, now narrowed, and the `keys.cpp` citation is marked interpolated.
+
+**Review 9 (2026-11-24)**, on the round-8 nits only. Sonnet, Fable, Grok, Gemini: no findings; each noted that the review-8 record
+left out Gemini, and Grok that its sentence about the mask read backwards. Both corrected above.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
