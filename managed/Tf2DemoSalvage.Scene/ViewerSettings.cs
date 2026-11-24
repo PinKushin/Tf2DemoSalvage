@@ -1183,6 +1183,15 @@ public sealed record ViewerSettings
             values[content[..space].ToString()] = content[(space + 1)..].Trim().Trim('"').ToString();
         }
 
+        return Apply(values, onto);
+    }
+
+    /// <summary>Settings with each named value applied over them, as a parsed config's lines are.</summary>
+    /// <param name="values">Each command's value, by name, already read from its line.</param>
+    /// <param name="onto">Settings to layer onto, or null to start from the defaults.</param>
+    /// <returns>The settings.</returns>
+    private static ViewerSettings Apply(Dictionary<string, string> values, ViewerSettings? onto)
+    {
         // **Defaults unless the caller supplies something to layer onto.** A config file starts from
         // defaults; a `+command value` on the command line starts from whatever the config already
         // said, so that passing one setting at startup does not silently reset every other.
@@ -1658,9 +1667,13 @@ public sealed record ViewerSettings
     /// <remarks>
     /// **The one route for a value set after the file** — a <c>+name value</c> launch option and a ConVar a bound key
     /// sets at run time both come here (D215), so a run-time <c>cl_showpos 1</c> means what the launch option does.
+    ///
+    /// **The value is applied whole, not re-parsed from a line** (B831): it arrives already read (the console's
+    /// <c>ArgS</c>, a launch argument), and config text has no escapes, so quoting it into a line and parsing it back cut
+    /// a value holding a <c>"</c> at that quote and then at a <c>//</c>: <c>x"//y"</c> was stored as <c>x</c>.
     /// </remarks>
     public ViewerSettings Set(string name, string value) =>
-        Parse(string.Create(CultureInfo.InvariantCulture, $"{name} \"{value}\""), onto: this);
+        Apply(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [name] = value }, onto: this);
 
     /// <summary>A ConVar's current value as the engine would hold its string, or null when these settings have none.</summary>
     /// <param name="name">The ConVar's name.</param>

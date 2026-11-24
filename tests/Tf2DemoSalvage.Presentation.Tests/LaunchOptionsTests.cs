@@ -673,6 +673,21 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **A set stores its value whole, quotes and `//` included** (B831): the console sets `cl_voice_filter` to its
+    /// `ArgS`, `x"//y"`, and `Set` re-quoted that into a line and parsed it back, where the second `"` closed the quote and
+    /// the `//` cut it to `x`. Config text has no escapes, so no quoting could carry it; the value is stored directly. The
+    /// control: a plain value.
+    /// </remarks>
+    [Test]
+    public void Set_AValueHoldingAQuoteAndADoubleSlash_StoresItWhole()
+    {
+        new ViewerSettings().Set("cl_voice_filter", "ab").ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+
+        new ViewerSettings().Set("cl_voice_filter", "x\"//y\"").ConVarText("cl_voice_filter").ShouldBe("x\"//y\"");
+        Read("+cl_voice_filter", "x\"//y\"").Settings.ConVarText("cl_voice_filter").ShouldBe("x\"//y\"");
+    }
+
+    /// <remarks>
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
     /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
     /// </remarks>

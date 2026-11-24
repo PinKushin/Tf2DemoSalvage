@@ -46004,13 +46004,19 @@ console's cut yields `http:` (Fable and Sonnet traced it).
 
 **Review 6 (2026-11-24): Sonnet, Fable, Grok, Gemini** — no findings, on the test split and the citation.
 
-## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — OPEN
+## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — FIXED (2026-11-24)
 
 Found in B824 reviews 3 and 4 (Fable, Sonnet). `ViewerSettings.Set` builds `name "value"` and parses it back
 (`ViewerSettings.cs` ~1663), and config text has no escapes, so a `"` inside the value closes the quote early:
 `+cl_voice_filter x"//y"` holds `x"//y"` at the console (`ArgS`) and `x` in the settings. Both the launch line's early
 store and the console's announced set (`SettingsPresenter.cs` ~357) go through it. Fix shape: store a set's value
-directly rather than through a re-parsed line. *Not fixed*.
+directly rather than through a re-parsed line.
+
+**Fixed:** `Parse` now reads its lines into a name-to-value table and applies it through `Apply`; `Set` builds that table
+with its one value and applies it, so the value arrives whole, already read by its caller (the console's `ArgS`, a
+launch argument). `Set_AValueHoldingAQuoteAndADoubleSlash_StoresItWhole` (`x"//y"` set and stored whole, on its own and
+through `+cl_voice_filter`; the control, a plain value) failed before. **The save is not affected:** `Write` saves only
+the typed settings, never the free ConVar table, and the ones it quotes are folders, which cannot hold a `"` on Windows.
 
 ## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
 
