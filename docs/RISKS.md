@@ -46065,9 +46065,15 @@ itself, run on this branch.
 `MapCache.Bytes` (Fable: five uncached loads, and it missed a downloaded map); the loader's summary no longer says null
 means a missing install (Fable); the warning's comment says it is reached when a found material does not resolve (Grok:
 "fails to parse" was too narrow). Not taken: Grok's case of a map pakfile holding a debug VMT. `LoadWireframeMaterial`
-passes an empty pakfile, so neither of its reads consults one. Sabotage: the fallback lookup pointed at a key that
+passes an empty pakfile, so neither of its reads consults one; a map overriding an engine wireframe is the case its
+remark already leaves unhandled, and no map is known to do it. Sabotage: the fallback lookup pointed at a key that
 cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
 skips on CI, which has no map; the CI capture test is the no-install guard.
+
+**Review 2** (Fable, Sonnet, Grok; Gemini pending): no blocker; Sonnet and Grok had no findings. Fixed (Fable): the test asks
+`MapCache.Bytes` before its memo, as `MapCache` itself does, so the skip never depends on the memo forgetting a failed
+load; and the "not taken" note above now says why. Not taken (Sonnet, nit): the failure message lists only the engine
+materials' keys, which is uninformative for the studio material; the path itself is in the message.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 

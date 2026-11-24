@@ -167,10 +167,11 @@ public sealed class OverrideMaterialLoadingTests
     public void Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay(
         string path, float red, float green, float blue, bool ignoresZ)
     {
-        // One load for all five cases (B833 review 1, Fable); `Bytes` skips when the map is absent and finds a downloaded one.
+        // One load for all five cases (B833 review 1, Fable). `Bytes` skips when the map is absent and finds a downloaded one,
+        // and is asked BEFORE the memo, as `MapCache` asks (review 2, Fable).
+        byte[] map = MapCache.Bytes();
         MapAssets assets = WithoutTheGame.Get(
-            MapCache.DefaultMap,
-            () => MapAssets.Load(MapCache.Bytes(), GameArchives.Open(null), MapCache.DefaultTextureSize));
+            MapCache.DefaultMap, () => MapAssets.Load(map, GameArchives.Open(null), MapCache.DefaultTextureSize));
         WireframeMaterial? loaded = assets.Wireframe;
 
         if (path != MapAssets.WireframeMaterialPath)
