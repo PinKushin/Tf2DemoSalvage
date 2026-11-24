@@ -56,6 +56,21 @@ public sealed class HudConVarsConformanceTests
         new HudConVars(_ => "0", Client: _ => "1").GetBool("mp_tournament")
             .ShouldBeFalse("FCVAR_REPLICATED: the server's value is enforced on the client");
 
+    /// <remarks>
+    /// **`nan` is true** (B823 review 1, Fable): `( int )( fNewValue )` is MSVC's `cvttss2si`, `0x80000000` for a NaN, and
+    /// `!!` of that is true; C#'s `(int)float.NaN` is 0.
+    /// </remarks>
+    [TestCase("nan", true, int.MinValue)]
+    [TestCase("0x10", true, 16)]
+    [TestCase("1 2", true, 1)]
+    public void GetBool_AValueAtofReads_IsItsTruncatedInt(string value, bool expected, int asInt)
+    {
+        HudConVars convars = new(_ => value);
+
+        convars.GetInt("mp_tournament").ShouldBe(asInt);
+        convars.GetBool("mp_tournament").ShouldBe(expected);
+    }
+
     [Test]
     public void GetBool_HalfValue_IsFalse() =>
         // `GetBool() { return !!GetInt(); }` (convar.h:520): 0.5 truncates to 0.

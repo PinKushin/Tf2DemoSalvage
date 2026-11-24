@@ -220,16 +220,20 @@ public static class ShotSidecar
     /// <param name="value">The value held.</param>
     /// <param name="declared">The declaration's default string.</param>
     /// <returns>True when the sidecar should record it.</returns>
+    /// <remarks>
+    /// **A numeric ConVar's number is `GetFloat`'s** (B823 review 1, Sonnet): `ConVarNumber`, so `1200 x` is 1200 and a
+    /// word is 0, as the engine holds them. A ConVar is numeric when its declared default is a number; any other is
+    /// compared as the string it is. A NaN differs from everything, its own default included.
+    /// </remarks>
     public static bool DiffersFromDefault(string value, string declared)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(declared);
 
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double held)
-            && double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out double fallback))
+        if (double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
         {
             // A tolerance rather than `!=` (S1244); a ConVar's value is written to six places at most.
-            return Math.Abs(held - fallback) > 1e-6;
+            return !(Math.Abs(Core.Net.ConVarNumber.GetFloat(value) - Core.Net.ConVarNumber.GetFloat(declared)) <= 1e-6f);
         }
 
         return !string.Equals(value, declared, StringComparison.Ordinal);

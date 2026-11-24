@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-using Tf2DemoSalvage.Core.Primitives;
-
 namespace Tf2DemoSalvage.Core.Net;
 
 /// <summary>
@@ -182,6 +180,11 @@ public sealed class ServerConVars
 
         return _state.Numbers.TryGetValue(name, out float sent) ? sent : declared.Number;
     }
+
+    /// <summary>The value in force as `GetInt` reads it: <c>m_nValue = ( int )( fNewValue )</c> (`convar.cpp:802`).</summary>
+    /// <param name="name">The ConVar's engine name.</param>
+    /// <returns>The float of <see cref="Number"/>, truncated as MSVC's <c>cvttss2si</c> does (<see cref="ConVarNumber"/>).</returns>
+    public int GetInt(string name) => ConVarNumber.Truncate(Number(name));
 
     /// <summary>Which declared ConVars this server actually moved off Valve's default.</summary>
     /// <remarks>

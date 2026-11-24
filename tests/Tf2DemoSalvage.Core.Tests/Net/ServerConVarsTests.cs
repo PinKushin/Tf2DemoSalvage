@@ -313,6 +313,24 @@ public sealed class ServerConVarsTests
         }
     }
 
+    /// <remarks>
+    /// **`GetInt` is the float truncated, and the float is `atof`** (B823 review 1, Fable; `convar.cpp:791-802`):
+    /// `tf_use_fixed_weaponspreads` is read with `GetInt`, so 0.5 is off and `1 x` on. The text a server sent passes
+    /// through <see cref="ServerConVars.Apply"/>, the call site, not through a test-side parse.
+    /// </remarks>
+    [TestCase("0.5", 0)]
+    [TestCase("1 x", 1)]
+    [TestCase("nan", int.MinValue)]
+    [TestCase("x", 0)]
+    public void GetInt_AfterTheServerSentText_IsAtofTruncated(string sent, int expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("tf_use_fixed_weaponspreads", sent)));
+
+        server.GetInt("tf_use_fixed_weaponspreads").ShouldBe(expected);
+    }
+
     private static SetConVarMessage Message(params (string Name, string Value)[] pairs)
     {
         List<KeyValuePair<string, string>> variables = [];

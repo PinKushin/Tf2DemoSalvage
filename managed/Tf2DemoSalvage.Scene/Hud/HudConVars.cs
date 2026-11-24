@@ -31,12 +31,12 @@ public readonly record struct HudConVars(Func<string, string?>? Find, Func<strin
     /// <summary>`GetFloat()`: `m_fValue = ( float )atof( value )` (convar.cpp:792).</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>The value as a float, 0 when it is not a number.</returns>
-    public float GetFloat(string name) => PanelLayout.Atof(GetString(name));
+    public float GetFloat(string name) => ConVarNumber.GetFloat(GetString(name));
 
-    /// <summary>`GetInt()`: `m_nValue = ( int )( fNewValue )` (convar.cpp:802) — the float, truncated.</summary>
+    /// <summary>`GetInt()`: `m_nValue = ( int )( fNewValue )` (convar.cpp:802) — the float, truncated as MSVC does.</summary>
     /// <param name="name">The ConVar's engine name.</param>
-    /// <returns>The value as an int.</returns>
-    public int GetInt(string name) => (int)GetFloat(name);
+    /// <returns>The value as an int; <see cref="int.MinValue"/> for NaN, as `cvttss2si` gives (B823 review 1).</returns>
+    public int GetInt(string name) => ConVarNumber.GetInt(GetString(name));
 
     /// <summary>`GetBool() { return !!GetInt(); }` (convar.h:520).</summary>
     /// <param name="name">The ConVar's engine name.</param>

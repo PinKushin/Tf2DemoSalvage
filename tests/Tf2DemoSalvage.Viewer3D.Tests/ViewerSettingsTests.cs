@@ -708,6 +708,38 @@ public sealed class ViewerSettingsTests
     }
 
     /// <remarks>
+    /// **A settings file's lone byte survives a load and a save** (B823 review 1, Fable). No ConVar value a config set is
+    /// written — `Write` emits only the settings this viewer types, and the strings among them are folders — so the one
+    /// route for a lone byte into the file is the file itself, edited by hand in a legacy code page. Loaded, its `E9` is
+    /// U+DCE9; saved, it is `E9` again, where UTF-8 replacement would have written `EF BF BD` over the user's folder name.
+    /// </remarks>
+    [Test]
+    public void Save_ALoadedFileWithALoneByte_WritesTheSameByte()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllBytes(file, System.Text.Encoding.Latin1.GetBytes("cl_screenshot_folder \"D:\\caf\u00E9\"\n"));
+
+        ViewerSettings loaded = ViewerSettings.Load(file);
+        loaded.ScreenshotFolder.ShouldBe("D:\\caf\uDCE9");
+        loaded.Save(file).ShouldBeNull();
+
+        System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(file)).ShouldContain("D:\\caf\u00E9\"", Case.Sensitive);
+    }
+
+    /// <remarks>
+    /// **An int setting is `GetInt`** (B823 review 1, Sonnet): the float truncated as MSVC's `cvttss2si`, so `nan` and
+    /// `1e10` are `0x80000000`, where C#'s `(int)` gives 0 and int.MaxValue.
+    /// </remarks>
+    [TestCase("nan", int.MinValue)]
+    [TestCase("1e10", int.MinValue)]
+    [TestCase("0x40 x", 64)]
+    public void Set_ADecalCountAtofReads_IsGetInt(string value, int expected)
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.DecalsCommand, value).Decals.ShouldBe(expected);
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.MaxModelDecalCommand, value).MaxModelDecals.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **The clamp reads the same `atof`** (`convar.cpp:792-798`): `volume 2 x` is 2, past `volume`'s max of 1, so its string
     /// is stored as `"%f"` of the clamp.
     /// </remarks>

@@ -1377,6 +1377,24 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A lone byte is one byte of the 511** (B823 review 1, Sonnet): a byte that is no UTF-8 character reaches the console
+    /// as U+DC00 + byte (`SourceConfig.Tokens`), and `GetNextCommandLength` counts it once, as it counts every byte.
+    /// </remarks>
+    [TestCase(510, true)]
+    [TestCase(511, false)]
+    public void Load_ACommandOfLoneBytesAtTheBuffersLength_CountsEachAsOneByte(int length, bool runs)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string command = $"{Alpha} 5 \"";
+
+        console.Load(command + new string('\uDCE9', length - command.Length - 1) + "\"");
+
+        (console.ConVar(Alpha) is not null).ShouldBe(runs);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(runs ? 0 : 1);
+    }
+
+    /// <remarks>
     /// **A config loaded from a handler inside the viewer's own key is a config** (B820 review 7, Fable): the built-in
     /// `CTRL+1` sets the cheat `mat_fullbright` with cheats off (D253), and a load its set sets off refuses its own cheat line.
     /// </remarks>
@@ -1536,10 +1554,6 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
-    /// a launch value stays two backslashes where a config line's would become one.
-    /// </remarks>
-    /// <remarks>
     /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` FUN_180176c50): a trailing non-ASCII character
     /// is stripped as a signed `char` below `' '`, a leading one kept whole, and two words are one value.
     /// </remarks>
@@ -1554,6 +1568,45 @@ public sealed class ConfigConsoleConformanceTests
         console.Load(line);
 
         console.ConVar("cl_voice_filter").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **An exec'd Latin-1 file reaches the tokenizer as its bytes** (B823 review 1, Sonnet): `exec` decodes through
+    /// `Tf2ConfigFiles.Decode`, so `E9` — `é` in Latin-1, no UTF-8 character alone — is the lone byte U+DCE9 and the ConVar
+    /// holds `63 61 66 E9 78`, as TF2's would. Replacement decoding would have set `caf�x`.
+    /// </remarks>
+    [Test]
+    public void Exec_ALatin1File_SetsItsBytes()
+    {
+        ConfigConsole console = new()
+        {
+            FindConfig = path => path == "cfg/latin.cfg" ? System.Text.Encoding.Latin1.GetBytes("cl_voice_filter caféx") : null,
+        };
+
+        console.Load("exec latin");
+
+        console.ConVar("cl_voice_filter").ShouldBe("caf\uDCE9x");
+    }
+
+    /// <remarks>
+    /// **`ArgS` is a ConVar's alone** (B823 review 1, Grok): the engine gives `ArgS` only to a ConVar set (FUN_180176c50); a
+    /// ConCommand reads its argv. `bind k screenshot` is three arguments to `Define`, which runs before any ConVar set, and a
+    /// bound viewer command that carries arguments still runs its command. *Not able to fail:* no reader after the ConVar
+    /// set looks past `tokens[0]` for a command that is not a ConVar, so collapsing such a command was not observable; the
+    /// guard keeps the engine's shape, and this test holds the two paths Grok named.
+    /// </remarks>
+    [Test]
+    public void Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nbind j \"screenshot now please\"");
+        console.KeyDown("k");
+        console.KeyDown("j");
+
+        fired.ShouldBe([ViewerAction.Screenshot, ViewerAction.Screenshot]);
     }
 
     /// <remarks>
@@ -1625,15 +1678,65 @@ public sealed class ConfigConsoleConformanceTests
     [Test]
     public void Bind_Escape_BindsCancelSelect()
     {
-        ConfigConsole console = new();
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
         List<ViewerAction> fired = [];
         console.Triggered += (_, e) => fired.Add(e.Action);
 
-        console.Load("bind F1 screenshot\nbind escape screenshot");
+        console.Load("bind F1 screenshot\nbind escape screenshot\nbind ESCAPE");
         console.KeyDown("F1");
         console.KeyDown("ESCAPE");
 
         fired.ShouldBe([ViewerAction.Screenshot], "F1 is the control; ESCAPE runs cancelselect, which this viewer does not know");
+        log.Count("\"ESCAPE\" = \"cancelselect\"").ShouldBe(1, "bound, under a name that differs from the bind's only in case");
+    }
+
+    /// <remarks>
+    /// **`unbind` acts only at two arguments** (B823 review 1, Fable; `Key_Unbind_f`, `engine.dll` x64 build 1007
+    /// FUN_1801b6a30): `argc != 2` prints `unbind &lt;key&gt; : remove commands from a key`; `KEY_ESCAPE` prints `Can't unbind
+    /// ESCAPE key`; any other key's binding becomes the empty string — not null — so `bind k` then shows `"k" = ""`.
+    /// </remarks>
+    [TestCase("unbind")]
+    [TestCase("unbind k x")]
+    public void Unbind_OtherThanTwoArguments_PrintsUsageAndUnbindsNothing(string line)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load($"bind k screenshot\n{line}");
+        console.KeyDown("k");
+
+        log.Count("unbind <key> : remove commands from a key").ShouldBe(1);
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    [Test]
+    public void Unbind_TwoArguments_LeavesTheKeyBoundToNothing()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nunbind k\nbind k");
+        console.KeyDown("k");
+
+        fired.ShouldBeEmpty();
+        log.Count("\"k\" = \"\"").ShouldBe(1, "an unbound key holds the empty string, which `bind k` prints");
+    }
+
+    [Test]
+    public void Unbind_Escape_PrintsAndKeepsItsBinding()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind escape x\nunbind Escape\nbind escape");
+
+        log.Count("Can't unbind ESCAPE key").ShouldBe(1);
+        log.Count("\"escape\" = \"cancelselect\"").ShouldBe(1);
     }
 
     /// <remarks>
@@ -1655,6 +1758,10 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("cl_showpos").ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
+    /// a launch value stays two backslashes where a config line's would become one.
+    /// </remarks>
     [Test]
     public void Stuff_ALaunchValueWithTwoBackslashes_KeepsThem()
     {

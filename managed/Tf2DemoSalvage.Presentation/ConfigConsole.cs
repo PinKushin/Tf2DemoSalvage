@@ -498,7 +498,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                length += Utf8Size(c);
+                length += Core.Primitives.Utf8Escaped.ByteCount(text, at);
                 command.Append(c);
                 at++;
             }
@@ -542,7 +542,7 @@ public sealed class ConfigConsole
             do
             {
                 char c = text[at];
-                int size = Utf8Size(c);
+                int size = Core.Primitives.Utf8Escaped.ByteCount(text, at);
 
                 if (bytes + size > MaximumLine)
                 {
@@ -575,16 +575,6 @@ public sealed class ConfigConsole
             }
         }
     }
-
-    /// <summary>A character's UTF-8 bytes, as the engine's `char` loops count: a surrogate pair is four, on its first half.</summary>
-    private static int Utf8Size(char c) => c switch
-    {
-        < (char)0x80 => 1,
-        < (char)0x800 => 2,
-        _ when char.IsHighSurrogate(c) => 4,
-        _ when char.IsLowSurrogate(c) => 0,
-        _ => 3,
-    };
 
     /// <summary>The lines of <see cref="RunFile"/>.</summary>
     private void RunLines(string text, int depth)
@@ -1061,11 +1051,18 @@ public sealed class ConfigConsole
 
         if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
         {
-            if (tokens.Count >= 2)
+            // `Key_Unbind_f` (`engine.dll` x64 build 1007 FUN_1801b6a30, B823 review 1): see `SourceConfig.Unbinds`.
+            if (SourceConfig.Unbinds(tokens))
             {
-                _binds.Remove(tokens[1]);
+                _binds[tokens[1]] = string.Empty;
                 _claimed = null;
                 BindsRevision++;
+            }
+            else
+            {
+                Log.LogInformation(
+                    "{Message}",
+                    tokens.Count == 2 ? "Can't unbind ESCAPE key" : "unbind <key> : remove commands from a key");
             }
 
             return true;
@@ -1116,34 +1113,28 @@ public sealed class ConfigConsole
     /// </remarks>
     private void Bind(IReadOnlyList<string> tokens)
     {
-        if (tokens.Count is not (2 or 3))
-        {
-            Log.LogInformation("{Message}", "bind <key> [command] : attach a command to a key");
-            return;
-        }
-
         if (tokens.Count == 2)
         {
             Log.LogInformation(
                 "{Message}",
-                // A key bound to "" holds a string (FUN_1801b4c90 copies it), so it prints `= ""`; `unbind` removes it.
+                // A key bound to "" holds a string (FUN_1801b4c90 copies it; `unbind` sets one), so it prints `= ""`.
                 _binds.TryGetValue(tokens[1], out string? bound)
                     ? $"\"{tokens[1]}\" = \"{bound}\""
                     : $"\"{tokens[1]}\" is not bound");
             return;
         }
 
-        _binds[tokens[1]] = tokens[1].Equals(EscapeKey, StringComparison.OrdinalIgnoreCase) ? EscapeBinding : tokens[2];
+        if (!SourceConfig.Binds(tokens))
+        {
+            Log.LogInformation("{Message}", "bind <key> [command] : attach a command to a key");
+            return;
+        }
+
+        _binds[tokens[1]] = SourceConfig.Binding(tokens[1], tokens[2]);
         Bound++;
         _claimed = null;
         BindsRevision++;
     }
-
-    /// <summary>`KEY_ESCAPE`'s name, the key `bind` will not give any command but <see cref="EscapeBinding"/>.</summary>
-    private const string EscapeKey = "ESCAPE";
-
-    /// <summary>What `bind ESCAPE …` binds, whatever the line says (FUN_1801b4560).</summary>
-    private const string EscapeBinding = "cancelselect";
 
     /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` FUN_1801672f0).</summary>
     private static readonly string[] RefusedFileTypes =
@@ -1619,10 +1610,11 @@ public sealed class ConfigConsole
                 // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
                 tokens = assignment;
             }
-            else if (tokens.Count >= 2)
+            else if (tokens.Count >= 2 && (EngineConVars.TryByConsoleName(command, out _) || command.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase)))
             {
                 // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
-                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`.
+                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. Only a ConVar: a ConCommand
+                // gets its argv (B823 review 1, Grok), and `bind`, `alias`, `exec` were taken by `Define` above.
                 tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
             }
 

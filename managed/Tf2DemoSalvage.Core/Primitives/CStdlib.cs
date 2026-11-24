@@ -57,7 +57,12 @@ public static class CStdlib
     /// with every payload bit set, which narrowed is <c>0x7fffffff</c> — what vphysics' own surface table held for
     /// <c>"nan"</c>, read back from the shipped binary (B369).
     ///
-    /// *Not reproduced:* hexadecimal floats. The runtime reads <c>0x1.8p1</c> as 3; this reads its <c>0</c>.
+    /// **Hexadecimal floats and the <c>nan(…)</c> spellings are read as UCRT reads them** (B823 review 1):
+    /// <c>parse_floating_point_from_source</c> and <c>parse_floating_point_possible_nan</c> (Windows SDK 10.0.26100.0,
+    /// <c>ucrt/inc/corecrt_internal_strtox.h:1326-1475</c>, the bit patterns at <c>:552-613</c>). TF2's x64 <c>engine.dll</c>
+    /// links that parser statically: its <c>IND)</c>/<c>ind)</c> tables are at 0x180406a48 (build 1007), read by
+    /// FUN_180334360, beside <c>nan(snan)</c> and <c>nan(ind)</c> (*disassembly*). *Not reproduced:* the
+    /// rounding of a hexadecimal value that lands in the subnormal range, which here is rounded twice.
     /// </remarks>
     public static double Atof(ReadOnlySpan<char> text)
     {
@@ -69,16 +74,24 @@ public static class CStdlib
             at++;
         }
 
+        bool negative = at > start && text[start] == '-';
         ReadOnlySpan<char> rest = text[at..];
 
-        if (rest.StartsWith("inf", StringComparison.OrdinalIgnoreCase) ||
-            rest.StartsWith("nan", StringComparison.OrdinalIgnoreCase))
+        if (rest.StartsWith("inf", StringComparison.OrdinalIgnoreCase))
         {
-            double special = rest.StartsWith("inf", StringComparison.OrdinalIgnoreCase)
-                ? double.PositiveInfinity
-                : BitConverter.Int64BitsToDouble(long.MaxValue);
+            return negative ? double.NegativeInfinity : double.PositiveInfinity;
+        }
 
-            return text[start] == '-' ? -special : special;
+        if (rest.StartsWith("nan", StringComparison.OrdinalIgnoreCase))
+        {
+            return Nan(rest[3..], negative);
+        }
+
+        if (rest.Length >= 2 && rest[0] == '0' && rest[1] is 'x' or 'X')
+        {
+            double hex = Hexadecimal(rest[2..]);
+
+            return negative ? -hex : hex;
         }
 
         int digits = 0;
@@ -128,6 +141,102 @@ public static class CStdlib
 
         return double.Parse(text[start..at], NumberStyles.Float, CultureInfo.InvariantCulture);
     }
+
+    /// <summary>What follows <c>nan</c>: <c>(snan)</c>, <c>(ind)</c>, any other closed run, or nothing (UCRT <c>:1326-1399</c>).</summary>
+    private static double Nan(ReadOnlySpan<char> after, bool negative)
+    {
+        const long Quiet = 0x7fffffffffffffffL;
+        const long SignalingBits = 0x7ff0000000000001L;
+        const ulong IndeterminateBits = 0xfff8000000000000UL;
+        const long Sign = long.MinValue;
+
+        if (after.StartsWith("(snan)", StringComparison.OrdinalIgnoreCase))
+        {
+            return BitConverter.Int64BitsToDouble(negative ? SignalingBits | Sign : SignalingBits);
+        }
+
+        // The indeterminate is "negative" whatever the text's sign (`assemble_floating_point_ind`, :602-613).
+        if (after.StartsWith("(ind)", StringComparison.OrdinalIgnoreCase))
+        {
+            return BitConverter.Int64BitsToDouble(unchecked((long)IndeterminateBits));
+        }
+
+        return BitConverter.Int64BitsToDouble(negative ? Quiet | Sign : Quiet);
+    }
+
+    /// <summary>The digits after a <c>0x</c>: hex on both sides of a point, then an optional <c>p</c> exponent, base 2.</summary>
+    /// <returns>The magnitude; 0 when no hex digit follows, the <c>0</c> before the <c>x</c> being the number then.</returns>
+    private static double Hexadecimal(ReadOnlySpan<char> digits)
+    {
+        System.Numerics.BigInteger mantissa = System.Numerics.BigInteger.Zero;
+        int at = 0;
+        int fraction = 0;
+        bool any = false;
+
+        for (; at < digits.Length && char.IsAsciiHexDigit(digits[at]); at++, any = true)
+        {
+            mantissa = (mantissa << 4) + HexValue(digits[at]);
+        }
+
+        if (at < digits.Length && digits[at] == '.')
+        {
+            for (at++; at < digits.Length && char.IsAsciiHexDigit(digits[at]); at++, any = true, fraction++)
+            {
+                mantissa = (mantissa << 4) + HexValue(digits[at]);
+            }
+        }
+
+        if (!any || mantissa.IsZero)
+        {
+            return 0d;
+        }
+
+        // `p`, a sign, then decimal digits; without a digit it is not an exponent (:1590-1661).
+        int exponent = 0;
+
+        if (at < digits.Length && digits[at] is 'p' or 'P')
+        {
+            int sign = 1;
+            int scan = at + 1;
+
+            if (scan < digits.Length && digits[scan] is '+' or '-')
+            {
+                sign = digits[scan] == '-' ? -1 : 1;
+                scan++;
+            }
+
+            for (; scan < digits.Length && char.IsAsciiDigit(digits[scan]); scan++)
+            {
+                exponent = Math.Min((exponent * 10) + (digits[scan] - '0'), 100_000);
+            }
+
+            exponent *= sign;
+        }
+
+        // Round the mantissa to 53 bits, to nearest and ties to even, by hand: BigInteger's own conversion truncates.
+        // Scaling by a power of two is then exact above the subnormals.
+        int scale = exponent - (4 * fraction);
+        int excess = (int)mantissa.GetBitLength() - 53;
+
+        if (excess > 0)
+        {
+            System.Numerics.BigInteger kept = mantissa >> excess;
+            System.Numerics.BigInteger dropped = mantissa - (kept << excess);
+            System.Numerics.BigInteger half = System.Numerics.BigInteger.One << (excess - 1);
+
+            if (dropped > half || (dropped == half && !kept.IsEven))
+            {
+                kept += 1;
+            }
+
+            mantissa = kept;
+            scale += excess;
+        }
+
+        return Math.ScaleB((double)mantissa, scale);
+    }
+
+    private static int HexValue(char digit) => digit <= '9' ? digit - '0' : (digit | 0x20) - 'a' + 10;
 
     /// <summary>C's float-to-int conversion as MSVC compiles it, <c>cvttss2si</c>: toward zero, and <c>0x80000000</c> for NaN or anything out of range.</summary>
     /// <param name="value">The float.</param>

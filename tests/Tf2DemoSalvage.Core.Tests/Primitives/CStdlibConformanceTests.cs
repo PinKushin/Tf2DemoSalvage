@@ -72,6 +72,41 @@ public sealed class CStdlibConformanceTests
         CStdlib.Atof("in").ShouldBe(0d, "the control: a prefix of a special is no number");
     }
 
+    /// <remarks>
+    /// **The Microsoft runtime reads hexadecimal floats** (B823 review 1, Fable, Sonnet): UCRT's
+    /// <c>parse_floating_point_from_source</c> (Windows SDK 10.0.26100.0, <c>ucrt/inc/corecrt_internal_strtox.h:1452-1475</c>)
+    /// takes a <c>0x</c> prefix, hex digits on both sides of the point, and a <c>p</c> exponent in decimal, base 2
+    /// (<c>:1590-1594</c>, <c>:1700</c>); <c>0x</c> with no digit after it is the subject <c>0</c> (<c>:1563-1570</c>), and
+    /// <c>p</c> with no digit after it is not an exponent (<c>:1648-1661</c>).
+    /// </remarks>
+    [TestCase("0x10", 16d)]
+    [TestCase(" -0X1.8p1", -3d)]
+    [TestCase("0x.8", 0.5d)]
+    [TestCase("0x1p-2", 0.25d)]
+    [TestCase("0x1p", 1d)]
+    [TestCase("0xg", 0d)]
+    [TestCase("0x", 0d)]
+    [TestCase("0x1e", 30d)]
+    [TestCase("0x8000000000000001", 9223372036854775808d)]
+    [TestCase("0x20000000000003", 9007199254740996d)]
+    public void Atof_AHexadecimalFloat_IsReadAsTheMicrosoftRuntimeReadsIt(string text, double expected) =>
+        CStdlib.Atof(text).ShouldBe(expected);
+
+    /// <remarks>
+    /// **`nan(…)` is a NaN, and two of its spellings are not the quiet one** (UCRT <c>corecrt_internal_strtox.h:1326-1399</c>,
+    /// <c>:552-613</c>): <c>nan(snan)</c> has mantissa 1; <c>nan(ind)</c> is the "negative" indeterminate, sign set and
+    /// only the quiet bit; any other run of letters, digits and <c>_</c> closed by <c>)</c> is the quiet NaN; an unclosed
+    /// one is <c>nan</c> alone. A sign carries to the quiet and signalling NaNs.
+    /// </remarks>
+    [TestCase("nan(snan)", 0x7ff0000000000001L)]
+    [TestCase("-nan(SNAN)", unchecked((long)0xfff0000000000001UL))]
+    [TestCase("nan(ind)", unchecked((long)0xfff8000000000000UL))]
+    [TestCase("nan(x_1)", 0x7fffffffffffffffL)]
+    [TestCase("nan(x", 0x7fffffffffffffffL)]
+    [TestCase("-nan", unchecked((long)0xffffffffffffffffUL))]
+    public void Atof_ANanSpelling_IsTheRuntimesNan(string text, long bits) =>
+        BitConverter.DoubleToInt64Bits(CStdlib.Atof(text)).ShouldBe(bits);
+
     [Test]
     public void Atof_ADecimalWithNoLeadingZero_IsRead()
     {

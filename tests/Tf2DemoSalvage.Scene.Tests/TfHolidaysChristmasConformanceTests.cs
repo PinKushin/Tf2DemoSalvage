@@ -30,6 +30,8 @@ public sealed class TfHolidaysChristmasConformanceTests
     /// **Off forces off, a forced holiday of exactly 3 forces on, and so does a Christmas map** — in that order
     /// (`tf_gamerules.cpp:1032-1056`); <c>BIsCvarIndicatingHolidayIsActive</c>'s Christmas case is equality alone (`:998`).
     /// </remarks>
+    [TestCase("tf_force_holidays_off", "nan", 3, false)]
+    [TestCase("tf_forced_holiday", "0x3", 0, true)]
     [TestCase("tf_force_holidays_off", "1", 3, false)]
     [TestCase("tf_forced_holiday", "3", 0, true)]
     [TestCase("tf_item_based_forced_holiday", "3", 0, true)]

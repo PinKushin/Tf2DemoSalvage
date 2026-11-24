@@ -91,6 +91,9 @@ public sealed class CommandTokenizeConformanceTests
     [TestCase("cl_voice_filter a b \t", "a b")]
     [TestCase("cl_voice_filter \"a\" b", "a\" b")]
     [TestCase("cl_voice_filter", "")]
+    [TestCase("cl_voice_filter \"a", "a")]
+    [TestCase("cl_voice_filter \"", "")]
+    [TestCase("cl_voice_filter \"a \"", "a ")]
     public void ConVarValue_ACommand_IsArgSWithTheEnginesTrim(string command, string expected) =>
         SourceConfig.ConVarValue(command).ShouldBe(expected);
 

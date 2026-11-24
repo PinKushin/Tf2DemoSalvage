@@ -11,9 +11,10 @@ namespace Tf2DemoSalvage.Core.Net;
 /// m_nValue = ( int )( fNewValue );
 /// </code>
 /// **The one place a ConVar's text becomes a number**, so every reader — the viewer's settings, the console's `toggle`,
-/// `incrementvar`, `multvar` and `sv_cheats`, a server's `net_SetConVar` — agrees with `GetFloat` and `GetInt`. A
-/// `TryParse` that refuses `1 2` sets nothing where TF2 sets 1; `atof` takes the longest numeric prefix and is 0 for none.
-/// Clamping to declared bounds is the caller's, since `ClampValue` runs between the two lines above.
+/// `incrementvar`, `multvar` and `sv_cheats`, a server's `net_SetConVar`, the HUD's `ConVarRef`, the holidays, the
+/// sidecar — agrees with `GetFloat` and `GetInt`. A `TryParse` that refuses `1 2` sets nothing where TF2 sets 1; `atof`
+/// takes the longest numeric prefix and is 0 for none. Clamping to declared bounds is the caller's, since `ClampValue`
+/// runs between the first two lines above.
 /// </remarks>
 public static class ConVarNumber
 {
@@ -25,5 +26,10 @@ public static class ConVarNumber
     /// <summary>`GetInt`: <c>(int)(float)atof(value)</c>, truncated as MSVC's <c>cvttss2si</c> does.</summary>
     /// <param name="value">The ConVar's string.</param>
     /// <returns>The int; <see cref="int.MinValue"/> for infinity, NaN or past an int's range.</returns>
-    public static int GetInt(string value) => CStdlib.Truncate(GetFloat(value));
+    public static int GetInt(string value) => Truncate(GetFloat(value));
+
+    /// <summary>`m_nValue = ( int )( fNewValue )` on a float already made — a clamped one, say.</summary>
+    /// <param name="value">The ConVar's float.</param>
+    /// <returns>The int, as <see cref="GetInt"/> gives it.</returns>
+    public static int Truncate(float value) => CStdlib.Truncate(value);
 }

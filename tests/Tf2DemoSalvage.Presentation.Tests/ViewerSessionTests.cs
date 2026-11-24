@@ -332,6 +332,23 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **The value reaches the device as `GetInt` reads it** (B823 review 1, Fable): `WireFrameMode()` is
+    /// `mat_wireframe.GetInt()` (`view.h:68`), `atof` truncated as MSVC's `cvttss2si`, so `0x2` is 2 and `nan` is
+    /// `0x80000000`, which is not 0 and so draws; C#'s `(int)` of a NaN is 0.
+    /// </remarks>
+    [TestCase("0x2", 2)]
+    [TestCase("nan", int.MinValue)]
+    public void KeyPressed_ABindOfMatWireframeAtofReads_TellsTheDeviceGetInt(string value, int expected)
+    {
+        using Rig rig = BuildWithAutoexec($"sv_cheats 1\nbind \"F7\" \"mat_wireframe {value}\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **`mat_wireframe` 1 then 2 reaches the device as 2** (B803): the menu's item is already ticked, so it reports no change,
     /// and the value has to reach the device by the ConVar's own route. Without it the overlay stays the value 1's.
     /// </remarks>

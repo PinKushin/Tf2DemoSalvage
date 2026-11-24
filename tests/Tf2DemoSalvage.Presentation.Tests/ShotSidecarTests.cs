@@ -120,6 +120,10 @@ public sealed class ShotSidecarTests
     [TestCase("1", "1", false)]
     [TestCase("tf", "tf", false)]
     [TestCase("custom", "", true)]
+    [TestCase("1200 x", "1200", false)]
+    [TestCase("0x10", "16", false)]
+    [TestCase("nan", "0", true)]
+    [TestCase("abc", "0", false)]
     public void DiffersFromDefault_AValueAndItsDeclaredDefault_ComparesNumbersAsNumbers(string value, string declared, bool differs)
     {
         ShotSidecar.DiffersFromDefault(value, declared).ShouldBe(differs);

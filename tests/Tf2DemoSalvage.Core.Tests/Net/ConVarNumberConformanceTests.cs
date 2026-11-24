@@ -29,6 +29,12 @@ public sealed class ConVarNumberConformanceTests
     [TestCase("inf", int.MinValue)]
     [TestCase("nan", int.MinValue)]
     [TestCase("1e10", int.MinValue)]
+    [TestCase("-1e10", int.MinValue)]
+    [TestCase("-inf", int.MinValue)]
+    [TestCase("-nan", int.MinValue)]
+    [TestCase("0x10", 16)]
+    [TestCase("2147483647", int.MinValue)]
+    [TestCase("2147483520", 2147483520)]
     public void GetInt_AValue_IsTheFloatTruncatedAsMsvcDoes(string value, int expected) =>
         ConVarNumber.GetInt(value).ShouldBe(expected);
 }

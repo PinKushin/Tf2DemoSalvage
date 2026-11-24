@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Tf2DemoSalvage.Core.Primitives;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>
@@ -54,16 +56,19 @@ public static class SourceConfig
                 continue;
             }
 
-            if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 2)
+            if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
             {
-                binds.Add((tokens[1], string.Empty));
+                if (Unbinds(tokens))
+                {
+                    binds.Add((tokens[1], string.Empty));
+                }
+
                 continue;
             }
 
-            // Exactly three: `Key_Bind_f` prints its usage at four and more and binds nothing (B823, `engine.dll` FUN_1801b4e60).
-            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && tokens.Count == 3)
+            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && Binds(tokens))
             {
-                binds.Add((tokens[1], tokens[2]));
+                binds.Add((tokens[1], Binding(tokens[1], tokens[2])));
             }
 
             // Everything else — cvars, alias, exec, incrementvar — is somebody else's business.
@@ -71,6 +76,35 @@ public static class SourceConfig
 
         return binds;
     }
+
+    /// <summary>Whether a <c>bind</c> sets its key: exactly three arguments (`Key_Bind_f`, `engine.dll` x64 FUN_1801b4e60).</summary>
+    /// <param name="tokens">The command's arguments, `bind` first.</param>
+    /// <returns>True at three; two show the binding, and anything else prints the usage line.</returns>
+    internal static bool Binds(IReadOnlyList<string> tokens) => tokens.Count == 3;
+
+    /// <summary>Whether an <c>unbind</c> clears its key: exactly two arguments, and not `ESCAPE` (`Key_Unbind_f`).</summary>
+    /// <param name="tokens">The command's arguments, `unbind` first.</param>
+    /// <returns>True when the key's binding becomes the empty string.</returns>
+    /// <remarks>`engine.dll` x64 build 1007 FUN_1801b6a30: `argc != 2` prints the usage line, key 0x46 prints `Can't unbind
+    /// ESCAPE key`; otherwise the binding is set to "" — not null, so `bind k` then prints `"k" = ""` (B823 review 1).</remarks>
+    internal static bool Unbinds(IReadOnlyList<string> tokens) => tokens.Count == 2 && !IsEscape(tokens[1]);
+
+    /// <summary>What <c>bind key command</c> stores: `cancelselect` for `ESCAPE`, whatever the line says (FUN_1801b4560).</summary>
+    /// <param name="key">The key's name.</param>
+    /// <param name="command">The command the line gives.</param>
+    /// <returns>The binding.</returns>
+    internal static string Binding(string key, string command) => IsEscape(key) ? EscapeBinding : command;
+
+    /// <summary>Whether a key name is `KEY_ESCAPE` (0x46), the key `bind` and `unbind` treat apart.</summary>
+    /// <remarks>*Interpolated:* matched without case — the engine's key-name lookup (an input system call, vtable +0xe8) is
+    /// not read. `KeyNames` in the view also takes `ESC` for this key, which TF2's name table may not (B826).</remarks>
+    internal static bool IsEscape(string key) => key.Equals(EscapeKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>`KEY_ESCAPE`'s name.</summary>
+    private const string EscapeKey = "ESCAPE";
+
+    /// <summary>What `bind ESCAPE …` binds.</summary>
+    private const string EscapeBinding = "cancelselect";
 
     /// <summary>Every <c>alias</c> in a config, by name.</summary>
     /// <param name="text">The config's text.</param>
@@ -183,7 +217,9 @@ public static class SourceConfig
 
         static void Add(List<string> into, StringBuilder from)
         {
-            if (from.ToString().Trim() is { Length: > 0 } clause)
+            // C's `isspace` alone (B823 review 1, Fable): .NET's `Trim` would take U+00A0 and U+2003, which the engine reads as
+            // the bytes of a word.
+            if (from.ToString().Trim(CSpace) is { Length: > 0 } clause)
             {
                 into.Add(clause);
             }
@@ -237,7 +273,7 @@ public static class SourceConfig
             end--;
         }
 
-        return Text(value[..end]);
+        return Utf8Escaped.GetString(value[..end]);
     }
 
     /// <summary>`CCommand::Tokenize`'s break set (tier1/convar.cpp:326): each is an argument of its own.</summary>
@@ -297,7 +333,7 @@ public static class SourceConfig
                 int close = Array.IndexOf(line, (byte)'"', at);
                 int end = close < 0 ? line.Length : close;
 
-                tokens.Add(Text(line.AsSpan(at, end - at)));
+                tokens.Add(Utf8Escaped.GetString(line.AsSpan(at, end - at)));
                 at = end + 1;
             }
             else if (IsBreak(first))
@@ -313,72 +349,27 @@ public static class SourceConfig
                     at++;
                 }
 
-                tokens.Add(Text(line.AsSpan(start, at - start)));
+                tokens.Add(Utf8Escaped.GetString(line.AsSpan(start, at - start)));
             }
         }
     }
 
-    /// <summary>The bytes TF2 would hold for a clause: UTF-8, a spelled lone byte (see <see cref="Tokens"/>) as its byte, cut at a NUL.</summary>
+    /// <summary>The bytes TF2 would hold for a clause (<see cref="Utf8Escaped.GetBytes"/>), cut at a NUL.</summary>
     private static byte[] Bytes(string text)
     {
-        List<byte> bytes = new(text.Length);
-        Span<byte> encoded = stackalloc byte[4];
+        byte[] bytes = Utf8Escaped.GetBytes(text);
+        int nul = Array.IndexOf(bytes, (byte)0);
 
-        for (int at = 0; at < text.Length;)
-        {
-            if (text[at] is >= LowestLoneByte and <= HighestLoneByte)
-            {
-                bytes.Add((byte)(text[at++] - LoneByte));
-                continue;
-            }
-
-            // An unpaired surrogate outside the spelled range is U+FFFD, as any UTF-8 encoder writes it.
-            _ = Rune.DecodeFromUtf16(text.AsSpan(at), out Rune rune, out int used);
-            bytes.AddRange(encoded[..rune.EncodeToUtf8(encoded)]);
-            at += used;
-        }
-
-        int nul = bytes.IndexOf(0);
-
-        return [.. nul < 0 ? bytes : bytes.GetRange(0, nul)];
+        return nul < 0 ? bytes : bytes[..nul];
     }
-
-    /// <summary>Bytes as text: UTF-8 where it is valid, and each byte that is not as U+DC00 + byte (see <see cref="Tokens"/>).</summary>
-    private static string Text(ReadOnlySpan<byte> bytes)
-    {
-        StringBuilder text = new(bytes.Length);
-
-        while (!bytes.IsEmpty)
-        {
-            if (Rune.DecodeFromUtf8(bytes, out Rune rune, out int used) == System.Buffers.OperationStatus.Done)
-            {
-                _ = text.Append(rune.ToString());
-            }
-            else
-            {
-                _ = text.Append((char)(LoneByte + bytes[0]));
-                used = 1;
-            }
-
-            bytes = bytes[used..];
-        }
-
-        return text.ToString();
-    }
-
-    /// <summary>The surrogate a lone byte 0x00 would be spelled as; only 0x80 to 0xFF ever are (PEP 383's range).</summary>
-    private const char LoneByte = '\uDC00';
-
-    /// <summary>The spelling of the lone byte 0x80; nothing lower is a byte UTF-8 can leave alone.</summary>
-    private const char LowestLoneByte = '\uDC80';
-
-    /// <summary>The spelling of the lone byte 0xFF.</summary>
-    private const char HighestLoneByte = '\uDCFF';
 
     private static bool IsBreak(byte b) => b < 0x80 && BreakSet.Contains((char)b, StringComparison.Ordinal);
 
     /// <summary>C's `isspace` on the unsigned byte in the "C" locale: space, and tab through carriage return.</summary>
     private static bool IsSpace(byte b) => b == ' ' || (b >= '\t' && b <= '\r');
+
+    /// <summary>The characters <see cref="IsSpace"/> is true of, for trimming text.</summary>
+    private static readonly char[] CSpace = [' ', '\t', '\n', '\v', '\f', '\r'];
 
     /// <summary>Every command of a config as its arguments: lines, then `;` clauses, then <see cref="Tokens"/>.</summary>
     private static IEnumerable<List<string>> Commands(string? text)

@@ -1113,7 +1113,8 @@ public sealed record ViewerSettings
 
         try
         {
-            return File.Exists(file) ? Parse(File.ReadAllText(file)) : new ViewerSettings();
+            // Every byte kept (B823 review 1, Fable): a ConVar value can hold a lone byte, saved below as itself.
+            return File.Exists(file) ? Parse(Tf2ConfigFiles.Decode(File.ReadAllBytes(file))) : new ViewerSettings();
         }
         catch (Exception failure) when (
             failure is IOException or UnauthorizedAccessException or ArgumentException)
@@ -1616,14 +1617,14 @@ public sealed record ViewerSettings
             settings = settings with { ScreenFadeMaxSize = screenFadeMax };
         }
 
-        if (ReadNumber(values, DecalsCommand) is { } decals)
+        if (Read(values, DecalsCommand) is { } decals)
         {
-            settings = settings with { Decals = (int)decals };
+            settings = settings with { Decals = decals };
         }
 
-        if (ReadNumber(values, MaxModelDecalCommand) is { } modelDecals)
+        if (Read(values, MaxModelDecalCommand) is { } modelDecals)
         {
-            settings = settings with { MaxModelDecals = (int)modelDecals };
+            settings = settings with { MaxModelDecals = modelDecals };
         }
 
         // Bounded later, against the recording server's limits, exactly as the engine bounds them.
@@ -1810,7 +1811,8 @@ public sealed record ViewerSettings
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, Write(), Encoding.UTF8);
+            // UTF-8 with its mark, as before, but a lone byte (U+DC80 to U+DCFF) written as that byte (B823 review 1, Fable).
+            File.WriteAllBytes(file, [.. Encoding.UTF8.Preamble, .. Core.Primitives.Utf8Escaped.GetBytes(Write())]);
             return null;
         }
         catch (Exception failure) when (

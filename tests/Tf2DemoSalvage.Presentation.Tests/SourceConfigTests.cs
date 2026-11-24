@@ -325,6 +325,30 @@ public sealed class SourceConfigTests
         SourceConfig.ReadBinds("bind k +forward\nbind k +back extra\nbind j +jump").ShouldBe([("k", "+forward"), ("j", "+jump")]);
     }
 
+    /// <remarks>
+    /// **`ReadBinds` keeps the console's rules** (B823 review 1, Sonnet, Grok, Fable): `ESCAPE`, in any case, binds
+    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (FUN_1801b6a30).
+    /// </remarks>
+    [Test]
+    public void ReadBinds_EscapeAndUnbindCounts_FollowTheEngine()
+    {
+        SourceConfig.ReadBinds("bind escape +jump\nunbind ESCAPE\nbind k +back\nunbind k x\nunbind")
+            .ShouldBe([("escape", "cancelselect"), ("k", "+back")]);
+    }
+
+    /// <remarks>
+    /// **A clause is trimmed of C's white space only** (B823 review 1, Fable): `EatWhiteSpace` is `isspace` on the byte
+    /// (utlbuffer.cpp:404-415), so U+00A0 (`C2 A0`) is two bytes of a word — `C2`, then `A0bind` — and the command is not
+    /// `bind`. .NET's `Trim` would strip it as Unicode white space. The control is the same line with a tab.
+    /// </remarks>
+    [Test]
+    public void ReadBinds_ALineStartingWithANoBreakSpace_BindsNothing()
+    {
+        SourceConfig.ReadBinds("\tbind k +jump").ShouldBe([("k", "+jump")], "the control");
+        SourceConfig.ReadBinds(" bind k +jump").ShouldBeEmpty();
+        SourceConfig.Clauses(" ; a ").ShouldBe([" ", "a "]);
+    }
+
     /// <remarks>A character the text could hold whole is not confused with a lone byte (B823): U+00C3 is `C3 83`.</remarks>
     [Test]
     public void Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint()

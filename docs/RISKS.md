@@ -45406,6 +45406,74 @@ reddened `bind`; the not-bound line misspelled, and two arguments clearing the k
 `ESCAPE` matched case-sensitively, and never matched, each reddened the escape test; `ReadBinds` at four and more reddened
 its test. Not measured on live TF2.
 
+**Review 1 (2026-11-24): Fable, Sonnet, Grok.** Each item, its reviewer, and what was done. Every fix has a test that failed
+first or was reddened by sabotage, restored by its inverse edit.
+
+1. *Unused usings (Sonnet)* — fixed: `System.Globalization` in `CameraPresenter.cs` and `Tf2DemoSalvage.Core.Primitives`
+   in `ServerConVars.cs` removed, and `System.Text` in `Tf2ConfigFiles.cs`, unused once its decode moved; the solution
+   builds with 0 warnings without them. `dotnet format style --diagnostics IDE0005` was tried as the instrument and failed
+   its control (a planted `using System.Net.Sockets;` was not reported), so the build is the evidence, not that tool.
+2. *ConVar numbers outside the helper (Fable, Sonnet)* — fixed: `HudConVars.GetFloat`/`GetInt`, `TfHolidays`' cvars,
+   `LoadedMap`'s `tf_use_fixed_weaponspreads` (now `ServerConVars.GetInt`, new), `ViewerSettings`' `r_decals` and
+   `r_maxmodeldecal` (now `GetInt`), and `ShotSidecar.DiffersFromDefault` (a ConVar whose declared default is a number
+   compares `GetFloat`s, a NaN differing from all) all read through `ConVarNumber`. Tests:
+   `GetBool_AValueAtofReads_IsItsTruncatedInt` (`nan` is true), `IsChristmasActive_InJuly_FollowsTheCvarsAndTheMap`
+   (`nan`, `0x3`), `GetInt_AfterTheServerSentText_IsAtofTruncated`, `Set_ADecalCountAtofReads_IsGetInt`, and four
+   `DiffersFromDefault` cases; each reddened under its reader put back. Searched and left, not ConVars: material
+   parameters (`CloakPass`, `FrameBufferUse`), `.res` keys (`PanelLayout.Atof` and the HUD panels), weapon scripts
+   (`HitscanTracers`), game-event data, launch flags (`LaunchOptions`), environment variables, window geometry and
+   capture files. Left, a ConVar: the cheat revert's `MathF.Abs(a - b) > 1e-6f` is false for a NaN, so a cheat held at
+   `nan` is not announced as reverted — not changed, no test written in this round.
+3. *Hexadecimal `atof` (Fable, Sonnet)* — fixed: `CStdlib.Atof` reads `0x` floats, `p` exponents, and `nan(snan)`,
+   `nan(ind)` and `nan(…)`, as UCRT's `parse_floating_point_from_source` does (Windows SDK 10.0.26100.0,
+   `ucrt/inc/corecrt_internal_strtox.h:1326-1739`). That TF2 runs this parser: `engine.dll` (x64, build 1007) imports no
+   `api-ms-win-crt-*` and links a static CRT, and its UCRT `IND)`/`ind)` tables sit at 0x180406a48, read by FUN_180334360,
+   beside `nan(snan)` and `nan(ind)` (*disassembly*). Tests: `Atof_AHexadecimalFloat_IsReadAsTheMicrosoftRuntimeReadsIt`,
+   `Atof_ANanSpelling_IsTheRuntimesNan`, and `GetInt` at `-1e10`, `-inf`, `-nan`, `0x10`, `2147483647` (rounds to 2^31,
+   so `0x80000000`) and `2147483520`. Sabotage: no hex branch reddened nine cases and `0x10`; ties not to even reddened
+   `0x20000000000003`; `(snan)` and `(ind)` unmatched each reddened their cases. `BigInteger`'s own conversion to double
+   truncates, which the ties case caught before any sabotage.
+4. *`unbind` argument count (Fable)* — fixed: `Key_Unbind_f`, read in `engine.dll` x64 build 1007 (FUN_1801b6a30, the Ghidra
+   MCP on 8089): `argc != 2` prints `unbind <key> : remove commands from a key`; key 0x46 prints `Can't unbind ESCAPE key`;
+   an unknown name prints `isn't a valid key` (B826); otherwise the binding becomes the empty string, not null, so
+   `bind k` shows `"k" = ""`. `SourceConfig.Unbinds` holds the rule for the console and `ReadBinds`. Tests:
+   `Unbind_OtherThanTwoArguments_PrintsUsageAndUnbindsNothing`, `Unbind_TwoArguments_LeavesTheKeyBoundToNothing`,
+   `Unbind_Escape_PrintsAndKeepsItsBinding`, `ReadBinds_EscapeAndUnbindCounts_FollowTheEngine`; at two or more and with the
+   key removed rather than emptied, three reddened; with ESCAPE allowed, two.
+5. *ESCAPE in one place (Sonnet, Grok, Fable)* — fixed: `SourceConfig.Binding`/`IsEscape` are the one rule; the console and
+   `ReadBinds` both call them. `Bind_Escape_BindsCancelSelect` now asserts `"ESCAPE" = "cancelselect"` after `bind escape …`
+   — a bind dropped entirely reddened it, as did the rule removed and a case-sensitive match. That the engine's key
+   lookup folds case is *interpolated*: it is an input-system call (vtable +0xe8) not read, and `inputsystem.dll` is not
+   in a Ghidra project here. `KeyNames`' `ESC` is noted in B826.
+6. *A lone byte's length (Sonnet)* — fixed: the 511-byte count counted U+DC80..U+DCFF as 0; `Utf8Escaped.ByteCount` counts
+   it 1, a pair 4 then 0 (even with its low half in that range), an unpaired surrogate 3. Tests:
+   `Load_ACommandOfLoneBytesAtTheBuffersLength_CountsEachAsOneByte` (510 runs, 511 refused; red before the fix) and
+   `ByteCount_EveryKindOfCharacter_IsItsShareOfTheBytes`; counted 0 again, both reddened.
+7. *Misplaced remark (Sonnet)* — fixed: `Stuff_ALaunchValueWithTwoBackslashes_KeepsThem` has its remark back.
+8. *Grok's claim, checked* — not a break: `Define` takes `bind`, `unbind`, `alias` and `exec` before any ConVar set, and no
+   reader after the set looks past `tokens[0]` for a command that is not a ConVar. Changed to the engine's shape anyway:
+   `ArgS` is taken only when `tokens[0]` names a ConVar (FUN_180176c50 is a ConVar's path; a ConCommand reads argv).
+   `Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands` holds both paths; with `bind` no longer taken by `Define`
+   it reddened. The guard itself cannot be reddened: nothing observable differs.
+9. *.NET `Trim` (Fable)* — fixed: `Clauses` trims C's `isspace` set only, so a line starting with U+00A0 (`C2 A0`) is the
+   word `C2`, then `A0bind`, as in TF2. `ReadBinds_ALineStartingWithANoBreakSpace_BindsNothing` was red before the fix.
+10. *Lone bytes on save (Fable)* — no ConVar value is written: `ViewerSettings.Write` emits only the settings the viewer
+    types, and its strings are folders. The file itself was the route: a hand-edited Latin-1 `settings.cfg` was read with
+    `ReadAllText` (U+FFFD) and saved over. Now read through `Tf2ConfigFiles.Decode` and written as UTF-8 with its mark,
+    each lone byte as itself. `Save_ALoadedFileWithALoneByte_WritesTheSameByte`: red with the old save, red with the old
+    decode.
+11. *Loader encoding (Sonnet)* — fixed: `Tf2ConfigFiles.Decode` (`ReadFiles` and the console's `exec`) replaced invalid
+    bytes with U+FFFD; it now decodes through `Core.Primitives.Utf8Escaped`, the codec the tokenizer moved there.
+    `Exec_ALatin1File_SetsItsBytes` and a `Decode` case (`73 E9 78`) were red before; the `EF BB` case now expects the two
+    lone bytes where it expected one U+FFFD.
+12. *Missing tests (Fable)* — added: `ConVarValue` on `name "a`, `name "` and `name "a "`; `GetInt` at `-1e10` and `-inf`;
+    `KeyPressed_ABindOfMatWireframeAtofReads_TellsTheDeviceGetInt` (`nan` reddened with `(int)` of the float);
+    `ServerConVars.Apply` through `GetInt_AfterTheServerSentText_IsAtofTruncated` (a strict parse in `Apply` reddened it).
+13. *`setlocale` (noted, not fixed)* — not read. `engine.dll` imports no `setlocale` (its CRT is static, so it would not
+    be an import), and an ASCII search found no `LC_*` name — no evidence, since UCRT spells those wide. tier1's
+    `ParseToken` is linked into `engine.dll` and calls that static CRT's `isspace`, whose locale only `engine.dll`'s own
+    code can change. Whether it does, making `isspace(0x85)` or `isspace(0xA0)` true, is open.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 FUN_1801b4560 looks the key name up through the input system (a vtable call at
@@ -45413,7 +45481,9 @@ Found in B823 part 2. `engine.dll` x64 FUN_1801b4560 looks the key name up throu
 `ConfigConsole.Bind` stores any name. No key ever reaches an unknown name, so what differs is the console's line and
 `Bound`, `BindsRevision` and the bind table a binding report reads. The key names are the view's (`Viewer3D/KeyNames.cs`),
 and the console may not reach the view (D214), so the fix needs the engine's key-name list (`ButtonCodeToString`, not
-read) in a layer below both.
+read) in a layer below both. `Viewer3D/KeyNames.cs` also maps `ESC` to the escape key, a name TF2's table may not have
+(B823 review 1, Sonnet, Grok, Fable); whether `bind ESC x` is TF2's `KEY_ESCAPE` is this same read. `unbind` prints the same
+line for an unknown name (`Key_Unbind_f`, FUN_1801b6a30, build 1007), and is not ported either.
 
 ## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
 
