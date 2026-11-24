@@ -695,9 +695,33 @@ public sealed class KeyBindings
     {
         ArgumentNullException.ThrowIfNull(other);
 
-        return _bound.Count == other._bound.Count
-            && _bound.All(pair => other._bound.TryGetValue(pair.Key, out string? key) && string.Equals(key, pair.Value, StringComparison.Ordinal))
-            && _commandBinds.SequenceEqual(other._commandBinds);
+        if (_bound.Count != other._bound.Count || _commandBinds.Count != other._commandBinds.Count)
+        {
+            return false;
+        }
+
+        foreach ((ViewerAction action, string key) in _bound)
+        {
+            if (!other._bound.TryGetValue(action, out string? theirs) || !string.Equals(key, theirs, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        // Pair by pair in order, with no boxing (review 3, Fable): a null-cancel script compares on every press.
+        using Dictionary<string, string>.Enumerator mine = _commandBinds.GetEnumerator();
+        using Dictionary<string, string>.Enumerator theirsInOrder = other._commandBinds.GetEnumerator();
+
+        while (mine.MoveNext() && theirsInOrder.MoveNext())
+        {
+            if (!string.Equals(mine.Current.Key, theirsInOrder.Current.Key, StringComparison.Ordinal) ||
+                !string.Equals(mine.Current.Value, theirsInOrder.Current.Value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Every binding, for writing to a settings file.</summary>

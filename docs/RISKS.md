@@ -45378,6 +45378,14 @@ left one key firing nothing; `ViewerMenu.ApplyBindings` now clears every changin
 dispatch reads, and was red without the clearing pass (*measured*, confirming the setter's order). Gemini: B824 named
 `LaunchOptions.Parse`, which is `LaunchOptionsReader.Read`; corrected.
 
+**Review 3 (2026-11-23).** Fable: an unchanged item sharing a key with one that gives it up still lost the table entry,
+since its setter does nothing on an equal value; reachable because the projection fills unbound actions from the
+defaults. `ApplyBindings` now clears every registered item once any changes, then sets all;
+`ShowBindings_AnItemGivingUpAKeyItShared_LeavesTheKeyFiringTheOther`, red with only the changed items cleared. Fable:
+`SameAs` boxed every pair through `SequenceEqual`; now a plain loop. *Not changed* (Fable, low): `ShowBindingsIfChanged`
+trusts that nothing reads `Bindings` between a key's console call and its check, which no path does today. Sonnet: two
+actions on one key leave one item firing, which one key can only do.
+
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`
 reads live, and not the projection. So the key works and its label is stale. TF2's own binding menu reads the live

@@ -220,6 +220,43 @@ public sealed class ViewerMenuTests
             KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
     }
 
+    /// <remarks>
+    /// **An unchanged item keeps its key when another item gives up the same key** (B821 review 3, Fable): the first item
+    /// takes the second's key, which the defaults still give the second too, and then returns to its own. Its setter
+    /// removes the shared entry, and the second's setter does nothing on an unchanged value, so the key fired nothing. The
+    /// control: while both hold the key, the entry is the last one set.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_AnItemGivingUpAKeyItShared_LeavesTheKeyFiringTheOther()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        string secondKey = KeyBindings.Defaults[ActionOn(second.ShortcutKeys)];
+        IViewerWindow window = form;
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+
+        window.ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = secondKey }));
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldNotBeNull("the control: the shared key is in the table");
+
+        window.ShowBindings(new KeyBindings());
+
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldBeSameAs(second);
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
         if (strip is null)

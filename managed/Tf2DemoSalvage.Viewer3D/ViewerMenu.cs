@@ -809,9 +809,19 @@ internal sealed class ViewerMenu : IDisposable
     {
         ArgumentNullException.ThrowIfNull(bindings);
 
+        // Every registered item, the unchanged ones too, once any changes (review 3, Fable): an unchanged item sharing a key
+        // with one that gives it up would otherwise lose the table entry, as its own setter does nothing on an equal value.
+        // A loop, not a lambda: a closure over the table would be a view type holding a Presentation object (D214).
+        bool anyChanges = false;
+
         foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
         {
-            if (!printedOnly && item.ShortcutKeys != KeyNames.Resolve(bindings.KeyFor(action)))
+            anyChanges |= !printedOnly && item.ShortcutKeys != KeyNames.Resolve(bindings.KeyFor(action));
+        }
+
+        foreach ((ToolStripMenuItem item, _, bool printedOnly) in _shortcuts)
+        {
+            if (anyChanges && !printedOnly)
             {
                 item.ShortcutKeys = Keys.None;
             }
