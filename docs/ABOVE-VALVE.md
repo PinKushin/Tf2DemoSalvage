@@ -30,4 +30,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | The threaded pre-pass draws the same bones as the serial pose | D248 | `Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial` |
 | A corpse made during a demo skip keeps its ragdoll (TF2 makes none) | D250 | `Instances_ACorpseBornInsideAJumpsSkip_IsSimulatedFromItsDeathAtTheLanding` |
 | The viewer's own settings file keeps its menus' cheat ConVars between runs (TF2 keeps none, and refuses them from a config with `sv_cheats` 0) | D253 | `Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne` |
-| A config's UTF-8 byte order mark is stripped, so its first command runs (TF2 runs the mark as part of it: `Unknown command`) | D265 | `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole` |
+| A config's UTF-8 byte order mark is stripped, so its first command runs (TF2 keeps the mark, and that command fails: `Unknown command`) | D265 | `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole` |

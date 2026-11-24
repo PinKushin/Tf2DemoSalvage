@@ -326,8 +326,8 @@ public sealed class Tf2ConfigFilesTests
 
     /// <remarks>
     /// **Above Valve (D265, B822): a config's UTF-8 byte order mark is stripped.** Measured on live TF2 (2026-11-23): `exec`
-    /// of a file `EF BB BF` + `echo …` prints `Unknown command "�"` and runs only the second line, as `Cmd_Exec_f`'s line reader
-    /// copies the first byte whatever it is. The owner: *"keep it as a above valve, we dont want the configs to break the
+    /// of a file `EF BB BF` + `echo …` prints `Unknown command "�"` and runs only the second line; `Cmd_Exec_f`'s line reader
+    /// copies the first byte whatever it is (disassembly). The owner: *"keep it as a above valve, we dont want the configs to break the
     /// viewer"*. The control: the same text without the mark reads the same.
     /// </remarks>
     [Test]
@@ -349,16 +349,18 @@ public sealed class Tf2ConfigFilesTests
     }
 
     /// <remarks>
-    /// The mark is exactly `EF BB BF` at the start (D265): the mark alone is an empty config, and `EF BB A0` (U+FEE0) is a
-    /// character, kept whole.
+    /// The mark is exactly `EF BB BF` at the start (D265): the mark alone is an empty config, a two-byte start is one
+    /// replacement character, a mark after the first byte stays, and three near-misses are characters kept whole. The
+    /// expectation is UTF-16 code units, so no invisible character sits in the source.
     /// </remarks>
-    [TestCase(new byte[] { 0xEF, 0xBB, 0xBF }, "")]
-    [TestCase(new byte[] { 0xEF, 0xBB }, "�")]
-    [TestCase(new byte[] { 0xEF, 0xBB, 0xA0, 0x61 }, "ﻠa")]
-    [TestCase(new byte[] { 0xEF, 0xBA, 0xBF, 0x61 }, "ﺿa")]
-    [TestCase(new byte[] { 0xEE, 0xBB, 0xBF, 0x61 }, "a")]
-    public void Decode_OnlyALeadingByteOrderMark_IsStripped(byte[] bytes, string expected) =>
-        Tf2ConfigFiles.Decode(bytes).ShouldBe(expected);
+    [TestCase(new byte[] { 0xEF, 0xBB, 0xBF }, new int[] { })]
+    [TestCase(new byte[] { 0xEF, 0xBB }, new[] { 0xFFFD })]
+    [TestCase(new byte[] { 0x61, 0xEF, 0xBB, 0xBF, 0x62 }, new[] { 0x61, 0xFEFF, 0x62 })]
+    [TestCase(new byte[] { 0xEF, 0xBB, 0xA0, 0x61 }, new[] { 0xFEE0, 0x61 })]
+    [TestCase(new byte[] { 0xEF, 0xBA, 0xBF, 0x61 }, new[] { 0xFEBF, 0x61 })]
+    [TestCase(new byte[] { 0xEE, 0xBB, 0xBF, 0x61 }, new[] { 0xEEFF, 0x61 })]
+    public void Decode_OnlyALeadingByteOrderMark_IsStripped(byte[] bytes, int[] expected) =>
+        Array.ConvertAll(Tf2ConfigFiles.Decode(bytes).ToCharArray(), unit => (int)unit).ShouldBe(expected);
 
     [Test]
     public void Read_NoOwnCustomRoot_IsUnaffected()

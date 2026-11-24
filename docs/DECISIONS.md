@@ -11741,8 +11741,9 @@ a control file without the mark printing its line (B822). The strip is listed in
 valve, we dont want the configs to break the viewer"*. Before that, the owner doubted the claim that TF2 breaks
 (*"test it i think you are wrong"*); the live test above settled it.
 
-**Why it follows.** A config is the user's, and a mark an editor added invisibly would cost them their first command in the
-viewer for no reason the viewer can show; the viewer reading it is not a demo-playback divergence a watcher can see.
+**Why it follows.** The owner's reason is the quote: a config must not break the viewer, and a mark costs the file its first
+command. The lead adds, not in the owner's words: reading a config is not demo playback, so the strip changes nothing a
+watcher sees of the demo.
 
 **How to apply.** Keep the strip in `Tf2ConfigFiles.Decode`; `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole`
 holds it. A parity pass on the config reader must not remove it (D246).
