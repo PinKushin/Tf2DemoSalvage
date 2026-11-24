@@ -46343,9 +46343,15 @@ letter (a UNC path). Recorded (Fable): the mutation job runs Presentation on Lin
 skipped, so a mutant that made the `IsPathRooted` half false alone would survive there.
 
 **Review 5** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): review 4 said
-the `IsPathRooted` mutant survives on Linux every run, but the mutants Stryker.NET makes there (`||` to `&&`, `||` to
-`^`, the call negated) each redden the folder test, which runs on Linux; only a hand sabotage that makes that half false
-would survive, and the record above now says so.
+the `IsPathRooted` mutant survives on Linux every run, but the folder test, which runs on Linux, reddens for the
+mutant made there (`||` to `&&`: it drops `./b828-folder-…`); only a change that makes that half false alone would
+survive, and the record above now says so.
+
+**Review 6** (Fable, Gemini, Sonnet, Grok; Gemini had no findings). Fixed: review 5 named three Stryker.NET mutants on
+that half; the pinned `dotnet-stryker` 4.16.0 makes only `||` to `&&` there (`BinaryExpressionMutator` maps `||` to
+`&&` alone; `NegateConditionMutator` negates only an `if` or `while` condition), read from its published source (Fable;
+Sonnet and Grok doubted the other two). Recorded (Fable): `>= 0` to `> 0` on the separator half is an equivalent
+mutant, since a separator at index 0 makes the path rooted, so it survives every run.
 
 The paragraph below is the entry as filed.
 
