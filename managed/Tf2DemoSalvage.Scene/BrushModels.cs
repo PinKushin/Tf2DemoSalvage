@@ -108,6 +108,16 @@ public static class BrushModels
             BspModel model = models[index];
             List<PropVertex> corners = [];
 
+            // **Each face's stored plane, beside its corners** (B803 review 6): the outline's cull reads the plane the surface
+            // record holds (`engine.dll` `FUN_1800df1a0` keeps the record's plane pointer, `+4`), never one the fan's
+            // triangles imply. `dplane_t` by `planenum`: for a brush entity, its brush side's real plane, or for a water or
+            // slime face that plane with its twin chosen by the face's portal side, `(side->planenum & ~1) | pside`, which
+            // can be the flipped one (`utils/vbsp/faces.cpp:1334-1346`); and `side`, that plane's
+            // odd bit (`writebsp.cpp:465-467`), read from `Normal` against `PlaneNormal` as B687 reads it. The same space as
+            // the corners: the faces lump's model space. One per face that emitted a triangle: a face of three or more
+            // corners always emits one, and a smaller one is skipped above with its plane.
+            List<StoredPlane> planes = [];
+
             // Looked up once per model rather than per vertex: every face of a brush entity belongs
             // to the same entity and therefore to the same class.
             (float Red, float Green, float Blue)? tint = tintFor?.Invoke(index);
@@ -160,12 +170,21 @@ public static class BrushModels
 
                 // A fan from the first corner, as the world path does: a face out of a BSP is
                 // convex by construction.
+                // Each corner says whether its edge is the polygon's, for `mat_wireframe 3` (FaceFan, B803).
                 for (int corner = 1; corner + 1 < surface.Vertices.Count; corner++)
                 {
-                    Append(corners, surface, 0, rectangle, lightStep, tint);
-                    Append(corners, surface, corner, rectangle, lightStep, tint);
-                    Append(corners, surface, corner + 1, rectangle, lightStep, tint);
+                    int triangle = corner - 1;
+                    int triangles = surface.Vertices.Count - 2;
+
+                    Append(corners, surface, 0, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 0));
+                    Append(corners, surface, corner, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 1));
+                    Append(corners, surface, corner + 1, rectangle, lightStep, tint, FaceFan.IsFaceEdge(triangle, triangles, 2));
                 }
+
+                (float x, float y, float z) = surface.PlaneNormal;
+                (float sideX, float sideY, float sideZ) = surface.Normal;
+
+                planes.Add(new StoredPlane(x, y, z, surface.PlaneDistance, (x * sideX) + (y * sideY) + (z * sideZ) < 0f));
             }
 
             if (corners.Count == 0)
@@ -223,7 +242,8 @@ public static class BrushModels
                     [],
                     HeaderBounds: new StudioBox(
                         model.Minimum.X, model.Minimum.Y, model.Minimum.Z,
-                        model.Maximum.X, model.Maximum.Y, model.Maximum.Z));
+                        model.Maximum.X, model.Maximum.Y, model.Maximum.Z),
+                    FacePlanes: planes);
         }
 
         return built;
@@ -235,7 +255,8 @@ public static class BrushModels
         int index,
         AtlasRect rectangle,
         float lightStep,
-        (float Red, float Green, float Blue)? tint)
+        (float Red, float Green, float Blue)? tint,
+        bool faceEdge)
     {
         SurfaceVertex vertex = surface.Vertices[index];
 
@@ -269,6 +290,7 @@ public static class BrushModels
             // than ours.
             Red: tint?.Red ?? 1f,
             Green: tint?.Green ?? 1f,
-            Blue: tint?.Blue ?? 1f));
+            Blue: tint?.Blue ?? 1f,
+            FaceEdge: faceEdge));
     }
 }

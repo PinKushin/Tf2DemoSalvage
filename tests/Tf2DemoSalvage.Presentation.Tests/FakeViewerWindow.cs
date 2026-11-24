@@ -201,7 +201,7 @@ internal sealed class FakeIdleHost : IIdleHost
 internal sealed class FakeRenderDevice : IRenderDevice
 {
     /// <inheritdoc/>
-    public bool Wireframe { get; set; }
+    public int Wireframe { get; set; }
 
     /// <inheritdoc/>
     public bool Specular { get; set; } = true;

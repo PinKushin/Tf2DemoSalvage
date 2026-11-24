@@ -581,7 +581,7 @@ public sealed partial class EntityModelSet
     /// the bones are the only thing that stands it up; a vertex with no weights stays where the artist modelled it, which
     /// for a player is lying along Y.
     /// </remarks>
-    private static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
+    internal static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
         new(
             corner.X, corner.Y, corner.Z, corner.U, corner.V,
             corner.LightU, corner.LightV, 0f,
@@ -604,7 +604,8 @@ public sealed partial class EntityModelSet
             TangentX: corner.TangentX,
             TangentY: corner.TangentY,
             TangentZ: corner.TangentZ,
-            TangentW: corner.TangentW);
+            TangentW: corner.TangentW,
+            FaceEdge: corner.FaceEdge);
 
     /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 80).</summary>
     /// <param name="modelPath">The model.</param>
@@ -647,6 +648,86 @@ public sealed partial class EntityModelSet
 
     /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 80).</summary>
     private readonly Dictionary<string, WorldVertex[]> _packedRebuilt = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A brush entity's stored face planes in the order its packed vertices hold its faces (B803 review 6).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>One plane per packed face, or null for a model with none (a studio model) or not packed.</returns>
+    /// <remarks>
+    /// The packing groups a model's corners by material, so its faces reach the buffer in another order than the one
+    /// <see cref="PropModels.ModelFrames.FacePlanes"/> lists them in. A group keeps its corners' order, so a face stays
+    /// whole when all its corners share one material, as a real brush face's do. A packed triangle that does not start a
+    /// face but no longer follows the triangle before it in the source corners is refused (review 10); a face split across
+    /// groups whose triangles still each follow that one, as T0 (B, edge) then T1 (A, no edge) packs, passes, and is
+    /// counted as one face in the buffer as in the corners (review 11). Each corner's face is counted in corner order by
+    /// the rule <see cref="FaceFan.Faces"/> applies to the buffer: a face starts at each triangle whose first corner's
+    /// edge is the polygon's. Then each face the buffer starts
+    /// takes the plane of the face its first corner belongs to.
+    /// </remarks>
+    public IReadOnlyList<StoredPlane>? PackedFacePlanes(string modelPath)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
+            !_packedOrder.TryGetValue(modelPath, out int[]? order) ||
+            !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model) ||
+            model.FacePlanes is not { } planes)
+        {
+            return null;
+        }
+
+        // A model whose packing or planes do not match its corners has none, which the upload reports (review 7): never a
+        // list that pairs a face with another's plane. Whole triangles only (review 9): a trailing one or two corners would
+        // otherwise be left out of the face count below and the planes' check with them.
+        if (order.Length != corners.Count || corners.Count % 3 != 0)
+        {
+            return null;
+        }
+
+        int[] faceOf = new int[corners.Count];
+        int face = -1;
+
+        for (int at = 0; at + 2 < corners.Count; at += 3)
+        {
+            face += face < 0 || corners[at].FaceEdge ? 1 : 0;
+            (faceOf[at], faceOf[at + 1], faceOf[at + 2]) = (face, face, face);
+        }
+
+        if (face + 1 != planes.Count)
+        {
+            return null;
+        }
+
+        List<StoredPlane> packed = [];
+
+        for (int at = 0; at + 2 < order.Length; at += 3)
+        {
+            // Each packed triangle must be one of the corners' own, its corners in their own order (reviews 8-9): a
+            // triangle split across the packing's groups pairs faces with others' planes, and one whose corners are all
+            // its own but start elsewhere, as A A A | B B A | B B B packs its second, opens on a corner whose face edge
+            // is not its first's, so a face goes uncounted while both counts still agree.
+            if (order[at] % 3 != 0 || order[at + 1] != order[at] + 1 || order[at + 2] != order[at] + 2)
+            {
+                return null;
+            }
+
+            // A triangle that does not start a face joins the one before it in the buffer, so it must follow the
+            // triangle before it in the source corners (review 10): T0 T1 | T2 | T3, T3 continuing T2's face but packed with T0 and T1,
+            // would join T0's face and be culled on its plane while both counts agree.
+            bool starts = at == 0 || corners[order[at]].FaceEdge;
+
+            if (!starts && order[at] != order[at - 3] + 3)
+            {
+                return null;
+            }
+
+            if (starts)
+            {
+                packed.Add(planes[faceOf[order[at]]]);
+            }
+        }
+
+        return packed;
+    }
 
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>
     /// <remarks>

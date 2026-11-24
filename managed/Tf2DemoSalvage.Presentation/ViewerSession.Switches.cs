@@ -202,14 +202,20 @@ public sealed partial class ViewerSession
             _settingsOwner.SetConVar(WireframeCommand, on ? "1" : "0");
         }
 
-        SetRenderToggle(WireframeCommand, on, static (device, value) => device.Wireframe = value);
+        // The VALUE reaches the device, not the tick (B803): 2 and 3 draw differently from 1 (`engine.dll` `FUN_1800dc720`).
+        int mode = on ? WireframeMode(ClientConVar(WireframeCommand) ?? "1") : 0;
+
+        SetRenderToggle(WireframeCommand, on, (device, _) => device.Wireframe = mode);
     }
 
     /// <summary>Valve's name for the wireframe switch, a cheat ConVar (B791).</summary>
     private const string WireframeCommand = "mat_wireframe";
 
-    /// <summary>Whether a <c>mat_wireframe</c> value draws wireframe: its integer, as `WireFrameMode()` reads it (`view.h:68`).</summary>
-    private static bool Wireframes(string value) => (int)Core.Primitives.CStdlib.Atof(value) != 0;
+    /// <summary>A <c>mat_wireframe</c> value's integer, as `WireFrameMode()` reads it (`view.h:68`).</summary>
+    private static int WireframeMode(string value) => (int)Core.Primitives.CStdlib.Atof(value);
+
+    /// <summary>Whether a <c>mat_wireframe</c> value draws wireframe: its integer is not zero.</summary>
+    private static bool Wireframes(string value) => WireframeMode(value) != 0;
 
     /// <summary>Valve's <c>r_drawworld</c>.</summary>
     /// <param name="on">Whether to draw the level's brushwork.</param>
@@ -290,6 +296,14 @@ public sealed partial class ViewerSession
         else if (set.Name.Equals(WireframeCommand, StringComparison.OrdinalIgnoreCase))
         {
             _window.ShowWireframe(Wireframes(set.Value));
+
+            // **A change of value with the tick unchanged reaches the device too** (B803): 1 to 2 moves no tick, so the menu
+            // reports nothing, and the overlay would stay `debugworldwireframe`.
+            if (Wireframes(set.Value) && _device is { } device && device.Wireframe != WireframeMode(set.Value))
+            {
+                device.Wireframe = WireframeMode(set.Value);
+                _window.Redraw();
+            }
         }
 
         // **The glint ConVars too** (B725): the studio render reads both at every eye draw (`studiorender.dll`

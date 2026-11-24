@@ -108,7 +108,7 @@ public sealed class OverrideMaterialLoadingTests
     {
         MapAssets assets = MapCache.Load();
 
-        ModelWireframe wireframe = assets.Wireframe.ShouldNotBeNull();
+        WireframeMaterial wireframe = assets.Wireframe.ShouldNotBeNull();
         int index = wireframe.Material;
 
         index.ShouldBeGreaterThanOrEqualTo(assets.BrushMaterialCount);
@@ -121,5 +121,33 @@ public sealed class OverrideMaterialLoadingTests
 
         texture.IsErrorTexture.ShouldBeFalse("no $basetexture is white, not missing");
         texture.Modulation.ShouldBe((0f, 1f, 1f, 1f));
+    }
+
+    /// <remarks>
+    /// **The engine's own debug wireframe materials, loaded at init as `engine.dll` `FUN_1800f6f80` does** (B803), each as its
+    /// VMT ships (`platform_misc`, read with the `vmt` probe 2026-11-23): `debugworldwireframe` `$color [0.90 0.50 0.50]`
+    /// `$ignorez 1`; its `zbuffer` twin `[0 1 .5]` `$ignoreZ 0`; `debugwireframe` `[1 1 1]` `$ignorez 0`;
+    /// `debugdecalwireframe` `[1 1 0]` `$ignorez 1`. All four are the `Wireframe` shader over white.
+    /// </remarks>
+    [TestCase(MapAssets.WorldWireframePath, 0.9f, 0.5f, 0.5f, true)]
+    [TestCase(MapAssets.WorldWireframeZBufferPath, 0f, 1f, 0.5f, false)]
+    [TestCase(MapAssets.DisplacementWireframePath, 1f, 1f, 1f, false)]
+    [TestCase(MapAssets.DecalWireframePath, 1f, 1f, 0f, true)]
+    public void EngineWireframes_AfterALoadFromTheGameArchives_AreTheEnginesMaterialsAsTheirVmtsSay(
+        string path, float red, float green, float blue, bool ignoresZ)
+    {
+        MapAssets assets = MapCache.Load();
+
+        // Named, so a path that did not load fails saying which (B803 review 1) rather than with a KeyNotFoundException.
+        assets.EngineWireframes.TryGetValue(path, out WireframeMaterial wireframe)
+            .ShouldBeTrue($"{path} did not load; loaded: {string.Join(", ", assets.EngineWireframes.Keys)}");
+        MapTexture texture = assets.Textures[wireframe.Material].ShouldNotBeNull();
+
+        (assets.Materials[wireframe.Material].Name, assets.Shaders[wireframe.Material], wireframe.IgnoresZ)
+            .ShouldBe((path, "Wireframe", ignoresZ));
+        texture.IsErrorTexture.ShouldBeFalse();
+
+        // An identity `$color` is stored as none, and draws as white.
+        (texture.Modulation ?? (1f, 1f, 1f, 1f)).ShouldBe((red, green, blue, 1f));
     }
 }

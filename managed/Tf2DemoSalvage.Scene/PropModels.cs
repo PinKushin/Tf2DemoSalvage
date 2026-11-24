@@ -45,6 +45,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="TangentZ">The tangent S.</param>
 /// <param name="TangentW">The binormal's sign, or zero where there is no tangent frame.</param>
 /// <param name="Eyeball">The eyeball its mesh draws, or −1 (B725).</param>
+/// <param name="FaceEdge">Whether its edge to the next corner of its triangle is its brush face's own (B803).</param>
 public readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
@@ -79,7 +80,11 @@ public readonly record struct PropVertex(
     float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f,
 
     // **The eyeball its mesh draws, −1 for none** (B725, `StudioMesh.Eyeball`).
-    int Eyeball = -1);
+    int Eyeball = -1,
+
+    // **A brush face's corner: whether its edge to the next corner of its triangle is the face's own** (B803,
+    // `WorldVertex.FaceEdge`). True for a studio model, which has no polygon to outline.
+    bool FaceEdge = true);
 
 /// <summary>A model's triangles as a decal needs them: each corner's position and normal, in the model's own space.</summary>
 /// <param name="Positions">Corner positions, a triangle list.</param>
@@ -3559,6 +3564,7 @@ public static class PropModels
     /// would mean opening one model's `.phy` twice.
     /// </param>
     /// <param name="Hitboxes">The hitbox sets, by <c>m_nHitboxSet</c>, which is what a bullet strikes (B415).</param>
+    /// <param name="FacePlanes">A brush entity's faces' stored planes, in corner order (B803 review 6); null for a studio model.</param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -3617,7 +3623,12 @@ public static class PropModels
         // collision solid with nothing to simulate.
         RagdollBody? Ragdoll = null,
         IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null,
-        IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
+        IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null,
+
+        // **A brush entity's faces' stored planes, one per face in the first frame's corner order** (B803 review 6):
+        // the plane the engine's surface record holds, which the `mat_wireframe 3` outline culls by. Null for a studio
+        // model, which has no faces.
+        IReadOnlyList<StoredPlane>? FacePlanes = null)
     {
         /// <summary>
         /// The model's <c>studiohdr_t.flags</c> as the file has them, which decide whether a static prop gets a CPU colour

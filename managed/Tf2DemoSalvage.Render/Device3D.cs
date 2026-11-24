@@ -669,7 +669,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 rebased.Add(local);
             }
 
-            PackedModel built = new(own, rebased);
+            // A brush entity's faces' stored planes come with its vertices, for the outline's cull (B803 review 6).
+            PackedModel built = new(own, rebased) { FacePlanes = models.PackedFacePlanes(path) };
 
             _packedModels[path] = built;
             packed[path] = built;
@@ -5986,14 +5987,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <inheritdoc/>
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts => _setCameraParts;
 
-    /// <summary>Whether the world draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
+    /// <summary>Valve's <c>mat_wireframe</c>: the ConVar's value, 0 off (B803).</summary>
     /// <remarks>
-    /// **Separates "never drawn" from "drawn and invisible", which nothing else here can.** Both
-    /// produce an absent surface, and every other instrument in this renderer answers only one of
-    /// them: a face count says what was submitted, a material ledger says what it was submitted
-    /// with, and neither says whether an edge reached the screen.
+    /// **The engine's debug view, not this renderer's instrument** (B803 review 1). Until B803 it put every pass in line
+    /// fill (D75), which separated "never drawn" from "drawn and invisible" for any surface; it now binds the debug
+    /// materials the engine binds: over a solid world and its brush entities, and in place of a displacement (opaque or
+    /// translucent), a world decal and a studio model's own materials. A world surface drawn invisibly keeps its own look
+    /// and only its outline shows. <see cref="WorldRenderer.Wireframe"/> says what each value draws.
     /// </remarks>
-    public bool Wireframe
+    public int Wireframe
     {
         get => _wireframe;
 
@@ -6009,7 +6011,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
-    private bool _wireframe;
+    private int _wireframe;
 
     /// <summary>Valve's <c>mat_specular</c>: off drops the reflection where the material's params pass would (B720 part 5).</summary>
     /// <remarks>

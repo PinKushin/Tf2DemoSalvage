@@ -49,6 +49,11 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="TangentY">Its tangent S.</param>
 /// <param name="TangentZ">Its tangent S.</param>
 /// <param name="TangentW">The binormal's sign, or zero for a vertex with no tangent frame.</param>
+/// <param name="FaceEdge">
+/// Whether the edge from this corner to the next corner of its triangle (the third's next is the first) is an edge of the
+/// face's own polygon, false for a diagonal the fan added (<see cref="FaceFan"/>). True for anything not built from a
+/// polygon. <c>mat_wireframe 3</c> outlines only these (B803).
+/// </param>
 public readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
     float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
@@ -57,7 +62,8 @@ public readonly record struct WorldVertex(
     float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f,
     float BoneA = 0f, float BoneB = 0f, float BoneC = 0f,
     float WeightA = 0f, float WeightB = 0f, float WeightC = 0f,
-    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f);
+    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f,
+    bool FaceEdge = true);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>

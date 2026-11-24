@@ -366,7 +366,7 @@ public sealed class EyeShaderRenderTests
             (0f, depth, 0f), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f), (0f, -1f, 0f), 600f);
 
         target.Glint = new GlintSwitches(alwaysDraw, procedural);
-        target.Wireframe = wireframe;
+        target.Wireframe = wireframe ? 1 : 0;
         Draw(target, Eyes(irisAlpha: 0), eye, locals: [new LocalLight(0f, -300f, 0f, lamp, lamp, lamp, 1f, 0f, 0f, 0f)]);
 
         (int R, int G, int B) texel = target.PixelAt(34, 30);
@@ -401,7 +401,7 @@ public sealed class EyeShaderRenderTests
 
         Draw(target, assets, eye);
         (int R, int G, int B) own = target.PixelAt(34, 30);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, eye);
         (int R, int G, int B) wire = target.PixelAt(34, 30);
 
@@ -427,7 +427,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, Wireframed("VertexLitGeneric", ignoresZ: true), null, modelPath: modelPath);
 
         target.PixelAt(34, 30).ShouldBe((red, green, blue), "the brush entity's own red, lit, is drawn: not swapped, not absent");
@@ -451,7 +451,7 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
             ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
 
         Draw(target, assets, null, overrideMaterial: "forced.vmt");
@@ -477,7 +477,7 @@ public sealed class EyeShaderRenderTests
             return;
         }
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, MapAssets.ForMaterials([Uniform4(255, 0, 0, 255)], ["VertexLitGeneric"]), null);
 
         target.PixelAt(34, 30).ShouldBe((89, 0, 0));
@@ -505,7 +505,7 @@ public sealed class EyeShaderRenderTests
 
         Draw(target, assets, null, fog: fog);
         (int R, int G, int B) own = target.PixelAt(34, 30);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, fog: fog);
         (int R, int G, int B) wire = target.PixelAt(34, 30);
 
@@ -574,12 +574,14 @@ public sealed class EyeShaderRenderTests
     /// <remarks>
     /// **`debugmrmwireframe` is `$ignorez 1`**, so its edges draw over what is in front of them (B788). The quad drawn solid
     /// first, then its wireframe at the same depth without clearing: with no depth test the edge is the wireframe's
-    /// (0, 255, 255); with one, the strict test (`ComparisonFunc.Less`) refuses the equal depth and the solid red stays. Not
-    /// `$decal` here, whose `LessEqual` test would pass the equal depth and hide the difference.
+    /// (0, 255, 255). **A depth-tested debug wireframe passes that equal depth too** (B803): it tests `LessEqual`, as
+    /// `mat_wireframe 2`'s outline over the surface it outlines must; until B803 it took the opaque pass's strict `Less`
+    /// and the solid red stayed. Which of the two hides behind a NEARER surface is
+    /// `WorldWireframeConformanceTests.DrawWorld_AnEdgeBehindANearerFace_ShowsByItsWireframesIgnoreZ`.
     /// </remarks>
     [TestCase(true, 0)]
-    [TestCase(false, 89)]
-    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_TestsDepthByItsIgnoreZ(bool ignoresZ, int red)
+    [TestCase(false, 0)]
+    public void DrawModelPose_TheWireframeMaterialOverADrawnSurface_PassesTheSurfacesOwnDepth(bool ignoresZ, int red)
     {
         using OffscreenTarget? target = Target();
 
@@ -591,7 +593,7 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = Wireframed("VertexLitGeneric", ignoresZ, decal: false);
 
         Draw(target, assets, null);
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, clear: false);
         (int R, int G, int B) edge = target.PixelAt(34, 30);
 
@@ -602,10 +604,12 @@ public sealed class EyeShaderRenderTests
     /// <remarks>
     /// **A forced material wins over the wireframe one**: the swap needs `m_pForcedMaterial` (`+0x250`) null
     /// (`studiorender.dll` `0x1800041f2`), so a gold corpse's `ForcedMaterialOverride` draws gold, here a blue material 2:
-    /// (0, 0, 89) on the edge, not the wireframe's (0, 255, 255).
+    /// (0, 0, 89) on the edge, not the wireframe's (0, 255, 255). **And solid** (B808): the fill is the drawn material's own
+    /// `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), which a VertexLitGeneric material does not set, so the interior
+    /// (20, 20) is blue too — before, every pass drew its wireframe twin and the interior was the clear black.
     /// </remarks>
     [Test]
-    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOne()
+    public void DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOneSolid()
     {
         using OffscreenTarget? target = Target();
 
@@ -617,14 +621,565 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f) }, Uniform4(0, 0, 255, 255)],
             ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
         int lit = Encode(Cube);
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null, overrideMaterial: "forced.vmt");
 
-        target.PixelAt(34, 30).ShouldBe((0, 0, lit));
+        (target.PixelAt(34, 30), target.PixelAt(20, 20)).ShouldBe(((0, 0, lit), (0, 0, lit)));
+    }
+
+    /// <remarks>
+    /// **A brush entity draws solid under `mat_wireframe`, then is outlined with `debugworldwireframe`** (B803): the
+    /// `R_DrawBrushModel` paths (`engine.dll` `FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`) end in `FUN_1800dc720`, which
+    /// binds `0x18069b3e0` and redraws the surfaces. The edge (34, 30) is `$color [0.9 0.5 0.5]`, unlit, (230, 128, 128)
+    /// within a level; the interior (20, 20) the brush's own red, lit, (89, 0, 0). The studio model of the same mesh is the
+    /// control: swapped to `debugmrmwireframe` (B788), not outlined, so its edge is cyan and its interior the clear black.
+    /// </remarks>
+    [TestCase("*1", 230, 128, 128, 89)]
+    [TestCase("offscreen/posed.mdl", 0, 255, 255, 0)]
+    public void DrawModelPose_UnderWireframe_OutlinesABrushEntityAndSwapsAStudioModel(
+        string modelPath, int red, int green, int blue, int insideRed)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = true },
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe", "Wireframe"],
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(2, IgnoresZ: true) });
+
+        target.Wireframe = 1;
+        Draw(target, assets, null, modelPath: modelPath, frontFacing: true);
+        (int R, int G, int B) edge = target.PixelAt(34, 30);
+
+        TestContext.Out.WriteLine($"{modelPath} under wireframe: edge {edge}, inside {target.PixelAt(20, 20)}");
+        Math.Abs(edge.R - red).ShouldBeLessThanOrEqualTo(1);
+        Math.Abs(edge.G - green).ShouldBeLessThanOrEqualTo(1);
+        Math.Abs(edge.B - blue).ShouldBeLessThanOrEqualTo(1);
+        target.PixelAt(20, 20).ShouldBe((insideRed, 0, 0));
+    }
+
+    /// <remarks>
+    /// **`mat_wireframe 3` outlines a brush entity's polygons, not its triangles** (B803): `FUN_1800dc720`, at the end of the
+    /// `R_DrawBrushModel` paths, hands the surfaces to `FUN_1800e6780` for 3, which draws each one's own vertex loop as
+    /// lines with `debugworldwireframe`. The quad's diagonal (34, 30) is then the brush's own lit red (89, 0, 0) and its left
+    /// edge (18, 30) the material's (230, 128, 128). Under 1 the diagonal is outlined too, the control that the probe lies
+    /// on it. Drawn clockwise, the corners (c3, c2, c0) and (c2, c1, c0): the diagonal is c2 to c0, each triangle's.
+    /// </remarks>
+    [TestCase(1, 230, 128, 128)]
+    [TestCase(3, 89, 0, 0)]
+    public void DrawModelPose_UnderWireframeThree_OutlinesABrushEntitysPolygonWithoutItsDiagonal(int wireframe, int red, int green, int blue)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+
+        target.Wireframe = wireframe;
+        Draw(target, assets, null, modelPath: "*1", frontFacing: true, faceEdges: [true, false, true, true, true, false]);
+        (int R, int G, int B) diagonal = target.PixelAt(34, 30);
+        (int R, int G, int B) edge = target.PixelAt(18, 30);
+
+        TestContext.Out.WriteLine($"mat_wireframe {wireframe}: diagonal {diagonal}, edge {edge}");
+        Math.Abs(diagonal.R - red).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(diagonal.G - green).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(diagonal.B - blue).ShouldBeLessThanOrEqualTo(1, "the diagonal");
+        Math.Abs(edge.R - 230).ShouldBeLessThanOrEqualTo(1, "the left edge");
+        Math.Abs(edge.G - 128).ShouldBeLessThanOrEqualTo(1, "the left edge");
+        Math.Abs(edge.B - 128).ShouldBeLessThanOrEqualTo(1, "the left edge");
+    }
+
+    /// <remarks>
+    /// **A brush entity's face seen from behind is outlined by no value** (B803 review 1, Fable): `R_DrawBrushModel`'s path
+    /// `FUN_1800dcb20` tests each surface's plane against the eye, `dot − dist ≥ −0.01`, and builds the list it hands
+    /// `FUN_1800dc720` from the surfaces that pass, so under 3 `FUN_1800e6780` never sees a back face; under 1 the redraw's
+    /// back-face cull takes it too. The quad faces away from the camera (its normal +y, the camera at y −300, wound
+    /// counter-clockwise on screen) and is drawn both-sided, so its solid shows; its left edge (18, 30) under 1 and 3 is the
+    /// pixel the value 0 draws there. The front-facing quad of the test above is the control that the probe lies on the
+    /// outline. Before review 1 the line list under 3 was never culled, and the edge was pink.
+    ///
+    /// **`$nocull` makes no exception** (B803 review 2, Fable, Sonnet): the cull's list comes from `FUN_1800df1a0`, which
+    /// skips only surfaces with `0x20` in their flag byte (*interpolated* to be `SURFDRAW_TRANS`, the header being
+    /// unpublished; the translucent brush path is `FUN_1800de800`), and `FUN_1800dcb20` tests every
+    /// plane in it with no flag read, so a `$nocull` brush-entity face seen from behind is culled and not outlined. The
+    /// world's walk is the one that keeps NOCULL (`R_DrawLeaf`, `0x200`).
+    /// </remarks>
+    [TestCase(1, false)]
+    [TestCase(3, false)]
+    [TestCase(3, true)]
+    public void DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined(int wireframe, bool noCull)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255) with { IsNoCull = noCull },
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) });
+        bool[] loop = [true, true, false, false, true, true];
+
+        target.Wireframe = 0;
+        Draw(target, assets, null, modelPath: "*1", faceEdges: loop, normalY: 1f);
+        (int R, int G, int B) unlined = target.PixelAt(18, 30);
+
+        target.Wireframe = wireframe;
+        Draw(target, assets, null, modelPath: "*1", faceEdges: loop, normalY: 1f);
+
+        TestContext.Out.WriteLine($"mat_wireframe {wireframe} on a back face: edge {target.PixelAt(18, 30)}, unlined {unlined}");
+        target.PixelAt(18, 30).ShouldBe(unlined);
+    }
+
+    /// <remarks>
+    /// **A brush entity like a real one: several faces to a run, front and back mixed, and a second run** (B803 review 2,
+    /// Fable). Four quads side by side, each its own polygon: run one is front, back, front (vertices 0 to 17), run two
+    /// one more front (18 to 23). Under 3 the three fronts are outlined and the back one is not, which needs the outline
+    /// to split a run around a back face, to find a later run's first face, and to offset that run's lines. Each quad's
+    /// columns are searched for `debugworldwireframe`'s (230, 128, 128).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ABrushEntityOfFrontAndBackFacesInTwoRuns_OutlinesOnlyItsFronts()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        List<WorldVertex> vertices =
+        [
+            .. BrushFace(-210f, 50f, front: true),
+            .. BrushFace(-70f, 50f, front: false),
+            .. BrushFace(70f, 50f, front: true),
+            .. BrushFace(210f, 50f, front: true),
+        ];
+
+        target.Wireframe = 3;
+        DrawBrush(target, vertices, [new WorldBatch(0, 0, 18), new WorldBatch(0, 18, 6)], Identity4);
+
+        int[] outlined = [.. new[] { (3, 15), (19, 30), (34, 45), (49, 61) }.Select(columns => OutlinePixels(target, columns.Item1, columns.Item2))];
+
+        TestContext.Out.WriteLine($"outline pixels per quad: {string.Join(", ", outlined)}");
+        outlined.Select(count => count > 0).ShouldBe([true, false, true, true]);
+    }
+
+    /// <remarks>
+    /// **The back-face test runs in the model's own space** (B803 review 2, Fable, Sonnet): a `*N` model turned a quarter
+    /// about z and moved (40, 30, 0), one quad at the centre facing the camera or away from it. The front one is outlined
+    /// under 3 and the back one is not. Testing against the world eye unmoved, or the placement read transposed, puts the
+    /// eye on the wrong side of both planes and swaps the answers.
+    /// </remarks>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void DrawModelPose_ATurnedAndMovedBrushEntityUnderWireframeThree_OutlinesItsFrontFaceOnly(bool front, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        float[] placement = [0f, 1f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 40f, 30f, 0f, 1f];
+
+        // Each corner moved into the model's space by the placement's inverse: x from y less 30, y from 40 less x.
+        List<WorldVertex> model =
+        [
+            .. BrushFace(0f, 50f, front).Select(corner => corner with
+            {
+                X = corner.Y - 30f,
+                Y = 40f - corner.X,
+                NormalX = corner.NormalY,
+                NormalY = -corner.NormalX,
+                TangentX = corner.TangentY,
+                TangentY = -corner.TangentX,
+            }),
+        ];
+
+        target.Wireframe = 3;
+        DrawBrush(target, model, [new WorldBatch(0, 0, 6)], placement);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <remarks>
+    /// **A translucent brush face is culled by the translucent path's rule** (B803 review 3, Fable, Sonnet). `FUN_1800de800`
+    /// collects a model's translucent surfaces through `FUN_1800dbdb0`, which keeps one that is NOCULL or whose plane-back
+    /// flag matches the eye's side of its node's plane; `FUN_1800dcb20`, the opaque rule, reads no flag. So a translucent
+    /// face seen from behind is outlined under 3 when its material is `$nocull` and not otherwise. Review 2 applied the
+    /// opaque rule to it, and the `$nocull` one was not outlined.
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void DrawModelPose_ATranslucentBrushBackFaceUnderWireframeThree_IsOutlinedOnlyIfNoCull(bool noCull, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: false)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true, IsNoCull = noCull });
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <remarks>
+    /// **A brush face is culled by its own material's rule, not an override's** (B803 review 4, Fable): the engine's cull
+    /// reads the surface's flags, set from its own material, and an entity's material override changes only what is bound.
+    /// An opaque back face drawn with a translucent `$nocull` override is culled by the opaque rule and not outlined under
+    /// 3, where the override's rule would keep it. The front face under the same override is the control: outlined, so
+    /// the override draws, queues and reaches the outline (review 5).
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial(bool front, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(target, [.. BrushFace(0f, 50f, front)], [new WorldBatch(0, 0, 6)], Identity4, overrideMaterial: "forced.vmt");
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <remarks>
+    /// **The stored plane decides the outline, not the triangles** (B803 review 6, Fable): the upload hands a brush
+    /// entity's stored face planes with its vertices, and the cull reads them as the engine reads the surface record's
+    /// (`FUN_1800df1a0`, `FUN_1800dcb20`). A quad whose corners face the camera at y −300, given a stored plane that faces
+    /// it, (0, −1, 0), is outlined; given one that faces away, (0, 1, 0), it is not, though its triangles say otherwise.
+    /// </remarks>
+    [TestCase(-1f, true)]
+    [TestCase(1f, false)]
+    public void DrawModelPose_ABrushFaceWithAStoredPlane_IsCulledByThatPlane(float normalY, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            facePlanes: [new StoredPlane(0f, normalY, 0f, 0f, false)]);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <remarks>
+    /// **Stored planes that do not fit a model's faces fail no upload** (B803 review 7, Sonnet, Fable, Grok): the outline's
+    /// faces are made at every brush entity's upload whatever the value, and a throw there left the model half registered
+    /// and every brush entity undrawn. Three stored planes for two faces, or none at all: the model draws, its front face
+    /// is outlined under 3 by its triangles' plane and its back face is not (review 8, Fable: a fallback that outlined
+    /// every face whole would pass on the front alone), and the render log says so once.
+    /// </remarks>
+    [TestCase(3)]
+    [TestCase(-1)]
+    public void DrawModelPose_ABrushEntityWhoseStoredPlanesDoNotFit_DrawsOnItsTrianglesAndSaysSo(int planes)
+    {
+        using RecordingLoggerFactory loggers = new();
+        using OffscreenTarget target = OffscreenTarget.TryCreate(Size, Size, loggers) ?? throw new InconclusiveException("no Direct3D on this machine");
+
+        target.Wireframe = 3;
+        DrawMisfitBrush(target, planes);
+
+        (OutlinePixels(target, 19, 30) > 0, OutlinePixels(target, 34, 45) > 0).ShouldBe((true, false));
+        DerivedPlaneLines(loggers).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The fallback is reported once a map, not once a brush entity** (review 8, Fable): one cause, a builder bug, would
+    /// otherwise name every model. Two uploads of a misfit model in one map, one line. The control is that the second
+    /// upload was made and fell back (reviews 8-9, Fable, Grok): its quads swap sides, so only its own geometry outlines
+    /// the right-hand one, and its back face is left out, which only the triangles' planes do (zeroed planes, drawing
+    /// every face whole, outline both).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_TwoMisfitBrushEntitiesInOneMap_AreReportedOnce()
+    {
+        using RecordingLoggerFactory loggers = new();
+        using OffscreenTarget target = OffscreenTarget.TryCreate(Size, Size, loggers) ?? throw new InconclusiveException("no Direct3D on this machine");
+
+        target.Wireframe = 3;
+        DrawMisfitBrush(target, -1);
+        DrawMisfitBrush(target, 3, frontLeft: false);
+
+        (OutlinePixels(target, 19, 30) > 0, OutlinePixels(target, 34, 45) > 0).ShouldBe(
+            (false, true), "the control: the second upload drew its own quads on its triangles");
+        DerivedPlaneLines(loggers).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A front face and a back face, as <c>*1</c>, the front on the left unless <paramref name="frontLeft"/> is false, with
+    /// <paramref name="planes"/> stored planes, or none if negative.
+    /// </summary>
+    private static void DrawMisfitBrush(OffscreenTarget target, int planes, bool frontLeft = true) =>
+        DrawBrush(
+            target,
+            [.. BrushFace(-70f, 50f, front: frontLeft), .. BrushFace(70f, 50f, front: !frontLeft)],
+            [new WorldBatch(0, 0, 12)],
+            Identity4,
+            facePlanes: planes < 0 ? null : [.. Enumerable.Repeat(new StoredPlane(0f, -1f, 0f, 0f, false), planes)]);
+
+    /// <summary>The render log's lines saying <c>*1</c>'s outline fell back to its triangles' planes.</summary>
+    private static int DerivedPlaneLines(RecordingLoggerFactory loggers) =>
+        loggers.From("render").Count(line => line.Contains("*1:", StringComparison.Ordinal) && line.Contains("triangles' planes", StringComparison.Ordinal));
+
+    /// <remarks>
+    /// **A translucent face with the odd bit is measured against its node's plane** (B803 review 7, Grok): `FUN_1800dbdb0`
+    /// keeps it when the `0x40` flag equals `node dist &lt; 0` (*read*); the node's plane is taken as the even twin
+    /// (*interpolated*). A translucent quad facing the camera, its stored plane facing it, (0, −1, 0), with the bit: outlined
+    /// under 3, since the node's distance, −300, is below 0, as the flag says it must be. Reading the face's own distance
+    /// as the node's drops it.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ATranslucentBrushFaceWithTheOddBit_IsOutlinedByItsNodesSide()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true },
+            facePlanes: [new StoredPlane(0f, -1f, 0f, 0f, PlaneBack: true)]);
+
+        OutlinePixels(target, 20, 44).ShouldBeGreaterThan(0);
+    }
+
+    /// <remarks>
+    /// **The eye on a translucent face's plane: only the node's rule drops the odd-bit face** (review 8, Grok). The stored
+    /// plane (0, −1, 0) at minus the eye's y, as the renderer recovers the eye from the camera (`EyePosition.From`; review
+    /// 9, Fable: not 300 typed in, which is exact only if the recovery is), puts the eye exactly on it, the distance 0 by
+    /// construction. `FUN_1800dbdb0` keeps a face when its `0x40` flag
+    /// equals `node dist &lt; 0`, with no tolerance; the node's distance is 0, not below it, so the face with the bit is
+    /// dropped and the one without is kept. `FUN_1800dcb20`'s opaque rule, `dot − dist ≥ −0.01`, keeps both, so a
+    /// translucent face culled by the opaque rule outlines the odd-bit one. The face without the bit is the control.
+    /// </remarks>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void DrawModelPose_ATranslucentBrushFaceWithTheEyeOnItsPlane_IsOutlinedOnlyWithoutTheOddBit(bool planeBack, bool outlined)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        target.Wireframe = 3;
+        DrawBrush(
+            target,
+            [.. BrushFace(0f, 50f, front: true)],
+            [new WorldBatch(0, 0, 6)],
+            Identity4,
+            Uniform4(255, 0, 0, 128) with { IsTranslucent = true },
+            facePlanes: [new StoredPlane(0f, -1f, 0f, -EyePosition.From(BrushCamera()).ShouldNotBeNull().Y, planeBack)]);
+
+        (OutlinePixels(target, 20, 44) > 0).ShouldBe(outlined);
+    }
+
+    /// <summary>A quad of a brush face at y 0 centred on x, its own polygon, facing the camera at y −300 or away from it.</summary>
+    internal static WorldVertex[] BrushFace(float x, float half, bool front)
+    {
+        WorldVertex Corner(float dx, float z, bool edge) =>
+            new(x + dx, 0f, z, 0f, 0f, 0f, 0f, 0f)
+            {
+                NormalX = 0f,
+                NormalY = front ? -1f : 1f,
+                NormalZ = 0f,
+                TangentX = 1f,
+                TangentW = 1f,
+                FaceEdge = edge,
+            };
+
+        // Clockwise on screen for the front, as Draw's frontFacing, and counter-clockwise for the back; each a fan from its
+        // first corner, as vbsp's faces are, so a later triangle opens on the diagonal (review 6: a stored plane per face
+        // needs the faces counted as the fan counts them).
+        return front
+            ?
+            [
+                Corner(-half, half, true), Corner(half, half, true), Corner(half, -half, false),
+                Corner(-half, half, false), Corner(half, -half, true), Corner(-half, -half, true),
+            ]
+            :
+            [
+                Corner(-half, -half, true), Corner(half, -half, true), Corner(half, half, false),
+                Corner(-half, -half, false), Corner(half, half, true), Corner(-half, half, true),
+            ];
+    }
+
+    /// <summary>Draws <c>*1</c> both-sided, as <see cref="Draw"/> does, with a red face and <c>debugworldwireframe</c> loaded.</summary>
+    internal static void DrawBrush(
+        OffscreenTarget target,
+        List<WorldVertex> vertices,
+        WorldBatch[] batches,
+        float[] placement,
+        MapTexture? face = null,
+        string? overrideMaterial = null,
+        IReadOnlyList<StoredPlane>? facePlanes = null)
+    {
+        // Material 2 is a translucent `$nocull` override, `forced.vmt`, for a draw that names it.
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                face ?? Uniform4(255, 0, 0, 255),
+                Uniform4(255, 255, 255, 255) with { Modulation = (0.9f, 0.5f, 0.5f, 1f), IsDecal = true },
+                Uniform4(0, 0, 255, 128) with { IsTranslucent = true, IsNoCull = true },
+            ],
+            ["VertexLitGeneric", "Wireframe", "VertexLitGeneric"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.WorldWireframePath] = new(1, IgnoresZ: true) },
+            overrideMaterials: new Dictionary<string, int> { ["forced.vmt"] = 2 });
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawModelPose(
+            vertices,
+            batches,
+            BrushCamera(),
+            placement,
+            assets,
+            light: Uniform,
+            bothSides: true,
+            toneMapScale: 1f,
+            overrideMaterial: overrideMaterial,
+            modelPath: "*1",
+            facePlanes: facePlanes);
+    }
+
+    /// <summary><see cref="DrawBrush"/>'s camera: at y −300, looking along +y at the quads.</summary>
+    private static float[] BrushCamera() =>
+        new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f, NearZ = MathF.Min(FreeCamera.WorldNearPlane, 300f / 8f) }.ToMatrix();
+
+    internal static readonly float[] Identity4 =[1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
+
+    /// <summary>How many pixels in a band of columns are <c>debugworldwireframe</c>'s colour, within a level.</summary>
+    private static int OutlinePixels(OffscreenTarget target, int fromColumn, int toColumn)
+    {
+        int count = 0;
+
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = fromColumn; x <= toColumn; x++)
+            {
+                (int r, int g, int b) = target.PixelAt(x, y);
+
+                if (Math.Abs(r - 230) <= 1 && Math.Abs(g - 128) <= 1 && Math.Abs(b - 128) <= 1)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    /// <remarks>
+    /// **A model's own decal keeps its material under `mat_wireframe`** (B803 review 1, Sonnet): `studiorender.dll`'s decal
+    /// draw (`FUN_180007d20`) binds `debugmrmwireframe` (`+0x8a8`) in the decal's place only when the config's byte
+    /// `+0x25` has `0x20`, `bWireframeDecals`, which `engine.dll`'s `UpdateStudioRenderConfig` (`FUN_1800f56c0`) sets from
+    /// `r_modelwireframedecal` (the ConVar at `0x18069eec0`, constructed at `FUN_180007020`), not from `mat_wireframe`. The
+    /// world decal's `debugdecalwireframe` swap does not reach a model either. A blue decal over the red model, the model
+    /// not swapped (no studio wireframe material loaded), is the same pixel under 1 as under 0.
+    /// </remarks>
+    [Test]
+    public void DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [
+                Uniform4(255, 0, 0, 255),
+                Uniform4(0, 0, 255, 255) with { IsDecal = true },
+                Uniform4(255, 255, 255, 255) with { Modulation = (1f, 1f, 0f, 1f), IsDecal = true },
+            ],
+            ["VertexLitGeneric", "VertexLitGeneric", "Wireframe"],
+            engineWireframes: new Dictionary<string, WireframeMaterial> { [MapAssets.DecalWireframePath] = new(2, IgnoresZ: true) });
+
+        (int R, int G, int B) Decalled(int wireframe)
+        {
+            target.Wireframe = wireframe;
+            Draw(target, assets, null);
+            target.DrawPosedModelDecals(DecalQuad(), [new WorldBatch(1, 0, 6)]);
+
+            return target.PixelAt(20, 20);
+        }
+
+        (int R, int G, int B) off = Decalled(0);
+        (int R, int G, int B) on = Decalled(1);
+
+        TestContext.Out.WriteLine($"a model decal: {off} under 0, {on} under 1");
+        off.B.ShouldBeGreaterThan(0, "the control: the decal draws blue over the red");
+        on.ShouldBe(off);
+    }
+
+    /// <summary>The quad <see cref="Draw"/> draws, as a decal's corners over it, wound to face the camera (a decal culls).</summary>
+    private static List<WorldVertex> DecalQuad()
+    {
+        WorldVertex Corner(float x, float z, float u, float v) =>
+            new(x, 0f, z, u, v, 0f, 0f, 0f) { NormalY = -1f, NormalZ = 0f, TangentX = 1f, TangentW = 1f };
+
+        return
+        [
+            Corner(-Half, Half, 0f, 1f), Corner(Half, Half, 1f, 1f), Corner(-Half, -Half, 0f, 0f),
+            Corner(Half, Half, 1f, 1f), Corner(Half, -Half, 1f, 0f), Corner(-Half, -Half, 0f, 0f),
+        ];
     }
 
     /// <remarks>
@@ -646,10 +1201,10 @@ public sealed class EyeShaderRenderTests
         MapAssets assets = MapAssets.ForMaterials(
             [Uniform4(255, 0, 0, 255), Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = true }],
             ["VertexLitGeneric", "Wireframe"],
-            wireframe: new ModelWireframe(1, IgnoresZ: true),
+            wireframe: new WireframeMaterial(1, IgnoresZ: true),
             animationFrames: [[Uniform4(255, 0, 0, 255), Uniform4(255, 0, 0, 255)], null]);
 
-        target.Wireframe = true;
+        target.Wireframe = 1;
         Draw(target, assets, null);
 
         target.PixelAt(34, 30).ShouldBe((0, 255, 255));
@@ -677,7 +1232,7 @@ public sealed class EyeShaderRenderTests
                 Uniform4(255, 255, 255, 255) with { Modulation = (0f, 1f, 1f, 1f), IsDecal = decal },
             ],
             [shader, "Wireframe"],
-            wireframe: new ModelWireframe(1, ignoresZ));
+            wireframe: new WireframeMaterial(1, ignoresZ));
 
     /// <remarks>
     /// **An eye with no glint takes `vgui/black`, not the last eye's target** (`0x18001f55a`): the eye of the test above
@@ -1108,13 +1663,16 @@ public sealed class EyeShaderRenderTests
         bool clear = true,
         string? overrideMaterial = null,
         string modelPath = "offscreen/posed.mdl",
-        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        bool frontFacing = false,
+        bool[]? faceEdges = null,
+        float normalY = -1f)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
             {
                 NormalX = 0f,
-                NormalY = -1f,
+                NormalY = normalY,
                 NormalZ = 0f,
                 TangentX = 1f,
                 TangentY = 0f,
@@ -1131,6 +1689,19 @@ public sealed class EyeShaderRenderTests
             Corner(Half, Half, 1f, 1f),
             Corner(-Half, Half, 0f, 1f),
         ];
+
+        // Wound clockwise on screen, the engine's front (`MATERIAL_CULLMODE_CCW`), for a pass that culls back faces (B803);
+        // the default quad is counter-clockwise from the camera and shows only because the draw is both-sided.
+        if (frontFacing)
+        {
+            vertices.Reverse();
+        }
+
+        // Each corner's mark, in the order drawn, for a quad that is one polygon (B803).
+        for (int at = 0; faceEdges is not null && at < vertices.Count; at++)
+        {
+            vertices[at] = vertices[at] with { FaceEdge = faceEdges[at] };
+        }
 
         float[] identity =
         [

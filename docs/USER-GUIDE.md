@@ -184,12 +184,20 @@ makes on the CPU with that setting, instead of the one TF2 renders on the GPU (t
 the CPU), and `r_glint_alwaysdraw 1` draws it on every eye however small on screen
 (TF2 skips an eye under 20 pixels wide). Both default to `0`.
 
-`mat_wireframe`, also the **Wireframe** item in the menu and the `CTRL+w` key, draws triangles in place of shaded
-surfaces. As in TF2, players, weapons and props draw with the studio render's own wireframe material: flat cyan edges,
-unlit, with no fog and no depth test, so their edges show through walls. A model forced to another material, such as a
-gold corpse, keeps that material. The map's walls, floors and doors draw in wireframe fill with their own materials,
-where TF2's own choice for them is not yet established (B803). Set from your config, a bind or the command line it
-needs `sv_cheats 1` (above); the menu item and `CTRL+w` do not.
+`mat_wireframe`, also the **Wireframe** item in the menu and the `CTRL+w` key, shows triangle edges, as TF2 does.
+
+- **Players, weapons and props** draw as the studio render's own wireframe material: flat cyan edges, unlit, with no
+  fog and no depth test, so their edges show through walls.
+- **A model forced to another material**, such as a gold corpse, keeps that material and draws solid.
+- **The map's walls, floors and doors** draw normally, with pink edges drawn over them that also show through walls.
+- **Displacement terrain** draws as white edges only.
+- **Bullet holes and other decals on the map** draw as yellow edges. Decals on players and props keep their own look,
+  as in TF2.
+
+`mat_wireframe 2` draws the map's edges green, and only where the surface itself is in view. Models stay cyan and show
+through walls, as in TF2. `mat_wireframe 3` draws pink outlines of each of the map's faces, without the lines that split a
+face into triangles. Set from your config, a bind or the command line, `mat_wireframe` needs `sv_cheats 1` (above). The menu item
+and `CTRL+w` do not.
 
 `r_3dsky`, `cl_detaildist` and `cl_detailfade` take effect the moment they are set, from your config, the console, an
 exec'd cfg or a key, as do `r_lightmap_bicubic`, `mat_disable_bloom`, `r_shader_srgb`, `cl_drawmonitors`,

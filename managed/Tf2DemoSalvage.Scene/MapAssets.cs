@@ -14,14 +14,14 @@ using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Scene;
 
-/// <summary>The studio render's wireframe material in the material table (B788).</summary>
+/// <summary>A debug wireframe material in the material table: the studio render's (B788) or the engine's (B803).</summary>
 /// <param name="Material">Its index in the table every model's materials share.</param>
 /// <param name="IgnoresZ">
 /// Its <c>$ignorez</c>, <c>MATERIAL_VAR_IGNOREZ</c>: drawn with no depth test and no depth write. *Interpolated*: the
 /// flag's render state is set in the closed shaderlib; the skybox is a precedent for that render state only — its shader
 /// sets `MATERIAL_VAR_IGNOREZ` itself rather than reading the VMT (`SkyboxRenderer`; B788 review 8).
 /// </param>
-public readonly record struct ModelWireframe(int Material, bool IgnoresZ);
+public readonly record struct WireframeMaterial(int Material, bool IgnoresZ);
 
 /// <summary>A decoded texture ready to upload.</summary>
 /// <param name="Width">Width in pixels.</param>
@@ -655,6 +655,7 @@ public sealed class MapAssets
     /// <param name="wireframe">The studio render's wireframe material among these (B788), or null for none.</param>
     /// <param name="overrideMaterials">Whole-model override materials among these, by VMT path (B325); none when null.</param>
     /// <param name="animationFrames">Each material's <c>$basetexture</c> frames by the same index, or null for none (B788).</param>
+    /// <param name="engineWireframes">The engine's debug wireframe materials among these, by path (B803); none when null.</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -669,9 +670,10 @@ public sealed class MapAssets
         IReadOnlyList<MapPlacedCubemap>? placedCubemaps = null,
         IReadOnlyList<IReadOnlyList<MaterialProxy>>? proxies = null,
         IReadOnlyDictionary<string, MapTexture>? compositorTextures = null,
-        ModelWireframe? wireframe = null,
+        WireframeMaterial? wireframe = null,
         IReadOnlyDictionary<string, int>? overrideMaterials = null,
-        IReadOnlyList<IReadOnlyList<MapTexture>?>? animationFrames = null)
+        IReadOnlyList<IReadOnlyList<MapTexture>?>? animationFrames = null,
+        IReadOnlyDictionary<string, WireframeMaterial>? engineWireframes = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -699,6 +701,7 @@ public sealed class MapAssets
             PlacedCubemaps = placedCubemaps ?? [],
             CompositorTextures = compositorTextures ?? new Dictionary<string, MapTexture>(),
             Wireframe = wireframe,
+            EngineWireframes = engineWireframes ?? new Dictionary<string, WireframeMaterial>(StringComparer.OrdinalIgnoreCase),
             OverrideMaterials = overrideMaterials ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
             AnimationFrames = animationFrames ?? [],
         };
@@ -758,10 +761,35 @@ public sealed class MapAssets
     /// (`0x1800f5703`-`0x1800f571d`) and never sets `bDrawZBufferedWireframe`, so a demo's view takes `debugmrmwireframe`: shader
     /// <c>Wireframe</c>, <c>$color [0 1 1]</c>, <c>$ignorez 1</c> (the VMT `platform_misc` and `hl2_misc` both ship).
     /// </remarks>
-    public ModelWireframe? Wireframe { get; init; }
+    public WireframeMaterial? Wireframe { get; init; }
 
     /// <summary>The material the studio render draws every model mesh with under <c>mat_wireframe</c> (B788).</summary>
     public const string WireframeMaterialPath = "debug/debugmrmwireframe";
+
+    /// <summary>The engine's own debug wireframe materials that loaded, by path (B803); a path that did not load is absent.</summary>
+    /// <remarks>
+    /// **Read** (`engine.dll` of 2026-10-07, disassembled; findings 113): `FUN_1800f6f80` loads them into globals whatever the
+    /// dxlevel (the `CMP 0x5a` at `0x1800f71bb` skips only the render targets after them), and the world, brush, displacement
+    /// and decal passes bind them under <c>mat_wireframe</c> — <see cref="WorldWireframePath"/> and its <c>zbuffer</c> twin,
+    /// <see cref="DisplacementWireframePath"/>, <see cref="DecalWireframePath"/>.
+    /// </remarks>
+    public IReadOnlyDictionary<string, WireframeMaterial> EngineWireframes { get; init; } =
+        new Dictionary<string, WireframeMaterial>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Overlaid on every world and brush surface under every non-zero <c>mat_wireframe</c> but 2, `0x18069b3e0`: as their
+    /// triangles, or under 3 as each face's own outline (`FUN_1800e6780` binds it too).
+    /// </summary>
+    public const string WorldWireframePath = "debug/debugworldwireframe";
+
+    /// <summary>Overlaid in its place under <c>mat_wireframe</c> 2, `0x18069b3e8` (`FUN_1800dc720`).</summary>
+    public const string WorldWireframeZBufferPath = "debug/debugworldwireframezbuffer";
+
+    /// <summary>A displacement draws with this alone under <c>mat_wireframe</c>, `0x18069b3c8` (`FUN_1800c2140`).</summary>
+    public const string DisplacementWireframePath = "debug/debugwireframe";
+
+    /// <summary>A world decal draws with this in place of its own under <c>mat_wireframe</c>, `0x18069b3f8` (`FUN_1800c6210`).</summary>
+    public const string DecalWireframePath = "debug/debugdecalwireframe";
 
     /// <summary>
     /// The textures the demo's war paint composites read, by their name under `materials/` (B754); a name that did not
@@ -1005,23 +1033,32 @@ public sealed class MapAssets
     /// <c>PLATFORM</c> search path, which a map's pakfile (mounted on <c>GAME</c>) is not on (B788 review 3, Fable; the string
     /// is the closed binary's, the search-path reading is the filesystem's convention, *interpolated*).
     /// </remarks>
-    private static ModelWireframe? LoadWireframeMaterial(
-        ILogger assets, MaterialTable table, GameArchives archives, int maximumTextureSize, TextureFiles? textures)
+    /// <remarks>
+    /// <c>name</c> is <see cref="WireframeMaterialPath"/> or one of the engine's (B803). The engine's own are read from the archives too (B803): `engine.dll` names them bare, `debug/debugworldwireframe`, so a
+    /// map's pakfile could in principle override one; no map is known to, and that case is *not handled* (interpolated
+    /// harmless: every shipped copy is the platform's).
+    /// </remarks>
+    private static WireframeMaterial? LoadWireframeMaterial(
+        ILogger assets, MaterialTable table, GameArchives archives, int maximumTextureSize, TextureFiles? textures,
+        string name = WireframeMaterialPath)
     {
         PakFile pak = PakFile.Read(ReadOnlyMemory<byte>.Empty);
         ResolvedMaterial material =
-            Resolve(assets, WireframeMaterialPath, pak, archives, maximumTextureSize, report: false, model: true, textures: textures);
-        string path = "materials/" + WireframeMaterialPath + ".vmt";
+            Resolve(assets, name, pak, archives, maximumTextureSize, report: false, model: true, textures: textures);
+        string path = "materials/" + name + ".vmt";
 
         if (material.Texture is not { } texture || archives.Read(path) is not { } vmt)
         {
-            assets.LogInformation("{Message}", $"{WireframeMaterialPath} not found: models keep their own materials under mat_wireframe");
+            // A warning, one per material at load (B803 review 1): mat_wireframe then does nothing where it would bind this
+            // one, and that reads as the switch being broken. Every install ships all five in `platform_misc`.
+            assets.LogWarning(
+                "{Message}", $"{name} did not load: mat_wireframe draws nothing in its place, and what it replaces keeps its own material");
             return null;
         }
 
-        int index = table.Add(new BspMaterial(WireframeMaterialPath, (0f, 0f, 0f), texture.Width, texture.Height), material);
+        int index = table.Add(new BspMaterial(name, (0f, 0f, 0f), texture.Width, texture.Height), material);
 
-        return new ModelWireframe(index, VmtMaterial.Load(vmt, _ => null).IgnoresZ);
+        return new WireframeMaterial(index, VmtMaterial.Load(vmt, _ => null).IgnoresZ);
     }
 
     /// <summary>Entity models and the static props' models, in their own coordinates, keyed by path.</summary>
@@ -1955,8 +1992,19 @@ public sealed class MapAssets
         Dictionary<string, int> overrides =
             LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures, painted?.Materials ?? []);
 
-        // The studio render's wireframe material, loaded at its init whatever is drawn (B788).
-        ModelWireframe? wireframe = LoadWireframeMaterial(assets, table, archives, maximumTextureSize, textures);
+        // The engine's debug wireframe materials (B803), then the studio render's (B788), each loaded at its init whatever is
+        // drawn. The studio render's stays last in the table, which `OcclusionQueriesRenderTests` relies on.
+        Dictionary<string, WireframeMaterial> engineWireframes = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in (string[])[WorldWireframePath, WorldWireframeZBufferPath, DisplacementWireframePath, DecalWireframePath])
+        {
+            if (LoadWireframeMaterial(assets, table, archives, maximumTextureSize, textures, name) is { } loaded)
+            {
+                engineWireframes[name] = loaded;
+            }
+        }
+
+        WireframeMaterial? wireframe = LoadWireframeMaterial(assets, table, archives, maximumTextureSize, textures);
 
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
@@ -2135,6 +2183,7 @@ public sealed class MapAssets
         {
             OverrideMaterials = overrides,
             Wireframe = wireframe,
+            EngineWireframes = engineWireframes,
             CompositorTextures = LoadCompositorTextures(assets, archives, pak, maximumTextureSize, painted?.Textures ?? []),
             DetailProps = detailProps,
             DetailSpriteRectangles = detailRectangles,

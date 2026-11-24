@@ -869,7 +869,7 @@ internal sealed unsafe partial class WorldRenderer
         // does (B788) — so an eye reaches here under it only when that material did not load, and its glint is black. The
         // menu and the viewer's default keys are ungated by `sv_cheats` (D253, D246; B792); a config's, a bind's or a launch
         // option's set is refused without it (B791).
-        if (Wireframe || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
+        if (Wireframe != 0 || (!Glint.AlwaysDraw && !Scene.EyeGlint.Drawn(screen, eye.Origin, eye.Radius)))
         {
             return (projection, _glintBlack);
         }

@@ -2422,7 +2422,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The studio render's wireframe material, which every model mesh draws with under <c>mat_wireframe</c>, or null (B788).</summary>
-    private ModelWireframe? _modelWireframe;
+    private WireframeMaterial? _modelWireframe;
+
+    /// <summary>The engine's debug wireframe materials, by path (B803); see <see cref="MapAssets.EngineWireframes"/>.</summary>
+    private IReadOnlyDictionary<string, WireframeMaterial> _engineWireframes = new Dictionary<string, WireframeMaterial>();
 
     /// <summary>No depth test and no depth write: <c>MATERIAL_VAR_IGNOREZ</c>, for the wireframe material (B788).</summary>
     private ComPtr<ID3D11DepthStencilState> _depthIgnored;
@@ -3295,11 +3298,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalPolyOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in polyOffset, ref decalPolyOffset));
 
-        // **A wireframe twin of every state, for the fill.** Under `mat_wireframe` a studio model also swaps to the
-        // studio render's wireframe material (no depth test, no fog, unlit; B788); this twin is the FILL, which ours applies
-        // to every pass while the SDK sets the fill as the drawn material's `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`;
-        // whether anything closed also forces it is B808)
-        // — a forced material without it, and the world's brushes, are open questions (B808, B803). Each pass keeps its own
+        // **A wireframe twin of every state, for the fill.** The fill is the DRAWN MATERIAL's `MATERIAL_VAR_WIREFRAME`
+        // (`wireframe_dx9.cpp:37`), so `Raster` takes a pass's twin only for a `Wireframe` material (B808): the debug
+        // materials `mat_wireframe` binds (B788, B803) and a map's own. Each pass keeps its own
         // culling and its own depth bias and differs only in fill. Building
         // one shared wireframe state instead would quietly answer a different question — "what is
         // in the vertex buffer" rather than "what is being drawn" — and the difference between
@@ -3544,7 +3545,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.IASetVertexBuffers(1, 1, ref stream, in stride, in offset);
     }
 
-    /// <summary>Whether every pass draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
+    /// <summary>Valve's <c>mat_wireframe</c>: which debug wireframe materials the passes bind, 0 for none (B788, B803).</summary>
     /// <remarks>
     /// **The instrument that separates "not drawn" from "drawn invisibly".** Those two produce the
     /// identical picture — an absent surface — and every other diagnostic in this renderer answers
@@ -3554,8 +3555,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// `FCVAR_CHEAT` in the engine, gated behind `sv_cheats` by `WireFrameMode()`
     /// (<c>game/client/view.h:68</c>). The gate is the console's, not this property's: a config's, a bind's or a
     /// launch option's <c>mat_wireframe</c> is refused without <c>sv_cheats</c> (D253, B791), the menu's is not.
+    ///
+    /// **The value, not a switch** (B803): `engine.dll` `FUN_1800dc720` binds `debugworldwireframezbuffer` for 2 and draws face
+    /// outlines for 3 (`FUN_1800e6780`), `debugworldwireframe` for any other non-zero value. Zero is off.
     /// </remarks>
-    public bool Wireframe { get; set; }
+    public int Wireframe { get; set; }
 
     /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
     /// <remarks>
@@ -3567,11 +3571,49 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
     private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
 
-    /// <summary>Picks the wireframe twin of a state when wireframe is on.</summary>
-    private ComPtr<ID3D11RasterizerState> Raster(ComPtr<ID3D11RasterizerState> solid) =>
-        Wireframe && _wireframeFor.TryGetValue((nint)solid.Handle, out ComPtr<ID3D11RasterizerState> wire)
+    /// <summary>Picks the wireframe twin of a state for a material that draws in line fill (B808).</summary>
+    /// <param name="solid">The pass's state.</param>
+    /// <param name="material">The material drawn with it, or -1 for a pass-level bind before any material.</param>
+    /// <returns>The twin for a <see cref="_lineFill"/> material, else <paramref name="solid"/>.</returns>
+    /// <remarks>
+    /// **The fill is the drawn material's own flag, not <c>mat_wireframe</c>'s** (B808): the `Wireframe` shader sets
+    /// `MATERIAL_VAR_WIREFRAME` (`wireframe_dx9.cpp:37`), `MaterialSystem_Config_t` has no wireframe field
+    /// (`materialsystem_config.h`), and the engine draws `mat_wireframe` by binding its debug materials, a dozen sites (B803,
+    /// findings 113) — so a forced material, or a brush's own, draws solid under it. Until B803 every pass drew its twin.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> Raster(ComPtr<ID3D11RasterizerState> solid, int material = -1) =>
+        DrawsLines(material) && _wireframeFor.TryGetValue((nint)solid.Handle, out ComPtr<ID3D11RasterizerState> wire)
             ? wire
             : solid;
+
+    /// <summary>Whether a material draws in line fill (B808): one of <see cref="_lineFill"/>, while it can be drawn at all.</summary>
+    /// <param name="material">The material, or -1.</param>
+    /// <returns>True for a <c>Wireframe</c> material that can reach a draw now.</returns>
+    /// <remarks>
+    /// **The off path reads two fields, not the set** (review 1, corrected in review 3: before B803 it was one): the debug
+    /// materials draw only under <c>mat_wireframe</c>, so with it 0 the set is read only when a map's own material is
+    /// <c>Wireframe</c> (<see cref="_mapLineFill"/>), which no shipped map is known to have.
+    /// </remarks>
+    private bool DrawsLines(int material) => (Wireframe != 0 || _mapLineFill) && _lineFill.Contains(material);
+
+    /// <summary>The materials whose shader draws in line fill: <c>Wireframe</c> and its fallbacks (B808).</summary>
+    /// <remarks>
+    /// A VMT's own <c>$wireframe 1</c> sets the same flag (`stdshader_dx9.dll` `0x180063340`, bit 28) and is not read here:
+    /// of the 31,020 VMTs the install's archives hold, none declares it, where the same search finds 3,113 declaring
+    /// <c>$ignorez</c> (the <c>vmt-param</c> probe, 2026-11-23). A map's pakfile was not searched.
+    /// </remarks>
+    private readonly HashSet<int> _lineFill = [];
+
+    /// <summary>Whether a material of the map's own, not a debug one, is in <see cref="_lineFill"/>.</summary>
+    private bool _mapLineFill;
+
+    /// <summary>The debug wireframe materials (B788, B803), each with its <c>$ignorez</c>.</summary>
+    /// <remarks>
+    /// `$ignorez` draws with no depth test (`MATERIAL_VAR_IGNOREZ`); the others test <c>LessEqual</c> without writing, so an
+    /// edge drawn over the surface it outlines passes at that surface's own depth. *Interpolated*: the default depth function
+    /// is set in the closed shaderapi's shadow state; a strict test would hide `mat_wireframe 2`'s every edge.
+    /// </remarks>
+    private readonly Dictionary<int, bool> _wireframeIgnoresZ = [];
 
     /// <summary>Uploads a map's geometry, textures and lighting.</summary>
     /// <param name="device">Device to create resources on.</param>
@@ -4025,6 +4067,30 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // needs, since a corpse asks for gold by name and knows no index.
         _overrideMaterials = assets.OverrideMaterials;
         _modelWireframe = assets.Wireframe;
+        _engineWireframes = assets.EngineWireframes;
+        _lineFill.Clear();
+        _wireframeIgnoresZ.Clear();
+
+        for (int index = 0; index < assets.Shaders.Count; index++)
+        {
+            // `Wireframe`, or a fallback of it (`Wireframe_DX9`), as FogModeOf reads the name.
+            if (assets.Shaders[index].StartsWith("Wireframe", StringComparison.OrdinalIgnoreCase))
+            {
+                _lineFill.Add(index);
+            }
+        }
+
+        foreach (WireframeMaterial wire in assets.EngineWireframes.Values)
+        {
+            _wireframeIgnoresZ[wire.Material] = wire.IgnoresZ;
+        }
+
+        if (assets.Wireframe is { } studio)
+        {
+            _wireframeIgnoresZ[studio.Material] = studio.IgnoresZ;
+        }
+
+        _mapLineFill = _lineFill.Any(material => !_wireframeIgnoresZ.ContainsKey(material));
 
         // Which materials run `WeaponSkin`, at what size, and what their composites read (B754).
         UploadWeaponSkins(assets);
@@ -4646,6 +4712,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float[] data = Pack(vertices);
 
         CreateVertexBuffer(device, data);
+        _worldOutline = CreateOutline(device, vertices, "the world");
 
         _batches = batches;
 
@@ -4854,6 +4921,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         DrawTranslucent(context);
         DrawAdditive(context);
+        DrawQueuedWireframes(context, _worldOutline);
     }
 
     /// <summary>The 3D skybox room's runs, drawn by <see cref="DrawSky"/> before the world.</summary>
@@ -4967,6 +5035,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
+            // **Under `mat_wireframe` a displacement draws `debug/debugwireframe` and nothing else** (B803): `engine.dll`
+            // `FUN_1800c2140` binds `0x18069b3c8` and draws the displacement's mesh when `sv_cheats && mat_wireframe`, then
+            // returns without queuing its own draw (`FUN_1800c73a0`). Every other surface draws solid, outlined after the pass.
+            if (batch.Category is SurfaceCategory.Terrain && EngineWireframe(MapAssets.DisplacementWireframePath) is { } terrain)
+            {
+                _wireframeQueue.Add((batch with { MaterialIndex = terrain }, batch.MaterialIndex));
+                continue;
+            }
+
+            QueueSurfaceWireframe(batch);
+
             // **A water surface draws with the Water shader, and only in a view that draws water** (B62) —
             // DF_RENDER_WATER, `MAT_SORT_GROUP_WATERSURFACE`. Its Plain fallback falls through to the white below.
             if (WaterBatch(context, batch))
@@ -5044,14 +5123,25 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(4, 1, ref bump);
             BindOwnCube(context, batch.MaterialIndex);
             BindBlendModulation(context, batch.MaterialIndex);
+
+            // A face whose own material is `Wireframe` draws in its line fill (B808), and hands the solid state back after.
+            bool lines = DrawsLines(batch.MaterialIndex);
+
+            if (lines)
+            {
+                context.RSSetState(Raster(_bothSides, batch.MaterialIndex));
+            }
+
             SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
 
             // A water material's Plain fallback drew under the Water shader's cull (WaterBatch); the rest stay two-sided.
-            if (IsWater(batch.MaterialIndex))
+            if (lines || IsWater(batch.MaterialIndex))
             {
                 context.RSSetState(Raster(_bothSides));
             }
         }
+
+        DrawQueuedWireframes(context, _worldOutline);
     }
 
     /// <summary>Sets the view for the frames that follow.</summary>
@@ -6337,7 +6427,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         int material = Resolved(batch, skin, overrideMaterial);
         bool forced = overrideMaterial is not null && _overrideMaterials.ContainsKey(overrideMaterial);
 
-        return !forced && Wireframe && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
+        return !forced && Wireframe != 0 && _modelWireframe is { } wireframe && !modelPath.StartsWith('*') ? wireframe.Material : material;
     }
 
     /// <summary>The animation frame a material shows now, or a null handle (B341).</summary>
@@ -6705,12 +6795,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _additive.Contains(materialIndex),
             _modulate.ContainsKey(materialIndex));
 
-        // `$ignorez`, which the wireframe material declares (B788): no test, no write.
+        // A debug wireframe material (B788, B803): `$ignorez` draws with no test and no write, the rest test `LessEqual`.
         ComPtr<ID3D11DepthStencilState> depth = blends ? _decalDepth : _depthWrite;
 
-        if (_modelWireframe is { IgnoresZ: true } wire && wire.Material == materialIndex)
+        if (Wireframe != 0 && _wireframeIgnoresZ.TryGetValue(materialIndex, out bool ignoresZ))
         {
-            depth = _depthIgnored;
+            depth = ignoresZ ? _depthIgnored : _decalDepth;
         }
 
         if (depth.Handle is not null)
@@ -7077,7 +7167,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             foreach (WorldBatch batch in _shotDecals)
             {
-                DrawDecalBatch(context, batch);
+                DrawDecalBatch(context, WireframeDecal(batch));
             }
 
             EndGammaRun(context);
@@ -7402,7 +7492,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _shotEntityDecals)
         {
-            DrawDecalBatch(context, batch);
+            DrawDecalBatch(context, WireframeDecal(batch));
         }
 
         EndGammaRun(context);
@@ -7588,9 +7678,35 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="cap">The B597 vertex cap, model decals only; null draws the run whole (<see cref="ModelVertexClamp"/>).</param>
     private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f, int? cap = null)
     {
-        if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
+        // **And its polygon offset, which is the shader's too**: DecalModulate requests
+        // SHADER_POLYOFFSET_DECAL (DecalModulate_dx9.cpp:67); plain Modulate does not (no EnablePolyOffset in
+        // modulate_dx9.cpp's shadow state, :139-211), nor does LightmappedGeneric (shaderapidx9 0x180014600 applies it).
+        // Until B635's review 4 every modulating material took it here, plain Modulate included.
+        ComPtr<ID3D11RasterizerState> raster =
+            _decalPolyOffsetMaterials.Contains(batch.MaterialIndex) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset;
+
+        if (!BindDecalRun(context, batch, raster, alpha) || ModelVertexClamp.Suppresses(cap))
         {
             return;
+        }
+
+        // The caller closes the run (EndGammaRun), so consecutive modulating batches share one bind.
+        UseGammaTarget(context, batch.MaterialIndex);
+        SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+    }
+
+    /// <summary>Binds one decal-style run's material, textures, blend and rasteriser, for the caller to draw.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="batch">The run.</param>
+    /// <param name="raster">The solid state the run draws with; its wireframe twin for a line-fill material.</param>
+    /// <param name="alpha">The overlay fade.</param>
+    /// <returns>False for a material outside the table, which binds and draws nothing.</returns>
+    private bool BindDecalRun(
+        ComPtr<ID3D11DeviceContext> context, WorldBatch batch, ComPtr<ID3D11RasterizerState> raster, float alpha)
+    {
+        if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
+        {
+            return false;
         }
 
         // **Per material, as the shader declares it on bind**: a bullet hole is `DecalModulate`, whose
@@ -7599,17 +7715,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
         ComPtr<ID3D11BlendState> blending = _alphaBlend;
 
-        // **And its polygon offset, which is the shader's too**: DecalModulate requests
-        // SHADER_POLYOFFSET_DECAL (DecalModulate_dx9.cpp:67); plain Modulate does not (no EnablePolyOffset in
-        // modulate_dx9.cpp's shadow state, :139-211), nor does LightmappedGeneric (shaderapidx9 0x180014600 applies it).
-        // Until B635's review 4 every modulating material took it here, plain Modulate included.
         if (_modulate.TryGetValue(batch.MaterialIndex, out bool twice))
         {
             blending = twice ? _modulateTwiceBlend : _modulateBlend;
         }
 
-        context.RSSetState(Raster(
-            _decalPolyOffsetMaterials.Contains(batch.MaterialIndex) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset));
+        context.RSSetState(Raster(raster, batch.MaterialIndex));
 
         if (blending.Handle is not null)
         {
@@ -7660,13 +7771,142 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         BindOwnCube(context, batch.MaterialIndex);
         BindBlendModulation(context, batch.MaterialIndex);
 
-        if (!ModelVertexClamp.Suppresses(cap))
+        return true;
+    }
+
+    /// <summary>An engine debug wireframe material while <c>mat_wireframe</c> is on, or null when off or not loaded (B803).</summary>
+    /// <param name="path">One of <see cref="MapAssets.EngineWireframes"/>' paths.</param>
+    /// <returns>Its index in the material table.</returns>
+    private int? EngineWireframe(string path) =>
+        Wireframe != 0 && _engineWireframes.TryGetValue(path, out WireframeMaterial wire) ? wire.Material : null;
+
+    /// <summary>The material a world or brush surface is outlined with under <c>mat_wireframe</c>, or null (B803).</summary>
+    /// <remarks>
+    /// `engine.dll` `FUN_1800dc720`: `debugworldwireframezbuffer` (`0x18069b3e8`) when the value is 2, else
+    /// `debugworldwireframe` (`0x18069b3e0`). The value 3 draws each face's polygon outline with the latter instead
+    /// (`FUN_1800e6780`, a line list of the face's own edges), which <see cref="DrawQueuedWireframes"/> draws from the outline.
+    /// </remarks>
+    private int? SurfaceWireframe() =>
+        EngineWireframe(Wireframe == 2 ? MapAssets.WorldWireframeZBufferPath : MapAssets.WorldWireframePath);
+
+    /// <summary>The run to draw for a world decal: itself, or under <c>mat_wireframe</c> the same run with <c>debugdecalwireframe</c> (B803).</summary>
+    /// <remarks>
+    /// `engine.dll` `FUN_1800c6210` (`0x1800c62fe`-`0x1800c631f`, `0x1800c6a21`) and `FUN_18011aa60` (`0x18011abf0`-`0x18011ac22`,
+    /// `0x18011b07b`) record the decal's material as `0x18069b3f8` in place of its own when `sv_cheats` and `mat_wireframe` are set:
+    /// replaced, not overlaid.
+    /// </remarks>
+    private WorldBatch WireframeDecal(WorldBatch batch) =>
+        EngineWireframe(MapAssets.DecalWireframePath) is { } wire ? batch with { MaterialIndex = wire } : batch;
+
+    /// <summary>Queues a drawn world or brush run for its wireframe outline (B803); nothing while <c>mat_wireframe</c> is off.</summary>
+    private void QueueSurfaceWireframe(WorldBatch batch)
+    {
+        // The off path is this one comparison per surface (B803 review 1, cost).
+        if (Wireframe != 0 && SurfaceWireframe() is { } wire)
         {
-            // The caller closes the run (EndGammaRun), so consecutive modulating batches share one bind.
-            UseGammaTarget(context, batch.MaterialIndex);
-            SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+            _wireframeQueue.Add((batch with { MaterialIndex = wire }, batch.MaterialIndex));
         }
     }
+
+    /// <summary>Draws the queued wireframe runs over what the pass drew, then hands the pass's state back (B803).</summary>
+    /// <remarks>
+    /// **After every surface of the pass, as the engine overlays a whole list** (`Shader_DrawChains`, `FUN_1800e39d0`, calls
+    /// `FUN_1800dc720` after the chains; the brush model and translucent paths likewise), so a later surface never covers an
+    /// earlier one's edges. Each run binds as a decal run does, its material's own blend and depth (<c>SetMaterial</c>), its
+    /// line fill from <see cref="Raster"/>, and its own rasteriser: <see cref="WireframeRaster"/>. Under 3 a world or brush
+    /// run draws its faces' outline instead (<see cref="DrawsOutline"/>).
+    /// </remarks>
+    /// <param name="context">The device context.</param>
+    /// <param name="outline">The bound vertex buffer's face outline, or a null handle where it has none.</param>
+    /// <param name="faces">The buffer's faces, to leave a brush entity's back faces out of its outline, or null.</param>
+    /// <param name="placement">The model's placement, to move the eye into the faces' space; read only with <paramref name="faces"/>.</param>
+    /// <param name="cap">The B597 vertex cap the pass's own draws took, or null.</param>
+    /// <remarks>
+    /// The eye is moved into the model's space once, and only when an outline with faces draws (review 3, Grok): the
+    /// inverse is a 4×4 one, and the values 1 and 2, and every run without an outline, need none.
+    /// </remarks>
+    private void DrawQueuedWireframes(
+        ComPtr<ID3D11DeviceContext> context,
+        ComPtr<ID3D11Buffer> outline,
+        FacePlane[]? faces = null,
+        float[]? placement = null,
+        int? cap = null)
+    {
+        if (_wireframeQueue.Count == 0)
+        {
+            return;
+        }
+
+        System.Numerics.Vector3? eye = null;
+        bool eyeRead = false;
+
+        foreach ((WorldBatch batch, int source) in _wireframeQueue)
+        {
+            if (!BindDecalRun(context, batch, WireframeRaster(batch.MaterialIndex), 1f) || ModelVertexClamp.Suppresses(cap))
+            {
+                continue;
+            }
+
+            UseGammaTarget(context, batch.MaterialIndex);
+
+            if (DrawsOutline(batch) && outline.Handle is not null)
+            {
+                if (!eyeRead && faces is not null && placement is not null)
+                {
+                    eye = ModelEye(placement, _eye);
+                    eyeRead = true;
+                }
+
+                DrawOutline(context, batch, outline, faces, eye, cap, IsBlendedMaterial(source), _noCull.Contains(source));
+            }
+            else
+            {
+                SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+            }
+        }
+
+        _wireframeQueue.Clear();
+        EndGammaRun(context);
+
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+        context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>
+    /// The runs <see cref="DrawQueuedWireframes"/> draws next, each already carrying its wireframe material, beside the
+    /// surface's own material (review 3: a translucent or <c>$nocull</c> face is culled by the other rule).
+    /// </summary>
+    /// <remarks>
+    /// **The surface's own, not the one drawn** (review 4, Fable): the cull reads the surface's flags (`FUN_1800dbdb0`
+    /// reads `0x20`, `0x200` and `0x40` off the surface record, `FUN_1800df1a0` the same `0x20`), which the engine sets
+    /// from the surface's own material when the map loads, so a skin or an entity's material override, which changes only
+    /// what is bound, does not move a surface between the rules. The pass filter's choice of material is a separate
+    /// question this does not answer. *Read*: `0x200` is NOCULL, set from the material's <c>$nocull</c> (B457,
+    /// `0x1800fa3d0`). *Not read*: that `0x20` (translucent) and `0x40` (plane-back) are set at load the same way, from
+    /// the surface's own material and plane.
+    /// </remarks>
+    private readonly List<(WorldBatch Run, int Source)> _wireframeQueue = [];
+
+    /// <summary>The rasteriser a debug wireframe material draws with: its own shader's, not a decal pass's (B803 review 1).</summary>
+    /// <param name="material">The debug wireframe material.</param>
+    /// <returns>
+    /// Back faces culled, with <c>SHADER_POLYOFFSET_DECAL</c>'s terms for a <c>$decal</c> material and no bias for the rest.
+    /// </returns>
+    /// <remarks>
+    /// **Read** (`stdshader_dx9.dll` of the 2026-10-07 install, `0x180063340`, shaderlib's `SetInitialShadowState`, which every
+    /// shader's shadow pass starts from): the material's flags word drives it, `MATERIAL_VAR_IGNOREZ` (bit 15) turning the
+    /// depth test and writes off, `MATERIAL_VAR_DECAL` (bit 16) calling `EnablePolyOffset( 1 )` (`SHADER_POLYOFFSET_DECAL`)
+    /// and turning writes off, `MATERIAL_VAR_NOCULL` (bit 13) turning culling off, and `MATERIAL_VAR_WIREFRAME` (bit 28)
+    /// `PolyMode( FRONT_AND_BACK, LINE )` — the `IShaderShadow` slots `+0x18`, `+0x10`, `+0x20`, `+0xa0` and `+0x98`, in
+    /// `ishadershadow.h`'s order. No debug wireframe VMT says `$nocull`, so every one culls its back faces; the shader is
+    /// VertexLitGeneric's helper, which requests no offset of its own. Until review 1 every queued run took the overlay
+    /// pass's slope-only bias (<see cref="DecalState.SlopeScaledBias"/>), which none of them asks for. The unbiased state is
+    /// <c>_waterCull</c>, which is the plain back cull, apart from the model cull's <c>TF2VIEW_MODEL_CULL</c> experiment.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> WireframeRaster(int material) =>
+        _decalMaterials.Contains(material) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _waterCull;
 
     /// <summary>Binds a brush material's own cube to slot 5, null handle included (B669).</summary>
     /// <remarks>
@@ -7761,6 +8001,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="batch">The run.</param>
     private void DrawBlendedBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
     {
+        // **A translucent displacement draws `debug/debugwireframe` alone too** (B803 review 1, Sonnet): the translucent
+        // path `FUN_1800e61d0` hands its displacements to `FUN_1800c73a0` with its last argument 0, which asks
+        // `FUN_1800c1240` for the debug flag and reaches `FUN_1800c2140`, the same per-displacement draw as the opaque one.
+        // The surfaces it hands `FUN_1800dc720` are its list before the displacements are added, so no outline either.
+        if (batch.Category is SurfaceCategory.Terrain && EngineWireframe(MapAssets.DisplacementWireframePath) is { } terrain)
+        {
+            _wireframeQueue.Add((batch with { MaterialIndex = terrain }, batch.MaterialIndex));
+            return;
+        }
+
         if (batch.MaterialIndex >= _textures.Count ||
             _textures[batch.MaterialIndex].Handle is null)
         {
@@ -7800,6 +8050,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // The caller closes the run (EndGammaRun), so consecutive modulating runs share one bind.
         UseGammaTarget(context, batch.MaterialIndex);
         SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+        // Outlined after the pass, as the translucent surfaces are (`FUN_1800e61d0` calls `FUN_1800dc720`, B803).
+        QueueSurfaceWireframe(batch);
     }
 
     /// <summary>The visible translucent and additive world runs by leaf place, or null to draw them all at once.</summary>
@@ -7825,7 +8078,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// front of it. Only DecalModulate asks for it; plain Modulate does not, on this path or the overlay path. The world's
     /// translucent pass draws both-sided, so its offset twin is both-sided too.
     /// </remarks>
-    private ComPtr<ID3D11RasterizerState> BlendedRaster(int material) => Raster(WithDecalOffset(_bothSides, material));
+    private ComPtr<ID3D11RasterizerState> BlendedRaster(int material) => Raster(WithDecalOffset(_bothSides, material), material);
 
     /// <summary>The blend a non-additive translucent-world run draws with: its modulate blend, else alpha (B635).</summary>
     /// <param name="material">The material index.</param>
@@ -7913,6 +8166,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         EndGammaRun(context);
+        DrawQueuedWireframes(context, _worldOutline);
         context.RSSetState(Raster(_bothSides));
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
 
@@ -8092,6 +8346,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _vertices = default;
         }
 
+        ReleaseWorldOutline();
         _batches = [];
     }
 
@@ -8172,45 +8427,199 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
-            // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
-            // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
-            int floats = model.Vertices.Count * (VertexStride / sizeof(float));
-
-            if (_modelPackScratch.Length < floats)
-            {
-                _modelPackScratch = new float[floats];
-            }
-
-            float[] data = _modelPackScratch;
-            PackInto(model.Vertices, data);
-
-            BufferDesc description = new()
-            {
-                ByteWidth = (uint)((long)floats * sizeof(float)),
-
-                // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
-                // contents never change after creation, which is true of one model's geometry and
-                // was never true of a buffer holding every model.
-                Usage = Usage.Immutable,
-                BindFlags = (uint)BindFlag.VertexBuffer,
-            };
-
-            ComPtr<ID3D11Buffer> buffer = default;
-
-            fixed (float* first = data)
-            {
-                SubresourceData initial = new() { PSysMem = first };
-
-                SilkMarshal.ThrowHResult(
-                    device.CreateBuffer(in description, in initial, ref buffer));
-            }
-
-            _modelBuffers[path] = buffer;
+            UploadModel(device, path, model);
         }
 
         _modelBatches = batches;
     }
+
+    /// <summary>Uploads one model not yet uploaded: its vertex buffer, and a brush entity's outline (B803).</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="path">The model's path.</param>
+    /// <param name="model">Its vertices, with at least one.</param>
+    /// <remarks>
+    /// Its own method so that only a model uploaded pays for the closures below (review 10, Fable): in the loop, they were
+    /// allocated at the top of every iteration, a model already uploaded included.
+    /// </remarks>
+    private void UploadModel(ComPtr<ID3D11Device> device, string path, PackedModel model)
+    {
+        // A brush entity's outline faces, made before anything of the model is registered (review 7); they own nothing.
+        FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
+
+        // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
+        // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
+        // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
+        int floats = model.Vertices.Count * (VertexStride / sizeof(float));
+
+        if (_modelPackScratch.Length < floats)
+        {
+            _modelPackScratch = new float[floats];
+        }
+
+        float[] data = _modelPackScratch;
+        PackInto(model.Vertices, data);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)((long)floats * sizeof(float)),
+
+            // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
+            // contents never change after creation, which is true of one model's geometry and
+            // was never true of a buffer holding every model.
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        // The outline buffer, then the vertex buffer, and only then is anything of the model registered (reviews 7-10):
+        // nothing that can throw runs between the outline's creation and the step that releases it on a failure. A
+        // brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps to
+        // `debugmrmwireframe` instead (B788) and needs none, and its default outline's release is a no-op (Silk's
+        // null-handle Dispose, pinned by CreateAndRegisterTests).
+        CreateAndRegisterModel(
+            _modelBuffers,
+            _modelOutlines,
+            path,
+            faces,
+            () => faces is not null ? CreateOutline(device, model.Vertices, path) : default,
+            () => CreateImmutableVertexBuffer(device, description, data));
+    }
+
+    /// <summary>
+    /// Makes a model's outline and vertex buffer and registers them by <paramref name="path"/> in the renderer's two
+    /// dictionaries, or, on a failure, neither (B803 reviews 9-11).
+    /// </summary>
+    /// <param name="buffers">The vertex buffers by path, <c>_modelBuffers</c>.</param>
+    /// <param name="outlines">The brush entities' outlines and faces by path, <c>_modelOutlines</c>.</param>
+    /// <param name="path">The model's path.</param>
+    /// <param name="faces">A brush entity's outline faces, or null for a model with no outline.</param>
+    /// <param name="createOutline">Makes the outline; a default one when <paramref name="faces"/> is null.</param>
+    /// <param name="createVertices">Makes the vertex buffer, or throws.</param>
+    /// <remarks>
+    /// Takes the dictionaries so the undo can be tested without a device (review 11, Fable): a registration that throws
+    /// after its first insert removes the path from both, so neither names a buffer that is then released.
+    /// </remarks>
+    internal static void CreateAndRegisterModel<TBuffer>(
+        Dictionary<string, TBuffer> buffers,
+        Dictionary<string, (TBuffer Buffer, FacePlane[] Faces)> outlines,
+        string path,
+        FacePlane[]? faces,
+        Func<TBuffer> createOutline,
+        Func<TBuffer> createVertices)
+        where TBuffer : IDisposable =>
+        CreateAndRegister(
+            createOutline,
+            createVertices,
+            (outline, buffer) =>
+            {
+                buffers[path] = buffer;
+
+                if (faces is not null)
+                {
+                    outlines[path] = (outline, faces);
+                }
+            },
+            () =>
+            {
+                buffers.Remove(path);
+                outlines.Remove(path);
+            });
+
+    /// <summary>Makes a model's outline, then its vertex buffer, and registers both; on a failure, neither (B803 reviews 9-10).</summary>
+    /// <param name="createOutline">Makes the outline, which this owns until it is registered.</param>
+    /// <param name="createVertices">Makes the vertex buffer, or throws.</param>
+    /// <param name="register">Registers both; called only once both exist.</param>
+    /// <param name="unregister">Removes whatever <paramref name="register"/> wrote, if it throws part way.</param>
+    /// <remarks>
+    /// The outline is released when the vertex buffer throws; both are released, and the registration undone, when the
+    /// registration throws (review 10, Grok: a dictionary insert out of memory after the first had left the model half
+    /// registered). Either way the failure goes on to the caller unchanged, nothing of the model stays registered, and the
+    /// next upload tries it again (reviews 8-10).
+    /// </remarks>
+    internal static void CreateAndRegister<TOutline, TBuffer>(
+        Func<TOutline> createOutline,
+        Func<TBuffer> createVertices,
+        Action<TOutline, TBuffer> register,
+        Action unregister)
+        where TOutline : IDisposable
+        where TBuffer : IDisposable
+    {
+        TOutline outline = createOutline();
+        TBuffer vertices;
+
+        try
+        {
+            vertices = createVertices();
+        }
+        catch
+        {
+            // Not registered yet, so the outline is this method's alone to release; the failure is rethrown unchanged.
+            outline.Dispose();
+            throw;
+        }
+
+        try
+        {
+            register(outline, vertices);
+        }
+        catch
+        {
+            // Undone before release, so no dictionary is left naming a released buffer; then rethrown unchanged.
+            unregister();
+            vertices.Dispose();
+            outline.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>An immutable vertex buffer holding <paramref name="data"/>, as <paramref name="description"/> sizes it.</summary>
+    private static ComPtr<ID3D11Buffer> CreateImmutableVertexBuffer(
+        ComPtr<ID3D11Device> device,
+        BufferDesc description,
+        float[] data)
+    {
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        fixed (float* first = data)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(
+                device.CreateBuffer(in description, in initial, ref buffer));
+        }
+
+        return buffer;
+    }
+
+    /// <summary>A brush entity's outline faces, on its stored planes where they fit its faces (B803 reviews 6-7).</summary>
+    /// <param name="path">The model's <c>*N</c> path, for the report.</param>
+    /// <param name="model">Its vertices and stored planes.</param>
+    /// <returns>The faces; on the triangles' planes, reported once a map, where the stored planes are absent or do not fit.</returns>
+    /// <remarks>
+    /// Never throws (review 7): this runs at every brush entity's upload whatever <c>mat_wireframe</c> is, and a throw
+    /// there stopped every brush entity drawing. <see cref="FaceFan.Faces"/> keeps the invariant, and is handed the
+    /// planes only when they fit.
+    /// </remarks>
+    private FacePlane[] OutlineFaces(string path, PackedModel model)
+    {
+        if (model.FacePlanes is { } stored && stored.Count == FaceFan.CountFaces(model.Vertices))
+        {
+            return FaceFan.Faces(model.Vertices, stored);
+        }
+
+        if (!_derivedPlanesReported)
+        {
+            _derivedPlanesReported = true;
+            _render.LogWarning(
+                "{Message}",
+                $"{path}: {(model.FacePlanes is null ? "no stored face planes" : $"{model.FacePlanes.Count} stored face planes for {FaceFan.CountFaces(model.Vertices)} faces")}, "
+                + "so mat_wireframe 3 culls its outline by its triangles' planes; any more in this map are not reported");
+        }
+
+        return FaceFan.Faces(model.Vertices);
+    }
+
+    /// <summary>Whether this map has already said a brush entity's outline fell back to its triangles' planes.</summary>
+    private bool _derivedPlanesReported;
 
     /// <summary>Forgets every uploaded model, so the next upload rebuilds them.</summary>
     /// <remarks>
@@ -8235,6 +8644,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         _modelBuffers.Clear();
+        ReleaseModelOutlines();
 
         // A baked prop's colour stream is per placement of a model, so it goes with the models (B426).
         foreach (ComPtr<ID3D11Buffer> stream in _colourStreams.Values)
@@ -8579,7 +8989,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // set in DecalModulate's SHADOW_STATE (DecalModulate_dx9.cpp:67), so on every bind. `ctf_crasher`'s scorch
             // `func_brush`es are drawn here, as brush entities, at z 0 and -0.25 on the floor they mark. Added to the cull
             // CullFor chose, not in place of it: $nocull, mirroring and TF2VIEW_MODEL_CULL all survive.
-            context.RSSetState(Raster(WithDecalOffset(raster, material)));
+            context.RSSetState(Raster(WithDecalOffset(raster, material), material));
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture
@@ -8619,6 +9029,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
 
             kept++;
+
+            // **A brush entity is outlined after its surfaces, as the world is** (B803): `R_DrawBrushModel`'s paths
+            // (`FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`) end in `FUN_1800dc720`. A studio model swapped instead (B788).
+            // The integer first, so the off path costs one comparison per batch (B803 review 2).
+            if (Wireframe != 0 && modelPath.StartsWith('*'))
+            {
+                QueueSurfaceWireframe(batch);
+            }
 
             // **A brush entity's water face draws with the Water shader, as any other surface of its model does** (B659).
             // R_DrawBrushModel batches a model's surfaces by their own material, testing no water flag (engine.dll
@@ -8776,7 +9194,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // far more than that tint can produce. The gap between those two facts is which
             // material index the draw resolves to, after the skin swap, which nothing has reported.
             // Once per model AND wireframe state, so the line names what is bound after `mat_wireframe` toggles (B788 review 4).
-            if ((Wireframe ? _reportedWireframeBatchMaterials : _reportedBatchMaterials).Add(modelPath))
+            if ((Wireframe != 0 ? _reportedWireframeBatchMaterials : _reportedBatchMaterials).Add(modelPath))
             {
                 // **The matrix this draw actually uses, said once per model** (B241). The line
                 // above it — `<model> at (x, y, z) reflects cubemap N` — is the ILLUMINATION point,
@@ -8938,6 +9356,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 context.PSSetShaderResources(13, 1, ref none);
                 context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
             }
+        }
+
+        // A brush entity's outline leaves out its back faces by plane, and takes the cap its solid draw took (B803 review 1).
+        if (_wireframeQueue.Count != 0)
+        {
+            // Looked up only for 3, the one value that draws it (review 4): the path's hash is a case-insensitive one.
+            (ComPtr<ID3D11Buffer> outline, FacePlane[]? faces) = Wireframe == 3 ? _modelOutlines.GetValueOrDefault(modelPath) : default;
+
+            DrawQueuedWireframes(context, outline, faces, matrix, ModelVertexCap);
         }
 
         // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches

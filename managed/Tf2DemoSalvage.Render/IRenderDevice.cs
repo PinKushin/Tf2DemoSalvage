@@ -12,8 +12,8 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 public interface IRenderDevice
 {
-    /// <summary>Valve's <c>mat_wireframe</c>.</summary>
-    public bool Wireframe { get; set; }
+    /// <summary>Valve's <c>mat_wireframe</c>: its value, 0 off (B803).</summary>
+    public int Wireframe { get; set; }
 
     /// <summary>Valve's <c>mat_specular</c>.</summary>
     public bool Specular { get; set; }

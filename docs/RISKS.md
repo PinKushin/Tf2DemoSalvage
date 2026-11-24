@@ -42892,7 +42892,43 @@ order is not read), so TF2 would accept it. Pre-existing for every cheat ConVar 
 `mat_wireframe`. Next: read the order `stuffcmds` runs in (the startup script or the engine's call), then gate the launch
 line after the configs. *Not fixed*.
 
-## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — OPEN
+## B817 — the client's own `mat_wireframe` materials (sprites, beams, particles, detail props, glows) are not ported (2026-11-23) — OPEN
+
+Found reading B803. Beside the engine's passes (findings 113), the client swaps a material of its own wherever
+`ShouldDrawInWireFrameMode()` holds (`view.h:81`, `sv_cheats && mat_wireframe != 0`), read with clangd's references
+(eight sites, the control being the same query on `WireFrameMode`, which has none): `c_sprite.cpp:69`
+`debug/debugspritewireframe`, `beamdraw.cpp:47` `shadertest/wireframevertexcolor`, `particlemgr.cpp:369`
+`debug/debugparticlewireframe`, `detailobjectsystem.cpp:2274`, `:2419`, `:2532` and `:2677` `debug/debugspritewireframe`,
+`glow_overlay.cpp:368` `debug/debugwireframevertexcolor` (*read*). Ours draws all of them with their own materials
+under `mat_wireframe`. Also not ported from the same read: `r_drawworld 2` and `r_drawbrushmodels 2` turning the
+surface wireframe on (`FUN_1800e1e00`, `FUN_1800e05d0`), the decal wireframe's third ConVar (`0x1806a5348` equal to
+2, `FUN_18011aa60`, name not read), and `r_modelwireframedecal`, below. *Read; nothing ported.*
+
+**A model's own decals, read in B803's review 1** (2026-11-23): `mat_wireframe` leaves them alone. `studiorender.dll`'s
+decal draw (`FUN_180007d20`) binds `debugmrmwireframe` (`+0x8a8`) in a decal's place only when the config's byte `+0x25`
+has `0x20`, `bWireframeDecals`. `engine.dll`'s `UpdateStudioRenderConfig` (`FUN_1800f56c0`) sets that bit from the ConVar
+at `0x18069eec0`, `r_modelwireframedecal` (constructed at `FUN_180007020`, a cheat), while `bWireframe` (`+0x24`, bit 7) is
+`sv_cheats && mat_wireframe`. So ours keeping a model decal's material under `mat_wireframe` is the engine's;
+`r_modelwireframedecal` itself is not ported (*read*). Pinned by
+`EyeShaderRenderTests.DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial`.
+
+## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — FIXED (2026-11-23)
+
+**Fixed** (2026-11-23; how it was settled: `docs/findings/113-mat-wireframe-is-a-material.md`, "The fill is the
+material's flag"). The fill is the drawn material's `MATERIAL_VAR_WIREFRAME`, which the `Wireframe` shader sets
+(`wireframe_dx9.cpp:37`). Three reads found nothing else that sets it: `MaterialSystem_Config_t` has no wireframe field
+(`materialsystem_config.h`); `shaderapidx9.dll` holds no "wire" string (the control, `PolyMode: invalid poly mode` at
+`0x180080618`, is found); and the engine draws `mat_wireframe` by binding debug materials (B803). That shaderlib turns
+the flag into the line fill and nothing else does is *interpolated* (closed). So a forced material draws **solid**. Ported:
+`WorldRenderer.Raster` takes a pass's wireframe twin only for a material whose shader is `Wireframe` (`_lineFill`), on
+every path that knows its material (the model draw, the decal and overlay runs, the translucent world, and the opaque
+world, which before set the pass's state once). A VMT's own `$wireframe 1` sets the same flag. No shipped material
+declares it, and it is not read. Tests: `EyeShaderRenderTests.DrawModelPose_UnderWireframeWithAForcedMaterial_DrawsTheForcedOneSolid`
+(the interior (20, 20) blue, lit, where it was the clear black) and
+`WorldWireframeConformanceTests.DrawWorld_AFaceWhoseOwnMaterialIsWireframe_DrawsInLineFillWithoutMatWireframe`. Both
+reddened when `Raster` was sabotaged back to `mat_wireframe`'s switch.
+
+*As found (2026-11-21):*
 
 Found in B788's review 7 (Fable). Ours applies `mat_wireframe`'s fill to every pass through a wireframe twin of each
 rasteriser state (`WorldRenderer`), so a model whose forced material wins over the studio render's wireframe material
@@ -42923,7 +42959,609 @@ Found in B788's review 1 (Fable, low): B791 marked `mat_wireframe` a cheat, but 
 config, a bind or a launch option without `sv_cheats`), and whether what ours draws for each is what the engine binds.
 *Not read*; the flags are the review's, not re-read by the lead. Filed so B791 stays the one ConVar it names.
 
-## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — OPEN
+## B803 — under `mat_wireframe` the world's brushes keep their own shaders in wireframe fill; what the engine binds for them is not read (2026-11-21) — FIXED (2026-11-23)
+
+**Read and ported** (2026-11-23; `docs/findings/113-mat-wireframe-is-a-material.md`, `engine.dll` of 2026-10-07). With
+`sv_cheats && mat_wireframe` the engine handles each kind of surface differently:
+
+- **World and brush-entity surfaces, opaque and translucent:** drawn solid with their own materials, then each redrawn
+  with `debugworldwireframe` (`0x18069b3e0`; `[0.9 .5 .5]`, `$ignorez 1`). Under 2 the redraw uses
+  `debugworldwireframezbuffer` (`0x18069b3e8`; `[0 1 .5]`, depth-tested). This is `FUN_1800dc720`, called after
+  `Shader_DrawChains` (`FUN_1800e39d0`), after the brush-model paths (`FUN_1800dcb20`, `FUN_1800ddca0`, `FUN_1800e0920`)
+  and after the translucent surfaces (`FUN_1800e61d0`).
+- **A displacement:** drawn only as `debug/debugwireframe` (`FUN_1800c2140`), with no solid under it.
+- **A decal:** replaced by `debugdecalwireframe` (`FUN_1800c6210`, `FUN_18011aa60`).
+- **Overlays and the shadow manager:** unchanged. They answer `r_overlaywireframe` and `r_shadowwireframe` instead.
+- **Studio models:** take `debugmrmwireframe` for every non-zero value (B788).
+
+Ported:
+
+- `MapAssets.EngineWireframes` loads the four engine materials, as `FUN_1800f6f80` does, whatever the dxlevel.
+- `WorldRenderer` queues each drawn world, sky, translucent and brush-entity run and draws the queue after its pass with
+  the value's material.
+- Displacements draw their wireframe alone, and decals draw the decal wireframe.
+- The device takes the ConVar's value rather than the tick (`IRenderDevice.Wireframe` is an `int`). A value change that
+  moves no tick (1 to 2) reaches the device by the ConVar's route.
+- A depth-tested debug wireframe tests `LessEqual` without writing. The comparison is *interpolated*, since shaderapi's
+  default is closed.
+
+**Measured** on `tf2-live-build11138802-spec-pov-cp_granary.dem` tick 1000, first person, 984×551. Counting pixels by
+hue: pink went from 76 to 57,675 under 1, and green from 0 to 13,631 under 2. Looked at, the walls draw solid with
+their edges over them. Not compared against TF2.
+
+Tests: `WorldWireframeConformanceTests` (seven) and
+`EyeShaderRenderTests.DrawModelPose_UnderWireframe_OutlinesABrushEntityAndSwapsAStudioModel` in Rendering;
+`OverrideMaterialLoadingTests.EngineWireframes_…` on a real install; `ViewerSessionTests.KeyPressed_MatWireframeTwoAfterOne_TellsTheDeviceTwo`
+in Presentation. Each reddened under its own sabotage: the queue, the mode-2 pick, the displacement branch, the decal
+swap, the depth rule and the session's route.
+
+**The value 3, ported the same day** (re-read: `FUN_1800dc720` takes `FUN_1800e6780` when the int at `mat_wireframe`+0x58
+is 3, on the same lists as 1 and 2, so the surfaces have already drawn solid). `FUN_1800e6780` counts the vertices of
+every surface with more than two, binds `debugworldwireframe` (`0x18069b3e0`, `$ignorez 1`), and fills one
+`MATERIAL_LINES` mesh (primitive type 1) with an edge from each vertex's predecessor to it, starting from the last. The
+vertices come from the map's vertex-index table (world `+0x108`) and its positions (`+0x38`), so the loop is the face's
+own and the triangulation never appears. Positions only: the colour and depth are the material's. A displacement is in
+no such list, and keeps its `debugwireframe` triangles under 3.
+
+Ported: both fan builders (`MapWorldBuilder`, `BrushModels`) mark each corner with `FaceEdge`, whether its edge to the
+next corner of its triangle is the polygon's (`FaceFan.IsFaceEdge`). The mark rides `PropVertex` and `WorldVertex` through
+the brush entities' packing. At upload the renderer builds an index buffer from it (`FaceFan.Outline`): two indices per
+vertex, the edge or a zero-length line on the corner itself, so any run of vertices is the same run of lines at twice
+the offset. It is built for the world buffer and for each `*N` model. Under 3 a queued world or brush run draws
+`DrawIndexed` as a line list over that buffer. A terrain run keeps its triangles.
+
+Tests: `WorldWireframeConformanceTests` `…UnderWireframeThree_OutlinesTheFacesPolygonWithoutItsDiagonal` (1 as the
+control, 3) and `…ADisplacementUnderWireframeThree_KeepsItsTriangleEdges`; `EyeShaderRenderTests`
+`…UnderWireframeThree_OutlinesABrushEntitysPolygonWithoutItsDiagonal`; `MapWorldTests.Build_APentagon_…`,
+`BrushModelsTests.Build_AQuadFace_…`; in Scene, `FaceFanTests` and `PackedVerticesTests.Precache_CornersMarkedAsFaceEdges_…`.
+Each reddened under its own sabotage: the outline ignoring the mark, the packing dropping it, each builder dropping it,
+`IsFaceEdge`'s first-triangle rule, the value-3 test, the terrain exclusion, and no outline built for a `*N` model.
+
+**Measured** with the same capture as above (`--tick 1000 --first-person --shot`, `+sv_cheats 1`, 984×551). Pixels of
+the pink hue fell from 77,362 under 1 to 54,240 under 3. Looked at side by side, the value 3 shows each face as its own
+polygon, with no fan of diagonals across walls and floors. Lines are never culled, so a face seen from behind is
+outlined under 3, where under 1 its wireframe redraw is culled. That follows from `MATERIAL_LINES` (*interpolated*:
+shaderapi's line cull is closed). Not compared against TF2. *Superseded by review 1, item 1: the engine's lists hold no
+such face.*
+
+The client's own wireframe materials are B817.
+
+### Review 1 (2026-11-23)
+
+Fable, Sonnet and Grok (findings), Gemini (pass), on `fix/b803-wireframe-3` at `242c54fdc`; fixed on
+`fix/b803-wireframe-3-r1`. The four new engine reads are in findings 113, "Review 1". Each test below was written after
+its fix and shown red by reverting that fix (the sabotage named); each sabotage was restored with a precise inverse edit.
+
+1. **Back faces under 3** (Fable). *Read*: `FUN_1800dcb20` plane-tests every brush-entity surface (`dot − dist ≥ −0.01`)
+   and leaves the failures out of the list `FUN_1800e6780` outlines; the world's walk does the same (`R_DrawLeaf`,
+   `VisibleWorld`), keeping NOCULL. *Fixed*: each `*N` model keeps its faces' planes (`FaceFan.Faces`, `FacePlane`), and
+   its outline draws only the faces the eye sees, in the model's space (`ModelEye`). The world needs nothing. Tests:
+   `EyeShaderRenderTests.DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined` (1 the control, 3 red with
+   the faces ignored); `FaceFanTests.Faces_…` and `FacesEye_…` (red with the fan merge, the normal's side and the
+   tolerance each broken).
+2. **Translucent displacements** (Sonnet). *Read*: `FUN_1800e61d0` → `FUN_1800c73a0` (last argument 0) →
+   `FUN_1800c2140`, after the list it outlines. *Fixed* in `DrawBlendedBatch`: a terrain run queues `debugwireframe`
+   alone. Test: `WorldWireframeConformanceTests.DrawWorld_ATranslucentDisplacementUnderWireframe_DrawsOnlyTheWhiteWireframe`
+   (red with the branch disabled).
+3. **The decal rasteriser on queued wireframes** (Fable, Sonnet, Grok). *Read*: shaderlib's `SetInitialShadowState`
+   (`stdshader_dx9.dll` `0x180063340`): `$decal` gives `SHADER_POLYOFFSET_DECAL`, nothing gives the slope-only overlay
+   bias, nothing turns culling off. *Fixed*: `WireframeRaster`, the decal offset for a `$decal` material and the plain
+   back cull otherwise; `DrawDecalBatch`'s binding split into `BindDecalRun` so the queue binds its own; the stale
+   comment rewritten. Test: `…DrawWorld_ASlopedEdgeJustBehindANearerFace_TakesItsOwnMaterialsOffset` (0 the control; 2
+   red with the old overlay bias, the edge green (0, 255, 129) through the nearer face; the `$decal` case red with no
+   offset at all). **For the lead, not acted on:** the same read says shaderlib adds the decal offset to any `$decal 1`
+   material, which is the opposite of `DecalState.ConstantBias`'s premise for overlays.
+4. **Model decals** (Sonnet). *Read*: `studiorender.dll` `FUN_180007d20` swaps under `bWireframeDecals`, set from
+   `r_modelwireframedecal` (`engine.dll` `FUN_1800f56c0`), not `mat_wireframe`; B817. The code was right and USER-GUIDE
+   wrong: *fixed the guide* (map decals yellow, model decals their own). Test:
+   `EyeShaderRenderTests.DrawPosedModelDecals_UnderWireframe_KeepTheirOwnMaterial` (red with the world decal swap
+   applied to model decals).
+5. **The cap** (Sonnet). *Fixed*: the model pass hands `ModelVertexCap` to its queued wireframes, triangles and outline.
+   Test: `ModelVertexClampRenderTests.DrawModel_ABrushEntityUnderWireframeAndACap_CapsItsOutlineToo` (six cases; the
+   four capped ones red with no cap passed).
+6. **Off-path cost** (owner rule, above 0.01 ms counts). *Reduced, not to main's* (corrected in review 2): `Raster` and
+   the opaque pass read `_lineFill` only under `mat_wireframe` or when a map's own material is `Wireframe`
+   (`DrawsLines`, `_mapLineFill`); the depth bind reads `_wireframeIgnoresZ` only under the switch;
+   `QueueSurfaceWireframe` returns on one comparison; the model pass looks the outline up only with a queue. What
+   remains over main, with the switch off, is listed in review 2, item 4. *Not measured*: no `--measure` run compared
+   this branch with main. `DrawsLines`' second term is held by the B808 face test (red
+   without `_mapLineFill`, whose fixture now uses a map material, as production's debug materials have their own
+   table entries).
+7. **Memory** (*measured*, the `outline-memory` probe): the outline is 1.21 MiB on `cp_process_final` (158,550 world
+   vertices) and 1.45 MiB on `cp_granary` (190,260); the `FaceEdge` mark grows `WorldVertex` 124 to 128 bytes, 0.6 and
+   0.8 MB on those lists while held. Built eagerly still: a lazy build would have to keep every map's managed vertices
+   until a value 3 that most sessions never set.
+8. **The leak** (Grok). *Not a leak*: `UploadGeometry` calls `ReleaseGeometry` (which releases the outline) first, and a
+   model's outline is made only beside a model buffer the upload does not hold, the two released together. Test, the
+   control on that claim: `OffscreenTargetReleaseTests.Dispose_AfterDrawingTheWorldAndABrushEntityTwiceUnderWireframeThree_LeavesNoDeviceReference`
+   (red, with the existing world one, when `ReleaseWorldOutline` stops disposing).
+9. **`2 × FirstVertex`** (Sonnet). Test:
+   `WorldWireframeConformanceTests.DrawWorld_UnderWireframeThreeOnASecondRun_OutlinesThatRunsOwnFace` (red with the
+   offset not doubled, the right edge (47, 32) the face's red). Its first version probed only the left edge, which the
+   halved offset still drew: it passed under the sabotage until the right edge was added.
+10. **An output-level assertion** (Fable). Test: `CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink`,
+    the production path from the command line to the PNG on `tf2-2008-build3420-spec-stv-cp_granary.dem` tick 1000:
+    *measured* 441 pink-hued pixels under 0 and 2,580 under 1, the same on two runs; the bound is a rise above 1,000.
+    Red with `QueueSurfaceWireframe` disabled: 0 under 1 (the 441 are *interpolated* to be on models, which the switch turns cyan). Not
+    looked at; the counts are the only evidence.
+11. **`EngineWireframes_…`** (Sonnet). *Fixed*: a path that did not load fails naming it and the paths that did. Red with
+    `debugdecalwireframe` dropped from the load: "debug/debugdecalwireframe did not load; loaded: …".
+12. **`FaceFan.Outline` on a partial triangle** (Fable). *Fixed*: throws `ArgumentException`. Test:
+    `FaceFanTests.Outline_OfAVertexCountThatIsNotWholeTriangles_Throws` (4 and 5; red with the guard disabled).
+13. **A debug VMT that fails to load** (Sonnet, Grok). The load already logged one line naming it, at information;
+    *raised to a warning* with a message that says the switch does nothing there. *No test*: the archives would need a
+    fake without `platform_misc`, and the line's level is the whole change.
+14. **Finding 113's "Not filed"** — now names B817.
+15. **"No shipped material declares `$wireframe 1`"** — *measured* with a control: the `vmt-param` probe read 31,020
+    VMTs, 0 declaring `$wireframe`, 3,113 declaring `$ignorez`. A map's pakfile was not searched; said where it is stated.
+16. **`Device3D.Wireframe`'s remark** — rewritten: it is the engine's debug view, not D75's all-pass line fill.
+17. **`WorldWireframePath`'s comment** — now every non-zero value but 2, as triangles or under 3 as the face outline.
+18. **`OffscreenTarget.DrawWorld`'s decal upload** (Grok). *Not a defect*: the target's world renderer is its own,
+    never `Device3D`'s, so an offscreen draw cannot clear the viewer's decals; within the target every draw sets them,
+    null to none, so none inherits the last. Said in the parameter's doc.
+
+### Review 2 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `639e91df3`. Same rules: each test shown red by reverting its fix (named), restored by
+a precise inverse edit. The reads are in findings 113, "Review 1", under "No NOCULL exemption on a brush entity".
+
+1. **NOCULL on brush entities** (Fable, Sonnet). *Read*: `FUN_1800df1a0` builds the plane list skipping only flag
+   `0x20` (*interpolated* `SURFDRAW_TRANS`), and `FUN_1800dcb20` tests every plane with no flag read. **The engine has no
+   `$nocull` exemption there, so none was added**; the world's walk is where NOCULL is kept. Test: a `$nocull` case on
+   `DrawModelPose_ABrushEntitysBackFaceUnderWireframe_IsNotOutlined` pins it. It has no sabotage of its own: the code
+   reads no NOCULL flag for it to lose, and adding an exemption is the only edit that would redden it.
+2. **A real door's shape** (Fable). Tests: `EyeShaderRenderTests.DrawModelPose_ABrushEntityOfFrontAndBackFacesInTwoRuns_OutlinesOnlyItsFronts`
+   (four quads; run one front, back, front; run two a front at vertex 18): red with the run splitting broken (a back
+   face after a front one drawn) and with the second run's offset not doubled. `FirstFaceEnding` returning 0 changed no
+   pixel, since a later run that also redraws an earlier run's faces lands on the same pixels in the same colour, and
+   the old `Math.Max` clamp hid it entirely. The clamp is gone (a run is whole faces, so the search alone decides where
+   its lines start), `DrawLines` refuses an empty range, and
+   `ModelVertexClampRenderTests.DrawModel_ABrushEntitysSecondRunUnderWireframeThree_OutlinesOnlyThatRunsFaces` counts the
+   vertices handed to the GPU: 60, red at 84 with the search returning 0.
+3. **`ModelEye` under a real placement** (Fable, Sonnet, Grok). *Fixed*: `ModelEye` is a static function of the
+   placement and the eye, and answers null with no eye or no inverse, which draws every face (it was the origin, or the
+   world eye). Tests: `ModelEyeTests` (a quarter turn and a move: red with the world eye returned, with the inverse
+   transposed, and, for the null case, with the origin back) and
+   `EyeShaderRenderTests.DrawModelPose_ATurnedAndMovedBrushEntityUnderWireframeThree_OutlinesItsFrontFaceOnly` (front
+   and back: both red with the world eye and with the transpose).
+4. **Off-path cost** (Fable, Sonnet). *Fixed*: the model pass tests `Wireframe != 0` before `modelPath.StartsWith('*')`.
+   Review 1's item 6 said "the comparisons before B803", which was not so: *corrected there*. **What remains over main
+   with the switch off**, per draw: one enum comparison and one integer comparison per opaque world batch (the terrain
+   test, `QueueSurfaceWireframe`) and per blended one, two boolean reads per opaque batch (`DrawsLines`), one integer
+   comparison per world and entity decal (`WireframeDecal`), one per model batch, and a queue-count check per pass and
+   per model; at upload, the outline buffers and the brush entities' face planes (item 8). Read from the code, *not
+   measured*. *Superseded by review 3, item 2*, which has the exact list.
+5. **A partial triangle fails no load** (Fable, Sonnet). *Fixed*: `CreateOutline` logs a warning naming the buffer and
+   builds no outline, and the run draws its triangles under 3. `FaceFan.Outline` still throws, and its test stays. Test:
+   `WorldWireframeConformanceTests.DrawWorld_UnderWireframeThreeWithAPartialTriangle_DrawsItsTrianglesInstead` (red, an
+   `ArgumentException` out of the upload, with the guard disabled).
+6. **A face with no area** (Grok). *Read*: the engine tests each surface's stored plane, whatever its area. *Fixed*: a
+   face takes its first triangle with area, and with none, its corner's normal through that corner; only a corner with
+   no normal gives the zero plane. Tests: `FaceFanTests.Faces_WhoseFirstTriangleHasNoArea_TakeThePlaneOfTheNextThatHas`
+   (red with the replacement disabled) and `Faces_OfAFaceWithNoArea_AreItsCornersNormalPlaneAndCullFromBehind` (red with
+   the normal plane zeroed).
+7. **The flip test** (Sonnet). The triangle was wound along +x, like its normal, so it flipped nothing. *Fixed the
+   test*: it is now wound along −x, and forcing the side positive reddens both its faces, not only the quad's.
+8. **Face planes' memory** (Sonnet). *Measured* (the `outline-memory` probe, now counting brush entities): 250 planes of
+   24 bytes on `cp_process_final` (101 models, 1,584 vertices, 12,672 bytes of outline), 134 on `cp_granary` (14 models,
+   912 vertices, 7,296 bytes). Built at every upload whatever the value, as the outlines are.
+9. **`Device3D.Wireframe`'s remark** (Grok). *Fixed*: the debug materials go over the world and its brush entities, and
+   in place of a displacement (opaque or translucent), a world decal and a studio model's materials.
+
+### Review 3 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `29768b1c3`. Same rules. New reads in findings 113 ("Translucent brush faces").
+
+1. **Translucent brush faces** (Fable, Sonnet; Gemini disagreed). *Checked*: a translucent `*N` batch is queued in
+   whichever model pass draws it (`EntireModel`, or `TranslucentOnly`), so they do reach the outline; Gemini's claim does
+   not hold for the default pass. *Read*: `FUN_1800de800` → `FUN_1800dbdb0`, a back-to-front walk of the model's node
+   tree that keeps a surface with flag `0x20` if it is NOCULL (`0x200`) or its plane-back flag (`0x40`) matches the
+   eye's side of the node's plane, no tolerance; then `FUN_1800ddca0`. *Fixed*: the queue keeps each run's own
+   material, and `FacePlane.OutlinedFrom` culls a blended run by that rule (NOCULL exempt, no tolerance) and an opaque
+   one by `FUN_1800dcb20`'s. *Interpolated*, and said in `DrawOutline`'s remark: flag `0x20` as the viewer's blended
+   materials, a face's node plane as its own, and an eye exactly on a plane-back face's plane. Tests:
+   `FaceFanTests.OutlinedFrom_AnOpaqueOrTranslucentFace_TakesItsPassesRule` (the translucent cases red with the opaque
+   rule for all) and `EyeShaderRenderTests.DrawModelPose_ATranslucentBrushBackFaceUnderWireframeThree_IsOutlinedOnlyIfNoCull`
+   (the `$nocull` case red with the run's translucency dropped).
+2. **The invert on the off path** (Grok). The call already sat inside the queue-count check, so the off path never
+   inverted; but every run of 1 or 2 did. *Fixed*: `DrawQueuedWireframes` takes the placement and inverts once, only
+   when an outline with faces draws. **The off path over main, exactly, read from the code** (*not measured*): per
+   opaque world batch, an enum comparison (terrain), an integer comparison (`QueueSurfaceWireframe`), and an integer
+   and a boolean (`DrawsLines`); per blended world batch, the enum and the integer; per `Raster` call, the integer and
+   the boolean; per material bind, an integer (the depth guard); per world or entity decal batch, an integer
+   (`WireframeDecal`); per kept model batch, an integer; per model, a queue count; per world pass that ends in
+   `DrawQueuedWireframes`, a queue count. At upload: the outline buffers and the brush entities' face planes (review 2,
+   item 8).
+3. **A face with area and no side** (Fable, Grok). *Fixed*: such a triangle gets the zero plane, drawn whole (the
+   `ModelEye` rule); the corner-normal plane is only for a face with no area. Test:
+   `FaceFanTests.Faces_WithAreaButANormalAlongTheFace_AreSeenFromEverywhere` (red with review 2's null).
+4. **A NaN corner** (Sonnet). *Fixed*: a non-finite plane is the zero plane. Test:
+   `FaceFanTests.Faces_WithANaNCorner_AreSeenFromEverywhere` (red with the finite checks off).
+5. **A partial-triangle `*N` model's release** (Fable). *Guarded*, as the world's. Test:
+   `OffscreenTargetReleaseTests.Dispose_AfterDrawingABrushEntityOfAPartialTriangleUnderWireframeThree_LeavesNoDeviceReference`.
+   **It did not redden with the check removed**: Silk's `Dispose` of a null handle is a no-op, so the guard is symmetry,
+   not a fix; the test pins the draw-and-release path for a partial `*N` model, which nothing covered.
+6. **The probe's face count** (Fable, B243). *Fixed*: it counts `FaceFan.Faces` over each model's corners packed by
+   `EntityModelSet.Packed` (made internal; the probe has the assembly's internals). Re-measured: the same 250 planes on
+   `cp_process_final` and 134 on `cp_granary`.
+7. **`DrawsLines`' remark** (Fable). *Fixed*: it reads two fields where main read one.
+8. **Reversed ranges and a run cut mid-face** (Grok). *Fixed*: the range logic is `FaceFan.Runs`, which clamps each
+   range to the run (a face starting before it contributes its part inside), so a later run never resubmits an earlier
+   run's lines; `DrawLines` lost its empty-range return, since no caller can hand it one. Test:
+   `FaceFanTests.Runs_OfARunAmongFaces_StayInsideIt` (five runs; red with the clamp removed, and with the face search
+   returning 0, which now yields a reversed range rather than nothing visible).
+9. **The cap ends an outline mid-face** (Sonnet). *Pinned as intended*: the cap is a development control and draws what
+   it keeps, so the outline is of what was drawn. `Runs_…(0, 3)`: the first face's partial outline.
+10. **The partial-triangle warning per model** (Sonnet). *Fixed*: once per world upload, saying that any more are not
+    reported. No test: a log's count, from a path no shipped map takes.
+11. **`return` on a null target** (Grok, Sonnet). *Not a defect*: `EyeShaderRenderTests.Target()` calls
+    `Assert.Ignore` when there is no device, so the `return` after it is never reached and a headless run reports the
+    test ignored, not passed. The new tests follow the file's own pattern.
+12. **The eye for another camera** (Sonnet). *Checked, correct*: `WorldRenderer._eye` is recovered from the matrix at
+    every `SetCamera`, and the water views (`WorldRenderer.Water.cs`, reflection and refraction), the monitors
+    (`WorldRenderer.Monitor.cs`) and the 3D sky each set their own camera through it, so a model pass in those views
+    tests its faces against that view's eye; a reflection's is the mirrored one, as the engine's model origin is there.
+
+### Review 4 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `942791e4e`. Same rules.
+
+1. **A sliver first triangle** (Fable). *Measured first* (the `outline-memory` probe, through the model set's packing and
+   the upload's slice): of 250 face planes on `cp_process_final`, no first triangle has a sine under 1e-2; of 134 on
+   `cp_granary`, 5 faces of more than one triangle are under 1e-2 and none under 1e-3 (*overstated; corrected in review 5,
+   item 5*). The
+   engine's stored plane (`FUN_1800dcb20` reads the surface's) is not reachable from the packed vertices without a new
+   per-face path through the packing's reorder. *Fixed* with the relative threshold the review offered: a triangle whose
+   sine is at most 1e-4 is no area and the next decides, said in `FaceFan.PlaneOf`. Test:
+   `FaceFanTests.Faces_WhoseFirstTriangleIsASliver_TakeThePlaneOfTheNext` (a T-junction line of sine 4e-7 whose cross
+   product points 54° off; red with the threshold at 0).
+2. **`Runs` with the flags** (Fable, Sonnet). Test: `Runs_OfAFaceJustBehindTheEye_TakeTheRunsPassRule` (0.005 behind:
+   opaque kept, translucent culled, translucent `$nocull` kept). Red with the two flags swapped through locals; Sonar's
+   S2234 refuses the plain swap at build, which is a guard of its own on that call.
+3. **A run cut mid-face in a culled face** (Fable, Sonnet). Case `Runs_OfARunAmongFaces_StayInsideIt(9, 18)` → (12, 18).
+   Red with the face search returning 0 (a reversed (9, 6)); removing the clamp alone leaves it right, since the culled
+   face never opens a range.
+4. **The off-path list, exactly** (Fable, Grok, Sonnet; read from the code, *not measured*). With `mat_wireframe` 0,
+   over main:
+   - per opaque world batch: one enum comparison (terrain) and, for a terrain batch, one integer (`EngineWireframe`);
+     one integer (`QueueSurfaceWireframe`); `DrawsLines`, one integer and one boolean, the set read only when a map's
+     own material is `Wireframe` (`&&` short-circuits it otherwise); and the `lines ||` in front of `IsWater`, one
+     boolean;
+   - per blended world batch: the enum, the terrain integer, and `QueueSurfaceWireframe`'s integer;
+   - per `Raster` call: `DrawsLines`' integer and boolean;
+   - per material bind: one integer (the depth guard);
+   - per decal batch, world or entity: `WireframeDecal`'s integer; and in `DrawDecalBatch`, the call into `BindDecalRun`
+     and the test of its returned boolean;
+   - per kept model batch: one integer; per model: one queue count;
+   - per pass that ends in `DrawQueuedWireframes` (the opaque world, the world after the additive pass, the translucent
+     world, each translucent leaf): one queue count;
+   - at upload: a shader-name prefix test per material (`_lineFill`), the `_wireframeIgnoresZ` entries, `_mapLineFill`
+     over the line-fill set, the world's outline buffer, and each brush entity's outline and face planes.
+   Review 3's item 2 said "exactly" and was not; this list supersedes it. *It was not exact either: review 5, item 4,
+   supersedes it.*
+5. **The outline lookup at 1 and 2** (Fable). *Fixed*: the model pass reads `_modelOutlines` only under 3. No test: a
+   hash's cost, and the values 1 and 2 never read what it found.
+6. **Which material's flags** (Fable). *Read*: the cull reads the surface record's own flags (`FUN_1800dbdb0`,
+   `FUN_1800df1a0`), which a skin or an entity's override does not change; the queue already carried the surface's own
+   material, and its remark now says so (that the flags come from the texinfo's material at load is *interpolated*).
+   Test: `EyeShaderRenderTests.DrawModelPose_AnOverriddenBrushBackFaceUnderWireframeThree_IsCulledByItsOwnMaterial`
+   (an opaque back face under a translucent `$nocull` override; red with the drawn material queued instead).
+7. **`0x200` as `$nocull`** (Fable). `DrawOutline`'s remark now names it: the world walk's NOCULL bit, read in B457
+   (`0x1800fa3d0`), with that read's own interpolation that it follows the material's `$nocull`. *Superseded by review 5,
+   item 6: the `$nocull` link is read.*
+8. **The probe's second route** (Fable, Sonnet, Grok). *Fixed*: it packs with the model set the viewer uses
+   (`EntityModelSet.Precache`) and slices each model's run as `Device3D.UploadModels` does, then counts `FaceFan.Faces`
+   of it; the comment says the slice arithmetic is the one step repeated rather than carried (`Device3D`'s slice is
+   private to Render). The counts are unchanged: 250 and 134.
+
+### Review 5 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `d6d7af98a`, then rebased onto main (`963f3734a`) with no textual conflict. One semantic
+one: four of main's B811 assertions in `ViewerSessionTests` read `IRenderDevice.Wireframe` as a `bool`, which B803 made
+the ConVar's integer; they now assert 0 for off and 1 for on, the same claims.
+
+1. **The sliver floor far from the origin** (Fable, Grok). *Fixed*: a triangle is no area when its sine is at most
+   1e-4 **or** its cross product is within 4 units in the last place of the corners' largest coordinate times the sum
+   of its two edges' lengths (the size the corners' rounding gives it). Tests:
+   `FaceFanTests.Faces_WhoseFirstTriangleIsASliverFarFromTheOrigin_TakeThePlaneOfTheNext` (at 4096, a T-junction two
+   units along an oblique edge: sine 1.12e-4, above the old floor; red with the ulp floor off, its plane then
+   (−0.49, −0.49, 0.73) against the face's (0.89, −0.45, 0)); and, pinning it from above,
+   `Faces_WhoseFirstTriangleIsThinButReal_KeepItsPlane` (a sine of 1e-3 keeps its plane; red with the sine floor at
+   1e-2).
+2. **The sliver test's fallback** (Fable, Sonnet). The corners' normal is now (0, 0.6, 0.8), so only taking the next
+   triangle's plane passes; red, with both no-area tests and the far sliver one, when the next triangle does not
+   replace the fallback.
+3. **The override test's control** (Fable, Grok). A front face under the same override is now a case, outlined; the
+   back face's 0 has its positive beside it.
+4. **The off-path list, exactly** (Fable, Sonnet; read from the code, *not measured*; supersedes review 4's item 4).
+   *Not exact: corrected by review 6, item 3, and extended by review 7, item 8.*
+   With `mat_wireframe` 0, over main:
+   - per call of `DrawOpaqueBatches` (the world's opaque pass and the props', which share it), per batch: one enum
+     comparison (terrain) and, for a terrain batch, one integer (`EngineWireframe`); one integer
+     (`QueueSurfaceWireframe`); `DrawsLines`, one integer and one boolean, the set read only when a map's own material is
+     `Wireframe`; and the `lines ||` before `IsWater`, one boolean;
+   - per blended world batch: the enum, the terrain integer, and `QueueSurfaceWireframe`'s integer;
+   - per `Raster` call: `DrawsLines`' integer and boolean;
+   - per material bind: one integer (the depth guard);
+   - per decal batch, world or entity: `WireframeDecal`'s integer; in `DrawDecalBatch`, the call into `BindDecalRun` and
+     the test of its returned boolean;
+   - per kept model batch: one integer; per model: one queue count;
+   - three draining calls, one queue count each: the end of `DrawOpaqueBatches` (WorldRenderer.cs:5144),
+     `DrawTranslucentWorld` (:4924, after both the translucent and the additive passes) and `DrawTranslucentLeaf` (:8169,
+     per leaf); the model pass's (:9220) is the per-model count above;
+   - at each map load: the four engine debug materials resolved and their VMTs read (`MapAssets`, beside the studio
+     render's one); at the world's build, three `FaceFan.IsFaceEdge` calls per fanned triangle in `MapWorldBuilder` and
+     in `BrushModels`, and the `FaceEdge` mark itself, `WorldVertex` 124 to 128 bytes and a `bool` on `PropVertex`, copied
+     by the packing;
+   - at upload: a shader-name prefix test per material (`_lineFill`), the `_wireframeIgnoresZ` entries, `_mapLineFill`
+     over the line-fill set, the world's outline buffer; per model a `StartsWith(BrushModels.SubmodelPrefix)`, one `char`
+     comparison, and for each `*N` its outline buffer and `FaceFan.Faces`.
+5. **What review 4's item 1 measured** (Fable, Grok, Sonnet). Exactly: the probe's 1e-2 counter counts faces of more
+   than one triangle only (`cp_granary` 5, `cp_process_final` 0); the 1e-3 and 1e-5 counters count every face (0 and 0 on
+   both). That none is rounding-sized is inferred from the sine alone. The measurement did not choose 1e-4: it shows the
+   floor inert on those two maps.
+6. **What is read about the flags** (Sonnet). Both remarks now say only: `0x200` is NOCULL from `$nocull`, *read*
+   (B457, `0x1800fa3d0`); `0x20` and `0x40` set the same way, from the surface's own material and plane, *not read*.
+
+### Review 6 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `41518469e` (rebased onto main). Same rules.
+
+1. **The stored plane** (Fable, parity). The sliver floors modelled the wrong noise: vbsp keeps a T-junction corner up
+   to `OFF_EPSILON` 0.25 off its edge (`utils/vbsp/faces.cpp:31`, `:458`) as a brush entity's fan start (the world alone
+   is re-triangulated, `:636-641`, `:652`), and a corner 0.1 off a 512 edge at 4096 gives a sine of 1.6e-3, which no
+   floor separates from a real thin triangle. *Done*: the outline culls by each face's **stored plane**, the one the
+   engine reads (`FUN_1800df1a0` keeps the surface record's plane pointer, `+4`, for `FUN_1800dcb20`; `FUN_1800dbdb0`
+   measures against the node's plane with the surface's plane-back flag `0x40`). The path:
+   - `BrushModels.Build` records each fanned face's `dplane_t[planenum]` and its `side` (`BspSurface.PlaneNormal`,
+     `PlaneDistance`, and `Normal` against `PlaneNormal` for the side) as `ModelFrames.FacePlanes`, in corner order, in
+     the faces lump's model space, the corners' own. vbsp writes `planenum` as the face's own plane and `side` as its
+     low bit (`utils/vbsp/writebsp.cpp:465-467`), so the stored plane faces out of the face.
+   - `EntityModelSet.PackedFacePlanes` puts them in the order the packing's material groups hold the faces;
+     `Device3D.UploadModels` hands them to the renderer on `PackedModel.FacePlanes`; `WorldRenderer.UploadModels`
+     builds the outline's faces from them (`FaceFan.Faces(vertices, stored)`), deriving nothing from triangles.
+   - `FacePlane.OutlinedFrom`: the opaque test reads the stored plane as is; the translucent one negates the distance
+     for a plane-back face, its node's plane being the face's flipped (*interpolated*: vbsp's split planes, not read).
+   The sliver heuristics are deleted (`SliverSine`, `RoundingUlps`, the corner-normal fallback; D180). Without stored
+   planes (a test's model only) the plane is the face's largest triangle's, and a face with no area or no side is drawn
+   whole. *Measured* (the `outline-memory` probe, through the model set's packing and the upload's slice): stored planes
+   for every face, 250 on `cp_process_final` (133 plane-back) and 134 on `cp_granary` (49); the largest triangle's plane
+   is within 0.8° of the stored one on every face of both, which is the measurement behind "the stored plane faces out";
+   5 faces on `cp_granary` have a first triangle under a sine of 1e-2. Tests:
+   `FaceFanTests.Faces_WithStoredPlanes_TakeThemAndNotTheTriangles` (the 0.1-off T-junction, its sine asserted 1.4e-3 to
+   1.8e-3, and a real thin face; red with the stored planes ignored), `Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws`,
+   `OutlinedFrom_APlaneBackFace_IsKeptByTheNodesSide` (red with the node's negation removed),
+   `PackedFacePlanesTests` (red with the planes taken in corner order), `BrushModelsTests.Build_TwoFaces_CarryTheirStoredPlanesAndSides`
+   (red with the side never set), and `EyeShaderRenderTests.DrawModelPose_ABrushFaceWithAStoredPlane_IsCulledByThatPlane`
+   (a face whose triangles face the camera, culled by a stored plane facing away; red with the upload ignoring the
+   planes). The test quad `BrushFace` is now a fan from its first corner, as vbsp's faces are, since the stored planes
+   are one per face as the fan counts them.
+2. **The floors' pins** (Fable, Sonnet). *Moot*: no floor survives. The far-from-origin and thin-but-real tests went
+   with the floors; the stored-plane test asserts its premise sine rather than printing it.
+3. **The off-path list** (Fable, Sonnet; read from the code, *not measured*; corrects review 5's item 4):
+   - `DrawOpaqueBatches` is called for the world's opaque pass (`Drawn`, WorldRenderer.cs:4881) and the 3D skybox's
+     (`SkyBatches`, :4967), not the props';
+   - `DrawDecalBatch`'s call into `BindDecalRun` and its returned boolean are paid by every caller: the world's shot
+     decals (:7170), the overlays (:7225), the entity shot decals (:7495) and the model decals (:7664);
+   - per kept model batch, one new integer comparison (:8889, before the `*` test); `DrawnMaterial`'s
+     `Wireframe != 0` (:6430) and the reporting choice (:9050) were boolean reads on main and are integer comparisons
+     now, the same count; `DrawnMaterial`'s override dictionary lookup ahead of its test is main's (B788), not new.
+   The rest of review 5's list stands.
+4. **Review 4 item 7** — marked superseded by review 5 item 6.
+5. **The capture test** (Fable). Nothing changed in it; the gate's phase 2 runs it.
+
+*Item 1's "the stored plane faces out" was circular as measured here (the derived sign came from a corner normal that
+may itself come from the plane) and cited the wrong lines; review 7, items 2 and 3, measure and cite it.*
+
+### Review 7 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `94d1a7bca`, then main (`b7d49a06d`, B820) merged in. Same rules.
+
+1. **A stored-plane mismatch failed every brush entity's upload** (Sonnet, Fable, Grok). *Fixed*: the outline's faces
+   are made before anything of the model is registered (`WorldRenderer.OutlineFaces`), and stored planes that are absent
+   or do not number the faces (`FaceFan.CountFaces`) are reported once a map, naming the model, and the outline falls
+   back to the triangles' planes; `FaceFan.Faces` keeps its throw as the invariant, pinned for too many and too few.
+   `EntityModelSet.PackedFacePlanes` answers none, never a misfit list, when the packing order or the planes do not fit
+   the corners (its `Math.Min` is gone). `BrushModels.Build` adds a plane only for a face that fans: a face of three or
+   more corners always emits a triangle (the loop runs `corners − 2` times), and a smaller one is skipped with its plane
+   before the loop, so Grok's case does not arise; pinned by a two-corner face between two fanned ones. Tests:
+   `EyeShaderRenderTests.DrawModelPose_ABrushEntityWhoseStoredPlanesDoNotFit_DrawsOnItsTrianglesAndSaysSo` (two planes
+   for one face: red, an `ArgumentException` out of the upload, with the count check gone; no planes: red with the log
+   suppressed), `PackedFacePlanesTests.PackedFacePlanes_FewerThanTheFaces_AreNone` (red with the planes' count check
+   gone), `BrushModelsTests.Build_FacesWithAndWithoutTriangles_CarryAPlanePerFannedFace`,
+   `FaceFanTests.Faces_WithAStoredPlaneCountThatIsNotTheFaces_Throws(0, 2)` and `CountFaces_…`.
+2. **The probe measures, not restates** (Fable, Sonnet, Grok). The `outline-memory` probe now checks each stored plane
+   against its face's own corners: the farthest corner off it, and the face's largest triangle's winding,
+   `(b − a) × (c − a)`, against its normal (no corner normal involved). *Measured*: `cp_process_final`, 250 faces, none
+   with a corner more than 0.25 off (farthest 0), every winding against the normal (0 along, 250 against);
+   `cp_granary`, 134 faces, none off (farthest 0.0045), 0 along and 134 against. The engine's front is clockwise
+   (`MATERIAL_CULLMODE_CCW` culls counter-clockwise, `imaterialsystem.h:180`), whose cross product in this right-handed
+   space points away from the viewer, so every stored plane faces out of its face's front: *measured* now, on both maps.
+   No brush-entity face lies on no node (0 and 0).
+3. **The citation, and the water case** (Sonnet). *Read*: for a brush entity vbsp writes the brush side's own plane,
+   "the brush model renderer doesn't use PLANEBACK, so write the real plane" (`utils/vbsp/faces.cpp:1334-1346`), so
+   `side` is only that plane's odd bit, not that the face lies on its back; the wording is corrected in `StoredPlane`,
+   `FacePlane`, `BrushModels` and the tests. A face inside water or slime takes the brush side's own plane with its twin
+   chosen by the face's portal side, `(side->planenum & ~1) | pside`, and "can be flipped" (`:1338-1341`): its stored
+   plane may be the flipped twin, facing away from what is drawn (wording corrected in review 8, Sonnet; it read "the
+   portal's plane"). The engine culls by the stored
+   plane as is, and so does this; the probe's winding count found none facing the other way on either map. Recorded,
+   not tested: no specimen has such a face.
+4. **`OnNode`** (Sonnet). *Read*: `FUN_1800dbdb0` walks only each node's own face range (first face at byte `+0x58`,
+   count at `+0x5a`), so a face on no node never reaches the translucent walk. *Interpolated*: that every brush-entity
+   face lies on a node (vbsp emits them from node portals); *measured*: none lies on no node on either map. Flagged in
+   `OutlinedFrom`'s remark, the plane-back test's remark and the commit.
+5. **A non-finite stored plane** (Fable). *Fixed*: drawn whole. Test: `Faces_WithANonFiniteStoredPlane_AreSeenFromEverywhere`
+   (red with the finite test weakened to all-four).
+6. **A real `*N` with no stored planes** (Sonnet). *Fixed*: reported once a map (item 1's line).
+7. **Tests** (Fable, Grok, Sonnet). The stored-plane test's planes are now ones no triangle derives, (0.6, 0, 0.8) and
+   (0, 0.6, −0.8). `PackedFacePlanesTests` has a two-triangle face ahead of the reordered ones (red with a face index
+   of corner ÷ 3). Grok's "never sets FaceEdge": `PropVertex.FaceEdge` defaults true, so each one-triangle corner set was
+   its own face and the test returned three planes, not [p0]; the new face sets the marks it needs. The count test has
+   too few. A render test sets the odd bit: `DrawModelPose_ATranslucentBrushFaceWithTheOddBit_IsOutlinedByItsNodesSide`
+   (red with the node's negation removed).
+8. **New costs of reviews 6-7** (Sonnet): at each brush entity's pack, `PackedFacePlanes`' `int[]` of its corners and its
+   list of planes; at the map's build, `BrushModels`' `List<StoredPlane>` per brush entity, kept on `ModelFrames`; at
+   upload, `PackedModel.FacePlanes` kept on the device's cached `PackedModel` and one `FaceFan.CountFaces` walk per
+   brush entity. 28 bytes a plane (`FacePlane`; `StoredPlane` 20): 250 and 134 planes on the two maps.
+
+### Review 8 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `9d2ed8557`. Same rules.
+
+1. **The outline buffer was made after the model was registered** (Fable, Sonnet). *Fixed*: `WorldRenderer.UploadModels`
+   now makes the outline faces and the outline buffer first, then the vertex buffer; if the vertex buffer throws, the
+   outline is released and the exception goes on as before. Only then is anything of the model registered, so a failure
+   leaves the path unregistered and the next upload tries it again. *Not tested*: forcing `CreateBuffer` to fail needs
+   fault injection the device wrapper does not have; the change is visible in the diff alone.
+2. **The misfit test drew only a front face** (Fable). *Fixed*: it draws a front and a back quad, three planes for the
+   two faces or none, and asserts the front outlined and the back not. Red, `(True, True)` for `(True, False)` in both
+   cases, with the fallback's planes zeroed so every face is outlined whole.
+3. **The once-a-map report was untested** (Fable). *Fixed*: `DrawModelPose_TwoMisfitBrushEntitiesInOneMap_AreReportedOnce`,
+   two misfit uploads in one map, one line; the control is the second upload's front face outlined. Red (2 lines) with
+   the guard bypassed. The offscreen target uploads one model at a time, so the two are two uploads of `*1` under one
+   map, not two models in one upload; the guard is per map either way.
+4. **The odd-bit test could not tell the node rule from the opaque one** (Grok). *Fixed*:
+   `DrawModelPose_ATranslucentBrushFaceWithTheEyeOnItsPlane_IsOutlinedOnlyWithoutTheOddBit` sets the stored plane
+   (0, −1, 0) at 300, so the eye at y −300 lies exactly on it. *Read*: `FUN_1800dbdb0` keeps a face when its `0x40`
+   flag equals `node dist < 0`, with no tolerance, so the face with the bit is dropped and the one without is kept;
+   `FUN_1800dcb20`'s `dot − dist ≥ −0.01` keeps both. Red (the odd-bit case outlined) with the translucent rule replaced
+   by `FacesEye`, where the review-7 test stayed green, as Grok said.
+5. **The water/slime wording** (Sonnet). *Read*: `utils/vbsp/faces.cpp:1338-1341` writes
+   `(side->planenum & ~1) | pside`, the brush side's own plane with its twin chosen by the portal side the face is on,
+   not the portal's plane. Corrected in `StoredPlane`, `BrushModels`, review 7 item 3 and finding 113.
+6. **The probe skipped faces without planes silently** (Sonnet). *Fixed*: the `outline-memory` probe takes stored planes
+   as `WorldRenderer.OutlineFaces` does (only when they number the faces) and prints the stored count beside the face
+   count, with the brush entities that fall back. *Measured*: `cp_process_final` 250 of 250 faces, 0 falling back;
+   `cp_granary` 134 of 134, 0 falling back. The other figures are unchanged from review 7.
+7. **A triangle split across material groups** (Fable). *Fixed*: `EntityModelSet.PackedFacePlanes` returns none when
+   any packed triangle holds corners of more than one source triangle. (This said the check also covered a group whose
+   corner count is not a multiple of 3. It did not. Such a group can hold whole source triangles rotated: A A A |
+   B B A | B B B packs `(5, 3, 4)`, all with `order / 3 == 1`, which the check passed. Separately, a total corner count
+   not a multiple of 3 left its trailing corners out of the face count. Both are fixed in review 9, item 2; wording
+   corrected in review 10, Sonnet.) Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
+   Red with the check removed: it returned a two-plane list. A real brush face's corners share one material, so a real
+   brush entity does not reach this check.
+
+### Review 9 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `b7c9b7a13`. Same rules.
+
+1. **The outline leaked if packing threw** (Fable, Sonnet, Grok). *Fixed*: `WorldRenderer.UploadModels` packs the
+   vertices first. Then `WorldRenderer.CreateAndRegister` makes the outline, then the vertex buffer, and registers both.
+   If the vertex buffer throws, it releases the outline and rethrows, and the registration is never called. Nothing that
+   can throw runs between the outline's creation and that step. The buffer creation is handed in, so the failure is
+   tested (Grok): `CreateAndRegisterTests`. Red (outline released 0 times, not 1) with the release removed. The control
+   is the success case: both registered, nothing released.
+2. **The split check missed a rotated triangle and trailing corners** (Fable, Sonnet, Grok). *Fixed*:
+   `EntityModelSet.PackedFacePlanes` requires each packed triangle to be its source triangle in order, and whole
+   triangles only. Materials A A A | B B A | B B B pack the second triangle as corners 5, 3, 4: all one source
+   triangle's, but it opens on a corner whose face edge is the quad's diagonal, so a face went uncounted while both
+   counts agreed. Tests: `PackedFacePlanes_OfATriangleThePackingRotates_AreNone` (red with review 8's check: one plane
+   for two faces) and `PackedFacePlanes_OfCornersThatAreNotWholeTriangles_AreNone` (red with the count check removed).
+   Review 8 item 7's sentence is corrected.
+3. **The two-misfit test's control** (Fable, Grok). *Fixed*: the second upload swaps its quads, front on the right. The
+   test asserts the left unoutlined and the right outlined after it. Only the second upload's own geometry outlines the
+   right. Only the triangles' planes leave its back face out. The offscreen target clears its models before every
+   upload that is not `sameModel`, so the second upload is not skipped by `ContainsKey`, and the swapped picture shows
+   it. Red, `(True, True)` for `(False, True)`, with the fallback's planes zeroed.
+4. **The eye-on-plane test's distance** (Fable). *Fixed*: the stored plane's distance is minus the eye's y as
+   `EyePosition.From` recovers it from the test's camera, the same call the renderer makes. The eye is on the plane by
+   construction, not only if the recovery returns −300 exactly. Red again with the translucent rule replaced by
+   `FacesEye`.
+
+### Review 10 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `49ed5611a`. All four reviewers called round 9 mergeable; these are fixed before the
+gate.
+
+1. **A face split across material groups at a triangle boundary** (Fable). *Fixed*: in `PackedFacePlanes`, a packed
+   triangle that does not start a face must follow its own predecessor in the corners, or there are no planes. Source
+   T0 (A, edge), T1 (A, no edge) | T2 (B, edge), T3 (A, no edge) packs T0 T1 T3 | T2. Every triple is whole and in
+   order, but T3 joins face 0 and would be culled on its plane while both counts agree at 2. Test:
+   `PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone` (renamed in review 12), with a control that the packing put T3 third. Red
+   with the predecessor check removed: two planes. The doc's "a group keeps its corners' order, so a face stays whole"
+   now says this holds only when a face's corners share one material.
+2. **Closures for every model, uploaded or not** (Fable). *Fixed*: the body after the two skips is its own method,
+   `WorldRenderer.UploadModel`, so only a model actually uploaded allocates the closures. *Not tested*: an allocation
+   count over `UploadModels` needs a device and a model already uploaded under the same name. The offscreen target
+   clears its models before each upload, so it cannot give that case. The change is structural.
+3. **A registration that throws part way** (Grok, Fable). *Fixed in code*: `CreateAndRegister` takes an undo step. If
+   the registration throws, it runs the undo (removes the path from both dictionaries), releases the vertex buffer
+   and the outline, and rethrows. Test: `CreateAndRegister_WhenTheRegistrationThrows_UndoesItAndReleasesBoth`. Red
+   with the undo and the releases skipped: `(0, 0, 0)` instead of `(1, 1, 1)`.
+4. **The whole-triangle test's control** (Grok). *Fixed*: it asserts all seven corners were packed before asserting
+   no planes. With the whole-triangle check removed the control held, and the null assertion went red (two planes).
+5. **Review 8 item 7's correction** (Sonnet). *Reworded*: the group case was missed because of the rotation (`(5, 3,
+   4)` all have `order / 3 == 1`). Trailing corners are the separate total-count case.
+6. **A studio model's default outline** (Fable). *Tested*:
+   `CreateAndRegister_ForAStudioModelWhoseVertexBufferThrows_RethrowsItsFailure` releases a default
+   `ComPtr<ID3D11Buffer>` in the failure path, and the vertex buffer's failure still reaches the caller unchanged. The
+   test pins Silk's null-handle `Dispose`, not code of ours, so no edit here can turn it red. It goes red only if a
+   Silk update changes that behaviour.
+
+### Review 11 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `7ba3d024a`. All four reviewers called round 10 mergeable; these are minor.
+
+1. **The packing doc said more than the check** (Fable). *Reworded*: only a packed triangle that does not start a face
+   and no longer follows its own predecessor is refused. A face split across groups whose triangles still follow their
+   predecessors, as T0 (B, edge) then T1 (A, no edge) packs, passes with one plane. That is correct, since the buffer
+   also counts one face.
+2. **The production undo was untested** (Fable). *Fixed*: the register and undo pair over the two dictionaries is
+   `WorldRenderer.CreateAndRegisterModel`, which `UploadModel` calls with `_modelBuffers` and `_modelOutlines`. Test:
+   `CreateAndRegisterModel_WhenTheOutlineInsertThrows_LeavesThePathInNeitherDictionary`. The outline dictionary's
+   comparer throws on its first hash, so the vertex buffer is stored and then the outline insert fails. Both keys are
+   gone afterwards and each buffer is released once. Red, the path still in the vertex buffers, with the vertex
+   buffers' `Remove` deleted. The outlines' `Remove` cannot be reddened this way. The outline insert is the
+   registration's last write, so when it fails there is nothing left in that dictionary to remove; that `Remove` only
+   guards a future registration that writes more after it. The comparer throws `ArgumentException`, standing in for
+   an out-of-memory insert (CA1065 allows only that type from a hash).
+3. **The studio-model test did not pin what it claimed** (Grok, Sonnet). *Replaced*: `Dispose_ADefaultComPtr_DoesNotThrow`
+   (named so in review 12) calls `Dispose` on a default `ComPtr<ID3D11Buffer>` directly. Its remark says only a Silk
+   update can turn it red.
+4. **The undo comes before the releases** (Fable). *Asserted*: the registration-throws test records its steps,
+   `["undone", "vertices released", "outline released"]`. Red, with the undo moved after the releases.
+
+### Review 12 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `6847123c8`. All four reviewers called round 11 mergeable; the lead fixed these.
+
+1. **The accept case had no test** (Fable). *Tested*: `PackedFacePlanes_OfAFaceSplitAcrossGroupsInOrder_KeepItsPlane`,
+   T0 (7, edge) then T1 (5, no edge), one stored plane kept, with a control that the packing kept the order. Red, the
+   only test in the class to redden (1 of 8), with the check made to refuse a continuation across material groups.
+2. **The refusal test's name and remark said any split** (Fable). *Renamed*:
+   `PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone`, its remark narrowed to that case.
+3. **"Its own predecessor" was ambiguous** (Sonnet). The `PackedFacePlanes` remarks now say the triangle before it in
+   the source corners; the inline comment above the check kept the old words until review 13.
+   `Dispose_ADefaultComPtr_DoesNothing` is now `…_DoesNotThrow`, which is what it asserts (Sonnet); its remark's
+   headline kept "does nothing" until review 13.
+4. *Not changed*: the step-order test also fixes vertices-before-outline release order, which no rule needs (Fable,
+   nit). It is the production order, so a reorder is a change worth seeing.
+
+### Review 13 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `1ba0b91e4`. All four reviewers called round 12 mergeable. Comments only: the inline
+comment above the predecessor check now says "the triangle before it in the source corners" (Sonnet, Fable); the
+accept test's remark separates the rule from the test (Fable); the default-ComPtr test's headline says "does not throw"
+(Sonnet, Fable). The first and last finish review 12 item 3, which reworded the remarks but not the inline comment,
+and renamed the test but not its headline.
+
+### Review 14 (2026-11-23)
+
+On `9e237cb91` (commit `10594a43c`). All four reviewers called round 13 mergeable. Records and comments only: review 13's section
+was added, and the accept test's remark now cites review 10's check (`7ba3d024a`) as the rule, where review 13 had
+cited review 11, which only wrote the rule down (Fable). This section was written in review 15.
+
+### Review 15 (2026-11-23)
+
+On `10594a43c` (commit `b006af8f3`); all four reviewers called round 14 mergeable. Records and one test remark
+rewrapped: review 12 item 3 and review 13 now say which round changed what, and review 14's
+section was written (Sonnet, Fable, Grok). Review 16 (the commit that adds this section) corrected two sentences that
+round 15 got wrong the same way: review 13 said review 12 item 3 "renamed without rewording", and review 14 credited
+itself with its own section (Fable).
+
+*As found (2026-11-21):*
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
 `mat_wireframe`; the world's brushes, displacements and the 3D skybox still draw with their own materials in wireframe

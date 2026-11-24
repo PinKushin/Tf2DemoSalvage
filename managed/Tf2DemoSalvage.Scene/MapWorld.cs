@@ -411,11 +411,15 @@ public static class MapWorldBuilder
             // White, always — the batch carries the category and the renderer picks its colour.
             (float brushRed, float brushGreen, float brushBlue) = (1f, 1f, 1f);
 
+            // Each corner says whether its edge is the polygon's, for `mat_wireframe 3` (FaceFan, B803).
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, surface, corners[0], rectangle, lightStep, brushRed, brushGreen, brushBlue);
-                Append(vertices, surface, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue);
-                Append(vertices, surface, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                int triangle = index - 1;
+                int triangles = corners.Count - 2;
+
+                Append(vertices, surface, corners[0], rectangle, lightStep, brushRed, brushGreen, brushBlue, FaceFan.IsFaceEdge(triangle, triangles, 0));
+                Append(vertices, surface, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue, FaceFan.IsFaceEdge(triangle, triangles, 1));
+                Append(vertices, surface, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue, FaceFan.IsFaceEdge(triangle, triangles, 2));
             }
 
             Span(
@@ -905,7 +909,8 @@ public static class MapWorldBuilder
         float lightStep,
         float red = 1f,
         float green = 1f,
-        float blue = 1f)
+        float blue = 1f,
+        bool faceEdge = true)
     {
         // **World coordinates, not projected ones.** The camera is a matrix the vertex shader
         // applies, so these vertices are uploaded once per map and survive every resize, zoom and
@@ -940,7 +945,8 @@ public static class MapWorldBuilder
             TangentX: tangent.X,
             TangentY: tangent.Y,
             TangentZ: tangent.Z,
-            TangentW: tangent.W));
+            TangentW: tangent.W,
+            FaceEdge: faceEdge));
     }
 
     /// <summary>
