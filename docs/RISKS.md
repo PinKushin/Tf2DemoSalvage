@@ -45996,6 +45996,14 @@ test failed before it or under a sabotage.
    - Fable, Sonnet: `ViewerSettings.Set` re-quotes a value through text, so a value holding a `"` is cut, as before this
      entry: B831.
 
+**Review 5 (2026-11-24): Fable, Sonnet, Grok** — no blockers. Fable and Sonnet: the review-4 record cited `:174-189`
+for the `\n` break, which is at `:196-198`; corrected. Sonnet: the carriage-return case moved into its own test,
+`Read_AValueWithACarriageReturn_IsReadAsWhitespace`, so the line-feed test's name stays exact. *Not changed* (Grok): the
+`http://x` assertion is powered, since the early store goes through `Set`, which quotes the value, so only the
+console's cut yields `http:` (Fable and Sonnet traced it).
+
+**Review 6 (2026-11-24): Sonnet, Fable, Grok, Gemini** — no findings, on the test split and the citation.
+
 ## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — OPEN
 
 Found in B824 reviews 3 and 4 (Fable, Sonnet). `ViewerSettings.Set` builds `name "value"` and parses it back
