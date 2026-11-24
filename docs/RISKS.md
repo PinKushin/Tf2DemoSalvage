@@ -45825,10 +45825,17 @@ now refused like one on `SHIFT` (Gemini), tested with `CTRL+RSHIFT`, `SHIFT+rctr
 stays, a TF2 key. The `KeyOf` remarks name the six modifiers a chord's key may not be (Sonnet). The brief said all four
 found review 4's defect; the record above is right, Grok had none (Fable, Sonnet).
 
-**Review 6** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. The rule is that a chord's key is no
-modifier, not that the view can name it: a chord on `KP_ENTER`, `MOUSE1` to `MOUSE5` or a controller key is kept and
-inert, as a bare bind on one is (Fable, Sonnet); the comment says so. Tested that a bare `rshift`, `RCTRL` and `Ralt`
-still bind (Fable, Sonnet); the chord test's remarks cover review 5 (Fable).
+**Review 6** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. The rule is that a chord's
+key is no modifier, not that the view can name it: a chord on `KP_ENTER`, `MOUSE1` to `MOUSE5` or a controller key is
+kept, as a bare bind on one is, and the chord is inert (Fable, Sonnet); the comment gives `CTRL+KP_ENTER`. Tested
+that a bare `rshift`, `RCTRL` and `Ralt` still bind (Fable, Sonnet); the chord test's remarks cover review 5 (Fable).
+Sabotage: the right-hand refusal applied to a bare name reddens exactly those three.
+
+**Review 7** (Fable, Gemini, Sonnet, Grok). No blocker. Review 6 called a bare mouse bind inert, where the view hands
+`MOUSE1` to `MOUSE5` to the session as they are (`MainForm.OnViewportMouseDown`), so `bind MOUSE1 +attack` fires; only
+the chord is inert, since the press carries no modifier (Fable, Gemini). The record above says so, records its sabotage
+(Fable), and no longer says the comment lists the mouse and controller keys (Grok). Tested that `CTRL+KP_ENTER` and
+`CTRL+mouse1` are kept (Sonnet).
 
 The paragraph below is the entry as filed.
 
