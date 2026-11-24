@@ -585,6 +585,30 @@ public sealed class SettingsPresenterTests
         set.ShouldBe(["r_screenfademinsize 0"]);
     }
 
+    /// <remarks>
+    /// **A key's `toggle sv_cheats` toggles through the real settings** (B823 review 10, Fable): `CurrentValue` asks the
+    /// settings before the console's own copy, so a settings value that never followed the console's `sv_cheats` would
+    /// read stale and every press would set 1 again. The control: the first press turned cheats on.
+    /// </remarks>
+    [Test]
+    public void Toggle_SvCheatsOnAKeyThroughTheSettings_TogglesBackOff()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = new();
+        settings.Attach(console);
+        console.StartCheatsOff();
+        console.Load("bind F5 \"toggle sv_cheats\"");
+
+        console.KeyDown("F5");
+        console.KeyUp("F5");
+        console.ConVar("sv_cheats").ShouldBe("1", "the control: the first press turned cheats on");
+
+        console.KeyDown("F5");
+        console.KeyUp("F5");
+
+        console.ConVar("sv_cheats").ShouldBe("0");
+    }
+
     [Test]
     public void Toggle_AfterTheMenuTurnedThePositionReadoutOn_TurnsItOffOnTheFirstPress()
     {

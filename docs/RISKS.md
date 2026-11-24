@@ -45741,6 +45741,15 @@ sabotage, restored by its inverse edit.
    `Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` (`a`, `b`, `a` again: `a` has `FlyForward`) pins it, and the
    deep-then-shallow test's remark names it as that test's footing. Enumerating keys in reverse failed it.
 
+**Review 10 (2026-11-24): Fable, Sonnet, Grok, Gemini — no findings.** Fable and Sonnet both noted that
+`Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` cannot fail against the old `Dictionary`, which with no removals also
+enumerates in insertion order; accepted, since nothing removes a key and the test pins against a reordering collection.
+The lead's integration pass took Fable's one unchecked question: whether a key's `toggle sv_cheats` reads a stale value,
+since `CurrentValue` asks the settings before the console's own copy. It does not; the settings hold no `sv_cheats`, so
+the console's copy answers. `SettingsPresenterTests.Toggle_SvCheatsOnAKeyThroughTheSettings_TogglesBackOff` presses it
+twice through the real `SettingsPresenter` and reads 1 then 0; with the console's copy skipped in `CurrentValue` it
+failed. Sonnet's nit, one 206-character remark line in `Applied`, is wrapped.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

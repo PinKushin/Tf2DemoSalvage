@@ -126,7 +126,8 @@ public sealed class ConfigConsole
     /// <remarks>
     /// **What it names, not what it changes.** An alias counts whatever its body, `alias none ""` included, because TF2 runs
     /// the alias and the bind owns the key; a definer counts whatever its arguments; an `incrementvar` or `multvar` with the
-    /// wrong token count, which `CvarCommand` drops, and a refused cheat set still count (B823 reviews 8 and 9). This is the project's own diagnostic, so its rule is this one; the engine has no such count.
+    /// wrong token count, which `CvarCommand` drops, and a refused cheat set still count (B823 reviews 8 and 9). This is the
+    /// project's own diagnostic, so its rule is this one; the engine has no such count.
     /// </remarks>
     /// <remarks>
     /// **Computed on demand rather than counted as binds arrive, because the count depends on
