@@ -132,7 +132,9 @@ You can run a console command for one run only, as on TF2's launch line: `tf2dem
 `+exec my.cfg` or `+toggle cl_showfps`. It runs after your configs. As in TF2, a `+command` takes the one argument
 after it as its value, and none when that argument starts with `+` or `-`: `+mat_picmip -1` sets nothing. To set a
 cvar to a negative value, use `--set <cvar> <value>`, which takes the value whole. The viewer's one-shot actions
-(`+screenshot` and the like) do nothing from the command line yet.
+(`+screenshot` and the like) do nothing from the command line yet. A `-flag` the viewer does not know is ignored with
+a warning, and, as in TF2, so is the argument after it unless that starts with `+` or `-` or is a `.dem`:
+`-threads 4 a.dem` opens `a.dem`, and so does `-novid a.dem`.
 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while

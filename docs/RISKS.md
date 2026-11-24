@@ -46283,7 +46283,17 @@ Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review 
 `wait` to space its commands runs them all at once here (*inferred* from the console having no `wait`; not measured).
 Fix shape: read how TF2's command buffer defers the rest of a buffer at a `wait`, then port it. *Not fixed*.
 
-## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
+## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** An unknown `-flag` now takes the next argument as its value and drops it, under the same test the `+command`
+branch uses for `ParmValueByIndex` (`IsParmValue`: a next argument not starting with `+` or `-`, an empty one included).
+**Above Valve, the owner's pick** (2026-11-24, asked whether `-novid a.dem` should copy TF2 and not open the demo, or
+keep opening it; the owner picked "Keep opening it", the recommended option, without words of their own, D183): a
+next argument ending `.dem` (any case) is never a value, so it is still opened (`docs/ABOVE-VALVE.md`). The warning
+names the dropped value. Tests `Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo` (`-threads 4 a.dem`, an empty value,
+`-novid a.dem`, `-novid B.DEM c`, two flags, a flag at the end) and `Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue`;
+four cases red before. Sabotage: the `.dem` exception made to miss reddens the two `.dem` cases and two older tests.
+The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
 next argument when it gets one (not starting with `+` or `-`), so that argument is neither run nor opened. The viewer

@@ -207,9 +207,7 @@ public static class LaunchOptionsReader
             if (argument.StartsWith('+'))
             {
                 string command = argument[1..];
-                string? value = pending.TryPeek(out string? next) && (next.Length == 0 || next[0] is not ('+' or '-'))
-                    ? pending.Dequeue()
-                    : null;
+                string? value = pending.TryPeek(out string? next) && IsParmValue(next) ? pending.Dequeue() : null;
 
                 // **`demo_timescale` is Valve's command for demo replay speed**, and a runtime one rather than a saved
                 // setting, so it is read here instead of going on to the console. Gate phase 3 plays at 8x through it (D189).
@@ -404,12 +402,21 @@ public static class LaunchOptionsReader
             // A leading dash is the test rather than a list of known flags, because the list is
             // above and duplicating it here is the copy that drifts. A demo whose filename begins
             // with a dash is not a case this viewer needs to serve.
+            //
+            // **Its value goes with it, as `stuffcmds` skips it** (B828; FUN_1801683d0 asks `ParmValueByIndex` for every
+            // `-flag`), so `-threads 4` opens no demo named `4`. Above Valve (`docs/ABOVE-VALVE.md`, the owner's pick): a
+            // `.dem` is never a value, so `-novid a.dem` still opens it.
             if (argument.StartsWith('-'))
             {
+                string? value = pending.TryPeek(out string? next) && IsParmValue(next)
+                    && !next.EndsWith(".dem", StringComparison.OrdinalIgnoreCase)
+                    ? pending.Dequeue()
+                    : null;
+
                 log.LogWarning(
                     "{Message}",
-                    $"'{argument}' is not an option this viewer knows; ignoring it. " +
-                    "Run with --help for the list.");
+                    $"'{argument}'{(value is null ? string.Empty : $" '{value}'")} is not an option this viewer knows; " +
+                    "ignoring it. Run with --help for the list.");
 
                 continue;
             }
@@ -429,6 +436,10 @@ public static class LaunchOptionsReader
                 : $"{paths.Count} path(s) from the command line, first: {paths[0]}");
 
         return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
+
+        // Whether tier0's `CCommandLine::ParmValueByIndex` (x64 0x180003230) gives this next argument as a value: unless it
+        // starts with `+` or `-` (B824, B828).
+        static bool IsParmValue(string next) => next.Length == 0 || next[0] is not ('+' or '-');
 
         // Hands a line to the console, noting whether the console will refuse it (B830): the launch line is one `AddText`
         // buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126, 242-243`), so

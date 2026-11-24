@@ -98,6 +98,42 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **An unknown `-flag` takes the next argument as its value, as `stuffcmds` does** (B828): `engine.dll` x64 build 1007
+    /// FUN_1801683d0 asks `ParmValueByIndex` for a `-flag`'s value, which tier0's `CCommandLine` gives unless there is no
+    /// next argument or it starts with `+` or `-`, and skips it; so `-threads 4` neither runs nor opens `4`. **Above Valve**
+    /// (`docs/ABOVE-VALVE.md`, the owner's pick): a `.dem` is never taken as a value, so `-novid a.dem` still opens it, where
+    /// TF2 would not play it.
+    /// </remarks>
+    [TestCase(new[] { "-threads", "4", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-threads", "", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-novid", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-novid", "B.DEM", "c" }, new[] { "B.DEM", "c" })]
+    [TestCase(new[] { "-novid", "-threads", "4" }, new string[0])]
+    [TestCase(new[] { "-threads", "4" }, new string[0])]
+    public void Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo(string[] arguments, string[] paths)
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(paths);
+    }
+
+    /// <remarks>
+    /// The control (B828): a `+command` after an unknown `-flag` is not its value, since `ParmValueByIndex` gives none that
+    /// starts with `+`, so it still runs.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue()
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(["-novid", "+fps_max", "60"], ViewerSettings.Load(), log);
+
+        read.AfterConfigs.ShouldBe(["fps_max 60"]);
+    }
+
+    /// <remarks>
     /// The control, and the reason the test above uses a leading dash rather than a known list: a
     /// bare word IS a demo path, and a rule that reported everything it did not recognise would
     /// refuse every demo.
