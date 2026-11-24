@@ -68,7 +68,10 @@ public static class ButtonCodeNames
 
     /// <summary>The key a name names, in the table's own spelling, or null where TF2 says `"%s" isn't a valid key`.</summary>
     /// <param name="name">The name as a config or console line wrote it.</param>
-    /// <returns>The table's name; or, for a chord, its modifiers as written and its key in the table's spelling.</returns>
+    /// <returns>
+    /// The table's name; or, for a chord, its modifiers as `CTRL+SHIFT+ALT` in that order and its key in the table's
+    /// spelling.
+    /// </returns>
     /// <remarks>
     /// **A chord is above Valve** (`docs/ABOVE-VALVE.md`): TF2 has none, so no TF2 config holds one, and the viewer's own
     /// defaults and menu use them. One or more modifiers, each followed by `+`, then a name the table knows.
@@ -98,7 +101,9 @@ public static class ButtonCodeNames
             held[modifier] = true;
             at = plus + 1;
 
-            if (TableKey(name[at..]) is { } chordKey)
+            // A key that is itself a modifier is no chord (review 4, Fable): the view reads `CTRL+SHIFT` as Shift held with
+            // Control, a press WinForms reports with the Shift modifier too, so it could never fire.
+            if (TableKey(name[at..]) is { } chordKey && ModifierOf(chordKey) < 0)
             {
                 return string.Concat(CanonicalModifiers.Where((_, i) => held[i]).Select(m => m + "+")) + chordKey;
             }

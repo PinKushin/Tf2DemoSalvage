@@ -2158,15 +2158,18 @@ public sealed class ConfigConsoleConformanceTests
     /// **A chord's shapes** (B826 reviews 1 and 2, Fable): modifiers are taken from the left, so two modifiers and an
     /// `aux` name with a `+` of its own are chords; a modifier matches ignoring ASCII case only, so `ſHIFT` (U+017F, which
     /// .NET's `OrdinalIgnoreCase` folds to `S`) is none, as TF2's `V_stricmp` would refuse it. The modifiers are stored in
-    /// one spelling and order, `CTRL+SHIFT+ALT`, so one press is one entry (review 3, Fable); a chord's key may itself be
-    /// a modifier's name (`CTRL+SHIFT`), as the view reads it.
+    /// one spelling and order, `CTRL+SHIFT+ALT`, so one press is one entry (review 3, Fable); a chord whose key is itself a
+    /// modifier (`CTRL+SHIFT`) is none, since the view could never match that press (review 4, Fable).
     /// </remarks>
     [TestCase("CTRL+SHIFT+e", "CTRL+SHIFT+e")]
     [TestCase("SHIFT+CTRL+e", "CTRL+SHIFT+e")]
+    [TestCase("ALT+SHIFT+CTRL+e", "CTRL+SHIFT+ALT+e")]
+    [TestCase("CTRL+CTRL+e", "CTRL+e")]
     [TestCase("CONTROL+e", "CTRL+e")]
     [TestCase("ctrl+aux+1", "CTRL+JOY2")]
     [TestCase("ALT+KP_ins", "ALT+KP_INS")]
-    [TestCase("CTRL+SHIFT", "CTRL+SHIFT")]
+    [TestCase("CTRL+SHIFT", null)]
+    [TestCase("SHIFT+CTRL", null)]
     [TestCase("ſHIFT+e", null)]
     [TestCase("CTRL+", null)]
     [TestCase("CTRL++e", null)]
@@ -2181,9 +2184,11 @@ public sealed class ConfigConsoleConformanceTests
     [Test]
     public void Defaults_EveryKey_IsATf2KeyName()
     {
+        // Spelled as the console stores it, so a config's bind on the same press replaces the default rather than sitting
+        // beside it (B826 review 4).
         foreach (string key in KeyBindings.Defaults.Values)
         {
-            ButtonCodeNames.KeyOf(key).ShouldNotBeNull(key);
+            ButtonCodeNames.KeyOf(key).ShouldBe(key);
         }
     }
 

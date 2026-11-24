@@ -45812,6 +45812,13 @@ are stored in one spelling and order, `CTRL+SHIFT+ALT` (`CONTROL` read as `CTRL`
 `SHIFT+CTRL+e` and `CTRL+SHIFT+e`, are one entry for one press; `CTRL+SHIFT` (a key named like a modifier) and
 `CTRL++e` are tested. Sabotage: the modifiers kept as typed reddens the three spelling cases.
 
+**Review 4** (Fable, Gemini, Sonnet, Grok). No blocker; Grok had no findings. Fixed: a chord whose key is itself a
+modifier (`CTRL+SHIFT`) is refused, since the view reads it as Shift held with Control, a press WinForms reports with
+the Shift modifier too, so it could never fire; this also leaves `SHIFT+CTRL` and `CTRL+SHIFT` no second entry (Fable,
+Gemini, Sonnet). Tested with `ALT+SHIFT+CTRL+e` (order) and `CTRL+CTRL+e` (a repeat collapses) (Fable); the defaults
+test now requires each default in the console's own spelling; the stale `<returns>` text (Fable, Sonnet). Sabotage: the
+guard removed reddens the two `CTRL+SHIFT` cases.
+
 The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
