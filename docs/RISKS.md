@@ -45376,6 +45376,13 @@ half, as a Ctrl+R reset did before this branch. *Not changed*. The first `Add` b
 re-entering during a dialog must find the key. Fable: a config's bare one-shot is not performed at load, startup or a
 folder pick alike, since `ConfigConsole`'s load guard (B820) skips it while `_loading`.
 
+**Review 3 (2026-11-24).** Fable, Sonnet: a held play/pause chord re-fired on every auto-repeat, since a chord never
+enters the bound-key set and a toggle is not idempotent as the resets are; the chord check now skips a repeat, and
+Escape too, which must still leave full screen (`KeyPressed_AHeldPlayPauseChordRepeating_TogglesOnce`, red before).
+*Not changed* (Fable): the chord route performs the first matching action only, and `KeyFor` holds one key per action,
+so a config binding both `o` and a chord to play/pause leaves the chord unnamed; the reset and screenshot chord checks
+already take Escape ahead of leaving full screen, as on main.
+
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
 registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`

@@ -1347,6 +1347,28 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A held play/pause chord toggles once** (B825 review 3, Fable): a chord never enters the bound-key set the repeat
+    /// guard reads, and a toggle is not idempotent as the resets are, so each repeat paused and played. Playing to begin
+    /// with and a press then a repeat: the press pauses, and a toggling repeat would try to play — which with no demo
+    /// leaves it paused, so the repeat is pressed while the view says playing to see it. The control: the press paused.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldPlayPauseChordRepeating_TogglesOnce()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "CTRL+o");
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true));
+        rig.Transport.Playing.ShouldBeFalse("the control: the press paused");
+
+        rig.Transport.Playing = true;
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true, repeat: true));
+
+        rig.Transport.Playing.ShouldBeTrue("a repeat does not toggle");
+    }
+
+    /// <remarks>
     /// **A held one-shot key does not re-fire on auto-repeat** (B825 review 1, Gemini, Fable): the console took the press,
     /// and Source binds the press, not its repeats. Reset speed, since every call is recorded. The control: the press
     /// itself reset once.

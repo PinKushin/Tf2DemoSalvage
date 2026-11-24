@@ -372,8 +372,10 @@ public sealed partial class ViewerSession
             return _camera.ResetCamera();
         }
 
-        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini).
-        if (key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
+        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini). Not on a
+        // repeat, since a chord never enters the bound-key set and a toggle is not idempotent as the resets are, and not
+        // on Escape, which must still leave full screen below (review 3, Fable, Sonnet).
+        if (!key.IsRepeat && !key.IsEscape && key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
         {
             _playback.TogglePause();
             return true;
