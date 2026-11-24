@@ -304,7 +304,7 @@ public sealed class CaptureUiTests
     /// **The view is pinned to CI's 458x343** (B833): a count of one-pixel lines scales with the frame, and the bound was
     /// set on a larger window, so CI's smaller screen failed it with the outline drawn (574 under 1). Measured 2026-11-24 at
     /// this size: with the game 164 under 0 and 575 under 1; without it (an empty game folder) 0 and 575; CI 574 under 1.
-    /// The bound is half the smaller difference.
+    /// The bound is about half the smaller difference (411), and the capture's size is asserted.
     /// </remarks>
     [Test]
     public void Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink()
@@ -325,7 +325,7 @@ public sealed class CaptureUiTests
             int on = PinkAt(folder, 1);
 
             TestContext.Out.WriteLine($"mat_wireframe pink pixels: 0 draws {off}, 1 draws {on}");
-            (on - off).ShouldBeGreaterThan(200, "the world's every edge is outlined under 1, and none under 0");
+            (on - off).ShouldBeGreaterThan(200, "the world's every edge is outlined under 1, and not under 0");
         }
         finally
         {
@@ -345,6 +345,9 @@ public sealed class CaptureUiTests
         run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
 
         using System.Drawing.Bitmap picture = new(png);
+
+        // The bound holds only for this frame size (B833 review 5, Fable): a clamped view would lower the count unnamed.
+        (picture.Width, picture.Height).ShouldBe((458, 343), "the view the bound was measured at");
         int pink = 0;
 
         for (int y = 0; y < picture.Height; y++)

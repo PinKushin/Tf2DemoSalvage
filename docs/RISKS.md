@@ -46083,8 +46083,15 @@ downloaded-maps folder with no game check, and only a miss there skips. The comm
 **Review 4** (Fable, Gemini, Sonnet, Grok): no blocker; the one finding is the comment above. **CI on this branch**
 (run 45436086318) then failed the capture test with the outline drawn: 574 pink under 1, against a bound of 1,000 set
 on a larger window. CI's view is 458x343. Measured locally at that size: with the game 164 under 0 and 575 under 1,
-with an empty game folder 0 and 575. The test now pins the view at 458x343 and bounds the difference at 200, half the
-smaller measured difference.
+with an empty game folder 0 and 575. The test now pins the view at 458x343 and bounds the difference at 200, about half
+the smaller measured difference (411).
+
+**Review 5** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini had no findings. Fixed: the test asserts the capture is 458x343, so a
+clamped view fails by naming its size rather than by a low count (Fable); "half" is "about half" of 411 (Fable, Sonnet,
+Grok); the assertion's
+message no longer says no pink under 0, since the game frame has 164 (Grok). Not taken: Grok read the test comment and
+the review 4 record as contradicting each other; both say a downloaded map is found without the game, and `Find` does
+that (Fable read `MapCache.cs:264-290`).
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
