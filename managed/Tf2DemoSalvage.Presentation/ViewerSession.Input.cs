@@ -339,9 +339,14 @@ public sealed partial class ViewerSession
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
         KeyBindings bindings = Bindings;
 
+        // **A matched chord's repeat is taken and runs nothing** (B825 review 4, Fable): Source binds the press, a chord
+        // never enters the bound-key set the repeat guard above reads, and neither a toggle nor a camera cycle nor a
+        // screenshot is idempotent. Taken rather than left, so a held ALT chord's repeat is not a menu mnemonic.
+        bool press = !key.IsRepeat;
+
         if (key.IsChord(bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
-            return _camera.CycleCameraMode();
+            return !press || _camera.CycleCameraMode();
         }
 
         // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They
@@ -350,12 +355,12 @@ public sealed partial class ViewerSession
         // anyone who wants to land on one directly.
         if (key.IsChord(bindings.KeyFor(ViewerAction.FirstPersonView)))
         {
-            return _camera.EnterFirstPerson();
+            return !press || _camera.EnterFirstPerson();
         }
 
         if (key.IsChord(bindings.KeyFor(ViewerAction.ThirdPersonView)))
         {
-            return _camera.EnterThirdPerson();
+            return !press || _camera.EnterThirdPerson();
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
@@ -363,21 +368,28 @@ public sealed partial class ViewerSession
         // codes"* — because there was nothing to add it to.
         if (key.IsChord(bindings.KeyFor(ViewerAction.ResetSpeed)))
         {
-            _transport.ResetSpeed();
+            if (press)
+            {
+                _transport.ResetSpeed();
+            }
+
             return true;
         }
 
         if (key.IsChord(bindings.KeyFor(ViewerAction.ResetCamera)))
         {
-            return _camera.ResetCamera();
+            return !press || _camera.ResetCamera();
         }
 
-        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini). Not on a
-        // repeat, since a chord never enters the bound-key set and a toggle is not idempotent as the resets are, and not
-        // on Escape, which must still leave full screen below (review 3, Fable, Sonnet).
-        if (!key.IsRepeat && !key.IsEscape && key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
+        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini). Not on
+        // Escape, which must still leave full screen below (review 3, Fable, Sonnet).
+        if (!key.IsEscape && key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
         {
-            _playback.TogglePause();
+            if (press)
+            {
+                _playback.TogglePause();
+            }
+
             return true;
         }
 
@@ -388,7 +400,11 @@ public sealed partial class ViewerSession
         // command, so a config that rebinds screenshots moves this with it.
         if (key.IsChord(bindings.KeyFor(ViewerAction.Screenshot)))
         {
-            CaptureViewportToFile();
+            if (press)
+            {
+                CaptureViewportToFile();
+            }
+
             return true;
         }
 

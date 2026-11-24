@@ -45383,6 +45383,13 @@ Escape too, which must still leave full screen (`KeyPressed_AHeldPlayPauseChordR
 so a config binding both `o` and a chord to play/pause leaves the chord unnamed; the reset and screenshot chord checks
 already take Escape ahead of leaving full screen, as on main.
 
+**Review 4 (2026-11-24).** Fable: skipping a play/pause chord's repeat returned false, so WinForms read a held ALT
+chord's repeat as a menu mnemonic; and camera mode and screenshot chords already re-fired per repeat on main. One rule
+now: a matched chord's repeat is taken and runs nothing, as Source binds the press
+(`KeyPressed_AHeldScreenshotChordRepeating_CapturesOnce`, and the play/pause repeat test now asserts the repeat is
+taken; both red under their sabotage). Sonnet, Fable: the Escape half had no test
+(`KeyPressed_EscapeBoundToPlayPauseInFullScreen_LeavesFullScreenAndKeepsPlaying`, red without it).
+
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
 registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`

@@ -1348,9 +1348,8 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **A held play/pause chord toggles once** (B825 review 3, Fable): a chord never enters the bound-key set the repeat
-    /// guard reads, and a toggle is not idempotent as the resets are, so each repeat paused and played. Playing to begin
-    /// with and a press then a repeat: the press pauses, and a toggling repeat would try to play — which with no demo
-    /// leaves it paused, so the repeat is pressed while the view says playing to see it. The control: the press paused.
+    /// guard reads, and a toggle is not idempotent as the resets are, so each repeat paused and played. The view is set
+    /// playing again before the repeat, so a toggling repeat would pause it. The control: the press paused.
     /// </remarks>
     [Test]
     public void KeyPressed_AHeldPlayPauseChordRepeating_TogglesOnce()
@@ -1363,9 +1362,47 @@ public sealed class ViewerSessionTests
         rig.Transport.Playing.ShouldBeFalse("the control: the press paused");
 
         rig.Transport.Playing = true;
-        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true, repeat: true));
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true, repeat: true))
+            .ShouldBeTrue("the repeat is taken, so the toolkit does not read it as a mnemonic (review 4, Fable)");
 
         rig.Transport.Playing.ShouldBeTrue("a repeat does not toggle");
+    }
+
+    /// <remarks>
+    /// **A held screenshot chord writes one file** (B825 review 4, Fable): a matched chord's repeat is taken and runs
+    /// nothing, so a held chord is one press, as Source binds it. The control: the press wrote one.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldScreenshotChordRepeating_CapturesOnce()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }).WithDevice();
+        rig.Session.Bindings.Bind(ViewerAction.Screenshot, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true)).ShouldBeTrue();
+        rig.Device.Captured.Count.ShouldBe(1, "the control: the press wrote one");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        rig.Device.Captured.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **Escape bound to play/pause still leaves full screen** (B825 review 4, Sonnet): Escape never reaches the console,
+    /// so the play/pause chord check was its one route to the toggle, ahead of the full-screen exit. The control: full
+    /// screen and playing before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_EscapeBoundToPlayPauseInFullScreen_LeavesFullScreenAndKeepsPlaying()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "ESCAPE");
+        rig.Window.IsFullScreen = true;
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", binding => binding == "ESCAPE", escape: true)).ShouldBeTrue();
+
+        rig.Window.IsFullScreen.ShouldBeFalse();
+        rig.Transport.Playing.ShouldBeTrue();
     }
 
     /// <remarks>
