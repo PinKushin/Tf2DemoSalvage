@@ -224,11 +224,12 @@ public static class ShotSidecar
     /// **The question is what the picture used, so a numeric ConVar compares as `GetFloat` reads it** (B823 reviews 1 and 2,
     /// Sonnet, Grok): `1200.000000`, `1200` and `1200 x` drew the same, which a string compare — the revert's question, which
     /// is whether the engine's callbacks run — would record as three settings. The same string never differs. A ConVar
-    /// is numeric when its declared default holds ONE number, to .NET or to `atof` (`0x10`, `inf`, and `0.1f`, which
-    /// `EngineConVar.Number` reads as 0.1 — B823 review 4, Fable) — not a string of several, so `255 255 255` is a string
-    /// and `255 0 0` differs from it (review 3, Fable); any other compares as the string it is. The floats compare by their bits first, so two infinities match (their difference is
-    /// a NaN) and so do two NaNs with the same bits, then within the six places a value is written to; a NaN matches no
-    /// other value (review 3, Sonnet).
+    /// is numeric when its declared default is ONE number, to .NET or to `atof`, with at most a C float suffix
+    /// (`0x10`, `inf`, and `0.1f`, which `EngineConVar.Number` reads as 0.1 — B823 reviews 4 and 5, Fable) — not a
+    /// string of several or a word, so `255 255 255` is a string and `255 0 0` differs from it (review 3, Fable); any
+    /// other compares as the string it is. The floats compare by their bits first, so two infinities match (their
+    /// difference is a NaN) and so do two NaNs with the same bits, then within the six places a value is written to; a
+    /// NaN matches no other value (review 3, Sonnet).
     /// </remarks>
     public static bool DiffersFromDefault(string value, string declared)
     {

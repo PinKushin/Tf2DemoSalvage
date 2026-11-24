@@ -45609,7 +45609,7 @@ restored by its inverse edit.
    `BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys` (2 and 1) failed before;
    `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` failed with the empty check removed from `Applied`; `Bound` as
    the table's count failed it and the `unbindall` test.
-5. *Output-level assertions (Fable)* — half done. **The frame:** `SyntheticPlayer.DemoOfANemesis` writes a recorder
+5. *Output-level assertions (Fable)* — done, both halves (the prediction half in a second commit). **The frame:** `SyntheticPlayer.DemoOfANemesis` writes a recorder
    dominated by a connected blu player with the tournament ConVars at signon, and
    `Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads` reads `particle_nemesis_blue` off the decoded frame:
    shown at `mp_tournament 1` with `0.5`, gone at `1`, shown with no tournament. With the frame builder's line
@@ -45629,6 +45629,31 @@ restored by its inverse edit.
    `FormatException` handlers are `SoundSample`'s file decode, `AssemblyText`, `DemoAssembly` and `ShotSidecar.Read`, none
    around `Number`. The LSP reported its index incomplete when asked, so the list may be short; the `catch` sites were
    found by a text search of the whole tree.
+
+**Review 5 (2026-11-24): Fable, Sonnet, Grok; no blockers.** Each fix's test failed before it or under a sabotage,
+restored by its inverse edit.
+
+1. *`Bound` counted the viewer's defaults (Fable, Sonnet)* — fixed. `WithDefaults` seeds `_binds`, so counting from it
+   made a config with no `bind` line log `N of N`. A new set, `_configBound`, holds the keys a `bind` line set, and
+   `Bound` and `Applied` count only those still bound to something — `WithDefaults`' remark (an empty config must not
+   look loaded) holds again. `BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero` (`sensitivity 3` over the
+   defaults is 0 of 0) and the reworked `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` (bind `F5`: 1 of 1; unbind:
+   0 of 0) failed before, and again with either count read from `_binds`. `Tf2ConfigFilesTests`' real-config test now
+   first asserts the defaults alone are 0 of 0, so its `> 10` and `> 5` cannot pass on them.
+2. *The loser test could not see the ticks (Fable, Sonnet, Grok)* — fixed. The old packet path read the ConVars at the
+   command tick: `ServerConVars serverConVars = _timeline.ServerConVarsAt(tick);` (RecorderPrediction.cs at 180494a01,
+   `:304`), passed with `packet.Tick` to `IsLoser` (`:359`), so the extraction moved those reads and changed neither.
+   `SyntheticPlayer.DemoOfGesturesSendingAlwaysLoserAt` sends `tf_always_loser 1` in tick 102's packet, and
+   `IsLoserAt_AConVarArrivingBetweenThePacketAndTheCommand_IsTheCommandTicks` asserts a packet at 101 re-running 102's
+   commands is a loser and 101's is not; with the step reading the packet's tick, the first failed.
+3. *`HoldsOneNumber` took words (Fable)* — fixed: after the number, at most one C float suffix (`f`, `F`, `l`, `L`)
+   directly, then only C white space. `2fort`, `infantry`, `nano`, `1 x` and `0.1 f` are strings; `0.1f`, `1L` and `1 `
+   numbers. `1 x` is a string because a word after a value is text, not a literal. The five failed before; with no
+   suffix allowed, `0.1f`, `1L` and the sidecar's `0.1`/`0.1f` failed.
+4. *Review 4 item 5's opening (Fable)* — reworded: both halves are done.
+5. *`ShouldShowNemesisIcon`'s file (Fable)* — fixed: `c_tf_player.cpp:9376-9395`, read there, in `DemoTimeline` and the
+   two test remarks.
+6. *The sidecar remark's width (Sonnet)* — rewrapped.
 
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 

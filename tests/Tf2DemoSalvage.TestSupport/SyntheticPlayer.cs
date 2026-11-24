@@ -518,6 +518,25 @@ internal static class SyntheticPlayer
         int playerClass,
         (int RoundState, int WinningTeam, int MatchGroup)? rules,
         string? alwaysLoser,
+        params GestureSnapshot[] snapshots) =>
+        DemoOfGesturesSendingAlwaysLoserAt(intervalPerTick, team, playerClass, rules, alwaysLoser, atTick: null, snapshots);
+
+    /// <summary>As <c>DemoOfGestures</c>, with <c>tf_always_loser</c> sent in the snapshot of <paramref name="atTick"/>, or at signon when null.</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <param name="team">The player's <c>m_iTeamNum</c>.</param>
+    /// <param name="playerClass">The player's <c>m_iClass</c>.</param>
+    /// <param name="rules">The game rules, or null.</param>
+    /// <param name="alwaysLoser">The <c>tf_always_loser</c> value sent, or null to send none.</param>
+    /// <param name="atTick">The snapshot whose packet carries it; null for the signon.</param>
+    /// <param name="snapshots">The snapshots, in tick order.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoOfGesturesSendingAlwaysLoserAt(
+        float intervalPerTick,
+        int team,
+        int playerClass,
+        (int RoundState, int WinningTeam, int MatchGroup)? rules,
+        string? alwaysLoser,
+        int? atTick,
         params GestureSnapshot[] snapshots)
     {
         ArgumentNullException.ThrowIfNull(snapshots);
@@ -537,7 +556,7 @@ internal static class SyntheticPlayer
             new SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "-1")]),
         ];
 
-        if (alwaysLoser is not null)
+        if (alwaysLoser is not null && atTick is null)
         {
             signon.Add(new SetConVarMessage([new KeyValuePair<string, string>("tf_always_loser", alwaysLoser)]));
         }
@@ -618,6 +637,11 @@ internal static class SyntheticPlayer
                     UpdateBaseline: false,
                     Body: body),
             ];
+
+            if (alwaysLoser is not null && atTick == snapshot.Tick)
+            {
+                messages.Insert(0, new SetConVarMessage([new KeyValuePair<string, string>("tf_always_loser", alwaysLoser)]));
+            }
 
             if (snapshot.Events.Count > 0)
             {

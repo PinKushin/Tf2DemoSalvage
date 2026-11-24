@@ -1798,19 +1798,36 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **An unbound key is not applied, though the viewer's own default stands behind it** (B823 review 4): `F5` falls back
-    /// to the viewer's `screenshot` when the config's binding does nothing, but `unbind F5` left no binding to count.
+    /// **An unbound key is not applied, though the viewer's own default stands behind it** (B823 reviews 4 and 5): `F5` falls
+    /// back to the viewer's `screenshot` when nothing the config left binds it, but `unbind F5` left no binding to count.
     /// </remarks>
     [Test]
     public void Applied_AKeyUnboundOverAViewerDefault_IsNotCounted()
     {
         ConfigConsole console = ConfigConsole.WithDefaults();
-        (int applied, int bound) = (console.Applied, console.Bound);
+
+        console.Load("bind F5 screenshot");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "the control: the config bound F5");
 
         console.Load("unbind F5");
 
-        (console.Applied, console.Bound).ShouldBe((applied - 1, bound - 1), "F5's binding is gone, whatever answers for it");
-        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the control: the default still answers for it");
+        (console.Applied, console.Bound).ShouldBe((0, 0), "F5's binding is gone, whatever answers for it");
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the viewer's default still answers for it");
+    }
+
+    /// <remarks>
+    /// **The viewer's own defaults are no config's binds** (B823 review 5, Fable, Sonnet): `WithDefaults` seeds the table, and
+    /// a config with no `bind` line must log `0 of 0`, not `N of N` — an empty config must not look like a loaded one
+    /// (<see cref="ConfigConsole.WithDefaults"/>'s remark).
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("sensitivity 3");
+
+        (console.Applied, console.Bound).ShouldBe((0, 0));
     }
 
     /// <remarks>

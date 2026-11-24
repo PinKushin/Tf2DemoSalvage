@@ -42,4 +42,33 @@ public sealed class RecorderPredictionLoserTests
 
         RecorderPrediction.IsLoserAt(timeline, recorder, packetTick: 101, commandTick: 101).ShouldBe(expected);
     }
+
+    /// <remarks>
+    /// **The ConVars are the command tick's, the rules the packet's** (B823 review 5, Fable, Sonnet, Grok): the packet path
+    /// read `ServerConVarsAt(tick)` with `tick` the tick whose commands are re-run, and the game rules at `packet.Tick`
+    /// (RecorderPrediction.cs at 180494a01: `:304` `ServerConVars serverConVars = _timeline.ServerConVarsAt(tick);`, `:359`
+    /// `IsLoser = IsLoser(recorder, packet.Tick, serverConVars)`), so the extraction moved those reads and changed neither.
+    /// Here `tf_always_loser 1` arrives in tick 102's packet: a packet at 101 re-running 102's commands is a loser, and the
+    /// same packet asked for 101's is not.
+    /// </remarks>
+    [TestCase(101, 102, true)]
+    [TestCase(101, 101, false)]
+    public void IsLoserAt_AConVarArrivingBetweenThePacketAndTheCommand_IsTheCommandTicks(int packetTick, int commandTick, bool expected)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoOfGesturesSendingAlwaysLoserAt(
+                Interval,
+                SceneTeams.Red,
+                Scout,
+                (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
+                "1",
+                atTick: 102,
+                new SyntheticPlayer.GestureSnapshot(100, 0f, OnGround),
+                new SyntheticPlayer.GestureSnapshot(101, 0f, OnGround),
+                new SyntheticPlayer.GestureSnapshot(102, 0f, OnGround)),
+            client: new Core.Net.ClientInterp(0f, 0f, 66f));
+        ScenePlayer recorder = timeline.Frames.Single(frame => frame.Tick == 101).Players.Single();
+
+        RecorderPrediction.IsLoserAt(timeline, recorder, packetTick, commandTick).ShouldBe(expected);
+    }
 }

@@ -347,7 +347,7 @@ public sealed class ServerConVarsTests
 
     /// <remarks>
     /// **The frame's domination-icon switch is two `GetBool`s** (B823 review 3, Fable, Sonnet; `ShouldShowNemesisIcon`,
-    /// tf_player_shared.cpp:9376-9395, with `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`):
+    /// c_tf_player.cpp:9376-9395, with `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`):
     /// `0.5` is false, so a tournament still shows the icons, where `Number != 0` hid them. Read through
     /// `DemoTimeline.HidesDominationIcons`, the rule the frame builder calls.
     /// </remarks>

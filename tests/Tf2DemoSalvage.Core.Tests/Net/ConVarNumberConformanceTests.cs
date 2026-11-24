@@ -47,18 +47,25 @@ public sealed class ConVarNumberConformanceTests
         ConVarNumber.GetBool(value).ShouldBe(expected);
 
     /// <remarks>
-    /// **One number to `atof` and no second one after it** (B823 review 4, Fable): `0.1f` is the number 0.1, as
-    /// `EngineConVar.Number` reads it, while `255 255 255` holds three and stays a string.
+    /// **One number to `atof`, then at most a C float suffix and C white space** (B823 reviews 4 and 5, Fable): `0.1f` is
+    /// the number 0.1, as `EngineConVar.Number` reads it; `255 255 255`, `2fort`, `infantry` and `nano` are words that
+    /// start with a number and stay strings; `1 x` too, since `x` is no suffix — a value with a word after it is text.
     /// </remarks>
     [TestCase("16", true)]
     [TestCase("0x10", true)]
     [TestCase("inf", true)]
     [TestCase("0.1f", true)]
-    [TestCase("1 x", true)]
+    [TestCase("1L", true)]
+    [TestCase("1 ", true)]
+    [TestCase("1 x", false)]
     [TestCase("1 2", false)]
     [TestCase("255 255 255", false)]
     [TestCase("", false)]
     [TestCase("abc", false)]
+    [TestCase("2fort", false)]
+    [TestCase("infantry", false)]
+    [TestCase("nano", false)]
+    [TestCase("0.1 f", false)]
     public void HoldsOneNumber_AText_IsANumberWithNoSecondAfterIt(string value, bool expected) =>
         ConVarNumber.HoldsOneNumber(value).ShouldBe(expected);
 }

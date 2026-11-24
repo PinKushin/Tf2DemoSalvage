@@ -336,7 +336,7 @@ public sealed class SyntheticGesturePostureTests
     /// <remarks>
     /// **A frame's nemesis icon follows the tournament switch as `GetBool` reads it** (B823 review 4, Fable): the frame
     /// builder's `HidesDominationIcons` is `mp_tournament.GetBool() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`
-    /// (tf_player_shared.cpp:9376-9395), so `0.5` hides nothing and the dominating blu player carries
+    /// (`ShouldShowNemesisIcon`, c_tf_player.cpp:9376-9395), so `0.5` hides nothing and the dominating blu player carries
     /// `particle_nemesis_blue`. The output read is the frame's player, decoded from a synthetic demo.
     /// </remarks>
     [TestCase("1", "0.5", true)]

@@ -45,19 +45,35 @@ public static class ConVarNumber
         return used > 0;
     }
 
-    /// <summary>Whether <c>atof</c> reads a number from the text and no digit follows it — one number, not several.</summary>
+    /// <summary>Whether the text is one number to <c>atof</c>, then at most a C float suffix, then only C white space.</summary>
     /// <param name="value">The text.</param>
-    /// <returns>True for <c>16</c>, <c>0x10</c>, <c>inf</c> and <c>0.1f</c>; false for <c>255 255 255</c> and <c>1 2</c>.</returns>
+    /// <returns>
+    /// True for <c>16</c>, <c>0x10</c>, <c>inf</c>, <c>0.1f</c> and <c>1L</c>; false for <c>255 255 255</c>, <c>1 x</c>,
+    /// <c>2fort</c>, <c>infantry</c> and <c>nano</c>.
+    /// </returns>
     /// <remarks>
-    /// B823 review 4 (Fable): `0.1f` is the number <see cref="EngineConVar.Number"/> reads, 0.1, so a caller asking whether
-    /// a default is numeric must agree; a colour's three numbers are a string.
+    /// B823 reviews 4 and 5 (Fable): `0.1f` is the number <see cref="EngineConVar.Number"/> reads, 0.1, so a caller asking
+    /// whether a default is numeric must agree; a suffix is the one C allows a float literal (`f`, `F`, `l`, `L`), directly
+    /// after the number. Anything else after it — a second number, a word, a suffix after a space — makes the text a string.
     /// </remarks>
     public static bool HoldsOneNumber(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
         _ = CStdlib.Atof(value, out int used);
 
-        return used > 0 && !value.AsSpan(used).ContainsAnyInRange('0', '9');
+        if (used == 0)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> rest = value.AsSpan(used);
+
+        if (rest.Length > 0 && rest[0] is 'f' or 'F' or 'l' or 'L')
+        {
+            rest = rest[1..];
+        }
+
+        return rest.Trim([' ', '\t', '\n', '\v', '\f', '\r']).IsEmpty;
     }
 
     /// <summary>`m_nValue = ( int )( fNewValue )` on a float already made — a clamped one, say.</summary>

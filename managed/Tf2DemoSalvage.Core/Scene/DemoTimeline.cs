@@ -1327,7 +1327,7 @@ public sealed class DemoTimeline
     private const string HideDominationIconsConVar = "tf_tournament_hide_domination_icons";
 
     /// <summary>
-    /// `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()` (tf_player_shared.cpp:9376-9395): both
+    /// `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()` (`ShouldShowNemesisIcon`, c_tf_player.cpp:9376-9395): both
     /// `!!GetInt`, so `0.5` is false (B823 review 3). The frame builder asks it once a frame.
     /// </summary>
     /// <param name="server">The frame's server ConVars.</param>
