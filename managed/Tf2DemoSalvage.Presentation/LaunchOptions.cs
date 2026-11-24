@@ -409,7 +409,7 @@ public static class LaunchOptionsReader
             if (argument.StartsWith('-'))
             {
                 string? value = pending.TryPeek(out string? next) && IsParmValue(next)
-                    && !next.EndsWith(".dem", StringComparison.OrdinalIgnoreCase) && !System.IO.Directory.Exists(next)
+                    && !next.EndsWith(".dem", StringComparison.OrdinalIgnoreCase) && !IsFolderPath(next)
                     ? pending.Dequeue()
                     : null;
 
@@ -440,6 +440,11 @@ public static class LaunchOptionsReader
         // Whether tier0's `CCommandLine::ParmValueByIndex` (x64 0x180003230) gives this next argument as a value: unless it
         // starts with `+` or `-` (B824, B828).
         static bool IsParmValue(string next) => next.Length == 0 || next[0] is not ('+' or '-');
+
+        // An existing folder written as a path, full or with a separator (B828 review 2, Sonnet, Fable, Grok): a bare word is
+        // a TF2 value however it names a folder beside the viewer, so `-game tf` drops `tf` as TF2 does.
+        static bool IsFolderPath(string next) =>
+            (System.IO.Path.IsPathRooted(next) || next.AsSpan().IndexOfAny('\\', '/') >= 0) && System.IO.Directory.Exists(next);
 
         // Hands a line to the console, noting whether the console will refuse it (B830): the launch line is one `AddText`
         // buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126, 242-243`), so

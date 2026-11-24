@@ -122,18 +122,22 @@ public sealed class LaunchOptionsTests
 
     /// <remarks>
     /// **An existing folder is never a flag's value either** (B828 review 1, Fable, Sonnet; the owner's pick, above Valve): a
-    /// folder on the line opens as a playlist, and `-novid C:\demos` did before. A name that is no folder is still dropped.
+    /// folder on the line opens as a playlist, and `-novid C:\demos` did before. A name that is no folder is still dropped,
+    /// and so is a bare word that names one beside the viewer (review 2, Sonnet, Fable, Grok): `-game tf`, run from TF2's
+    /// folder, drops `tf` as TF2 does. `.\` before the same name keeps it.
     /// </remarks>
     [Test]
     public void Read_AnUnknownFlagBeforeAFolder_OpensTheFolder()
     {
         RecordingLogger log = new();
-        string folder = TestContext.CurrentContext.WorkDirectory;
-        string missing = System.IO.Path.Combine(folder, "no-such-folder-b828");
+        const string Bare = "b828-folder";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(Bare)).FullName;
+        string missing = System.IO.Path.GetFullPath("no-such-folder-b828");
 
-        LaunchOptions read = LaunchOptionsReader.Read(["-novid", folder, "-novid", missing], ViewerSettings.Load(), log);
+        LaunchOptions read = LaunchOptionsReader.Read(
+            ["-novid", folder, "-novid", missing, "-game", Bare, "-novid", $".\\{Bare}"], ViewerSettings.Load(), log);
 
-        read.Paths.ShouldBe([folder]);
+        read.Paths.ShouldBe([folder, $".\\{Bare}"]);
     }
 
     /// <remarks>The warning names the value it dropped, and none it kept (B828 review 1, Fable, Gemini, Grok).</remarks>

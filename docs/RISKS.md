@@ -46271,9 +46271,9 @@ FUN_1801683d0's own paste buffer caps the line first; both need reading before a
 
 Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_1801683d0) skips the argument
 `ParmValueByIndex` gives after every `-flag`, known or not. The viewer's own flags that take no value (`--autoplay`,
-`--first-person`, `--third-person`) are matched before that rule, so `--autoplay 4 a.dem` tries to open a demo named
-`4`. These flags are the viewer's own (TF2 has none), so whether they follow TF2's grammar is the owner's to say. *Not
-fixed*.
+`--colours`, `--windows`, `--first-person`, `--third-person`; B828 review 2, Sonnet, Gemini) are matched before that
+rule, so `--autoplay 4 a.dem` tries to open a demo named `4`. These flags are the viewer's own (TF2 has none), so
+whether they follow TF2's grammar is the owner's to say. *Not fixed*.
 
 ## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — OPEN
 
@@ -46318,6 +46318,17 @@ sabotage: the value left out reddens it) (Fable, Gemini, Grok). A bare flag at t
 the case list above no longer calls `-threads 4` one (Gemini, Sonnet). `docs/findings/13-settings-parity.md` said the
 skip was not ported (Fable). Filed: B836, `-h` read as help where TF2's is a height; B837, a known viewer flag that
 takes no value keeps the next word as a path (Fable).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: the folder test asked only whether a folder existed, so a
+TF2 value that named one beside the viewer was opened: `-game tf` run from TF2's folder opened `tf` as a playlist
+(Sonnet, Fable, Gemini, Grok), and a folder named `4` made `-threads 4` keep `4` (Gemini, Grok). A folder now counts
+only when written as a path, in full or with a `\` or `/` (`IsFolderPath`), so `-game tf` drops `tf` and `-novid .\tf`
+keeps it; the test makes `b828-folder` beside the run and checks both; sabotage: the path-shape check made to pass for a
+bare word reddens it alone. A full path a TF2 flag takes is still opened (`-basedir C:\Steam`), which
+`docs/ABOVE-VALVE.md` now says (Fable). The guide says "existing" (Fable, Gemini, Grok). Kept as the owner's line,
+`.dem` or folder: an existing file of another name after an unknown flag (`-novid match.dem.bak`), which
+`DemoLibrary.Open` would open, is dropped, with the warning naming it (Fable). B837 lists `--colours` and `--windows`
+too (Sonnet, Gemini).
 
 The paragraph below is the entry as filed.
 
