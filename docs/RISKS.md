@@ -45987,7 +45987,7 @@ test failed before it or under a sabotage.
    is no line break; `+sv_cheats "\r1"` now sets cheats on, as the console's whitespace reads it. Sonnet: the
    `http://x` → `http:` assertion can fail again now that `Parse` keeps a quoted `//`, so it is back beside `café`.
 2. *Citation (Fable).* The quote and comment rule is `commandbuffer.cpp:174-189` (read: each `"` toggles, `//` counts
-   only outside quotes, `\n` always breaks), cited beside `utlbuffer.cpp`.
+   only outside quotes), and `\n` always breaks at `:196-198`; cited beside `utlbuffer.cpp`.
 3. *Misplaced remark (Sonnet, Fable).* Moved back onto `Parse_AClientConVarInUpperCase_IsKept`.
 4. *Not changed:*
    - Grok: `\r` as a line end. `commandbuffer.cpp:196-198` breaks on `\n` alone, as `BufferCommands` does.

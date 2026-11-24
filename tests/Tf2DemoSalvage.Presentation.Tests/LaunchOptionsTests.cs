@@ -288,10 +288,23 @@ public sealed class LaunchOptionsTests
 
         on.Count(Refusal).ShouldBe(0, "the control");
         split.Count(Refusal).ShouldBe(1);
+    }
 
-        // B824 review 4, Fable: a carriage return is no line break to the console, only whitespace, so `sv_cheats \r1` sets 1.
+    /// <remarks>
+    /// **A carriage return is whitespace to the console, not a line break** (B824 review 4, Fable): `commandbuffer.cpp:196-198`
+    /// breaks on `\n` alone, so `sv_cheats \r1` sets 1. The control: `+sv_cheats 0` alone leaves them off.
+    /// </remarks>
+    [Test]
+    public void Read_AValueWithACarriageReturn_IsReadAsWhitespace()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
         RecordingLogger carriage = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+cl_forwardspeed", "5"], ViewerSettings.Load(), off);
         LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "\r1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), carriage);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
         carriage.Count(Refusal).ShouldBe(0);
     }
 
