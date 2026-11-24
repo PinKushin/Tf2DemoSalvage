@@ -228,18 +228,69 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
-    /// **A value of several statements is handed on whole and stored early only when it is one** (B824 review 1, Fable):
-    /// the console splits `fps_max 60;quit` at the `;` and sets `60`, so storing `60;quit` for early readers would be a
-    /// value the console never holds; and a refused set's line still runs its other statements, as TF2's would, so even
-    /// a replicated cheat's line is handed on. The control: one statement is stored.
+    /// **A value of several statements is handed on whole, and a declared ConVar stores only its first** (B824 reviews 1
+    /// and 2, Fable): the console splits `fps_max 60;quit` at the `;` and sets `60`, so `60;quit` would be a value it
+    /// never holds; a refused set's line still runs its other statements, as TF2's would, so even a replicated cheat's
+    /// line is handed on. The viewer's own setting is stored whole, since the console never reads it and a folder may
+    /// hold a `;`. The control: one statement is stored as given.
     /// </remarks>
     [Test]
-    public void Read_AValueOfSeveralStatements_IsHandedOnWholeAndNotStoredEarly()
+    public void Read_AValueOfSeveralStatements_IsHandedOnWholeAndStoresWhatTheConsoleSets()
     {
-        LaunchOptions several = Read("+fps_max", "60;quit", "+cl_forwardspeed", "500;bind q quit", "a.dem");
+        Read("+fps_max", "60").Settings.ConVarText("fps_max").ShouldBe("60", "the control");
 
-        several.AfterConfigs.ShouldBe(["fps_max 60;quit", "cl_forwardspeed 500;bind q quit"]);
-        several.Settings.ConVarText("fps_max").ShouldBe(Read("a.dem").Settings.ConVarText("fps_max"));
+        LaunchOptions several = Read("+fps_max", "45;quit", "+cl_forwardspeed", "500;bind q quit", "a.dem");
+
+        several.AfterConfigs.ShouldBe(["fps_max 45;quit", "cl_forwardspeed 500;bind q quit"]);
+        several.Settings.ConVarText("fps_max").ShouldBe("45");
+
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, @"C:\shots;old").Settings.ScreenshotFolder.ShouldBe(@"C:\shots;old");
+    }
+
+    /// <remarks>
+    /// **The early state is what the console's own parse of the line sets** (B824 review 2, Sonnet): the line goes through
+    /// `SourceConfig.Clauses` and `ConVarValue` (B823), so a quoted `--set` value is whole, `;` inside its quotes
+    /// included, and `""` sets empty; and a `+` value is cut at `//`, the console's comment. A guess at the console from
+    /// the value's text got all three wrong. The controls: a plain `--set` and a plain `+` value are stored as given.
+    /// </remarks>
+    [Test]
+    public void Read_TheEarlyStore_IsWhatTheConsolesParseOfTheLineSets()
+    {
+        Read("--set", "cl_voice_filter", "ab").Settings.ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+        Read("+cl_voice_filter", "ab").Settings.ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+
+        Read("--set", "cl_voice_filter", "a;b").Settings.ConVarText("cl_voice_filter").ShouldBe("a;b");
+        Read("--set", "cl_voice_filter", "ab", "--set", "cl_voice_filter", string.Empty).Settings.ConVarText("cl_voice_filter")
+            .ShouldBe(string.Empty);
+        Read("+cl_voice_filter", "http://x").Settings.ConVarText("cl_voice_filter").ShouldBe("http:");
+    }
+
+    /// <remarks>
+    /// **A quoted `--set sv_cheats "1;x"` turns the line's cheats on, as the console reads `1`** (B824 review 2, Sonnet).
+    /// The control: `--set sv_cheats 0` refuses the replicated cheat after it.
+    /// </remarks>
+    [Test]
+    public void Read_ASetOfSvCheatsWithASemicolonInItsQuotes_TurnsTheLinesCheatsOn()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
+        RecordingLogger on = new();
+
+        LaunchOptionsReader.Read(["--set", "sv_cheats", "0", "--set", "cl_forwardspeed", "5"], ViewerSettings.Load(), off);
+        LaunchOptionsReader.Read(["--set", "sv_cheats", "1;x", "--set", "cl_forwardspeed", "5"], ViewerSettings.Load(), on);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
+        on.Count(Refusal).ShouldBe(0);
+
+        // B824 review 2, Grok: `+sv_cheats 0;echo x` sets 0 at the console, so the line's cheats go off with it.
+        RecordingLogger plus = new();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "0;echo x", "+cl_forwardspeed", "5"], ViewerSettings.Load(), plus);
+        plus.Count(Refusal).ShouldBe(1);
+
+        // B824 review 2, Fable: `+sv_cheats //x` is a comment at the console, which keeps 1; the raw value reads 0.
+        RecordingLogger comment = new();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "//x", "+cl_forwardspeed", "5"], ViewerSettings.Load(), comment);
+        comment.Count(Refusal).ShouldBe(0);
     }
 
     /// <remarks>

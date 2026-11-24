@@ -455,10 +455,13 @@ public static class LaunchOptionsReader
             string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
             string line = quoted ? $"{own} \"{value}\"" : $"{own} {value}";
 
-            // **What the console's set will hold, for the state the line keeps before it runs** (B824 review 1, Fable): the
-            // console splits the line at `;`, a quote or a line break, and a set with no word after the name only prints.
-            // So the early store and the line's own `sv_cheats` follow a value only when it is one statement with a word.
-            bool setsOne = value.AsSpan().IndexOfAny(";\"\r\n") < 0 && value.AsSpan().Trim(" \t\n\v\f\r").Length > 0;
+            // **What the console's set will hold, by the console's own parse of the line** (B824 reviews 1 and 2, Fable,
+            // Sonnet): its first clause (`SourceConfig.Clauses`: `;` outside quotes, `//`) and that clause's `ArgS`
+            // (`ConVarValue`, B823), or null when the clause has no argument and only prints. A guess from the value's text
+            // missed a quoted `;`, a quoted `""` and a `//`. Only for what the console sets; see the store below.
+            string? held = SourceConfig.Clauses(line) is [string first, ..] && SourceConfig.Tokens(first).Count > 1
+                ? SourceConfig.ConVarValue(first)
+                : null;
 
             // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718, B811):
             // the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it. None is
@@ -466,9 +469,9 @@ public static class LaunchOptionsReader
             // ConVar win over a later admitted one).
             if (own == CheatsConVar)
             {
-                if (setsOne)
+                if (held is not null)
                 {
-                    cheats = ConfigConsole.CheatsAllowed(value);
+                    cheats = ConfigConsole.CheatsAllowed(held);
                 }
 
                 afterConfigs.Add(line);
@@ -502,10 +505,16 @@ public static class LaunchOptionsReader
             // **Stored now for what reads the launch before the console runs, and run after the configs too** (B816): a
             // config's `fps_max 123` must not beat a launch `+fps_max 60`. Stored whatever the name, as before: the viewer's
             // own settings (`cl_game_folder`, `cl_screenshot_folder`) are no engine ConVar, so the console takes none of
-            // them and this is their only route (B824 review 1, Sonnet); an unknown name is ignored by the settings (D69).
-            if (setsOne)
+            // them and this is their only route (B824 review 1, Sonnet); an unknown name is ignored by the settings (D69). A
+            // declared ConVar stores what the console's set will hold; the viewer's own setting stores its value whole, as
+            // before, since the console never reads it: a folder may hold a `;` (B824 review 2, Fable).
+            if (declared is null)
             {
                 read = read with { Settings = read.Settings.Set(own, value) };
+            }
+            else if (held is not null)
+            {
+                read = read with { Settings = read.Settings.Set(own, held) };
             }
 
             afterConfigs.Add(line);

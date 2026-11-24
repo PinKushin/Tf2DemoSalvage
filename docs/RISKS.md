@@ -45897,13 +45897,15 @@ returns its default when the index is 0 or the last, or when the next argument s
 argument, pasted unquoted: `+bind F8 screenshot` runs `bind F8` alone, and `+mat_picmip -1` runs `mat_picmip` alone.
 
 **Fixed:** a `+name` takes the next argument as its value only when one exists and does not start with `+` or `-`, and
-every such command goes to the console after the configs, unquoted, in the line's order. A declared ConVar is still
-stored for early readers (B816) and a replicated cheat is still gated on the line (B811). `+demo_timescale` stays the
+every such command goes to the console after the configs, unquoted, in the line's order. Every setting is still stored
+for early readers (B816; what the console's set will hold, for a declared ConVar, per review 2) and a replicated cheat
+is still gated on the line (B811). `+demo_timescale` stays the
 playback speed. **The sidecar moved off `+`** (above Valve): a `--like` sidecar is a file the viewer reads, so its keys
 and values are untrusted, and `+` now pastes a value unquoted and drops a negative one. `ShotSidecar.Expand` emits
 `--set name value` instead, which keeps B811/B816's guard: a declared ConVar only, its value quoted whole, refused if it
 would close its quotes or start another line. Tests: `Read_APlusCommandWithAValue_IsHandedOnWithTheOneArgumentAfterIt`,
-`Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue`, `Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValue`,
+`Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue`,
+`Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValueAndStoresNothing`,
 `Read_ASetValueThatBreaksItsQuotes_IsRefused`, `Read_ASetOfAnUndeclaredName_IsRefused`, the sidecar `Expand_*` tests,
 and the output-level `ViewerSessionTests.Build_ALaunchCommandThatIsNoConVar_RunsAfterTheConfigs` (`+toggle cl_showfps`
 turns the readout on). Handing on only declared ConVars again reddened four, the session test among them; taking a value
@@ -45934,6 +45936,41 @@ B828.
    as its value, none when it starts with `+` or `-`, and describe `--set`. RELEASE-NOTES is the release pass's.
 6. *Not changed:* a `--set` value ending in a backslash cannot close its quotes early (Sonnet asked): the launch line
    runs through `Stuff`, which unescapes nothing (B820 review 8), and a `"` or line break is refused anyway.
+
+**Review 2 (2026-11-24): Fable, Sonnet, Grok.** Each fix's test failed before it or under a sabotage.
+
+1. *The early state was a guess at the console from the value's text (Sonnet, Grok, Fable).* It missed a quoted `;` and a
+   quoted `""` on `--set`, a `//` comment, and `+fps_max 60;quit`, where the console sets `60`. Now the console's own parse
+   of the pasted line decides: its first clause (`SourceConfig.Clauses`) and that clause's `ArgS` (`ConVarValue`, B823),
+   or nothing when the clause has no argument. `Read_TheEarlyStore_IsWhatTheConsolesParseOfTheLineSets`,
+   `Read_ASetOfSvCheatsWithASemicolonInItsQuotes_TurnsTheLinesCheatsOn` (with Grok's `+sv_cheats 0;echo x` and Fable's
+   `+sv_cheats //x`) and `Read_AValueOfSeveralStatements_IsHandedOnWholeAndStoresWhatTheConsoleSets`; with the raw value
+   in place of the parse, four tests failed.
+2. *A viewer setting holding a `;` was dropped (Fable, medium).* The viewer's own settings are no engine ConVar and the
+   console never reads them, so they are stored whole, as before; a folder may hold a `;`. Same test.
+3. *Session-level proof that a refused replicated cheat's line runs its rest (Fable).*
+   `Build_ARefusedReplicatedCheatOnTheLaunchLine_StillRunsTheRestOfItsLine`: `+cl_forwardspeed "500;toggle cl_showfps"`
+   turns the readout on and leaves the server's ConVar alone.
+4. *`--help` said every command runs (Fable).* It now says settings.cfg names work there, and that the viewer's one-shot
+   actions do not run from the launch line (B829).
+5. *Not changed:* Grok said USER-GUIDE was missing; it was in the commit, outside the part of the diff Grok was given.
+   Fable's per-line 511-byte limit is B830. Sonnet's stale test name in the fixed paragraph is corrected below.
+
+## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
+
+Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
+true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 review 1's rule for a config's one-shots):
+`+screenshot`, `+togglefullscreen` and `+resetcamera` do nothing. TF2's `stuffcmds` runs `+screenshot` like any other
+command. Fix shape: read why B820 skips a config's one-shot at load, then decide whether the launch line, which runs
+after the configs, shares that reason. *Not fixed*.
+
+## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — OPEN
+
+Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
+511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
+(`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>
++fps_max 60` sets `fps_max` here and not in TF2. *Interpolated*: that `Cbuf_AddText` refuses rather than truncates is
+B820's reading of the console limit, not re-read for this path. *Not fixed*.
 
 ## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
 

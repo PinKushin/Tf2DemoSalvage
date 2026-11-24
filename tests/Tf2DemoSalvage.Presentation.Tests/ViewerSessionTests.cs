@@ -1034,6 +1034,25 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A refused replicated cheat's line still runs its other statements** (B824 review 2, Fable): the console refuses
+    /// the set, the server's value, and runs what follows the `;`, as TF2's `stuffcmds` paste would. The control: without
+    /// the launch option, the readout stays off.
+    /// </remarks>
+    [Test]
+    public void Build_ARefusedReplicatedCheatOnTheLaunchLine_StillRunsTheRestOfItsLine()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.ConVar("cl_showfps").ShouldBe("0", "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+cl_forwardspeed", "500;toggle cl_showfps");
+
+        rig.Settings.ConVar("cl_showfps").ShouldBe("1");
+        rig.Settings.ConVar("cl_forwardspeed").ShouldNotBe("500", "the server's ConVar is not the client's to set");
+    }
+
+    /// <remarks>
     /// **A launch path with spaces stays whole** (B824 review 1, Sonnet): `+cl_screenshot_folder` is the viewer's own
     /// setting, no engine ConVar, so the launch line's store is its only route, and the folder must not be cut at the
     /// space. The control: a path with no space.
