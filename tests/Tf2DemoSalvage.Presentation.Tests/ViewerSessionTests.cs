@@ -1016,6 +1016,80 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A launch `+command` that is no ConVar runs, as `stuffcmds` runs it** (B824): `+toggle cl_showfps` reaches the
+    /// console as `toggle cl_showfps` after the configs, where before only a declared ConVar's set was handed on. The
+    /// control: without it, the readout stays off.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCommandThatIsNoConVar_RunsAfterTheConfigs()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.ConVar("cl_showfps").ShouldBe("0", "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+toggle", "cl_showfps");
+
+        rig.Settings.ConVar("cl_showfps").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A refused replicated cheat's line still runs its other statements** (B824 review 2, Fable): the console refuses
+    /// the set, the server's value, and runs what follows the `;`, as TF2's `stuffcmds` paste would. The control: without
+    /// the launch option, the readout stays off.
+    /// </remarks>
+    [Test]
+    public void Build_ARefusedReplicatedCheatOnTheLaunchLine_StillRunsTheRestOfItsLine()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.ConVar("cl_showfps").ShouldBe("0", "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+cl_forwardspeed", "500;toggle cl_showfps");
+
+        rig.Settings.ConVar("cl_showfps").ShouldBe("1");
+        rig.Settings.ConVar("cl_forwardspeed").ShouldNotBe("500", "the server's ConVar is not the client's to set");
+    }
+
+    /// <remarks>
+    /// **A launch path with spaces stays whole** (B824 review 1, Sonnet): `+cl_screenshot_folder` is the viewer's own
+    /// setting, no engine ConVar, so the launch line's store is its only route, and the folder must not be cut at the
+    /// space. The control: a path with no space.
+    /// </remarks>
+    [Test]
+    public void Launch_AViewerFolderWithASpace_ReachesTheSettingWhole()
+    {
+        string plain = Path.Combine(_folder, "shots");
+        string spaced = Path.Combine(_folder, "my shots");
+
+        Launch("+" + ViewerSettings.ScreenshotFolderCommand, plain).ScreenshotFolder.ShouldBe(plain, "the control");
+
+        Launch("+" + ViewerSettings.ScreenshotFolderCommand, spaced).ScreenshotFolder.ShouldBe(spaced);
+
+        static ViewerSettings Launch(params string[] arguments) =>
+            LaunchOptionsReader.Read(arguments, new ViewerSettings(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance).Settings;
+    }
+
+    /// <remarks>
+    /// **A declared ConVar's value with a space stays whole after the configs** (B824 review 1, Sonnet): `stuffcmds` pastes
+    /// it unquoted, and the console sets a ConVar from `ArgS`, the whole rest of the line (B823; `convar.cpp:432-451`), so
+    /// `cl_voice_filter a b` sets `a b`. The control: a one-word value.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchConVarValueWithASpace_ReachesTheConVarWhole()
+    {
+        using (Rig control = BuildWithAutoexec(string.Empty, "+cl_voice_filter", "ab"))
+        {
+            control.Settings.ConVar("cl_voice_filter").ShouldBe("ab", "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec(string.Empty, "+cl_voice_filter", "a b");
+
+        rig.Settings.ConVar("cl_voice_filter").ShouldBe("a b");
+    }
+
+    /// <remarks>
     /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
     /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
     /// </remarks>

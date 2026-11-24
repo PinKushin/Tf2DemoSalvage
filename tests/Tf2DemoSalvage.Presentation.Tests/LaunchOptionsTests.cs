@@ -144,10 +144,214 @@ public sealed class LaunchOptionsTests
     {
         // **Ignoring what it does not implement is the primary feature, not an afterthought**
         // (D69). A real config is hundreds of mat_*/cl_* lines this viewer has never heard of, and
-        // the command line speaks the same vocabulary.
-        LaunchOptions read = Read("+mat_picmip", "-1", "a.dem");
+        // the command line speaks the same vocabulary. It is handed to the console, which ignores it.
+        LaunchOptions read = Read("+mat_picmip", "2", "a.dem");
 
         read.Paths.ShouldBe(["a.dem"], "the value must not be left behind as a demo to open");
+        read.AfterConfigs.ShouldBe(["mat_picmip 2"]);
+    }
+
+    /// <remarks>
+    /// **`stuffcmds` runs every `+command`, with the one argument after it as its value, unquoted** (B824; `engine.dll` x64
+    /// build 1007 FUN_1801683d0: `Q_snprintf("%s %s\n", name, ParmValueByIndex(i))`, then the value's index is skipped). So
+    /// `+exec x` runs `exec x`, and `+bind F8 screenshot` runs `bind F8` alone: the value is one argument, and `screenshot`
+    /// is a bare argument of its own. Before, only a declared ConVar was handed on, quoted, and `+exec` ran nothing.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandWithAValue_IsHandedOnWithTheOneArgumentAfterIt()
+    {
+        Read("+exec", "x", "a.dem").AfterConfigs.ShouldBe(["exec x"]);
+
+        LaunchOptions bind = Read("+bind", "F8", "screenshot");
+        bind.AfterConfigs.ShouldBe(["bind F8"]);
+        bind.Paths.ShouldBe(["screenshot"], "the second word is an argument of its own, as the engine's loop leaves it");
+
+        Read("+cl_showfps", "1;bind q quit").AfterConfigs
+            .ShouldBe(["cl_showfps 1;bind q quit"], "pasted as the engine pastes it; the console splits it as TF2's does");
+    }
+
+    /// <remarks>
+    /// **A `+command` takes no value when the next argument is missing or starts with `+` or `-`** (B824; tier0
+    /// `CCommandLine::ParmValueByIndex`, x64 0x180003230, returns its default there): `+quit` at the end runs `quit`, and
+    /// `+mat_picmip -1` runs `mat_picmip` alone, as in TF2, with `-1` read as an option of its own. The control: a plain
+    /// value is taken.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue()
+    {
+        Read("+cl_showfps", "1").AfterConfigs.ShouldBe(["cl_showfps 1"], "the control: a plain value is taken");
+
+        Read("a.dem", "+quit").AfterConfigs.ShouldBe(["quit"]);
+        Read("+toggleconsole", "+cl_showfps", "1").AfterConfigs.ShouldBe(["toggleconsole", "cl_showfps 1"]);
+
+        LaunchOptions minus = Read("+mat_picmip", "-1", "a.dem");
+        minus.AfterConfigs.ShouldBe(["mat_picmip"]);
+        minus.Paths.ShouldBe(["a.dem"]);
+
+        LaunchOptions option = Read("+jpeg", "--tick", "5");
+        option.AfterConfigs.ShouldBe(["jpeg"]);
+        option.ShotTick.ShouldBe(5, "the option after it is read as an option");
+    }
+
+    /// <remarks>
+    /// **An empty argument is a value** (B824): `ParmValueByIndex` tests the next argument's first character, so an empty
+    /// one is returned and pasted as `name ` with nothing after the space, as the engine's `"%s %s\n"` does.
+    /// </remarks>
+    [Test]
+    public void Read_ALonePlus_PastesAnEmptyNameAndItsValue()
+    {
+        // B824 review 1, Sonnet: FUN_1801683d0 tests only the first character, so `+` alone is a command with an empty
+        // name; `" %s"` puts its value first on the line, where the console runs it as the command. Alone, it pastes a
+        // bare line, which runs nothing. Before, `+` fell through and was opened as a demo.
+        LaunchOptions quit = Read("+", "quit");
+        quit.AfterConfigs.ShouldBe([" quit"]);
+        quit.Paths.ShouldBeEmpty();
+
+        LaunchOptions alone = Read("+", "a.dem");
+        alone.AfterConfigs.ShouldBe([" a.dem"], "the next argument is its value, as for any `+`");
+
+        Read("a.dem", "+").Paths.ShouldBe(["a.dem"], "a lone `+` at the end is no demo");
+    }
+
+    [Test]
+    public void Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValueAndStoresNothing()
+    {
+        // The console line `fps_max ` has one token, so it prints and sets nothing (B824 review 1, Fable); the early store
+        // must not set what the console will not. Whether tier0's own tokenizer ever yields an empty argument is
+        // *interpolated* (tier0's parser is not read); `ParmValueByIndex` returns one if it is there. The control: a
+        // plain value is stored.
+        Read("+fps_max", "60").Settings.ConVarText("fps_max").ShouldBe("60", "the control");
+
+        LaunchOptions empty = Read("+fps_max", string.Empty, "a.dem");
+        empty.AfterConfigs.ShouldBe(["fps_max "]);
+        empty.Settings.ConVarText("fps_max").ShouldBe(Read("a.dem").Settings.ConVarText("fps_max"));
+    }
+
+    /// <remarks>
+    /// **A value of several statements is handed on whole, and a declared ConVar stores only its first** (B824 reviews 1
+    /// and 2, Fable): the console splits `fps_max 60;quit` at the `;` and sets `60`, so `60;quit` would be a value it
+    /// never holds; a refused set's line still runs its other statements, as TF2's would, so even a replicated cheat's
+    /// line is handed on. The viewer's own setting is stored whole, since the console never reads it and a folder may
+    /// hold a `;`. The control: one statement is stored as given.
+    /// </remarks>
+    [Test]
+    public void Read_AValueOfSeveralStatements_IsHandedOnWholeAndStoresWhatTheConsoleSets()
+    {
+        Read("+fps_max", "60").Settings.ConVarText("fps_max").ShouldBe("60", "the control");
+
+        LaunchOptions several = Read("+fps_max", "45;quit", "+cl_forwardspeed", "500;bind q quit", "a.dem");
+
+        several.AfterConfigs.ShouldBe(["fps_max 45;quit", "cl_forwardspeed 500;bind q quit"]);
+        several.Settings.ConVarText("fps_max").ShouldBe("45");
+
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, @"C:\shots;old").Settings.ScreenshotFolder.ShouldBe(@"C:\shots;old");
+    }
+
+    /// <remarks>
+    /// **The early state is what the console's own parse of the line sets** (B824 review 2, Sonnet): the line goes through
+    /// `SourceConfig.Clauses` and `ConVarValue` (B823), so a quoted `--set` value is whole, `;` inside its quotes
+    /// included, and `""` sets empty; and a `+` value is cut at `//`, the console's comment. A guess at the console from
+    /// the value's text got all three wrong. The controls: a plain `--set` and a plain `+` value are stored as given.
+    /// </remarks>
+    [Test]
+    public void Read_TheEarlyStore_IsWhatTheConsolesParseOfTheLineSets()
+    {
+        Read("--set", "cl_voice_filter", "ab").Settings.ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+        Read("+cl_voice_filter", "ab").Settings.ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+
+        Read("--set", "cl_voice_filter", "a;b").Settings.ConVarText("cl_voice_filter").ShouldBe("a;b");
+        Read("--set", "cl_voice_filter", "ab", "--set", "cl_voice_filter", string.Empty).Settings.ConVarText("cl_voice_filter")
+            .ShouldBe(string.Empty);
+        // B824 review 3, Fable: a case the settings parser cannot produce on its own, so only the console's parse gives
+        // it: `ArgS` drops a trailing byte of 0x80 or more (B823), so `café` sets `caf`.
+        Read("+cl_voice_filter", "café").Settings.ConVarText("cl_voice_filter").ShouldBe("caf");
+
+        // B824 review 4, Sonnet: since the settings parser keeps a quoted `//`, only the console's cut makes this `http:`.
+        Read("+cl_voice_filter", "http://x").Settings.ConVarText("cl_voice_filter").ShouldBe("http:");
+    }
+
+    /// <remarks>
+    /// **The console's set ends at a line feed** (B824 review 3, Fable): it splits a buffer into lines before clauses
+    /// (`ConfigConsole.BufferCommands`), so `sv_cheats \n1` prints `sv_cheats` and runs `1`, and the line's cheats stay
+    /// off. `SourceConfig.Clauses` does not split there, so the early state reads the first line alone. The control: a
+    /// plain `+sv_cheats 1` turns them on.
+    /// </remarks>
+    [Test]
+    public void Read_AValueWithALineFeed_IsReadUpToItAsTheConsoleReadsIt()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger on = new();
+        RecordingLogger split = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), on);
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "\n1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), split);
+
+        on.Count(Refusal).ShouldBe(0, "the control");
+        split.Count(Refusal).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A carriage return is whitespace to the console, not a line break** (B824 review 4, Fable): `commandbuffer.cpp:196-198`
+    /// breaks on `\n` alone, so `sv_cheats \r1` sets 1. The control: `+sv_cheats 0` alone leaves them off.
+    /// </remarks>
+    [Test]
+    public void Read_AValueWithACarriageReturn_IsReadAsWhitespace()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
+        RecordingLogger carriage = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+cl_forwardspeed", "5"], ViewerSettings.Load(), off);
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "\r1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), carriage);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
+        carriage.Count(Refusal).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A quoted `--set sv_cheats "1;x"` turns the line's cheats on, as the console reads `1`** (B824 review 2, Sonnet).
+    /// The control: `--set sv_cheats 0` refuses the replicated cheat after it.
+    /// </remarks>
+    [Test]
+    public void Read_ASetOfSvCheatsWithASemicolonInItsQuotes_TurnsTheLinesCheatsOn()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
+        RecordingLogger on = new();
+
+        LaunchOptionsReader.Read(["--set", "sv_cheats", "0", "--set", "cl_forwardspeed", "5"], ViewerSettings.Load(), off);
+        LaunchOptionsReader.Read(["--set", "sv_cheats", "1;x", "--set", "cl_forwardspeed", "5"], ViewerSettings.Load(), on);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
+        on.Count(Refusal).ShouldBe(0);
+
+        // B824 review 2, Grok: `+sv_cheats 0;echo x` sets 0 at the console, so the line's cheats go off with it.
+        RecordingLogger plus = new();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "0;echo x", "+cl_forwardspeed", "5"], ViewerSettings.Load(), plus);
+        plus.Count(Refusal).ShouldBe(1);
+
+        // B824 review 2, Fable: `+sv_cheats //x` is a comment at the console, which keeps 1; the raw value reads 0.
+        RecordingLogger comment = new();
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "//x", "+cl_forwardspeed", "5"], ViewerSettings.Load(), comment);
+        comment.Count(Refusal).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An empty `+sv_cheats` changes nothing the line's cheat gate reads** (B824 review 1, Fable): the console prints it
+    /// and keeps 1, so a replicated cheat after it is not refused. The control: `+sv_cheats 0` refuses it.
+    /// </remarks>
+    [Test]
+    public void Read_AnEmptySvCheats_KeepsTheLinesCheatsOn()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
+        RecordingLogger empty = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "0", "+cl_forwardspeed", "5"], ViewerSettings.Load(), off);
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", string.Empty, "+cl_forwardspeed", "5"], ViewerSettings.Load(), empty);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
+        empty.Count(Refusal).ShouldBe(0);
     }
 
     [Test]
@@ -340,20 +544,18 @@ public sealed class LaunchOptionsTests
     {
         LaunchOptions mixed = Read("+mat_fullbright", "1", "+sv_cheats", "1", "+mat_fullbright", "0", "+r_screenfademinsize", "12", "a.dem");
 
-        mixed.AfterConfigs.ShouldBe(
-            ["mat_fullbright \"1\"", "sv_cheats \"1\"", "mat_fullbright \"0\"", "r_screenfademinsize \"12\""]);
+        mixed.AfterConfigs.ShouldBe(["mat_fullbright 1", "sv_cheats 1", "mat_fullbright 0", "r_screenfademinsize 12"]);
         mixed.Settings.ConVarText("mat_fullbright").ShouldBe(Read("a.dem").Settings.ConVarText("mat_fullbright"), "not stored");
         mixed.Settings.ScreenFadeMinSize.ShouldBe(0f, "not stored");
         Read("a.dem").AfterConfigs.ShouldBeNull("the control: no console option, nothing handed");
 
         // B816: a non-cheat is stored for early readers and handed on too, so it runs after the configs as well.
         LaunchOptions plain = Read("+cl_showfps", "1", "a.dem");
-        plain.AfterConfigs.ShouldBe(["cl_showfps \"1\""]);
+        plain.AfterConfigs.ShouldBe(["cl_showfps 1"]);
         plain.Settings.ConVarText("cl_showfps").ShouldBe("1");
 
-        // B816 review 5: an undeclared name is not handed on, so a sidecar key cannot write a console line of its own.
-        Read("+x\nbind q quit", "1", "a.dem").AfterConfigs.ShouldBeNull();
-        Read("+alias", "a", "a.dem").AfterConfigs.ShouldBeNull();
+        // B824: any command is handed on, as `stuffcmds` runs it; the sidecar's keys go through `--set` instead.
+        Read("+alias", "a", "a.dem").AfterConfigs.ShouldBe(["alias a"]);
     }
 
     /// <remarks>
@@ -368,44 +570,71 @@ public sealed class LaunchOptionsTests
         RecordingLogger refusedLog = new();
         RecordingLogger admittedLog = new();
 
+        // B824 review 1: the line is handed on either way, as `stuffcmds` pastes it; the console's client sets never take a
+        // replicated ConVar, and a line of several statements still runs the rest.
         LaunchOptionsReader.Read(["+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), refusedLog)
-            .AfterConfigs.ShouldBeNull();
+            .AfterConfigs.ShouldBe(["cl_forwardspeed 500"]);
         LaunchOptionsReader.Read(["+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), admittedLog)
-            .AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+            .AfterConfigs.ShouldBe(["sv_cheats 1", "cl_forwardspeed 500"]);
 
         refusedLog.Count(Refusal).ShouldBe(1);
         admittedLog.Count(Refusal).ShouldBe(0, "the control: the line's own sv_cheats admits it");
     }
 
     /// <remarks>
-    /// **A value that would close its own quotes or start another line is refused** (B811 review 10, Sonnet): handed to
-    /// the console as `name "value"`, it would run as further console lines. The control: a plain value is handed on.
+    /// **`--set` is the sidecar's route: one declared ConVar, its value whole and quoted** (B824; above Valve). A `--like`
+    /// sidecar is a file the viewer reads, so its keys and values are untrusted text, and `+` now pastes a value unquoted
+    /// and drops one starting with `-`. `--set` keeps B811/B816's guard: a declared ConVar only, and a value that would
+    /// close its quotes or start another line is refused (B811 reviews 10, 11). The control: a plain value, negative
+    /// included, is handed on quoted.
     /// </remarks>
     /// <param name="value">The value given.</param>
     [TestCase("1\"; bind q quit; \"")]
     [TestCase("1\nbind q quit")]
     [TestCase("1\rbind q quit")]
     [TestCase("1\0bind q quit")]
-    public void Read_ACheatValueThatBreaksItsQuotes_IsRefused(string value)
+    public void Read_ASetValueThatBreaksItsQuotes_IsRefused(string value)
     {
-        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs
-            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""], "the control: a plain value");
+        Read("--set", "sv_cheats", "1", "--set", "mat_wireframe", "1", "--set", "fps_max", "-1", "a.dem").AfterConfigs
+            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\"", "fps_max \"-1\""], "the control: plain values");
 
-        Read("+sv_cheats", "1", "+mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+        Read("--set", "sv_cheats", "1", "--set", "mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+        Read("--set", "sv_cheats", value, "a.dem").AfterConfigs.ShouldBeNull();
+        Read("--set", "cl_showfps", value, "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe(value);
     }
 
     /// <remarks>
-    /// **The guard holds on every branch, not only the cheat one** (B811 review 11, Fable, Sonnet): `+sv_cheats` and a
-    /// non-cheat value with a line break are refused too. The controls: their plain values pass.
+    /// **`--set` takes a declared ConVar only** (B816 review 5, Fable, kept for the sidecar route): an undeclared key is a
+    /// console line of the sidecar's own making. Its value and both arguments are consumed either way, so nothing is left
+    /// as a demo. The control: a declared non-cheat is stored for early readers and handed on.
     /// </remarks>
     [Test]
-    public void Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused()
+    public void Read_ASetOfAnUndeclaredName_IsRefused()
     {
-        Read("+sv_cheats", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""], "the control: sv_cheats passes");
-        Read("+sv_cheats", "1\nbind q quit", "a.dem").AfterConfigs.ShouldBeNull();
+        LaunchOptions plain = Read("--set", "cl_showfps", "1", "a.dem");
+        plain.AfterConfigs.ShouldBe(["cl_showfps \"1\""], "the control");
+        plain.Settings.ConVarText("cl_showfps").ShouldBe("1");
 
-        Read("+cl_showfps", "1", "a.dem").Settings.ConVarText("cl_showfps").ShouldBe("1", "the control: a non-cheat is stored");
-        Read("+cl_showfps", "1\nbind q quit", "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe("1\nbind q quit");
+        LaunchOptions undeclared = Read("--set", "x\nbind q quit", "1", "--set", "alias", "a", "a.dem");
+        undeclared.AfterConfigs.ShouldBeNull();
+        undeclared.Paths.ShouldBe(["a.dem"]);
+    }
+
+    /// <remarks>
+    /// **`--set` with its value missing is reported, and its name is no demo** (B824 review 1, Fable, Grok). The control:
+    /// a whole `--set` is handed on.
+    /// </remarks>
+    [Test]
+    public void Read_ASetWithItsValueMissing_IsReportedRatherThanTakenAsAPath()
+    {
+        Read("--set", "cl_showfps", "1").AfterConfigs.ShouldBe(["cl_showfps \"1\""], "the control");
+
+        RecordingLogger log = new();
+        LaunchOptions read = LaunchOptionsReader.Read(["a.dem", "--set", "cl_showfps"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["a.dem"]);
+        read.AfterConfigs.ShouldBeNull();
+        log.Count("--set wants a ConVar and a value").ShouldBe(1);
     }
 
     /// <remarks>
@@ -415,7 +644,7 @@ public sealed class LaunchOptionsTests
     [Test]
     public void Read_ACheatConVarInUpperCase_IsHandedOnUnderItsOwnName()
     {
-        Read("+SV_CHEATS", "1", "+MAT_WIREFRAME", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""]);
+        Read("+SV_CHEATS", "1", "+MAT_WIREFRAME", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats 1", "mat_wireframe 1"]);
     }
 
     /// <remarks>
@@ -425,6 +654,23 @@ public sealed class LaunchOptionsTests
     [Test]
     public void Read_DemoTimescaleInUpperCase_SetsThePlaybackSpeed() =>
         Read("+DEMO_TIMESCALE", "8", "a.dem").PlaybackSpeed.ShouldBe(8d);
+
+    /// <remarks>
+    /// **A `//` inside quotes is part of the value, not a comment** (B824 review 3, Sonnet): TF2's tokenizer eats a `//`
+    /// comment only between tokens, and a quoted string runs to its closing quote (`utlbuffer.cpp:1242-1326`), so
+    /// `cl_screenshot_folder "//nas/shots"` is that folder. The settings parser cut at any `//`, so a launch
+    /// `+cl_screenshot_folder //nas/shots` stored an empty folder. The control: an unquoted `//` is still a comment.
+    /// </remarks>
+    [Test]
+    public void Parse_ADoubleSlashInsideQuotes_IsPartOfTheValue()
+    {
+        ViewerSettings.Parse("cl_screenshot_folder shots // where they go", null).ScreenshotFolder.ShouldBe("shots", "the control");
+
+        ViewerSettings.Parse("cl_screenshot_folder \"//nas/shots\"", null).ScreenshotFolder.ShouldBe("//nas/shots");
+        ViewerSettings.Parse("cl_screenshot_folder \"shots\" // note", null).ScreenshotFolder
+            .ShouldBe("shots", "the closing quote ends the string, so the comment after it is one (review 4, Fable)");
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "//nas/shots").Settings.ScreenshotFolder.ShouldBe("//nas/shots");
+    }
 
     /// <remarks>
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a

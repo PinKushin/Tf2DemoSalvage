@@ -299,3 +299,27 @@ anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it 
 `exec` reads the same search path the startup configs come from (`Tf2ConfigFiles.Finder`). *Interpolated:* nothing in
 `Cmd_Exec_f` counts depth, so the engine's bound on a file that execs itself is not read; the viewer stops at the alias
 expansion limit.
+
+## A `+command` on the launch line takes one argument, unquoted (B824, 2026-11-24)
+
+**What was believed.** The viewer handed the console only a declared ConVar's `+name value`, quoted. When that was filed
+as B824, the guess was that `stuffcmds` runs a `+command` with *all* the arguments up to the next `+` or `-`, the way
+Quake's command line glued them (*interpolated*, and wrong).
+
+**What the binary says.** `stuffcmds` in `engine.dll` x64 build 1007 is FUN_1801683d0 (*disassembly via the Ghidra MCP*).
+It walks the arguments from index 1:
+- A `+name` pastes `Q_snprintf("%s %s\n", name, ParmValueByIndex(i, NULL))`, or the name alone when that is null, and
+  skips the value's index.
+- A `-flag` skips the next argument when `ParmValueByIndex` gives one.
+- A bare argument with a `.dem`, `.sav` or `.bsp` extension becomes `playdemo`, `load` or `map` with the path, unless the
+  line already holds that `+command`.
+
+tier0's `CCommandLine::ParmValueByIndex` (x64 0x180003230) returns its default when the index is 0 or the last, or when
+the next argument starts with `+` or `-`. So the value is exactly one argument, pasted without quotes:
+- `+bind F8 screenshot` runs `bind F8` alone, which shows the binding.
+- `+mat_picmip -1` runs `mat_picmip` alone, because a value cannot start with `-`.
+- `+cl_showfps "1;bind q quit"` reaches the console as two commands.
+
+**What it changed.** The viewer now follows that rule for every `+command`. A `--like` sidecar, which is untrusted text,
+moved to the viewer's own `--set name value`, which keeps the quoting and the declared-ConVar guard. The `-flag` skip is
+not ported yet (B828).

@@ -45879,16 +45879,165 @@ and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a 
 to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
 repeats.
 
-## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
+## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — FIXED (2026-11-24)
 
 Found implementing B821. `LaunchOptionsReader.Read` reads a `+name` and the one argument after it, and hands the console only
 a declared ConVar's set (`LaunchOptions.cs`, B816 review 5): an undeclared name was refused there because a `--like`
 sidecar key such as `x\nbind q quit` would otherwise run as commands. TF2's `cfg/valve.rc` runs `stuffcmds` after
-`exec autoexec.cfg`, and `stuffcmds` runs every `+command` with all the arguments up to the next `+` or `-` (*interpolated*
-from the SDK's Quake heritage; the closed `engine.dll` `stuffcmds` is not read). So `+bind F8 screenshot`, `+exec x` or
-`+alias` run in TF2 and are dropped here, and the `screenshot` after `+bind F8` is taken as a demo path. Fix shape:
-read the engine's `stuffcmds` and command-line tokenizer, then run each `+` command whole, keeping the sidecar refusal
-for the `--like` route only. *Not fixed*.
+`exec autoexec.cfg`. So `+exec x` or `+alias` run in TF2 and were dropped here.
+
+**The entry's first guess was wrong, and the binary killed it.** It said `stuffcmds` runs a `+command` "with all the
+arguments up to the next `+` or `-`" (*interpolated* from the Quake heritage). Read on 2026-11-24 in `engine.dll` x64
+build 1007, `stuffcmds` is FUN_1801683d0 (*disassembly via the Ghidra MCP*): for each argument `i` from 1, a `-flag` skips
+the next argument when `ParmValueByIndex(i)` gives one; a `+name` pastes `Q_snprintf("%s %s\n", name, value)` with
+`value = ParmValueByIndex(i, NULL)`, or the name alone when that is null, and skips the value's index; a bare argument whose
+extension is `.dem`, `.sav` or `.bsp` (the table at 0x18047bb80) pastes `playdemo`, `load` or `map` with the path unless
+the line already holds that `+command`. tier0's `CCommandLine::ParmValueByIndex` (x64 0x180003230, vtable slot +0x68)
+returns its default when the index is 0 or the last, or when the next argument starts with `+` or `-`. So the value is ONE
+argument, pasted unquoted: `+bind F8 screenshot` runs `bind F8` alone, and `+mat_picmip -1` runs `mat_picmip` alone.
+
+**Fixed:** a `+name` takes the next argument as its value only when one exists and does not start with `+` or `-`, and
+every such command goes to the console after the configs, unquoted, in the line's order. Every setting is still stored
+for early readers (B816; what the console's set will hold, for a declared ConVar, per review 2) and a replicated cheat
+is still gated on the line (B811). `+demo_timescale` stays the
+playback speed. **The sidecar moved off `+`** (above Valve): a `--like` sidecar is a file the viewer reads, so its keys
+and values are untrusted, and `+` now pastes a value unquoted and drops a negative one. `ShotSidecar.Expand` emits
+`--set name value` instead, which keeps B811/B816's guard: a declared ConVar only, its value quoted whole, refused if it
+would close its quotes or start another line. Tests: `Read_APlusCommandWithAValue_IsHandedOnWithTheOneArgumentAfterIt`,
+`Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue`,
+`Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValueAndStoresNothing`,
+`Read_ASetValueThatBreaksItsQuotes_IsRefused`, `Read_ASetOfAnUndeclaredName_IsRefused`, the sidecar `Expand_*` tests,
+and the output-level `ViewerSessionTests.Build_ALaunchCommandThatIsNoConVar_RunsAfterTheConfigs` (`+toggle cl_showfps`
+turns the readout on). Handing on only declared ConVars again reddened four, the session test among them; taking a value
+that starts with `-` reddened the no-value test. The `-flag` value skip and the bare-path table are not this entry's:
+B828.
+
+**Review 1 (2026-11-24): Fable, Sonnet, Grok, Gemini.** Each fix's test failed before it or under a sabotage.
+
+1. *A `+` setting that is no engine ConVar was dropped (Fable, blocker; Sonnet).* The rewrite stored only a declared
+   ConVar for early readers, and the console takes none of the viewer's own settings, so `+cl_game_folder`,
+   `+cl_screenshot_folder` and `+cl_game_folder_ask` (every UI launch passes the last two) were lost. Now stored whatever
+   the name, as before; `Launch_AViewerFolderWithASpace_ReachesTheSettingWhole` failed at its control and reddens with
+   the declared-only store put back. Sonnet's spaced path: a declared ConVar's value keeps its spaces through the
+   console's `ArgS` (B823), `Build_ALaunchConVarValueWithASpace_ReachesTheConVarWhole`.
+2. *A lone `+` became a demo path (Fable, Sonnet, Grok, Gemini).* FUN_1801683d0 tests the first character only, so `+`
+   is a command with an empty name, and `"%s %s"` puts its value first on the line: `+ quit` runs `quit`.
+   `Read_ALonePlus_PastesAnEmptyNameAndItsValue`, red before.
+3. *An empty or several-statement value set early state the console never holds (Fable).* `fps_max ` prints and sets
+   nothing, `fps_max 60;quit` sets `60`, and an empty `+sv_cheats` keeps cheats as they were; the early store and the
+   line's `sv_cheats` now follow a value only when it is one statement with a word. A refused replicated cheat's line is
+   now handed on too, so the rest of its statements run, as TF2's line would. `Read_APlusCommandWithAnEmptyArgument_
+   TakesItAsTheValueAndStoresNothing`, `Read_AValueOfSeveralStatements_IsHandedOnWholeAndNotStoredEarly` and
+   `Read_AnEmptySvCheats_KeepsTheLinesCheatsOn`, all red before. Whether tier0 ever yields an empty argument is
+   *interpolated* (its parser is not read).
+4. *`--set` with its value missing left its name as a demo (Fable, Grok).* Now reported and consumed;
+   `Read_ASetWithItsValueMissing_IsReportedRatherThanTakenAsAPath`, red before.
+5. *User docs (Fable, Sonnet).* `--help` and USER-GUIDE now say any `+command` runs after the configs with one argument
+   as its value, none when it starts with `+` or `-`, and describe `--set`. RELEASE-NOTES is the release pass's.
+6. *Not changed:* a `--set` value ending in a backslash cannot close its quotes early (Sonnet asked): the launch line
+   runs through `Stuff`, which unescapes nothing (B820 review 8), and a `"` or line break is refused anyway.
+
+**Review 2 (2026-11-24): Fable, Sonnet, Grok; Gemini found the same seven and read the fix as closing them.** Each fix's
+test failed before it or under a sabotage.
+
+1. *The early state was a guess at the console from the value's text (Sonnet, Grok, Fable).* It missed a quoted `;` and a
+   quoted `""` on `--set`, a `//` comment, and `+fps_max 60;quit`, where the console sets `60`. Now the console's own parse
+   of the pasted line decides: its first clause (`SourceConfig.Clauses`) and that clause's `ArgS` (`ConVarValue`, B823),
+   or nothing when the clause has no argument. `Read_TheEarlyStore_IsWhatTheConsolesParseOfTheLineSets`,
+   `Read_ASetOfSvCheatsWithASemicolonInItsQuotes_TurnsTheLinesCheatsOn` (with Grok's `+sv_cheats 0;echo x` and Fable's
+   `+sv_cheats //x`) and `Read_AValueOfSeveralStatements_IsHandedOnWholeAndStoresWhatTheConsoleSets`; with the raw value
+   in place of the parse, four tests failed.
+2. *A viewer setting holding a `;` was dropped (Fable, medium).* The viewer's own settings are no engine ConVar and the
+   console never reads them, so they are stored whole, as before; a folder may hold a `;`. Same test.
+3. *Session-level proof that a refused replicated cheat's line runs its rest (Fable).*
+   `Build_ARefusedReplicatedCheatOnTheLaunchLine_StillRunsTheRestOfItsLine`: `+cl_forwardspeed "500;toggle cl_showfps"`
+   turns the readout on and leaves the server's ConVar alone.
+4. *`--help` said every command runs (Fable).* It now says settings.cfg names work there, and that the viewer's one-shot
+   actions do not run from the launch line (B829).
+5. *Not changed:* Grok said USER-GUIDE was missing; it was in the commit, outside the part of the diff Grok was given.
+   Fable's per-line 511-byte limit is B830. Sonnet's stale test name in the fixed paragraph is corrected below.
+
+**Review 3 (2026-11-24): Sonnet, Fable, Grok; Gemini found items 1 and 3 too.** Each fix's test failed before it.
+
+1. *The settings parser cut a quoted `//` (Sonnet, Fable).* `ViewerSettings.Parse`, which the early store, the console's
+   own announced sets and `settings.cfg` all go through, cut at any `//`, so `+cl_screenshot_folder //nas/shots` stored an
+   empty folder and `--set cl_voice_filter "a//b"` stored `a`. TF2's tokenizer eats a comment only between tokens and a
+   quoted string runs to its quote (`utlbuffer.cpp:1242-1326`), so the cut is now outside quotes only.
+   `Parse_ADoubleSlashInsideQuotes_IsPartOfTheValue` (the control: an unquoted `//` is still a comment).
+2. *An assertion could not fail for its reason (Sonnet, Fable).* `+cl_voice_filter http://x` gave `http:` whether or
+   not the console's parse ran, since the settings parser cut there too; replaced by `café`, which only `ArgS`'s
+   high-byte trim makes `caf` (B823).
+3. *The early state read past a line feed (Fable).* The console splits its buffer into lines before clauses, so
+   `+sv_cheats "\n1"` prints `sv_cheats` and runs `1`; the early state now reads the first line only.
+   `Read_AValueWithALineFeed_IsReadUpToItAsTheConsoleReadsIt`.
+4. *Not changed:*
+   - Grok: an unquoted `//` mid-word (`http://x`) is cut by `SourceConfig.Clauses`, which the console's own buffer
+     split uses too, so the early state agrees with the console. Whether that split matches the engine's mid-word is a
+     question for `Clauses`, not this entry.
+   - Grok: a refused cheat is never stored early (`IsCheat` returns first) and `sv_cheats` is not stored at all; its
+     gate reads `1;x` as 1, as the console's set does.
+   - Fable: a 511-byte value is stored early while the console refuses it; added to B830.
+   - Fable: a quoted `+` name holding a space (`+"sv_cheats 1" x`) skips the line's cheat tracking; the console still
+     decides, only the reader's own refusal line can be wrong. Present since before this entry.
+
+**Review 4 (2026-11-24): Sonnet, Fable, Grok; Gemini no findings, read at the fix commit.** No blockers.
+
+1. *Test gaps (Fable, Sonnet).* No case had a comment after a closing quote, so a `Parse` that never closed a quote
+   survived; `cl_screenshot_folder "shots" // note` now reads `shots`, and that mutant reddens. No case pinned that `\r`
+   is no line break; `+sv_cheats "\r1"` now sets cheats on, as the console's whitespace reads it. Sonnet: the
+   `http://x` → `http:` assertion can fail again now that `Parse` keeps a quoted `//`, so it is back beside `café`.
+2. *Citation (Fable).* The quote and comment rule is `commandbuffer.cpp:174-189` (read: each `"` toggles, `//` counts
+   only outside quotes), and `\n` always breaks at `:196-198`; cited beside `utlbuffer.cpp`.
+3. *Misplaced remark (Sonnet, Fable).* Moved back onto `Parse_AClientConVarInUpperCase_IsKept`.
+4. *Not changed:*
+   - Grok: `\r` as a line end. `commandbuffer.cpp:196-198` breaks on `\n` alone, as `BufferCommands` does.
+   - Grok: an unclosed quote now keeps a later `//`. The engine does the same (a quoted run goes to the end of the line,
+     `utlbuffer.cpp:1274-1292`); only hand-malformed lines change.
+   - Fable, Sonnet: `ViewerSettings.Set` re-quotes a value through text, so a value holding a `"` is cut, as before this
+     entry: B831.
+
+**Review 5 (2026-11-24): Fable, Sonnet, Grok** — no blockers. Fable and Sonnet: the review-4 record cited `:174-189`
+for the `\n` break, which is at `:196-198`; corrected. Sonnet: the carriage-return case moved into its own test,
+`Read_AValueWithACarriageReturn_IsReadAsWhitespace`, so the line-feed test's name stays exact. *Not changed* (Grok): the
+`http://x` assertion is powered, since the early store goes through `Set`, which quotes the value, so only the
+console's cut yields `http:` (Fable and Sonnet traced it).
+
+**Review 6 (2026-11-24): Sonnet, Fable, Grok, Gemini** — no findings, on the test split and the citation.
+
+## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — OPEN
+
+Found in B824 reviews 3 and 4 (Fable, Sonnet). `ViewerSettings.Set` builds `name "value"` and parses it back
+(`ViewerSettings.cs` ~1663), and config text has no escapes, so a `"` inside the value closes the quote early:
+`+cl_voice_filter x"//y"` holds `x"//y"` at the console (`ArgS`) and `x` in the settings. Both the launch line's early
+store and the console's announced set (`SettingsPresenter.cs` ~357) go through it. Fix shape: store a set's value
+directly rather than through a re-parsed line. *Not fixed*.
+
+## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
+
+Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
+true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 review 1's rule for a config's one-shots):
+`+screenshot`, `+togglefullscreen` and `+resetcamera` do nothing. TF2's `stuffcmds` runs `+screenshot` like any other
+command. Fix shape: read why B820 skips a config's one-shot at load, then decide whether the launch line, which runs
+after the configs, shares that reason. *Not fixed*.
+
+## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — OPEN
+
+Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
+511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
+(`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>
++fps_max 60` sets `fps_max` here and not in TF2. *Interpolated*: that `Cbuf_AddText` refuses rather than truncates is
+B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
+readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
+
+## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
+
+Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
+next argument when it gets one (not starting with `+` or `-`), so that argument is neither run nor opened. The viewer
+warns about an unknown `-flag` and takes the next argument as a demo path: `-threads 4 a.dem` opens a demo named `4`
+(`docs/findings/98-the-queued-material-system.md` noted the stray `1` after `-threads`). Parity is to skip it. **Owner-visible,
+so ask before changing:** `-novid a.dem` would then not open `a.dem`, as TF2 would not play it either. The bare-path table
+(`.dem` to `playdemo` unless `+playdemo` is on the line) is the viewer's demo list already; only the `+playdemo`
+interplay differs. *Not fixed*.
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — FIXED (2026-11-23)
 

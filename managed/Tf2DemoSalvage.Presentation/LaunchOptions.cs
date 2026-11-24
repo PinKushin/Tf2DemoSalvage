@@ -194,94 +194,72 @@ public static class LaunchOptionsReader
                 continue;
             }
 
-            // **`demo_timescale` is Valve's command for demo replay speed**, and a runtime one rather than a saved setting,
-            // so it is read here instead of going on to the config parser. Gate phase 3 plays at 8x through it (D189).
-            // In any case, as the console finds a command (B791 review 11).
-            if (argument.Length == DemoTimescaleCommand.Length + 1 && argument[0] == '+' &&
-                argument.AsSpan(1).Equals(DemoTimescaleCommand, StringComparison.OrdinalIgnoreCase) && pending.Count > 0)
+            // **`+command` is TF2's `stuffcmds`, run after the configs** (B824; `engine.dll` x64 build 1007 FUN_1801683d0,
+            // after `exec autoexec.cfg` in `cfg/valve.rc`). For each `+name` it asks `ParmValueByIndex` for the argument
+            // after it, which the tier0 `CCommandLine` (x64 0x180003230) gives unless there is none or it starts with `+`
+            // or `-`, and pastes `"%s %s\n"`, unquoted, or the name alone; a value taken is skipped. So `+exec x` runs
+            // `exec x`, `+quit` at the end runs `quit`, and `+mat_picmip -1` runs `mat_picmip` alone, as in TF2. Before,
+            // only a declared ConVar went on, quoted, and the rest ran nothing.
+            // The test is the first character alone, as FUN_1801683d0's is, so a lone `+` is a command with an empty name.
+            if (argument.StartsWith('+'))
             {
-                string value = pending.Dequeue();
+                string command = argument[1..];
+                string? value = pending.TryPeek(out string? next) && (next.Length == 0 || next[0] is not ('+' or '-'))
+                    ? pending.Dequeue()
+                    : null;
 
-                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double speed) && speed > 0)
+                // **`demo_timescale` is Valve's command for demo replay speed**, and a runtime one rather than a saved
+                // setting, so it is read here instead of going on to the console. Gate phase 3 plays at 8x through it (D189).
+                // In any case, as the console finds a command (B791 review 11).
+                if (command.Equals(DemoTimescaleCommand, StringComparison.OrdinalIgnoreCase))
                 {
-                    read = read with { PlaybackSpeed = speed };
-                }
-                else
-                {
-                    log.LogWarning("{Message}", $"{DemoTimescaleCommand} wants a positive speed; '{value}' is not one");
+                    if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double speed) && speed > 0)
+                    {
+                        read = read with { PlaybackSpeed = speed };
+                    }
+                    else
+                    {
+                        log.LogWarning("{Message}", $"{DemoTimescaleCommand} wants a positive speed; '{value}' is not one");
+                    }
+
+                    continue;
                 }
 
+                Assign(command, value, quoted: false);
                 continue;
             }
 
-            if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
+            // **`--set name value` is the `--like` sidecar's route** (B824; above Valve): a sidecar is a file the viewer
+            // reads, so its keys and values are untrusted, and `+` now pastes a value unquoted and drops one that starts with
+            // `-`. This keeps B811/B816's guard: a declared ConVar only (B816 review 5, Fable: an undeclared key is a console
+            // line of the sidecar's own making), its value quoted, whole, and refused if it would close its quotes or start
+            // another line (B811 reviews 10, 11).
+            if (argument == SetOption)
             {
-                string command = argument[1..];
+                // Missing its value, it is reported, and its name is not left as a demo (B824 review 1, Fable, Grok).
+                if (pending.Count < 2)
+                {
+                    pending.Clear();
+                    log.LogWarning("{Message}", $"{SetOption} wants a ConVar and a value; ignoring it");
+                    continue;
+                }
+
+                string command = pending.Dequeue();
                 string value = pending.Dequeue();
 
-                // **A value is one argument, so it may not close its own quotes or start another line** (B811 review 10,
-                // Sonnet): it is handed to the console as `name "value"`, and a `"`, `\r` or `\n` inside would become
-                // further console lines, from a `--like` sidecar as much as a typed line; a NUL would cut the value short
-                // (review 11, Fable). Refused, and said so.
                 if (value.AsSpan().IndexOfAny("\"\r\n\0") >= 0)
                 {
-                    log.LogWarning("{Message}", $"+{command}: a value holding a quote, a line break or a NUL is refused");
+                    log.LogWarning("{Message}", $"{SetOption} {command}: a value holding a quote, a line break or a NUL is refused");
                     continue;
                 }
 
-                // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718,
-                // B811): TF2's `cfg/valve.rc` runs `exec autoexec.cfg` and then `stuffcmds`, which executes the whole line,
-                // so the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it.
-                // None is stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred
-                // set of the same ConVar win over a later admitted one). Quoted, so the console reads the value as the one
-                // argument the line gave.
-                if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
+                if (!command.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase) && !Core.Net.EngineConVars.TryByConsoleName(command, out _))
                 {
-                    cheats = ConfigConsole.CheatsAllowed(value);
-                    afterConfigs.Add($"sv_cheats \"{value}\"");
-                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line, after the configs)");
+                    log.LogWarning("{Message}", $"{SetOption} {command}: not a ConVar this viewer declares; refused");
                     continue;
                 }
 
-                // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
-                string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
-
-                if (ViewerSettings.IsCheat(command))
-                {
-                    // A replicated cheat is the server's: the console's client sets never take it and the settings hold no
-                    // copy (B811 review 1, Sonnet; review 3, Fable: the store here was a no-op). Refused with TF2's line
-                    // against the line's own `sv_cheats`, as before; admitted, it is dropped, and its readers keep the
-                    // demo's own server value (B818).
-                    if (declared is { Replicated: true })
-                    {
-                        if (!cheats)
-                        {
-                            log.LogInformation(
-                                "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
-                        }
-
-                        continue;
-                    }
-
-                    afterConfigs.Add($"{own} \"{value}\"");
-                    log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
-                    continue;
-                }
-
-                // **Stored now for what reads the launch before the console runs, and run after the configs too** (B816):
-                // `stuffcmds` runs the whole line after `exec autoexec.cfg`, so a config's `fps_max 123` must not beat a
-                // launch `+fps_max 60` now that the configs reach the run's settings.
-                read = read with { Settings = read.Settings.Set(own, value) };
-
-                // **A declared ConVar only** (B816 review 5, Fable): an undeclared name is a console line of its own making,
-                // so a `--like` sidecar key `x\nbind q quit` or `x;unbindall` would run as commands. The console sets
-                // nothing for an undeclared name anyway, so only declared ones need the replay.
-                if (declared is not null)
-                {
-                    afterConfigs.Add($"{own} \"{value}\"");
-                }
-
-                log.LogInformation("{Message}", $"{own} {value} (from the command line)");
+                Assign(command, value, quoted: true);
                 continue;
             }
 
@@ -448,7 +426,111 @@ public static class LaunchOptionsReader
                 : $"{paths.Count} path(s) from the command line, first: {paths[0]}");
 
         return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
+
+        // Hands one command to the console after the configs, `quoted` for the sidecar's `--set`, as `stuffcmds` pastes it
+        // otherwise; and keeps what the line already did for a ConVar it names.
+        void Assign(string command, string? value, bool quoted)
+        {
+            // A lone `+` (B824 review 1, Fable, Sonnet): `"%s %s\n"` with an empty name puts the value first on the line,
+            // where the console runs it as the command; with no value the line is empty and runs nothing.
+            if (command.Length == 0)
+            {
+                if (value is not null)
+                {
+                    afterConfigs.Add($" {value}");
+                }
+
+                return;
+            }
+
+            // A name alone, as `stuffcmds` pastes it when no value follows: the console runs it, or prints a ConVar's value.
+            if (value is null)
+            {
+                afterConfigs.Add(command);
+                log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
+                return;
+            }
+
+            // The ConVar's own name, found in any case, for the store and both log lines (B791 reviews 10, 11).
+            string own = Core.Net.EngineConVars.TryByConsoleName(command, out Core.Net.EngineConVar? declared) ? declared.Name : command;
+            string line = quoted ? $"{own} \"{value}\"" : $"{own} {value}";
+
+            // **What the console's set will hold, by the console's own parse of the line** (B824 reviews 1 and 2, Fable,
+            // Sonnet): its first clause (`SourceConfig.Clauses`: `;` outside quotes, `//`) and that clause's `ArgS`
+            // (`ConVarValue`, B823), or null when the clause has no argument and only prints. A guess from the value's text
+            // missed a quoted `;`, a quoted `""` and a `//`. The console splits its buffer into lines first
+            // (`BufferCommands`), so only the line up to the first line feed counts (B824 review 3, Fable). Only for what
+            // the console sets; see the store below.
+            int lineFeed = line.IndexOf('\n', StringComparison.Ordinal);
+            string firstLine = lineFeed < 0 ? line : line[..lineFeed];
+            string? held = SourceConfig.Clauses(firstLine) is [string first, ..] && SourceConfig.Tokens(first).Count > 1
+                ? SourceConfig.ConVarValue(first)
+                : null;
+
+            // **`sv_cheats` and every cheat ConVar go to the console after the configs, in the line's order** (B718, B811):
+            // the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it. None is
+            // stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred set of the same
+            // ConVar win over a later admitted one).
+            if (own == CheatsConVar)
+            {
+                if (held is not null)
+                {
+                    cheats = ConfigConsole.CheatsAllowed(held);
+                }
+
+                afterConfigs.Add(line);
+                log.LogInformation("{Message}", $"{CheatsConVar} {value} (from the command line, after the configs)");
+                return;
+            }
+
+            if (ViewerSettings.IsCheat(own))
+            {
+                // A replicated cheat is the server's: the console's client sets never take it and the settings hold no copy
+                // (B811 review 1, Sonnet; review 3, Fable), so its readers keep the demo's own server value (B818). Refused
+                // with TF2's line against the line's own `sv_cheats`, as before; and the line is handed on either way, as
+                // `stuffcmds` pastes it, so the rest of a line of several statements still runs (B824 review 1, Fable).
+                if (declared is { Replicated: true })
+                {
+                    if (!cheats)
+                    {
+                        log.LogInformation(
+                            "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
+                    }
+
+                    afterConfigs.Add(line);
+                    return;
+                }
+
+                afterConfigs.Add(line);
+                log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
+                return;
+            }
+
+            // **Stored now for what reads the launch before the console runs, and run after the configs too** (B816): a
+            // config's `fps_max 123` must not beat a launch `+fps_max 60`. Stored whatever the name, as before: the viewer's
+            // own settings (`cl_game_folder`, `cl_screenshot_folder`) are no engine ConVar, so the console takes none of
+            // them and this is their only route (B824 review 1, Sonnet); an unknown name is ignored by the settings (D69). A
+            // declared ConVar stores what the console's set will hold; the viewer's own setting stores its value whole, as
+            // before, since the console never reads it: a folder may hold a `;` (B824 review 2, Fable).
+            if (declared is null)
+            {
+                read = read with { Settings = read.Settings.Set(own, value) };
+            }
+            else if (held is not null)
+            {
+                read = read with { Settings = read.Settings.Set(own, held) };
+            }
+
+            afterConfigs.Add(line);
+            log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
+        }
     }
+
+    /// <summary>The sidecar's own route for a ConVar: <c>--set name value</c> (B824).</summary>
+    public const string SetOption = "--set";
+
+    /// <summary>The ConVar the cheat gate reads.</summary>
+    private const string CheatsConVar = "sv_cheats";
 
     /// <summary>A number as the command line spells it, or null.</summary>
     /// <remarks>Invariant culture: a launch option is not localised, and "1,5" is not 1.5 here.</remarks>
