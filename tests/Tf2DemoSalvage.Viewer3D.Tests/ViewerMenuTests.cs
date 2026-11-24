@@ -289,6 +289,14 @@ public sealed class ViewerMenuTests
         first.ShortcutKeyDisplayString.ShouldBe("p");
         shortcuts[secondKeys].ShouldBeSameAs(second, "the control: the other item keeps its key");
 
+        // Another bare key prints its own name (review 5, Sonnet), and back to a registered key the printed text goes.
+        ((IViewerWindow)form).ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = "o" }));
+        first.ShortcutKeyDisplayString.ShouldBe("o");
+
+        ((IViewerWindow)form).ShowBindings(new KeyBindings());
+        first.ShortcutKeys.ShouldBe(KeyNames.Resolve(KeyBindings.Defaults[firstAction]));
+        first.ShortcutKeyDisplayString.ShouldBeNull();
+
         static ViewerAction ActionOn(Keys keys) =>
             KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
     }

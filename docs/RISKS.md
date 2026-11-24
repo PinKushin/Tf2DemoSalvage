@@ -45336,6 +45336,18 @@ word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argum
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
+## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
+
+Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
+toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
+registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`
+(`ViewerSession.Input.cs:165`) handles only the two target cycles. WinForms registers a shortcut only for a key with a
+modifier or a function key, Insert or Delete (`ToolStripManager.IsValidShortcut`), so `bind p opendemo` names `p` beside
+Open (B821 review 4 prints it rather than throwing) and pressing `p` does nothing. A ConVar set with a value
+(`bind p "mat_fullbright 1"`) works, since the console sets it itself. In TF2 every bound key runs its command through
+the console. Fix shape: `OnConsoleAction` performs every one-shot action, so a key runs it whatever the menu can
+register — the half of B145 its remark left. *Not fixed*.
+
 ## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
 
 Found implementing B821. `LaunchOptionsReader.Read` reads a `+name` and the one argument after it, and hands the console only
@@ -45394,6 +45406,13 @@ other; `ShowBindings_ABareLetterOnAMenuAction_PrintsItAndKeepsTheOtherShortcuts`
 command half of `KeyBindings.SameAs` had no test; `SameAs_TwoTablesDifferingOnlyInTheirCommands_AreSameOnlyWhenEqualInOrder`,
 three cases red with that half bypassed. Sonnet: `ReleaseHeldKeys` runs `-` aliases that could bind; it does not —
 `ConfigConsole.ReleaseEverything` only releases the viewer's own buttons. Grok: a stale remark; corrected.
+
+**Review 5 (2026-11-23).** Sonnet, Fable: a printed bare key going back to a registered key, and one printed key to
+another, had no test; the bare-key menu test now walks `p`, `o` and back to the default, red with the printed text kept.
+Fable: the key half of `SameAs`' command comparison had no failing case; "another key" added, red with the key compare
+removed. Fable: `SetKey`'s comment said the session takes a bare key through the console; for a menu one-shot it does
+not, so the key does nothing (B825, filed; on main the same bind threw). Grok said the console reaches it;
+`OnConsoleAction` handles only the target cycles.
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`

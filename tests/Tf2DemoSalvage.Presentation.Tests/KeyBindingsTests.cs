@@ -245,6 +245,7 @@ public sealed class KeyBindingsTests
     [TestCase("another command", false)]
     [TestCase("one more key", false)]
     [TestCase("the other order", false)]
+    [TestCase("another key", false)]
     public void SameAs_TwoTablesDifferingOnlyInTheirCommands_AreSameOnlyWhenEqualInOrder(string other, bool expected)
     {
         KeyBindings table = new(commandBinds: new Dictionary<string, string> { ["F7"] = "say hi", ["F8"] = "say bye" });
@@ -254,6 +255,7 @@ public sealed class KeyBindingsTests
             "same" => new() { ["F7"] = "say hi", ["F8"] = "say bye" },
             "another command" => new() { ["F7"] = "say hi", ["F8"] = "say later" },
             "one more key" => new() { ["F7"] = "say hi", ["F8"] = "say bye", ["F9"] = "say hi" },
+            "another key" => new() { ["F7"] = "say hi", ["F9"] = "say bye" },
             _ => new() { ["F8"] = "say bye", ["F7"] = "say hi" },
         };
 
