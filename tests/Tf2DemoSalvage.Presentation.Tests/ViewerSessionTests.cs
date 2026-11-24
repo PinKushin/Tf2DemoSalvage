@@ -1016,6 +1016,42 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A bind a key's alias makes at run time reaches the bindings the window shows** (B821): `F7` runs an alias that
+    /// binds `F8` to the screenshot. TF2 has one bind table, which its binding menu reads (*not read*; the menu is closed),
+    /// so the projection must follow the console. The control: before `F7`, `F8` takes no screenshot.
+    /// </remarks>
+    [Test]
+    public void Bindings_AfterAKeysAliasBindsAtRunTime_NameTheNewKey()
+    {
+        string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
+        using Rig rig = BuildWithAutoexec($"unbindall\nalias rebind \"bind F8 {screenshot}\"\nbind F7 rebind\n");
+        rig.Session.Bindings.KeyFor(ViewerAction.Screenshot).ShouldNotBe("F8", "the control: F8 is not bound yet");
+
+        rig.Session.KeyPressed(Key("F7")).ShouldBeTrue();
+        rig.Session.KeyUp("F7");
+
+        rig.Session.Bindings.KeyFor(ViewerAction.Screenshot).ShouldBe("F8");
+    }
+
+    /// <remarks>
+    /// **An alias a key defines at run time reaches the bindings too** (B821): `F8` is bound to `shot`, which nothing defines
+    /// until `F7` runs `alias shot` with the screenshot command. The projection expands aliases, so it changes with no `bind` at all. The
+    /// control: before `F7`, `F8` reaches nothing.
+    /// </remarks>
+    [Test]
+    public void Bindings_AfterAKeyDefinesAnAliasAtRunTime_NameTheKeyThatReachesIt()
+    {
+        string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
+        using Rig rig = BuildWithAutoexec($"unbindall\nbind F8 shot\nalias define \"alias shot {screenshot}\"\nbind F7 define\n");
+        rig.Session.Bindings.KeyFor(ViewerAction.Screenshot).ShouldNotBe("F8", "the control: shot is not defined yet");
+
+        rig.Session.KeyPressed(Key("F7")).ShouldBeTrue();
+        rig.Session.KeyUp("F7");
+
+        rig.Session.Bindings.KeyFor(ViewerAction.Screenshot).ShouldBe("F8");
+    }
+
+    /// <remarks>
     /// **The launch line runs in its own order** (B811 review 1, Fable): with no cheats in the configs,
     /// `+mat_wireframe 1 +sv_cheats 1` refuses the wireframe before the line admits cheats; a reversed replay would draw it.
     /// </remarks>

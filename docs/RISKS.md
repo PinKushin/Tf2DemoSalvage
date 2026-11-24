@@ -45336,7 +45336,27 @@ word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argum
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
-## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
+## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
+
+Found implementing B821. `LaunchOptions.Parse` reads a `+name` and the one argument after it, and hands the console only
+a declared ConVar's set (`LaunchOptions.cs`, B816 review 5): an undeclared name was refused there because a `--like`
+sidecar key such as `x\nbind q quit` would otherwise run as commands. TF2's `cfg/valve.rc` runs `stuffcmds` after
+`exec autoexec.cfg`, and `stuffcmds` runs every `+command` with all the arguments up to the next `+` or `-` (*interpolated*
+from the SDK's Quake heritage; the closed `engine.dll` `stuffcmds` is not read). So `+bind F8 screenshot`, `+exec x` or
+`+alias` run in TF2 and are dropped here, and the `screenshot` after `+bind F8` is taken as a demo path. Fix shape:
+read the engine's `stuffcmds` and command-line tokenizer, then run each `+` command whole, keeping the sidecar refusal
+for the `--like` route only. *Not fixed*.
+
+## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — FIXED (2026-11-23)
+
+**Fixed.** `ConfigConsole.BindsRevision` counts every `bind`, `unbind`, `unbindall` and `alias` the console runs (not the
+defaults it starts with), and `ViewerSession.Bindings` takes its projection again whenever that count moved since, so
+the menu, the shortcuts and the HUD's `%command%` keys follow the one table, as TF2's binding menu reads its one table
+(*not read*; the menu is closed). The projection expands aliases, which is why an alias counts. Tests:
+`Bindings_AfterAKeysAliasBindsAtRunTime_NameTheNewKey`, `Bindings_AfterAKeyDefinesAnAliasAtRunTime_NameTheKeyThatReachesIt`
+and `BindsRevision_AfterACommand_CountsOnlyWhatChangesBindsOrAliases`; each red with its own counter removed. `Bound`
+still counts every run-time `bind`; it is reported only at load, so the growth is never read. A bind on the launch line
+cannot arise here: the line runs only ConVar sets (B824).
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`

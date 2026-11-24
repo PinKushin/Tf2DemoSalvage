@@ -63,7 +63,24 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     public SettingsPresenter Settings => _settingsOwner;
 
     /// <summary>The bindings in force, for the window's menu.</summary>
-    public KeyBindings Bindings => _bindings;
+    /// <remarks>
+    /// **Taken again whenever the console's binds or aliases changed since** (B821): a bind a key's alias makes at run
+    /// time, or one on the launch line after the configs, is the key the menu and the shortcuts must name, as TF2's one
+    /// bind table is. Taken lazily, on the window thread that reads it.
+    /// </remarks>
+    public KeyBindings Bindings
+    {
+        get
+        {
+            if (_bindingsRevision != _console.BindsRevision)
+            {
+                _bindings = _console.Bindings();
+                _bindingsRevision = _console.BindsRevision;
+            }
+
+            return _bindings;
+        }
+    }
 
     /// <summary>What the menu shows as chosen when it is built.</summary>
     public MenuState Menu => _settingsOwner.Menu(ProgramCustomFolder);
@@ -180,7 +197,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             new ViewerWindow(
                 () => WindowFrameNow,
                 ShowOnly,
-                () => _bindings,
+                () => Bindings,
                 ClientConVar,
                 () => _vguiClock.Elapsed.TotalSeconds,
                 () => _console.IsHeld(ViewerAction.ShowScores),
@@ -402,7 +419,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // No map has been read yet (no install was open), so what startup reads once is read again from the new configs
             // (B816 review 2, Grok): the lighting the first map takes, and the spectator's director.
             _presenter.ApplyTheConfiguredSettings();
-            _window.ShowBindings(_bindings);
+            _window.ShowBindings(Bindings);
         }
     }
 

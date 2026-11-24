@@ -1137,6 +1137,30 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **Every command that changes the binds or the aliases counts, and nothing else does** (B821): the host takes its
+    /// projection again when the count moves, so a missed `unbind` leaves a stale key named and a counted ConVar set
+    /// rebuilds it for nothing. `bind k` with no command and `unbind` with no key change nothing. The defaults the console
+    /// starts with count zero.
+    /// </remarks>
+    [TestCase("bind k echo", 1)]
+    [TestCase("unbind w", 1)]
+    [TestCase("unbindall", 1)]
+    [TestCase("alias a b", 1)]
+    [TestCase("alias a b\nalias a c", 2)]
+    [TestCase("fps_max 60", 0)]
+    [TestCase("bind k", 0)]
+    [TestCase("unbind", 0)]
+    public void BindsRevision_AfterACommand_CountsOnlyWhatChangesBindsOrAliases(string lines, int expected)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.BindsRevision.ShouldBe(0, "the control: the defaults count zero");
+
+        console.Load(lines);
+
+        console.BindsRevision.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// Above Valve (D265): with a leading UTF-8 byte order mark, TF2's first command does not run (`Unknown command`,
     /// measured live, B822); the viewer strips it on `exec` too, not only on the startup configs. The control has no mark.
     /// </remarks>
