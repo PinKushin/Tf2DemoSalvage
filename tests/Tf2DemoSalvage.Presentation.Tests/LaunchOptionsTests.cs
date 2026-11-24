@@ -128,6 +128,25 @@ public sealed class LaunchOptionsTests
         read.Settings.ShouldNotBe(before, "the command line must override the config it was given");
     }
 
+    /// <remarks>
+    /// **What the console will refuse is not stored early either** (B830; B824 review 3, Fable): the launch line is one
+    /// `AddText` buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126,
+    /// 242-243`), so a `+demo_fov_override 75` after a long `+alias` never runs, and storing it for the readers that run
+    /// before the console would set what TF2 never sets. A long command's own value is not stored either. The control:
+    /// without the long alias, 75 is stored.
+    /// </remarks>
+    [Test]
+    public void Read_AConVarAfterACommandOf511Bytes_IsNotStored()
+    {
+        Read("+demo_fov_override", "75").Settings.DemoFovOverride.ShouldBe(75f, "the control");
+
+        LaunchOptions read = Read("+alias", "a " + new string('x', 600), "+demo_fov_override", "75");
+
+        read.Settings.DemoFovOverride.ShouldBe(ViewerSettings.Load().DemoFovOverride);
+        Read("+demo_fov_override", "7" + new string('5', 600)).Settings.DemoFovOverride.ShouldBe(
+            ViewerSettings.Load().DemoFovOverride, "the long command's own value");
+    }
+
     [Test]
     public void Read_DemoFovOverrideZero_TurnsTheOverrideOff() =>
         Read("+demo_fov_override", "0").Settings.DemoFovOverride.ShouldBe(0f);

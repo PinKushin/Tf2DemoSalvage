@@ -449,9 +449,26 @@ public sealed class ConfigConsole
     /// <param name="text">The commands.</param>
     /// <remarks>
     /// `Cmd_Exec_f`'s line reader (its 1023-byte cap, its `\"` and `\\` unescape) is a file's (B820 review 8, Sonnet); the
-    /// launch line reaches the buffer whole. *Interpolated*: `stuffcmds` itself is not read; it adds the command line's text.
+    /// launch line reaches the buffer whole: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0, B824) pastes every
+    /// `+command` into one text and adds it once (B830), so the viewer hands its whole launch line here in one call.
     /// </remarks>
     public void Stuff(string? text) => AtStartup(() => _ = RunCommand(text ?? string.Empty, key: null));
+
+    /// <summary>Whether one `AddText` call would queue every command in this text, refusing none for its length (B830).</summary>
+    /// <param name="text">The text, as it would be added.</param>
+    /// <returns>False when a command in it is 511 bytes or more, which `AddText` refuses with every command after it.</returns>
+    /// <remarks>The same split, the same skip of a command with no name, and the same bound as the console's run.</remarks>
+    internal static bool AddsWhole(string text) =>
+        !BufferCommands(text).Any(command => NamesACommand(SourceConfig.Tokens(command.Command)) && IsTooLong(command.Length));
+
+    /// <summary>
+    /// Whether a split command is a command at all: `ParseArgV0` finding an empty first token skips it before
+    /// `InsertCommand` measures it (`src/tier1/commandbuffer.cpp:230-232`).
+    /// </summary>
+    private static bool NamesACommand(IReadOnlyList<string> tokens) => tokens.Count > 0 && tokens[0].Length > 0;
+
+    /// <summary>Whether `InsertCommand` refuses a command this long (`src/tier1/commandbuffer.cpp:120-126`).</summary>
+    private static bool IsTooLong(int length) => length >= MaximumCommandLength - 1;
 
     /// <summary>Runs startup text: a config or the launch line.</summary>
     /// <remarks>
@@ -1614,12 +1631,12 @@ public sealed class ConfigConsole
             // `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it (`:230-232`):
             // a blank command, or one whose first token is `""`, is no command of any length, not a refused one (B820
             // reviews 6 and 7, Fable). *Not implemented*: `wait`, which `AddText` consumes there too.
-            if (tokens.Count == 0 || tokens[0].Length == 0)
+            if (!NamesACommand(tokens))
             {
                 continue;
             }
 
-            if (length >= MaximumCommandLength - 1)
+            if (IsTooLong(length))
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
                 return acted;

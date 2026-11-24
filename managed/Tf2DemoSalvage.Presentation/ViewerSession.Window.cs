@@ -457,12 +457,17 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <c>exec autoexec.cfg</c> and then <c>stuffcmds</c>, so a cheat on the line meets <c>sv_cheats</c> as the configs and
     /// the line so far left it.
     /// </summary>
+    /// <remarks>
+    /// **One text, added once** (B830): `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0) pastes every `+command` as a
+    /// line of one buffer and adds it in one `Cbuf_AddText`, whose `AddText` (`src/tier1/commandbuffer.cpp:209-247`) returns
+    /// at the first command of 511 bytes or more, so that command and every later one never run.
+    /// `stuffcmds`, not `exec`: the launch line is not read through a file's line reader (B820 review 8).
+    /// </remarks>
     private void RunTheLaunchLine()
     {
-        foreach (string line in _launch.AfterConfigs ?? [])
+        if (_launch.AfterConfigs is { Count: > 0 } lines)
         {
-            // `stuffcmds`, not `exec`: the launch line is not read through a file's line reader (B820 review 8).
-            _console.Stuff(line);
+            _console.Stuff(string.Join('\n', lines));
         }
     }
 

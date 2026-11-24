@@ -120,6 +120,9 @@ public static class LaunchOptionsReader
         // What runs again after the configs, in order (B811): see `LaunchOptions.AfterConfigs`.
         List<string> afterConfigs = [];
 
+        // Whether the console will refuse a command handed on so far, and so every later one (B830): see `Add`.
+        bool refused = false;
+
         LaunchOptions read = new(settings, paths);
 
         // A queue rather than an indexed loop: an option consumes the value after it, and moving a
@@ -427,6 +430,16 @@ public static class LaunchOptionsReader
 
         return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
 
+        // Hands a line to the console, noting whether the console will refuse it (B830): the launch line is one `AddText`
+        // buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126, 242-243`), so
+        // from there on nothing is stored early either. A line is split at its own line feeds, so measuring each line alone
+        // measures the joined buffer.
+        void Add(string line)
+        {
+            refused |= !ConfigConsole.AddsWhole(line);
+            afterConfigs.Add(line);
+        }
+
         // Hands one command to the console after the configs, `quoted` for the sidecar's `--set`, as `stuffcmds` pastes it
         // otherwise; and keeps what the line already did for a ConVar it names.
         void Assign(string command, string? value, bool quoted)
@@ -437,7 +450,7 @@ public static class LaunchOptionsReader
             {
                 if (value is not null)
                 {
-                    afterConfigs.Add($" {value}");
+                    Add($" {value}");
                 }
 
                 return;
@@ -446,7 +459,7 @@ public static class LaunchOptionsReader
             // A name alone, as `stuffcmds` pastes it when no value follows: the console runs it, or prints a ConVar's value.
             if (value is null)
             {
-                afterConfigs.Add(command);
+                Add(command);
                 log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
                 return;
             }
@@ -471,14 +484,15 @@ public static class LaunchOptionsReader
             // the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it. None is
             // stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred set of the same
             // ConVar win over a later admitted one).
+            Add(line);
+
             if (own == CheatsConVar)
             {
-                if (held is not null)
+                if (held is not null && !refused)
                 {
                     cheats = ConfigConsole.CheatsAllowed(held);
                 }
 
-                afterConfigs.Add(line);
                 log.LogInformation("{Message}", $"{CheatsConVar} {value} (from the command line, after the configs)");
                 return;
             }
@@ -497,11 +511,9 @@ public static class LaunchOptionsReader
                             "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
                     }
 
-                    afterConfigs.Add(line);
                     return;
                 }
 
-                afterConfigs.Add(line);
                 log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                 return;
             }
@@ -512,7 +524,11 @@ public static class LaunchOptionsReader
             // them and this is their only route (B824 review 1, Sonnet); an unknown name is ignored by the settings (D69). A
             // declared ConVar stores what the console's set will hold; the viewer's own setting stores its value whole, as
             // before, since the console never reads it: a folder may hold a `;` (B824 review 2, Fable).
-            if (declared is null)
+            if (refused)
+            {
+                // The console refuses this command or one before it, so nothing reads the value (B830).
+            }
+            else if (declared is null)
             {
                 // Its quotes go as a console set drops them from its `ArgS`: one leading `"`, then one trailing `"` if it
                 // began with one (B831 review 1, Fable; `engine.dll` build 1007 FUN_180178310, B823). Nothing else of the
@@ -526,7 +542,6 @@ public static class LaunchOptionsReader
                 read = read with { Settings = read.Settings.Set(own, held) };
             }
 
-            afterConfigs.Add(line);
             log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
         }
     }

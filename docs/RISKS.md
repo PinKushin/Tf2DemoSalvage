@@ -46035,14 +46035,24 @@ true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 revie
 command. Fix shape: read why B820 skips a config's one-shot at load, then decide whether the launch line, which runs
 after the configs, shares that reason. *Not fixed*.
 
-## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — OPEN
+## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** Read again in `src/tier1/commandbuffer.cpp`: `AddText` (`:209-247`) queues each command in turn and returns
+at the first that `InsertCommand` (`:120-126`) refuses for 511 bytes or more. So the commands before the long one stay
+queued and run, and it and every later one do not; "refuses the whole buffer" below was too wide. `RunTheLaunchLine`
+now joins the launch line's commands with line feeds, as `stuffcmds` pastes them, and stuffs the text once; the console
+already stops at the long command (B820). `LaunchOptions` stops storing early from the first command the console will
+refuse, measured by the console's own split and bound (`ConfigConsole.AddsWhole`, shared with the run). Tests:
+`Build_ALaunchCommandOf511BytesBeforeAnother_RefusesItAndEveryLaterOne` (the `toggle` before the long `alias` runs, the
+`fps_max 60` after it does not) and `Read_AConVarAfterACommandOf511Bytes_IsNotStored`; both red before. Sabotage: the
+store gate disabled reddens the second alone, since the autoexec's `fps_max 123` overrides an early store in the first.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
 (`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>
 +fps_max 60` sets `fps_max` here and not in TF2. *Interpolated*: that `Cbuf_AddText` refuses rather than truncates is
 B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
-readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
+readers that run before the console, which then refuses the line (B824 review 3, Fable).
 
 ## B833 — without an install, `mat_wireframe` draws nothing (2026-11-24) — FIXED (2026-11-24)
 
