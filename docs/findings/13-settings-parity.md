@@ -282,8 +282,13 @@ without the mark printed its line. The command name is the mark's first byte alo
 `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`) stores a word's first `char` unchecked and ends the word
 at any `char <= ' '`, signed, so `0xBB` ends it; `EatWhiteSpace` (`:404-415`) tests `isspace` on the unsigned byte, so
 `0xBB` then starts the next token. The bytes `EF BB BF` followed directly by `echo x`, with no space, tokenize as `EF`,
-`BB`, `BFecho`, `x`. The live message agrees: one glyph as the command name, and no `echo`. The viewer's tokenizer does
-not split a word at a byte of 0x80 or more (B823). The viewer strips the mark
+`BB`, `BFecho`, `x`. The live message agrees: one glyph as the command name, and no `echo`. The viewer's tokenizer did
+not split a word at a byte of 0x80 or more until B823, which made it tokenize each clause's UTF-8 bytes, spelling a lone
+byte as the lone surrogate U+DC00 + byte so an alias body joined from such tokens runs as the same bytes again. B823 also
+found that a console ConVar set takes `ArgS`, not `Arg(1)`: `engine.dll` FUN_180176c50 (x64) copies the text from
+argument 1 on, drops a leading quote, and strips trailing bytes `<= ' '` by a SIGNED compare (`CMP byte ptr [RCX],0x20;
+JG`), so `name a b` sets `a b`, and `name café` sets `caf` because the bytes of a trailing `é` are stripped like spaces
+(*disassembly*). The viewer strips the mark
 anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it to
 `Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
 

@@ -297,4 +297,31 @@ public sealed class SourceConfigTests
             KeyBindings.Commands.ContainsKey(action).ShouldBeTrue($"{action} has no command name");
         }
     }
+
+    /// <remarks>Distinct bytes stay distinct tokens (B823): `é` is `C3 A9` and `ã` is `C3 A3`.</remarks>
+    [Test]
+    public void Tokens_TwoCharactersSharingALeadByte_DifferInTheirSecondToken()
+    {
+        SourceConfig.Tokens("é").ShouldBe(["\uDCC3", "\uDCA9"]);
+        SourceConfig.Tokens("ã").ShouldBe(["\uDCC3", "\uDCA3"]);
+    }
+
+    /// <remarks>
+    /// A lone-byte token written back into text is the same byte (B823): an alias body is its arguments joined, and runs
+    /// again through the tokenizer. Every byte from 0x80 to 0xFF comes back as itself.
+    /// </remarks>
+    [Test]
+    public void Tokens_EveryLoneByteSpelledBack_IsTheSameByte()
+    {
+        string[] lone = [.. Enumerable.Range(0x80, 0x80).Select(b => ((char)(0xDC00 + b)).ToString())];
+
+        SourceConfig.Tokens(string.Join(' ', lone)).ShouldBe(lone);
+    }
+
+    /// <remarks>A character the text could hold whole is not confused with a lone byte (B823): U+00C3 is `C3 83`.</remarks>
+    [Test]
+    public void Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint()
+    {
+        SourceConfig.Tokens("Ã").ShouldBe(["\uDCC3", "\uDC83"]);
+    }
 }

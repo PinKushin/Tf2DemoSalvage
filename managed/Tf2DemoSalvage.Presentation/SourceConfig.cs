@@ -194,7 +194,50 @@ public static class SourceConfig
     /// <summary>Splits one command into its tokens, honouring quotes and comments.</summary>
     /// <param name="clause">The command.</param>
     /// <returns>The tokens, quotes removed.</returns>
-    public static IReadOnlyList<string> Tokens(string? clause) => Tokenise(clause ?? string.Empty);
+    /// <remarks>
+    /// **TF2 tokenizes BYTES, so this does too** (B823): the clause is encoded to UTF-8 first, and a word ends at any byte of
+    /// 0x80 or more (see <see cref="Tokenise"/>), so an unquoted `café` is `caf`, `C3`, `A9`.
+    ///
+    /// **A lone byte is spelled as the lone surrogate U+DC00 + byte** — Python's `surrogateescape` (PEP 383). Chosen because
+    /// it is the one spelling that round-trips: an alias body is its arguments joined by spaces (`Cmd_Alias_f`, `engine.dll`
+    /// FUN_180166a00) and runs through this tokenizer again, so `C3` must come back as the byte `C3`. UTF-8 decoding with
+    /// replacement makes every lone byte U+FFFD, losing which byte it was; Latin-1 keeps them distinct but re-encodes `C3`
+    /// as `C3 83` on the second pass. A surrogate cannot come out of valid UTF-8, so a spelled byte never collides with a
+    /// character, and a quoted string, valid UTF-8 between two ASCII quotes, decodes as its text.
+    /// </remarks>
+    public static IReadOnlyList<string> Tokens(string? clause) => Tokenise(clause ?? string.Empty, out _);
+
+    /// <summary>The value a console ConVar set takes from a command: its `ArgS`, trimmed as the engine trims it (B823).</summary>
+    /// <param name="clause">The command, its ConVar name first.</param>
+    /// <returns>The value; empty when the command has no argument.</returns>
+    /// <remarks>
+    /// `engine.dll` FUN_180176c50 (x64, the function holding "Can't use cheat cvar %s in multiplayer"), read in the
+    /// disassembly: it copies `ArgS()` — the command's text from argument 1 on, its opening quote included
+    /// (`CCommand::Tokenize`'s `m_nArgv0Size`, tier1/convar.cpp:432-451; convar.h:232-235) — drops a leading `"`, clears
+    /// trailing bytes while `CMP byte ptr [RCX],0x20; JG` does not jump (a SIGNED compare, so every byte of 0x80 or more is
+    /// cleared with the spaces), then clears one trailing `"` if it began with one. So `name a b` sets `a b`, `name café`
+    /// sets `caf`, and `name éa` sets `éa`. *Not implemented*: the 1024-byte copy cap, past the 511-byte command limit.
+    /// </remarks>
+    public static string ConVarValue(string? clause)
+    {
+        _ = Tokenise(clause ?? string.Empty, out byte[] argS);
+
+        bool quoted = argS.Length > 0 && argS[0] == '"';
+        ReadOnlySpan<byte> value = quoted ? argS.AsSpan(1) : argS;
+        int end = value.Length;
+
+        while (end > 0 && (sbyte)value[end - 1] <= ' ')
+        {
+            end--;
+        }
+
+        if (quoted && end > 0 && value[end - 1] == '"')
+        {
+            end--;
+        }
+
+        return Text(value[..end]);
+    }
 
     /// <summary>`CCommand::Tokenize`'s break set (tier1/convar.cpp:326): each is an argument of its own.</summary>
     private const string BreakSet = "{}()':";
@@ -206,17 +249,26 @@ public static class SourceConfig
     /// EatWhiteSpace (isspace); a "//" here eats to the end of the line
     /// '"' → everything to the next '"' or the end of the buffer, the quotes dropped — an EMPTY string is an argument
     /// a break character → itself, alone
-    /// else a word: up to a break character, a '"' or anything &lt;= ' '
+    /// else a word: up to a break character, a '"' or anything &lt;= ' ' — `c` a signed char, so any byte &gt;= 0x80 too
     /// </code>
     ///
     /// **This replaced a tokenizer of this project's own**, which dropped `""` — so `alias noop ""` and `bind k ""` were
     /// two arguments and ignored — glued a quoted run to the word beside it, and did not know the break set. A config
     /// is not KeyValues and has no escapes at all.
+    ///
+    /// **It reads the clause's UTF-8 bytes** (B823): `ParseToken` stores a word's first `char` unchecked and ends the word at
+    /// `c &lt;= ' '` (utlbuffer.cpp:1303-1320), and `EatWhiteSpace` tests `isspace` on the unsigned byte (:404-415), so a byte
+    /// of 0x80 or more ends a word and starts the next. A word therefore holds at most one such byte, its first. The text is
+    /// cut at a NUL, as `Q_strlen` cuts the copy (convar.cpp:404-411).
     /// </remarks>
-    private static List<string> Tokenise(string line)
+    /// <param name="text">The command.</param>
+    /// <param name="argS">`ArgS()`: the bytes from argument 1's start, its opening quote included, or none.</param>
+    private static List<string> Tokenise(string text, out byte[] argS)
     {
+        byte[] line = Bytes(text);
         List<string> tokens = [];
         int at = 0;
+        argS = [];
 
         while (true)
         {
@@ -226,41 +278,106 @@ public static class SourceConfig
                 at = IsComment(line, at) ? EndOfLine(line, at) : at + 1;
             }
 
-            if (at >= line.Length || line[at] == '\0')
+            if (at >= line.Length)
             {
                 return tokens;
             }
 
-            char first = line[at++];
+            if (tokens.Count == 1)
+            {
+                // `m_nArgv0Size` (convar.cpp:432-451): where argument 1 starts, an opening quote included.
+                argS = line[at..];
+            }
+
+            byte first = line[at++];
 
             if (first == '"')
             {
-                int close = line.IndexOfAny(['"', '\0'], at);
+                int close = Array.IndexOf(line, (byte)'"', at);
                 int end = close < 0 ? line.Length : close;
 
-                tokens.Add(line[at..end]);
+                tokens.Add(Text(line.AsSpan(at, end - at)));
                 at = end + 1;
             }
-            else if (BreakSet.Contains(first, StringComparison.Ordinal))
+            else if (IsBreak(first))
             {
-                tokens.Add(first.ToString());
+                tokens.Add(((char)first).ToString());
             }
             else
             {
                 int start = at - 1;
 
-                while (at < line.Length && line[at] > ' ' && line[at] != '"' && !BreakSet.Contains(line[at], StringComparison.Ordinal))
+                while (at < line.Length && (sbyte)line[at] > ' ' && line[at] != '"' && !IsBreak(line[at]))
                 {
                     at++;
                 }
 
-                tokens.Add(line[start..at]);
+                tokens.Add(Text(line.AsSpan(start, at - start)));
             }
         }
     }
 
-    /// <summary>C's `isspace` in the "C" locale: space, and tab through carriage return.</summary>
-    private static bool IsSpace(char c) => c == ' ' || (c >= '\t' && c <= '\r');
+    /// <summary>The bytes TF2 would hold for a clause: UTF-8, a spelled lone byte (see <see cref="Tokens"/>) as its byte, cut at a NUL.</summary>
+    private static byte[] Bytes(string text)
+    {
+        List<byte> bytes = new(text.Length);
+        Span<byte> encoded = stackalloc byte[4];
+
+        for (int at = 0; at < text.Length;)
+        {
+            if (text[at] is >= LowestLoneByte and <= HighestLoneByte)
+            {
+                bytes.Add((byte)(text[at++] - LoneByte));
+                continue;
+            }
+
+            // An unpaired surrogate outside the spelled range is U+FFFD, as any UTF-8 encoder writes it.
+            _ = Rune.DecodeFromUtf16(text.AsSpan(at), out Rune rune, out int used);
+            bytes.AddRange(encoded[..rune.EncodeToUtf8(encoded)]);
+            at += used;
+        }
+
+        int nul = bytes.IndexOf(0);
+
+        return [.. nul < 0 ? bytes : bytes.GetRange(0, nul)];
+    }
+
+    /// <summary>Bytes as text: UTF-8 where it is valid, and each byte that is not as U+DC00 + byte (see <see cref="Tokens"/>).</summary>
+    private static string Text(ReadOnlySpan<byte> bytes)
+    {
+        StringBuilder text = new(bytes.Length);
+
+        while (!bytes.IsEmpty)
+        {
+            if (Rune.DecodeFromUtf8(bytes, out Rune rune, out int used) == System.Buffers.OperationStatus.Done)
+            {
+                _ = text.Append(rune.ToString());
+            }
+            else
+            {
+                _ = text.Append((char)(LoneByte + bytes[0]));
+                used = 1;
+            }
+
+            bytes = bytes[used..];
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>The surrogate a lone byte 0x00 would be spelled as; only 0x80 to 0xFF ever are (PEP 383's range).</summary>
+    private const char LoneByte = '\uDC00';
+
+    /// <summary>The spelling of the lone byte 0x80; nothing lower is a byte UTF-8 can leave alone.</summary>
+    private const char LowestLoneByte = '\uDC80';
+
+    /// <summary>The spelling of the lone byte 0xFF.</summary>
+    private const char HighestLoneByte = '\uDCFF';
+
+    private static bool IsBreak(byte b) => b < 0x80 && BreakSet.Contains((char)b, StringComparison.Ordinal);
+
+    /// <summary>C's `isspace` on the unsigned byte in the "C" locale: space, and tab through carriage return.</summary>
+    private static bool IsSpace(byte b) => b == ' ' || (b >= '\t' && b <= '\r');
 
     /// <summary>Every command of a config as its arguments: lines, then `;` clauses, then <see cref="Tokens"/>.</summary>
     private static IEnumerable<List<string>> Commands(string? text)
@@ -269,17 +386,17 @@ public static class SourceConfig
         {
             foreach (string clause in Clauses(line))
             {
-                yield return Tokenise(clause);
+                yield return Tokenise(clause, out _);
             }
         }
     }
 
-    private static bool IsComment(string line, int at) => line[at] == '/' && at + 1 < line.Length && line[at + 1] == '/';
+    private static bool IsComment(byte[] line, int at) => line[at] == '/' && at + 1 < line.Length && line[at + 1] == '/';
 
     /// <summary>Past the line break that ends a comment, or the end of the text.</summary>
-    private static int EndOfLine(string line, int at)
+    private static int EndOfLine(byte[] line, int at)
     {
-        int end = line.IndexOf('\n', at);
+        int end = Array.IndexOf(line, (byte)'\n', at);
 
         return end < 0 ? line.Length : end + 1;
     }

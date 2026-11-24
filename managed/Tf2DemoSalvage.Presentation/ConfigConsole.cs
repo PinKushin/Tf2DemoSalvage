@@ -1599,6 +1599,12 @@ public sealed class ConfigConsole
                 // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
                 tokens = assignment;
             }
+            else if (tokens.Count >= 2)
+            {
+                // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
+                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`.
+                tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
+            }
 
             if (SetConVar(tokens))
             {

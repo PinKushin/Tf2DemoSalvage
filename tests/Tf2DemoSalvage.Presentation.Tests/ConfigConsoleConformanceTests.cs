@@ -1367,10 +1367,12 @@ public sealed class ConfigConsoleConformanceTests
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
         string command = $"{Alpha} 5 \"";
+        string padding = new(pad, length - command.Length - 1);
 
-        console.Load(lead + command + new string(pad, length - command.Length - 1) + "\"" + tail);
+        console.Load(lead + command + padding + "\"" + tail);
 
-        console.ConVar(Alpha).ShouldBe(expected);
+        // The value is `ArgS`, the quoted padding with it (B823, `SourceConfig.ConVarValue`).
+        console.ConVar(Alpha).ShouldBe(expected is null ? null : $"{expected} \"{padding}\"");
         log.Count("WARNING: Command too long... ignoring!").ShouldBe(expected is null ? 1 : 0);
     }
 
@@ -1537,6 +1539,41 @@ public sealed class ConfigConsoleConformanceTests
     /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
     /// a launch value stays two backslashes where a config line's would become one.
     /// </remarks>
+    /// <remarks>
+    /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` FUN_180176c50): a trailing non-ASCII character
+    /// is stripped as a signed `char` below `' '`, a leading one kept whole, and two words are one value.
+    /// </remarks>
+    [TestCase("cl_voice_filter café", "caf")]
+    [TestCase("cl_voice_filter éa", "éa")]
+    [TestCase("cl_voice_filter \"café\"", "café")]
+    [TestCase("cl_voice_filter a b", "a b")]
+    public void Load_AConVarLine_SetsArgSTrimmedAsTheEngine(string line, string expected)
+    {
+        ConfigConsole console = new();
+
+        console.Load(line);
+
+        console.ConVar("cl_voice_filter").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **An alias body keeps a lone byte as its byte** (B823): `Cmd_Alias_f` (`engine.dll` FUN_180166a00) joins arguments 2 on
+    /// with spaces, so `alias x cl_voice_filter éa b` stores the bytes `C3 20 A9 61 20 62` after the name, and running
+    /// it sets those bytes — a space now inside the character — where the same line typed directly sets `éa b`. A
+    /// spelling that re-encoded a lone byte (Latin-1's `Ã` is `C3 83`) would set different bytes.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasWithANonAsciiWord_RunsItsBytesAgain()
+    {
+        ConfigConsole console = new();
+
+        console.Load("cl_voice_filter éa b");
+        console.ConVar("cl_voice_filter").ShouldBe("éa b", "the control is the line typed directly");
+
+        console.Load("alias x cl_voice_filter éa b\nx");
+        console.ConVar("cl_voice_filter").ShouldBe("\uDCC3 \uDCA9a b");
+    }
+
     [Test]
     public void Stuff_ALaunchValueWithTwoBackslashes_KeepsThem()
     {

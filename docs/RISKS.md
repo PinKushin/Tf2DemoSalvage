@@ -45324,7 +45324,7 @@ on the first line (*disassembly*). The command name is then the mark's first byt
 (`src/tier1/utlbuffer.cpp:1303-1320`) ends a word at any signed `char <= ' '` (*published source*), which the live
 `Unknown command "�"`, one glyph and no `echo`, agrees with. Findings 13 has the whole read.
 
-## B823 — a config word does not end at a byte of 0x80 or more, where TF2's tokenizer ends it there (2026-11-23) — OPEN
+## B823 — a config word does not end at a byte of 0x80 or more, where TF2's tokenizer ends it there (2026-11-23) — FIXED
 
 Found in B822 review 4 (Fable). `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`), which `CCommand::Tokenize`
 calls for every argument, stores a word's first `char` unchecked and ends the word at `c <= ' '` with `c` a signed `char`,
@@ -45335,6 +45335,44 @@ TF2: `alias café x` is `alias`, `caf`, `C3`, `A9`, `x` by bytes. `SourceConfig.
 word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argument. *Not measured* on live TF2; the B822
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
+
+**Fixed (2026-11-24).** What was read: `CCommand::Tokenize` (`src/tier1/convar.cpp:389-478`) — the copy cut at
+`Q_strlen`, one `ParseToken` per argument, `m_nArgv0Size` (`:432-451`), which puts `ArgS()` (`convar.h:232-235`) at
+argument 1's start, its opening quote included; `ParseToken` (`utlbuffer.cpp:1242-1326`) — `EatWhiteSpace` on the unsigned
+byte, a quoted string to the next `"` whatever its bytes, the break set `{}()':` (`convar.cpp:326`, `IN_CHARACTERSET`
+indexes by unsigned byte), and the signed `c <= ' '` word end; and, in the x64 `engine.dll`, the three consumers.
+**A ConVar set takes `ArgS`** (FUN_180176c50, the function holding "Can't use cheat cvar %s"): it drops a leading `"`,
+clears trailing bytes while `CMP byte ptr [RCX],0x20; JG` does not jump — SIGNED, so a trailing non-ASCII character's
+bytes go with the spaces — then one trailing `"` if it began with one (*disassembly*). So `name café` sets `caf`,
+`name éa` sets `éa` (where `Arg(1)` is `C3` alone), and `name a b` sets `a b`, where the viewer had set `Arg(1)`, `a`.
+**An alias body is arguments 2 on, each followed by a space** (`Cmd_Alias_f`, FUN_180166a00), so its lone bytes run again
+as bytes. **`bind` takes `Arg(2)` and only at two or three arguments** (FUN_1801b4e60: `argc - 2 < 2`, else the usage line).
+
+**The representation: a lone byte is the lone surrogate U+DC00 + byte** (Python's `surrogateescape`, PEP 383).
+`SourceConfig.Tokenise` encodes each clause to UTF-8 — a spelled lone byte back to its byte — tokenizes the bytes, and
+decodes each token as UTF-8, spelling each byte that is not part of a valid sequence. Rejected: UTF-8 decoding with
+replacement makes every lone byte U+FFFD, so `é` and `ã` (`C3 A9`, `C3 A3`) would tokenize alike; Latin-1 keeps bytes
+distinct but re-encodes `C3` as `C3 83` when an alias body runs again. A surrogate cannot come out of valid UTF-8, so a
+spelled byte never collides with a character, and a quoted string, valid UTF-8 between ASCII quotes, decodes as its text.
+`SourceConfig.ConVarValue` is the set's value, and `ConfigConsole.Run` uses it for every direct set; `toggle`,
+`incrementvar` and `multvar` keep their own value. D265's mark strip is unchanged, before any of this.
+
+Tests: `Tokens_AnUnquotedNonAsciiWord_IsOneArgumentPerByte` (`EF BB BF echo x` is four tokens; `alias café x`; `bind k éa`),
+`Tokens_AQuotedNonAsciiString_StaysWhole`, `ConVarValue_ACommand_IsArgSWithTheEnginesTrim` (`CommandTokenizeConformanceTests`);
+`Load_AConVarLine_SetsArgSTrimmedAsTheEngine`, `Load_AnAliasWithANonAsciiWord_RunsItsBytesAgain`
+(`ConfigConsoleConformanceTests`); `Tokens_TwoCharactersSharingALeadByte_DifferInTheirSecondToken`,
+`Tokens_EveryLoneByteSpelledBack_IsTheSameByte`, `Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint`
+(`SourceConfigTests`). `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt` now expects `ArgS`, the quoted padding
+with it. Sabotage, each restored by its inverse edit: the word end compared unsigned reddened the three unquoted cases,
+the alias, Latin-1 and lead-byte tests; a lone byte decoded to U+FFFD reddened those and the spell-back test; a lone byte
+written back one low reddened the spell-back and alias tests; the value trim unsigned reddened both `café` value cases; the
+leading quote kept reddened the quoted value cases; `ArgS` taken from argument 2 reddened every value, length and alias
+test; the console setting `Arg(1)` reddened `éa`, `a b`, the alias and the four running length cases; a quoted string
+decoded as Latin-1 reddened both quoted cases. Not measured on live TF2.
+
+*Left open, not B823:* the viewer's `bind` keeps `tokens[2]` at any count where TF2 prints its usage line above three
+arguments, so `bind k café` binds `caf` here and nothing in TF2; and a numeric setting reads its value with a strict
+`float.TryParse` where the engine sets the float by `atof` (`ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`), so `name 1 2`, now set as `1 2`, applies nothing here.
 
 ## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
 
