@@ -1298,7 +1298,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Settings and the command line (beta.70), open:**
   a live `cl_detaildist` or `cl_detailfade` stays under the map's cap and survives the next level load, where TF2's overrides the cap and reverts at the next level (B800).
 - **Loading (beta.70), open:**
-  after the graphics device is lost, the map is read again on the window's thread (13 to 18 seconds on a large map, with the window not responding; B814), and the reload ends the level's sounds and state, where TF2 restores only the device (recalled, not read); a looping sound that was playing, such as a medigun heal loop, may stay silent until its next scheduled start (not traced; B819);
+  after the graphics device is lost, the map is read again on the window's thread (13 to 18 seconds on a large map, with the window not responding; measured in B146), and the reload ends the level's sounds and state, where TF2 restores only the device (recalled, not read); a looping sound that was playing, such as a medigun heal loop, may stay silent until its next scheduled start (not traced; B819);
   a level's models reach the graphics card on the first frame after the load rather than during it, so that frame takes the load's cost (B815).
 - **Faces (beta.69), open:**
   no draw writes its depth into destination alpha as TF2's main view and 3D sky do, and nothing here reads it yet, so no drawn value changes (B781);
