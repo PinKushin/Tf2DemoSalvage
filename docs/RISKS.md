@@ -45677,7 +45677,8 @@ sabotage, restored by its inverse edit.
    after a `.` or an exponent; no declared default spells these) and the four are pinned as accepted, `1ff` as a string.
 6. *Review 4 item 5's long line (Sonnet)* — wrapped.
 
-**Review 7 (2026-11-24): Fable, Sonnet, Grok.** Each fix's test failed under a sabotage, restored by its inverse edit.
+**Review 7 (2026-11-24): Fable, Sonnet, Grok; Gemini no findings.** Each fix's test failed under a sabotage, restored by
+its inverse edit.
 
 1. *`Applied` missed a state-setting bind (Fable)* — fixed: one predicate, `ConfigConsole.DoesSomething` (expands to an
    action or `SetsState`), decides both `CommandFor` and `Applied`, so a key `CommandFor` runs is a key `Applied` counts.
