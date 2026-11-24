@@ -2,6 +2,8 @@
 
 ## Changes in 0.1.0-beta.72
 
+- **`bind` and `unbind` know TF2's key names (B826).** A key name TF2 does not know, such as `ESC` (TF2's is `ESCAPE`) or `NUMPAD3` (TF2's is `KP_PGDN`), now prints `"<name>" isn't a valid key` and binds nothing, as TF2 does; before, the viewer kept it. Names match TF2's table ignoring case, and the old joystick spelling `aux<n>` binds the button TF2 gives it. The keypad, the punctuation keys, Scroll Lock and the Application key now answer to TF2's names (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), so a TF2 config's binds on them work; a config that named them in the viewer's old Windows spelling (`NumPad3`, `Oemcomma`) needs TF2's names instead. The viewer's own chords, such as `CTRL+e`, can still be bound from a config: TF2 has no chords, so this is above Valve.
+
 - **The launch line is one command buffer, as TF2's (B830).** TF2 adds every `+command` on the command line to its console in one go, and a command of 511 bytes or more is refused together with every `+command` after it; the ones before it still run. The viewer now does the same, where before it refused only the long command. A setting in the refused command or after it is not applied either, the viewer's own folder settings (`cl_game_folder`, `cl_screenshot_folder`) included. Statements on one `+command`'s value before a refused statement still run, as in TF2.
 
 ## Changes in 0.1.0-beta.71
@@ -1281,7 +1283,6 @@ Each claim below is a measurement, not an expectation.
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
 - **Config, binds and the command line (beta.71), open:**
-  `bind` and `unbind` accept a key name TF2 does not know, where TF2 prints `"<name>" isn't a valid key` and binds nothing; whether `ESC` is a name TF2 has is the same question (B826);
   a held CTRL or ALT chord on a menu shortcut such as `CTRL+w` fires again on every auto-repeat, so wireframe flickers while the keys are held (B827);
   an unknown `-flag` leaves its value as a demo path, where TF2 skips it: `-threads 4 a.dem` opens a demo named `4` (B828);
   a viewer one-shot on the command line, such as `+screenshot`, does nothing, where TF2 runs it (B829);

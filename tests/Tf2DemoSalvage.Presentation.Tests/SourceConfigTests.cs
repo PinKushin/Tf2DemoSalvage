@@ -327,13 +327,25 @@ public sealed class SourceConfigTests
 
     /// <remarks>
     /// **`ReadBinds` keeps the console's rules** (B823 review 1, Sonnet, Grok, Fable): `ESCAPE`, in any case, binds
-    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (build 1007 FUN_1801b6a30).
+    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (build 1007 FUN_1801b6a30). The key is the
+    /// table's own name, `ESCAPE` for `escape` (B826: TF2 binds the key the name looks up, not the text).
     /// </remarks>
     [Test]
     public void ReadBinds_EscapeAndUnbindCounts_FollowTheEngine()
     {
         SourceConfig.ReadBinds("bind escape +jump\nunbind ESCAPE\nbind k +back\nunbind k x\nunbind")
-            .ShouldBe([("escape", "cancelselect"), ("k", "+back")]);
+            .ShouldBe([("ESCAPE", "cancelselect"), ("k", "+back")]);
+    }
+
+    /// <remarks>
+    /// **`ReadBinds` skips a name TF2 does not know, and reads `aux` as the joystick button it names** (B826), as the
+    /// console's `bind` and `unbind` do: see `ButtonCodeNames.KeyOf`.
+    /// </remarks>
+    [Test]
+    public void ReadBinds_AnUnknownNameAndAnAuxName_FollowTheEngine()
+    {
+        SourceConfig.ReadBinds("bind ESC +jump\nbind aux0 +attack\nunbind NUMPAD3\nbind k +back")
+            .ShouldBe([("JOY1", "+attack"), ("k", "+back")]);
     }
 
     /// <remarks>

@@ -33,3 +33,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | The viewer's own settings file keeps its menus' cheat ConVars between runs (TF2 keeps none, and refuses them from a config with `sv_cheats` 0) | D253 | `Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne` |
 | A config's UTF-8 byte order mark is stripped, so its first command runs (TF2 keeps the mark, and that command fails: `Unknown command`) | D265 | `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole` |
 | The same strip on a file `exec` reads, so its first command runs | D265 | `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` |
+| `bind` takes a chord, a modifier and `+` before a TF2 key name (`CTRL+e`), as the viewer's own defaults and menu use (TF2 has no chords and says `isn't a valid key`) | B826 | `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds` |

@@ -116,7 +116,10 @@ more. A number reads as C's `atof` reads it: `0x10` is 16, a word where a number
 the value `1 2`. `bind <key> "<command>"` binds, and a command with spaces goes in quotes; `bind <key>` alone shows
 the current bind. `unbind <key>` empties a binding, and `unbindall` keeps `ESCAPE` and the console key. `ESCAPE` always
 stays `cancelselect`. A config that starts with a UTF-8 byte order mark still works: the viewer removes the mark, where
-TF2 would fail the first line (`docs/ABOVE-VALVE.md`). A key name TF2 would refuse is not refused here yet.
+TF2 would fail the first line (`docs/ABOVE-VALVE.md`). Key names are TF2's, matched ignoring case: a name TF2 does not
+know prints `"<name>" isn't a valid key` and binds nothing. The keypad is `KP_INS` … `KP_PGUP`, `KP_SLASH`,
+`KP_MULTIPLY`, `KP_MINUS`, `KP_PLUS` and `KP_DEL`; the punctuation keys are their characters (`,` `.` `-` `=` `\` `` ` ``
+`[` `]` `'` `/`), except `;`, which is `SEMICOLON`; Escape is `ESCAPE`. The viewer also takes a chord such as `CTRL+e`, which TF2 has no name for (`docs/ABOVE-VALVE.md`).
 
 Any key can run any of the viewer's actions, a bare letter included, and `demo_togglepause` can be bound. The keys the
 menus and the HUD show follow binds and aliases made while the viewer runs. Escape, bound or not, leaves full screen,

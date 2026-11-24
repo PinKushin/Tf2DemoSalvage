@@ -1201,18 +1201,26 @@ public sealed class ConfigConsole
 
         if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
         {
-            // `Key_Unbind_f` (`engine.dll` x64 build 1007 FUN_1801b6a30, B823 review 1): see `SourceConfig.Unbinds`.
-            if (SourceConfig.Unbinds(tokens))
+            // `Key_Unbind_f` (`engine.dll` x64 build 1007 FUN_1801b6a30, B823 review 1): the count, then the name (B826), then
+            // `ESCAPE`, which prints its own line; any other key's binding becomes "", not null, so `bind k` then prints
+            // `"k" = ""`.
+            if (tokens.Count != 2)
             {
-                _binds[tokens[1]] = string.Empty;
-                _claimed = null;
-                BindsRevision++;
+                Log.LogInformation("{Message}", "unbind <key> : remove commands from a key");
+            }
+            else if (ButtonCodeNames.KeyOf(tokens[1]) is not { } key)
+            {
+                Log.LogInformation("{Message}", $"\"{tokens[1]}\" isn't a valid key");
+            }
+            else if (SourceConfig.IsEscape(key))
+            {
+                Log.LogInformation("{Message}", "Can't unbind ESCAPE key");
             }
             else
             {
-                Log.LogInformation(
-                    "{Message}",
-                    tokens.Count == 2 ? "Can't unbind ESCAPE key" : "unbind <key> : remove commands from a key");
+                _binds[key] = string.Empty;
+                _claimed = null;
+                BindsRevision++;
             }
 
             return true;
@@ -1256,33 +1264,41 @@ public sealed class ConfigConsole
     /// Read in the decompile and disassembly: only `argc - 2 &lt; 2` acts, so one argument or four and more print the usage
     /// line and change nothing — `bind k café` is five arguments by bytes. Two print the key's binding (`"%s" = "%s"`, or
     /// `"%s" is not bound`); three bind `Arg(2)`, except that key 0x46, `KEY_ESCAPE`, is bound to `cancelselect` whatever
-    /// the line says (*interpolated*: the name matched without case, since the engine's key-name lookup, the vtable call at
-    /// +0xe8, is not read). *Not ported (B826):* `"%s" isn't a valid key` — the key names are the view's (`KeyNames`, D214), so a name
-    /// TF2 does not know is kept here and no key ever reaches it. The binding printed is the table's, seeded defaults
+    /// the line says. Before either, the name is looked up in the input system's table (B826, <see cref="ButtonCodeNames"/>):
+    /// a name it does not know prints `"%s" isn't a valid key` and does nothing, and a known one binds under the table's own
+    /// spelling, so `aux1` and `JOY2` are one key. The show prints the name as typed. The binding printed is the table's, seeded defaults
     /// included: TF2's own defaults come from `config_default.cfg` into the same table, so its `bind F5` prints them, and
     /// <see cref="WithDefaults"/> plays that file's part (B823 review 6, Fable).
     /// </remarks>
     private void Bind(IReadOnlyList<string> tokens)
     {
-        if (tokens.Count == 2)
-        {
-            Log.LogInformation(
-                "{Message}",
-                // A key bound to "" holds a string (build 1007 FUN_1801b65d0 copies it; `unbind` sets one), so it prints `= ""`.
-                _binds.TryGetValue(tokens[1], out string? bound)
-                    ? $"\"{tokens[1]}\" = \"{bound}\""
-                    : $"\"{tokens[1]}\" is not bound");
-            return;
-        }
-
-        if (!SourceConfig.Binds(tokens))
+        if (tokens.Count != 2 && !SourceConfig.Binds(tokens))
         {
             Log.LogInformation("{Message}", "bind <key> [command] : attach a command to a key");
             return;
         }
 
-        _binds[tokens[1]] = SourceConfig.Binding(tokens[1], tokens[2]);
-        _configBound.Add(tokens[1]);
+        // **The name is looked up before the show or the set** (B826): build 1007 FUN_1801b5ea0 asks the input system, and
+        // a name it does not know prints this and does nothing; a known one binds the key under the table's own name.
+        if (ButtonCodeNames.KeyOf(tokens[1]) is not { } key)
+        {
+            Log.LogInformation("{Message}", $"\"{tokens[1]}\" isn't a valid key");
+            return;
+        }
+
+        if (tokens.Count == 2)
+        {
+            Log.LogInformation(
+                "{Message}",
+                // A key bound to "" holds a string (build 1007 FUN_1801b65d0 copies it; `unbind` sets one), so it prints `= ""`.
+                _binds.TryGetValue(key, out string? bound)
+                    ? $"\"{tokens[1]}\" = \"{bound}\""
+                    : $"\"{tokens[1]}\" is not bound");
+            return;
+        }
+
+        _binds[key] = SourceConfig.Binding(key, tokens[2]);
+        _configBound.Add(key);
         _claimed = null;
         BindsRevision++;
     }

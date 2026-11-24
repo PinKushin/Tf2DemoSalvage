@@ -2048,6 +2048,161 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A key name TF2 does not know binds nothing and says so** (B826): `engine.dll` build 1007 FUN_1801b5ea0 asks the
+    /// input system for the name (`inputsystem.dll` x64 FUN_180005880, through the interface's FUN_180003630) and, at -1,
+    /// prints `"%s" isn't a valid key` and returns, for a show and a set alike. `ESC` is not one of TF2's names: its table
+    /// has `ESCAPE`. The control: the same line with `ESCAPE` would bind; here `F1` takes the screenshot.
+    /// </remarks>
+    [TestCase("ESC")]
+    [TestCase("NUMPAD3")]
+    [TestCase("KP_9")]
+    public void Bind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKeyAndBindsNothing(string name)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load($"bind F1 screenshot\nbind {name} screenshot\nbind {name}");
+        console.KeyDown(name);
+        console.KeyDown("F1");
+
+        log.Count($"\"{name}\" isn't a valid key").ShouldBe(2, "the set and the show both say it");
+        fired.ShouldBe([ViewerAction.Screenshot], $"F1 is the control; {name} is bound to nothing");
+    }
+
+    /// <remarks>
+    /// **`unbind` says the same for a name TF2 does not know** (B826; `Key_Unbind_f`, `engine.dll` build 1007 FUN_1801b6a30:
+    /// the lookup at -1 prints `"%s" isn't a valid key`, after the argument count, before the `ESCAPE` check).
+    /// </remarks>
+    [Test]
+    public void Unbind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKey()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("unbind ESC");
+
+        log.Count("\"ESC\" isn't a valid key").ShouldBe(1);
+        log.Count("Can't unbind ESCAPE key").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A name binds the key TF2's table names, whatever its case or spelling** (B826; `inputsystem.dll` x64
+    /// FUN_180005880): the names compare ignoring ASCII case, and `aux&lt;n&gt;` is the legacy joystick spelling, `atoi` of
+    /// the rest: below 29 is `JOY&lt;n+1&gt;`, 29 to 32 the four `POV_` buttons, and anything else no key. So `bind aux1`
+    /// then `bind JOY2` shows the binding, and `bind kp_ins` is `KP_INS`.
+    /// </remarks>
+    [TestCase("aux1", "JOY2")]
+    [TestCase("aux+1", "JOY2")]
+    [TestCase("aux", "JOY1")]
+    [TestCase("aux28", "JOY29")]
+    [TestCase("AUX29", "POV_UP")]
+    [TestCase("aux32", "POV_LEFT")]
+    [TestCase("kp_ins", "KP_INS")]
+    [TestCase("Escape", "ESCAPE")]
+    [TestCase("rshift", "RSHIFT")]
+    [TestCase("RCTRL", "RCTRL")]
+    [TestCase("Ralt", "RALT")]
+    public void Bind_ANameTheTableKnows_BindsTheKeyItNames(string typed, string key)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load($"bind {typed} screenshot\nbind {key}");
+
+        string expected = key == "ESCAPE" ? "cancelselect" : "screenshot";
+        log.Count($"\"{key}\" = \"{expected}\"").ShouldBe(1);
+        log.Count("isn't a valid key").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **`aux` past 32 is no key** (B826; `inputsystem.dll` x64 FUN_180005880 returns -1 for `atoi` of 33 and more).
+    /// </remarks>
+    [Test]
+    public void Bind_AnAuxNamePastThirtyTwo_SaysItIsNotAValidKey()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind aux33 screenshot");
+
+        log.Count("\"aux33\" isn't a valid key").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A chord binds, above Valve** (B826; `docs/ABOVE-VALVE.md`): TF2 has no modifier chords, so no TF2 config holds one,
+    /// and the viewer's own defaults (`CTRL+e`) and menu are chords a config may rebind. A chord is a modifier
+    /// (`CTRL`, `CONTROL`, `SHIFT`, `ALT`) and `+` before a TF2 key name. The control: a chord on a name TF2 does not
+    /// know is refused like the name.
+    /// </remarks>
+    [Test]
+    public void Bind_AChordOfAModifierAndAKeyTf2Knows_Binds()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind CTRL+e screenshot\nbind CTRL+e\nbind CTRL+ESC screenshot\nbind x+e screenshot");
+
+        log.Count("\"CTRL+e\" = \"screenshot\"").ShouldBe(1);
+        log.Count("\"CTRL+ESC\" isn't a valid key").ShouldBe(1, "the control: a key TF2 does not know");
+        log.Count("\"x+e\" isn't a valid key").ShouldBe(1, "the control: no modifier");
+    }
+
+    /// <remarks>
+    /// **A chord's key is stored in the table's spelling** (B826 review 1, Fable): `CTRL+aux1` is `CTRL+JOY2`, the name the
+    /// view resolves, so the two are one chord.
+    /// </remarks>
+    [Test]
+    public void KeyOf_AChordOnAnAuxName_IsTheChordOnItsJoystickButton() =>
+        ButtonCodeNames.KeyOf("CTRL+aux1").ShouldBe("CTRL+JOY2");
+
+    /// <remarks>
+    /// **A chord's shapes** (B826 reviews 1 and 2, Fable): modifiers are taken from the left, so two modifiers and an
+    /// `aux` name with a `+` of its own are chords; a modifier matches ignoring ASCII case only, so `ſHIFT` (U+017F, which
+    /// .NET's `OrdinalIgnoreCase` folds to `S`) is none, as TF2's `V_stricmp` would refuse it. The modifiers are stored in
+    /// one spelling and order, `CTRL+SHIFT+ALT`, so one press is one entry (review 3, Fable); a chord whose key is itself a
+    /// modifier (`CTRL+SHIFT`) is none, since the view could never match that press (review 4, Fable), and nor is one on a
+    /// right-hand modifier (`CTRL+RSHIFT`, review 5, Gemini), though a bare bind on one is a TF2 key. A chord on any other
+    /// key is kept, even one the view never fires (`CTRL+KP_ENTER`, `CTRL+MOUSE1`; reviews 6 and 7).
+    /// </remarks>
+    [TestCase("CTRL+SHIFT+e", "CTRL+SHIFT+e")]
+    [TestCase("SHIFT+CTRL+e", "CTRL+SHIFT+e")]
+    [TestCase("ALT+SHIFT+CTRL+e", "CTRL+SHIFT+ALT+e")]
+    [TestCase("CTRL+CTRL+e", "CTRL+e")]
+    [TestCase("CONTROL+e", "CTRL+e")]
+    [TestCase("ctrl+aux+1", "CTRL+JOY2")]
+    [TestCase("ALT+KP_ins", "ALT+KP_INS")]
+    [TestCase("CTRL+KP_ENTER", "CTRL+KP_ENTER")]
+    [TestCase("CTRL+mouse1", "CTRL+MOUSE1")]
+    [TestCase("CTRL+SHIFT", null)]
+    [TestCase("SHIFT+CTRL", null)]
+    [TestCase("CTRL+RSHIFT", null)]
+    [TestCase("SHIFT+rctrl", null)]
+    [TestCase("ALT+RALT", null)]
+    [TestCase("ſHIFT+e", null)]
+    [TestCase("CTRL+", null)]
+    [TestCase("CTRL++e", null)]
+    [TestCase("+e", null)]
+    public void KeyOf_AChord_IsItsModifiersAndItsKeyInTheTablesSpelling(string name, string? expected) =>
+        ButtonCodeNames.KeyOf(name).ShouldBe(expected);
+
+    /// <remarks>
+    /// **Every key the viewer binds by default is one TF2 names, or a chord on one** (B826): a default on a name the
+    /// console refuses could never be rebound or shown.
+    /// </remarks>
+    [Test]
+    public void Defaults_EveryKey_IsATf2KeyName()
+    {
+        // Spelled as the console stores it, so a config's bind on the same press replaces the default rather than sitting
+        // beside it (B826 review 4).
+        foreach (string key in KeyBindings.Defaults.Values)
+        {
+            ButtonCodeNames.KeyOf(key).ShouldBe(key);
+        }
+    }
+
+    /// <remarks>
     /// **A key that toggles `sv_cheats` is the config's** (B823 review 9, Fable): the console takes `sv_cheats` though it is
     /// replicated (B718), so `toggle`, `incrementvar` and `multvar` on it run, as TF2 runs them, and the key must not fall
     /// back to the viewer's screenshot. `sv_gravity`, replicated and no `sv_cheats`, is refused by the console and is the

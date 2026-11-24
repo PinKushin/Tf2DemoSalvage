@@ -56,19 +56,21 @@ public static class SourceConfig
                 continue;
             }
 
+            // Under the key's own name, and nothing for a name TF2 does not know (B826): see `ButtonCodeNames.KeyOf`.
             if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
             {
-                if (Unbinds(tokens))
+                if (tokens.Count == 2 && ButtonCodeNames.KeyOf(tokens[1]) is { } unbound && !IsEscape(unbound))
                 {
-                    binds.Add((tokens[1], string.Empty));
+                    binds.Add((unbound, string.Empty));
                 }
 
                 continue;
             }
 
-            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && Binds(tokens))
+            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && Binds(tokens) &&
+                ButtonCodeNames.KeyOf(tokens[1]) is { } bound)
             {
-                binds.Add((tokens[1], Binding(tokens[1], tokens[2])));
+                binds.Add((bound, Binding(bound, tokens[2])));
             }
 
             // Everything else — cvars, alias, exec, incrementvar — is somebody else's business.
@@ -82,13 +84,6 @@ public static class SourceConfig
     /// <returns>True at three; two show the binding, and anything else prints the usage line.</returns>
     internal static bool Binds(IReadOnlyList<string> tokens) => tokens.Count == 3;
 
-    /// <summary>Whether an <c>unbind</c> clears its key: exactly two arguments, and not `ESCAPE` (`Key_Unbind_f`).</summary>
-    /// <param name="tokens">The command's arguments, `unbind` first.</param>
-    /// <returns>True when the key's binding becomes the empty string.</returns>
-    /// <remarks>`engine.dll` x64 build 1007 FUN_1801b6a30: `argc != 2` prints the usage line, key 0x46 prints `Can't unbind
-    /// ESCAPE key`; otherwise the binding is set to "" — not null, so `bind k` then prints `"k" = ""` (B823 review 1).</remarks>
-    internal static bool Unbinds(IReadOnlyList<string> tokens) => tokens.Count == 2 && !IsEscape(tokens[1]);
-
     /// <summary>What <c>bind key command</c> stores: `cancelselect` for `ESCAPE`, whatever the line says (build 1007 FUN_1801b5ea0).</summary>
     /// <param name="key">The key's name.</param>
     /// <param name="command">The command the line gives.</param>
@@ -96,8 +91,8 @@ public static class SourceConfig
     internal static string Binding(string key, string command) => IsEscape(key) ? EscapeBinding : command;
 
     /// <summary>Whether a key name is `KEY_ESCAPE` (0x46), the key `bind` and `unbind` treat apart.</summary>
-    /// <remarks>*Interpolated:* matched without case — the engine's key-name lookup (an input system call, vtable +0xe8) is
-    /// not read. `KeyNames` in the view also takes `ESC` for this key, which TF2's name table may not (B826).</remarks>
+    /// <remarks>Given a name already looked up (<see cref="ButtonCodeNames.KeyOf"/>, B826), so `ESCAPE` itself, at code
+    /// 0x46 in TF2's table; `ESC` is not one of its names. The view's `KeyNames` still reads `ESC` for its own keys.</remarks>
     internal static bool IsEscape(string key) => key.Equals(EscapeKey, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether <c>unbindall</c> leaves a key's binding alone: `ESCAPE` and `` ` ``, the console key.</summary>
@@ -105,8 +100,8 @@ public static class SourceConfig
     /// <returns>True for the two keys `Key_Unbindall_f` skips.</returns>
     /// <remarks>
     /// `engine.dll` x64 build 1007 FUN_1801b6b10 (B823 review 2): for every key 0 to 0x27a whose binding is set and not
-    /// empty, except 0x46 (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`), the binding becomes "". The names are TF2's
-    /// `ButtonCodeToString` spellings, *interpolated* (the table is the input system's, not read).
+    /// empty, except 0x46 (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`), the binding becomes "". The names are the input
+    /// system's table's at those codes, `ESCAPE` and `` ` `` (read in B826, `ButtonCodeNames`).
     /// </remarks>
     internal static bool SurvivesUnbindAll(string key) => IsEscape(key) || key == ConsoleKey;
 

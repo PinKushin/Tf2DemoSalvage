@@ -45754,7 +45754,92 @@ failed. Sonnet's nit, one 206-character remark line in `Applied`, is wrapped.
 the settings hold no `sv_cheats` (`ViewerSettings.Parse` drops replicated names) and that the sabotage reddens the
 second press's assertion, not the control.
 
-## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
+## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** The input system's lookup, read in TF2's `inputsystem.dll` x64 (headless Ghidra, project `tf2inputsystem` on
+`D:`): `engine.dll`'s vtable +0xe8 call reaches the thunk FUN_180003630, which calls FUN_180005880 with a member flag
+(byte +0x29c5). That function refuses an empty name; reads a name starting `aux` (`V_strnicmp`, FUN_1800087f0) as `atoi`
+of the rest (FUN_18000d7a0, the CRT's), below 29 the code `n + 0x72` (`JOY1`), 29 to 32 `n + 0x75` (`POV_UP`), else no
+key; and otherwise returns the index of the first of 635 names in the table at 0x180034430 that equals it under
+`V_stricmp` (FUN_1800086f0: ASCII case only, a byte of 0x80 or more must match). With the flag set it also takes 48
+X-controller names (`A_BUTTON` …); *not modelled*, the flag needs a configured controller. `ButtonCodeNames`
+(Presentation) holds the table's first 171 entries in code order and its distinct Steam Controller names, and `KeyOf`
+runs the lookup.
+`bind` (after its argument count) and `unbind` (after its count, before `ESCAPE`) print `"%s" isn't a valid key` for an
+unknown name, as FUN_1801b5ea0 and FUN_1801b6a30 do, and bind under the table's spelling, so `aux1` and `JOY2` are one
+key; `SourceConfig.ReadBinds` does the same for the key projection. `ESC` is not a TF2 name (`ESCAPE` is). **Kept above
+Valve** (`docs/ABOVE-VALVE.md`): a chord, a modifier and `+` before a TF2 name (`CTRL+e`), since the viewer's own
+defaults and menu use them and TF2 configs hold none. *Not handled*: `aux-114` and below, whose code is `KEY_NONE` or
+out of TF2's table (UB there; refused here). Tests `Bind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKeyAndBindsNothing`,
+`Unbind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKey`, `Bind_ANameTheTableKnows_BindsTheKeyItNames`,
+`Bind_AnAuxNamePastThirtyTwo_SaysItIsNotAValidKey`, `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds`,
+`Defaults_EveryKey_IsATf2KeyName`, `ReadBinds_AnUnknownNameAndAnAuxName_FollowTheEngine`. Sabotage: an unknown name
+passed through reddened the six refusal tests; the typed name kept in place of the table's reddened the five spelling
+tests.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed (Fable, Gemini, Sonnet; Fable and Gemini called it a blocker): the
+view named the keypad, the punctuation keys, Scroll Lock and the Application key in WinForms spelling (`NumPad3`,
+`Oemcomma`), which TF2's names refuse, so those keys could no longer be bound at all. `KeyNames` (Viewer3D) now names
+and resolves them as TF2's table does (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), one table both ways. Test
+`KeyNamesConformanceTests.NameOf_EveryKeyTf2Names_IsATf2NameThatResolvesBack`, over the keyboard keys of TF2's table
+the view can tell apart; sabotage: `NumPad3` named in WinForms spelling reddens it. A config that used the viewer's old
+Windows spelling (`bind NumPad3 x`) now needs TF2's (`KP_PGDN`), as TF2 itself does; named in the release notes. Fixed
+(Fable, Grok): the
+chord rule ran before TF2's own lookup, so `aux+1` (`atoi("+1")`, `JOY2` in TF2) was refused; the lookup now runs
+first. Tests: `aux+1`, bare `aux` (`JOY1`) and `aux28` (`JOY29`) added to `Bind_ANameTheTableKnows_BindsTheKeyItNames`.
+Fixed (Fable, low): a chord's key is stored in the table's spelling (`CTRL+aux1` is `CTRL+JOY2`, test
+`KeyOf_AChordOnAnAuxName_IsTheChordOnItsJoystickButton`), its modifiers match ASCII case only, and a bad modifier
+(`x+e`) is tested as refused. Confirmed (Sonnet asked): the `aux` compare is signed in the decompile
+(`(int)uVar2 < 0x1d`), as implemented. *Not handled*: the keypad's Enter is WinForms' `Enter` too; a keypad key with
+Num Lock off arrives as its navigation key (`INS` for `KP_INS`), and keypad 5 as `Clear`, which no bind names; and TF2's
+`RSHIFT`, `RALT` and `RCTRL` are their own keys, where the view names both sides `SHIFT`, `ALT` and `CTRL`, so
+`bind RSHIFT x` is accepted and never fires (review 2, Fable). Telling them apart needs the scan code's extended bit,
+which the view does not read.
+
+**Review 2** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini had no findings. Fixed: `docs/USER-GUIDE.md` still said
+a name TF2 refuses is kept, and now gives TF2's names (Fable); the record above names the keys the view cannot tell
+apart, and the test's own summary no longer claims every key (Fable); a chord's modifiers are taken from the left, so
+`CTRL+aux+1` is the chord on `JOY2` (Fable); the ASCII-only modifier match is tested with `ſHIFT` (U+017F), and the
+chord shapes in `KeyOf_AChord_IsItsModifiersAndItsKeyInTheTablesSpelling` (Fable); the view's pairs are pinned one by
+one in `NameOf_AKeyWhoseTf2NameIsNotItsWinFormsName_IsTf2sName`, since the round trip passes a swapped pair (Sonnet);
+the `KeyNames` summary lists every key that falls through to its WinForms name (Sonnet). Not taken (Grok): `CTRL+e`
+stored as `CTRL+E`, since TF2's table spells letters `a` to `z`; and `[ ] SEMICOLON ' /` missing from `Tf2Names`,
+since `KeyNames` already names them as TF2 does and the round trip covers them.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. Fixed (Fable): the guide called
+every punctuation key its character, where TF2's `;` is `SEMICOLON`, and now lists `[ ] ' /` too; a chord's modifiers
+are stored in one spelling and order, `CTRL+SHIFT+ALT` (`CONTROL` read as `CTRL`), so `CTRL+e` and `CONTROL+e`, or
+`SHIFT+CTRL+e` and `CTRL+SHIFT+e`, are one entry for one press; `CTRL+SHIFT` (a key named like a modifier) and
+`CTRL++e` are tested. Sabotage: the modifiers kept as typed reddens the three spelling cases.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok). No blocker; Grok had no findings. Fixed: a chord whose key is itself a
+modifier (`CTRL+SHIFT`) is refused, since the view reads it as Shift held with Control, a press WinForms reports with
+the Shift modifier too, so it could never fire; this also leaves `SHIFT+CTRL` and `CTRL+SHIFT` no second entry (Fable,
+Gemini, Sonnet). Tested with `ALT+SHIFT+CTRL+e` (order) and `CTRL+CTRL+e` (a repeat collapses) (Fable); the defaults
+test now requires each default in the console's own spelling; the stale `<returns>` text (Fable, Sonnet). Sabotage: the
+guard removed reddens the two `CTRL+SHIFT` cases.
+
+**Review 5** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: a chord on `RSHIFT`, `RCTRL` or `RALT` (`CTRL+RSHIFT`)
+was kept and could never fire, since the view names none of the three (review 2) (Fable, Gemini, Sonnet, Grok); it is
+now refused like one on `SHIFT` (Gemini), tested with `CTRL+RSHIFT`, `SHIFT+rctrl` and `ALT+RALT`. A bare `bind RSHIFT`
+stays, a TF2 key. The `KeyOf` remarks name the six modifiers a chord's key may not be (Sonnet). The brief said all four
+found review 4's defect; the record above is right, Grok had none (Fable, Sonnet).
+
+**Review 6** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. The rule is that a chord's
+key is no modifier, not that the view can name it: a chord on `KP_ENTER`, `MOUSE1` to `MOUSE5` or a controller key is
+kept, as a bare bind on one is, and the chord is inert (Fable, Sonnet); the comment gives `CTRL+KP_ENTER`. Tested
+that a bare `rshift`, `RCTRL` and `Ralt` still bind (Fable, Sonnet); the chord test's remarks cover review 5 (Fable).
+Sabotage: the right-hand refusal applied to a bare name reddens exactly those three.
+
+**Review 7** (Fable, Gemini, Sonnet, Grok). No blocker. Review 6 called a bare mouse bind inert, where the view hands
+`MOUSE1` to `MOUSE5` to the session as they are (`MainForm.OnViewportMouseDown`), so `bind MOUSE1 +attack` fires; only
+the chord is inert, since the press carries no modifier (Fable, Gemini). The record above says so, records its sabotage
+(Fable), and no longer says the comment lists the mouse and controller keys (Grok). Tested that `CTRL+KP_ENTER` and
+`CTRL+mouse1` are kept (Sonnet).
+
+**Review 8** (Fable, Gemini, Sonnet, Grok). No findings.
+
+The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
 +0xe8) and, at -1, prints `"%s" isn't a valid key` and returns, for a show and a set alike (*disassembly*).
