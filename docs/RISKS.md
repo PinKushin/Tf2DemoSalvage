@@ -45957,6 +45957,29 @@ test failed before it or under a sabotage.
 5. *Not changed:* Grok said USER-GUIDE was missing; it was in the commit, outside the part of the diff Grok was given.
    Fable's per-line 511-byte limit is B830. Sonnet's stale test name in the fixed paragraph is corrected below.
 
+**Review 3 (2026-11-24): Sonnet, Fable, Grok.** Each fix's test failed before it.
+
+1. *The settings parser cut a quoted `//` (Sonnet, Fable).* `ViewerSettings.Parse`, which the early store, the console's
+   own announced sets and `settings.cfg` all go through, cut at any `//`, so `+cl_screenshot_folder //nas/shots` stored an
+   empty folder and `--set cl_voice_filter "a//b"` stored `a`. TF2's tokenizer eats a comment only between tokens and a
+   quoted string runs to its quote (`utlbuffer.cpp:1242-1326`), so the cut is now outside quotes only.
+   `Parse_ADoubleSlashInsideQuotes_IsPartOfTheValue` (the control: an unquoted `//` is still a comment).
+2. *An assertion could not fail for its reason (Sonnet, Fable).* `+cl_voice_filter http://x` gave `http:` whether or
+   not the console's parse ran, since the settings parser cut there too; replaced by `café`, which only `ArgS`'s
+   high-byte trim makes `caf` (B823).
+3. *The early state read past a line feed (Fable).* The console splits its buffer into lines before clauses, so
+   `+sv_cheats "\n1"` prints `sv_cheats` and runs `1`; the early state now reads the first line only.
+   `Read_AValueWithALineFeed_IsReadUpToItAsTheConsoleReadsIt`.
+4. *Not changed:*
+   - Grok: an unquoted `//` mid-word (`http://x`) is cut by `SourceConfig.Clauses`, which the console's own buffer
+     split uses too, so the early state agrees with the console. Whether that split matches the engine's mid-word is a
+     question for `Clauses`, not this entry.
+   - Grok: a refused cheat is never stored early (`IsCheat` returns first) and `sv_cheats` is not stored at all; its
+     gate reads `1;x` as 1, as the console's set does.
+   - Fable: a 511-byte value is stored early while the console refuses it; added to B830.
+   - Fable: a quoted `+` name holding a space (`+"sv_cheats 1" x`) skips the line's cheat tracking; the console still
+     decides, only the reader's own refusal line can be wrong. Present since before this entry.
+
 ## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
@@ -45971,7 +45994,8 @@ Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+comma
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
 (`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>
 +fps_max 60` sets `fps_max` here and not in TF2. *Interpolated*: that `Cbuf_AddText` refuses rather than truncates is
-B820's reading of the console limit, not re-read for this path. *Not fixed*.
+B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
+readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
 
 ## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
 

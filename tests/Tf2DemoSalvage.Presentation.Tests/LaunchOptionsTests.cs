@@ -262,7 +262,29 @@ public sealed class LaunchOptionsTests
         Read("--set", "cl_voice_filter", "a;b").Settings.ConVarText("cl_voice_filter").ShouldBe("a;b");
         Read("--set", "cl_voice_filter", "ab", "--set", "cl_voice_filter", string.Empty).Settings.ConVarText("cl_voice_filter")
             .ShouldBe(string.Empty);
-        Read("+cl_voice_filter", "http://x").Settings.ConVarText("cl_voice_filter").ShouldBe("http:");
+        // B824 review 3, Fable: a case the settings parser cannot produce on its own, so only the console's parse gives
+        // it: `ArgS` drops a trailing byte of 0x80 or more (B823), so `café` sets `caf`.
+        Read("+cl_voice_filter", "café").Settings.ConVarText("cl_voice_filter").ShouldBe("caf");
+    }
+
+    /// <remarks>
+    /// **The console's set ends at a line feed** (B824 review 3, Fable): it splits a buffer into lines before clauses
+    /// (`ConfigConsole.BufferCommands`), so `sv_cheats \n1` prints `sv_cheats` and runs `1`, and the line's cheats stay
+    /// off. `SourceConfig.Clauses` does not split there, so the early state reads the first line alone. The control: a
+    /// plain `+sv_cheats 1` turns them on.
+    /// </remarks>
+    [Test]
+    public void Read_AValueWithALineFeed_IsReadUpToItAsTheConsoleReadsIt()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger on = new();
+        RecordingLogger split = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), on);
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "\n1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), split);
+
+        on.Count(Refusal).ShouldBe(0, "the control");
+        split.Count(Refusal).ShouldBe(1);
     }
 
     /// <remarks>
@@ -616,6 +638,21 @@ public sealed class LaunchOptionsTests
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
     /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
     /// </remarks>
+    /// <remarks>
+    /// **A `//` inside quotes is part of the value, not a comment** (B824 review 3, Sonnet): TF2's tokenizer eats a `//`
+    /// comment only between tokens, and a quoted string runs to its closing quote (`utlbuffer.cpp:1242-1326`), so
+    /// `cl_screenshot_folder "//nas/shots"` is that folder. The settings parser cut at any `//`, so a launch
+    /// `+cl_screenshot_folder //nas/shots` stored an empty folder. The control: an unquoted `//` is still a comment.
+    /// </remarks>
+    [Test]
+    public void Parse_ADoubleSlashInsideQuotes_IsPartOfTheValue()
+    {
+        ViewerSettings.Parse("cl_screenshot_folder shots // where they go", null).ScreenshotFolder.ShouldBe("shots", "the control");
+
+        ViewerSettings.Parse("cl_screenshot_folder \"//nas/shots\"", null).ScreenshotFolder.ShouldBe("//nas/shots");
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "//nas/shots").Settings.ScreenshotFolder.ShouldBe("//nas/shots");
+    }
+
     [Test]
     public void Parse_AClientConVarInUpperCase_IsKept() =>
         ViewerSettings.Parse("TF_HUD_TARGET_ID_ALPHA 50", null).ConVarText("tf_hud_target_id_alpha").ShouldBe("50");

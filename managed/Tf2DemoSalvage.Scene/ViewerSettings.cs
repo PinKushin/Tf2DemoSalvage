@@ -1146,11 +1146,23 @@ public sealed record ViewerSettings
         foreach (string line in (text ?? string.Empty).Split('\n'))
         {
             ReadOnlySpan<char> content = line.AsSpan();
-            int comment = content.IndexOf("//", StringComparison.Ordinal);
 
-            if (comment >= 0)
+            // **A `//` is a comment only outside quotes** (B824 review 3, Sonnet, Fable): TF2's tokenizer eats one between
+            // tokens, and a quoted string runs to its closing quote (`utlbuffer.cpp:1242-1326`), so
+            // `cl_screenshot_folder "//nas/shots"` is that folder, not an empty one.
+            bool quoted = false;
+
+            for (int at = 0; at + 1 < content.Length; at++)
             {
-                content = content[..comment];
+                if (content[at] == '"')
+                {
+                    quoted = !quoted;
+                }
+                else if (!quoted && content[at] == '/' && content[at + 1] == '/')
+                {
+                    content = content[..at];
+                    break;
+                }
             }
 
             content = content.Trim();

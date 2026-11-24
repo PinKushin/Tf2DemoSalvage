@@ -458,8 +458,12 @@ public static class LaunchOptionsReader
             // **What the console's set will hold, by the console's own parse of the line** (B824 reviews 1 and 2, Fable,
             // Sonnet): its first clause (`SourceConfig.Clauses`: `;` outside quotes, `//`) and that clause's `ArgS`
             // (`ConVarValue`, B823), or null when the clause has no argument and only prints. A guess from the value's text
-            // missed a quoted `;`, a quoted `""` and a `//`. Only for what the console sets; see the store below.
-            string? held = SourceConfig.Clauses(line) is [string first, ..] && SourceConfig.Tokens(first).Count > 1
+            // missed a quoted `;`, a quoted `""` and a `//`. The console splits its buffer into lines first
+            // (`BufferCommands`), so only the line up to the first line feed counts (B824 review 3, Fable). Only for what
+            // the console sets; see the store below.
+            int lineFeed = line.IndexOf('\n', StringComparison.Ordinal);
+            string firstLine = lineFeed < 0 ? line : line[..lineFeed];
+            string? held = SourceConfig.Clauses(firstLine) is [string first, ..] && SourceConfig.Tokens(first).Count > 1
                 ? SourceConfig.ConVarValue(first)
                 : null;
 
