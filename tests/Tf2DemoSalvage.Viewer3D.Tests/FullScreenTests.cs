@@ -150,6 +150,41 @@ public sealed class FullScreenTests
         form.IsFullScreen.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **Shift with Escape is still Escape** (B825 review 7, Fable): Shift is not a chord here, and Source names the key
+    /// without it (*interpolated*: `keys.cpp` is engine code, not in the SDK). This test proves the view marks the press
+    /// as Escape, so full screen is left; that an Escape press runs no bind is the session's own guard, held by
+    /// `ViewerSessionTests`. The control: full screen before the press.
+    /// </remarks>
+    [Test]
+    public void ProcessCmdKey_ShiftEscapeInFullScreen_LeavesFullScreen()
+    {
+        using EscapeProbe form = new();
+        form.SetFullScreen(true);
+        form.IsFullScreen.ShouldBeTrue("the control");
+
+        form.PressEscape(Keys.Shift).ShouldBeTrue();
+
+        form.IsFullScreen.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **CTRL or ALT with Escape is a chord, not Escape** (B825 review 8, Fable): only Shift is masked, so a mask on the
+    /// key code alone would be caught here. Windows takes both before the form in practice (Start menu, window cycle),
+    /// so this pins the viewer's chord rule rather than an observed TF2 behaviour.
+    /// </remarks>
+    [TestCase(Keys.Control)]
+    [TestCase(Keys.Alt)]
+    public void ProcessCmdKey_AChordedEscapeInFullScreen_StaysInFullScreen(Keys modifier)
+    {
+        using EscapeProbe form = new();
+        form.SetFullScreen(true);
+
+        form.PressEscape(modifier).ShouldBeFalse();
+
+        form.IsFullScreen.ShouldBeTrue();
+    }
+
     [Test]
     public void EnteringFullScreen_TheWindowHandle_SurvivesTheTransition()
     {
@@ -184,10 +219,10 @@ public sealed class FullScreenTests
     /// <summary>Exposes the protected key handler, which is otherwise unreachable from a test.</summary>
     private sealed class EscapeProbe : MainForm
     {
-        public bool PressEscape()
+        public bool PressEscape(Keys modifiers = Keys.None)
         {
             Message message = default;
-            return ProcessKey(ref message, Keys.Escape);
+            return ProcessKey(ref message, Keys.Escape | modifiers);
         }
     }
 

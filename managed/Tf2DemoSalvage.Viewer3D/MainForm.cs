@@ -1235,6 +1235,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <inheritdoc/>
     void IViewerWindow.ShowBindings(KeyBindings bindings) => _menu.ApplyBindings(bindings);
 
+    /// <inheritdoc/>
+    void IViewerWindow.PerformMenuAction(ViewerAction action) => _menu.Perform(action);
+
     // **What a load asks of this window** (`ILoadView`, D214). The load itself — the decode, the map read behind the
     // render barrier, the demo becoming the open one — is `ViewerPresenter`'s; each member below is the part of it that
     // is a window's, called at the moment the load reached for it when it lived here.
@@ -1942,7 +1945,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                     (keyData & (Keys.Control | Keys.Alt)) != Keys.None,
                     FocusKind(),
                     binding => pressed == KeyNames.Resolve(binding),
-                    keyData == Keys.Escape,
+                    // Shift is no chord: Shift+Escape is Escape, which never reaches a bind (B825 review 7, Fable).
+                    // CTRL and ALT stay chords, so neither of them with Escape is Escape (review 8).
+                    (keyData & ~Keys.Shift) == Keys.Escape,
                     $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}",
                     ((long)msg.LParam & PreviousKeyState) != 0))
             || base.ProcessCmdKey(ref msg, keyData);

@@ -157,6 +157,9 @@ internal sealed class FakeViewerWindow : IViewerWindow
 
     /// <summary>The table the window was last told, or null.</summary>
     public KeyBindings? ShownBindings { get; private set; }
+
+    /// <inheritdoc/>
+    public void PerformMenuAction(ViewerAction action) => Told.Add($"PerformMenuAction {action}");
 }
 
 /// <summary>A message queue with a script: what waits at each asking, and what the loop did to the thread.</summary>

@@ -833,6 +833,24 @@ internal sealed class ViewerMenu : IDisposable
         }
     }
 
+    /// <summary>Clicks the item bound to an action, as its shortcut would (B825).</summary>
+    /// <param name="action">The action; nothing happens when no item carries it.</param>
+    /// <remarks>
+    /// The console ran the key's command, and a click is what the item's own handlers answer: a ticking item moves its
+    /// tick and reports the change, as the mouse does.
+    /// </remarks>
+    public void Perform(ViewerAction action)
+    {
+        foreach ((ToolStripMenuItem item, ViewerAction bound, _) in _shortcuts)
+        {
+            if (bound == action)
+            {
+                item.PerformClick();
+                return;
+            }
+        }
+    }
+
     /// <summary>Records an item's action and sets its key now, before the item joins a menu.</summary>
     /// <remarks>
     /// **Set at construction, not by <see cref="ApplyBindings"/> after the strip is assembled.** Setting
@@ -858,7 +876,7 @@ internal sealed class ViewerMenu : IDisposable
 
         // **A key WinForms will not register is printed instead** (B821 review 4, Fable): its setter throws on a shortcut
         // with no modifier unless it is a function key, Insert or Delete, and a config may bind `p` to a menu action. The
-        // item names the key; a held action or a ConVar set works through the console, a menu one-shot does not (B825).
+        // item names the key, and the console performs it: the session asks this menu to click the item (B825).
         Keys keys = Registered(key);
         item.ShortcutKeys = keys;
         item.ShortcutKeyDisplayString = keys == Keys.None && key.Length > 0 ? key : null;

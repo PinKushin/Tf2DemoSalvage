@@ -301,6 +301,24 @@ public sealed class ViewerMenuTests
             KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
     }
 
+    /// <remarks>
+    /// **A one-shot the console ran clicks its menu item** (B825): the session asks the window for the action a key's
+    /// command named, and the item's own handlers answer as for a click, its tick included. The control: unticked before.
+    /// </remarks>
+    [Test]
+    public void PerformMenuAction_TheFrameRateAction_TicksItsItem()
+    {
+        using MainForm form = new();
+
+        ToolStripMenuItem frameRate = Descendants(form.MainMenuStrip)
+            .Single(item => string.Equals(item.Name, MainForm.FrameRateItemId, StringComparison.Ordinal));
+        frameRate.Checked.ShouldBeFalse("the control");
+
+        ((IViewerWindow)form).PerformMenuAction(ViewerAction.FrameRate);
+
+        frameRate.Checked.ShouldBeTrue();
+    }
+
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
         if (strip is null)

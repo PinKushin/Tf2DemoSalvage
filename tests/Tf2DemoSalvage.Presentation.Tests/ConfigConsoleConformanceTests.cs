@@ -967,12 +967,13 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("toggle cl_showpos", true)]
     [TestCase("cl_showpos 1", true)]
     [TestCase("+forward", true)]
-    [TestCase("resetspeed", false)]
+    [TestCase("resetspeed", true)]
     [TestCase("+strafe", false)]
     public void KeyDown_WhatTheBindDid_IsReportedSoTheHostCanTakeTheKey(string command, bool expected)
     {
-        // `resetspeed` is one of the viewer's own one-shots, whose key the host routes itself; `+strafe` is TF2's and
-        // means nothing here. Neither did anything of the console's, so neither may take the key from the window.
+        // `resetspeed` is one of the viewer's own one-shots, which the host performs from the console's `Triggered` since
+        // B825, so it takes the key: a menu shortcut on the same key must not fire it again. Until B825 it did not, and
+        // the host matched the key itself. `+strafe` is TF2's and means nothing here, so it may not take the key.
         ConfigConsole console = new();
         console.Load($"bind k \"{command}\"");
 

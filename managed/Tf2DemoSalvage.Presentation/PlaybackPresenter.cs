@@ -158,6 +158,20 @@ public sealed class PlaybackPresenter
     /// <remarks>Host frame time accumulates per frame; a skip's frames read the demo and spend none of it on playback (B708).</remarks>
     public void HoldClock() => _elapsed.Restart();
 
+    /// <summary>`demo_togglepause`: pauses while playing, plays while paused (B825).</summary>
+    public void TogglePause()
+    {
+        if (_view.Playing)
+        {
+            _view.Playing = false;
+            _elapsed.Reset();
+            return;
+        }
+
+        Play();
+    }
+
+    /// <summary>Starts playback, when a demo is loaded.</summary>
     public void Play()
     {
         if (_clock is null)
