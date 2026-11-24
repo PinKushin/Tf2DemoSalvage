@@ -111,13 +111,25 @@ A config's `exec` runs the named file from the same places (`exec comfig/comfig`
 config split across files, as mastercomfig's is, runs whole. Aliases work from a config line, a key and another alias
 alike, as in TF2.
 
+Config text is read as TF2 reads it. A line is split into words by bytes, so a word ends at any byte of 0x80 or
+more. A number reads as C's `atof` reads it: `0x10` is 16, a word where a number belongs is 0, and `name 1 2` sets
+the value `1 2`. `bind <key> "<command>"` binds, and a command with spaces goes in quotes; `bind <key>` alone shows
+the current bind. `unbind <key>` empties a binding, and `unbindall` keeps `ESCAPE` and the console key. `ESCAPE` always
+stays `cancelselect`. A config that starts with a UTF-8 byte order mark still works: the viewer removes the mark, where
+TF2 would fail the first line (`docs/ABOVE-VALVE.md`). A key name TF2 would refuse is not refused here yet.
+
+Any key can run any of the viewer's actions, a bare letter included, and `demo_togglepause` can be bound. The keys the
+menus and the HUD show follow binds and aliases made while the viewer runs. Escape, bound or not, leaves full screen,
+and so does Shift+Escape.
+
 A command the viewer does not implement is ignored, and the key stays free for whatever else uses it. A key you
 bind to a command the viewer does not implement loses its default action.
 
 You can run a console command for one run only, as on TF2's launch line: `tf2demoview <demo> +fps_max 0`,
 `+exec my.cfg` or `+toggle cl_showfps`. It runs after your configs. As in TF2, a `+command` takes the one argument
 after it as its value, and none when that argument starts with `+` or `-`: `+mat_picmip -1` sets nothing. To set a
-cvar to a negative value, use `--set <cvar> <value>`, which takes the value whole.
+cvar to a negative value, use `--set <cvar> <value>`, which takes the value whole. The viewer's one-shot actions
+(`+screenshot` and the like) do nothing from the command line yet.
 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while
