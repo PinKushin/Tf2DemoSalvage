@@ -130,16 +130,18 @@ public sealed class LaunchOptionsTests
     public void Read_AnUnknownFlagBeforeAFolder_OpensTheFolder()
     {
         RecordingLogger log = new();
-        const string Bare = "b828-folder";
-        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(Bare)).FullName;
+
+        // A name of its own per run (B828 review 4, Fable): Stryker's test hosts share one working directory.
+        string bare = $"b828-folder-{Guid.NewGuid():N}";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(bare)).FullName;
         string missing = System.IO.Path.GetFullPath("no-such-folder-b828");
 
         try
         {
             LaunchOptions read = LaunchOptionsReader.Read(
-                ["-novid", folder, "-novid", missing, "-game", Bare, "-novid", $"./{Bare}"], ViewerSettings.Load(), log);
+                ["-novid", folder, "-novid", missing, "-game", bare, "-novid", $"./{bare}"], ViewerSettings.Load(), log);
 
-            read.Paths.ShouldBe([folder, $"./{Bare}"]);
+            read.Paths.ShouldBe([folder, $"./{bare}"]);
         }
         finally
         {
@@ -156,14 +158,17 @@ public sealed class LaunchOptionsTests
     public void Read_AnUnknownFlagBeforeADriveRelativeFolder_OpensTheFolder()
     {
         RecordingLogger log = new();
-        const string Bare = "b828-drive";
-        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(Bare)).FullName;
-        string driveRelative = folder[..2] + Bare;
+        string bare = $"b828-drive-{Guid.NewGuid():N}";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(bare)).FullName;
+        string driveRelative = folder[..2] + bare;
 
         try
         {
+            // A working directory on a drive letter (review 4, Fable): a UNC one has no drive-relative spelling.
+            Assume.That(folder[1], Is.EqualTo(':'));
+
             LaunchOptions read = LaunchOptionsReader.Read(
-                ["-game", Bare, "-novid", driveRelative], ViewerSettings.Load(), log);
+                ["-game", bare, "-novid", driveRelative], ViewerSettings.Load(), log);
 
             read.Paths.ShouldBe([driveRelative]);
         }

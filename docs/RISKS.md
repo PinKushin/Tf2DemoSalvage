@@ -46336,6 +46336,12 @@ a `\`, a file name character on Linux, where CI runs this suite, so it would hav
 (`C:b828-drive`, rooted with no separator) had no test of its own, so the `IsPathRooted` half could go (Fable, Gemini):
 a Windows-only test keeps it and drops the bare name; sabotage: that half made false reddens it alone.
 
+**Review 4** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): the two folder
+tests name their folder per run, since Stryker's test hosts may share a working directory and one host's delete could
+fall between another's create and read; the drive-relative test is skipped when the working directory has no drive
+letter (a UNC path). Recorded (Fable): the mutation job runs Presentation on Linux, where the drive-relative test is
+skipped, so the `IsPathRooted` mutant survives there every run; that is expected, not a gap.
+
 The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
