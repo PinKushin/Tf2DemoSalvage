@@ -158,9 +158,12 @@ public sealed partial class ViewerSession
     /// <see cref="ConfigConsole.HeldActions"/> rather than by the command's spelling, because TF2
     /// writes the camera switch as `+jump` even though nothing about it is continuous.
     ///
-    /// **Camera mode and reset are still handled in <see cref="KeyPressed"/> by comparing keys.** Every key is pressed
-    /// into the console since B547, so these one-shots arrive here too and are ignored; moving their handling here is
-    /// the remaining half of B145, and would let an alias reach them.
+    /// **Every one-shot is performed here, whatever key, alias or button ran it** (B825, the remaining half of B145): TF2
+    /// runs every bound key's command through the console. Before, camera mode and the resets were matched by key in
+    /// <see cref="KeyPressed"/>, the menu's actions only by the item's registered shortcut — which WinForms refuses for a
+    /// bare letter — and play/pause by nothing at all. The session's own one-shots act here; the rest are the menu
+    /// item's, asked of the window so its tick moves as a click's does. A CTRL or ALT chord does not reach the console
+    /// and keeps its route through <see cref="KeyPressed"/> and the menu shortcut.
     /// </remarks>
     private void OnConsoleAction(object? sender, ViewerActionEventArgs e)
     {
@@ -174,7 +177,36 @@ public sealed partial class ViewerSession
                 _camera.CycleTarget(reverse: true);
                 break;
 
+            case ViewerAction.SwitchCameraMode:
+                _ = _camera.CycleCameraMode();
+                break;
+
+            case ViewerAction.FirstPersonView:
+                _ = _camera.EnterFirstPerson();
+                break;
+
+            case ViewerAction.ThirdPersonView:
+                _ = _camera.EnterThirdPerson();
+                break;
+
+            case ViewerAction.ResetSpeed:
+                _transport.ResetSpeed();
+                break;
+
+            case ViewerAction.ResetCamera:
+                _ = _camera.ResetCamera();
+                break;
+
+            case ViewerAction.Screenshot:
+                CaptureViewportToFile();
+                break;
+
+            case ViewerAction.PlayPause:
+                _playback.TogglePause();
+                break;
+
             default:
+                _window.PerformMenuAction(e.Action);
                 break;
         }
     }
@@ -273,9 +305,9 @@ public sealed partial class ViewerSession
         // - an auto-repeat runs nothing, since Source binds the press; but the key stays the bind's while it is held;
         // - CTRL or ALT with a key is not that key, because Source's `bind` has no modifier syntax - the viewer's own
         //   chords live there; the modifier keys themselves are plain keys (`bind CTRL +duck`);
-        // - a bind that did something of the console's own takes the key, so a menu shortcut on the same key does not
-        //   also fire: the user's config wins a collision (D101). A one-shot of the viewer's own does not, and goes on
-        //   to its route below.
+        // - a bind that did something takes the key, so a menu shortcut on the same key does not also fire: the user's
+        //   config wins a collision (D101). A one-shot of the viewer's own counts too since B825: `OnConsoleAction`
+        //   performs it. The chord checks below are for CTRL and ALT chords, which never reach the console.
         // A repeat is asked about first: a bound key held while CTRL is tapped repeats as a chord, and must not turn into
         // the viewer's CTRL shortcut on every repeat (hold W, tap CTRL: CTRL+W would toggle wireframe each time).
         if (key.IsRepeat && _boundKeysDown.Contains(key.Name))

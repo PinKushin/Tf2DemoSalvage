@@ -1648,7 +1648,7 @@ public sealed class ConfigConsole
     }
 
     /// <summary>Applies one fully-expanded command.</summary>
-    /// <returns>Whether it moved a button; a one-shot is the host's to route, so it is not counted.</returns>
+    /// <returns>Whether it moved a button or raised a one-shot, which the host performs (B825), so the key is taken.</returns>
     private bool Perform(string command, string? key)
     {
         if (command.StartsWith('-'))
@@ -1665,9 +1665,10 @@ public sealed class ConfigConsole
 
         if (!HeldActions.Contains(action))
         {
-            // One-shot: fired on the press, and the release half above has nothing to undo.
+            // One-shot: fired on the press, and the release half above has nothing to undo. It counts, so the key is the
+            // bind's and a menu shortcut on the same key does not fire it again (B825).
             Triggered?.Invoke(this, new ViewerActionEventArgs(action));
-            return false;
+            return true;
         }
 
         Press(action, key ?? AliasIssued);

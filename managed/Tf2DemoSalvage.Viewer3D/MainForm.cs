@@ -1235,6 +1235,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <inheritdoc/>
     void IViewerWindow.ShowBindings(KeyBindings bindings) => _menu.ApplyBindings(bindings);
 
+    /// <inheritdoc/>
+    void IViewerWindow.PerformMenuAction(ViewerAction action) => _menu.Perform(action);
+
     // **What a load asks of this window** (`ILoadView`, D214). The load itself — the decode, the map read behind the
     // render barrier, the demo becoming the open one — is `ViewerPresenter`'s; each member below is the part of it that
     // is a window's, called at the moment the load reached for it when it lived here.

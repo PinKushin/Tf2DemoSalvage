@@ -833,6 +833,24 @@ internal sealed class ViewerMenu : IDisposable
         }
     }
 
+    /// <summary>Clicks the item bound to an action, as its shortcut would (B825).</summary>
+    /// <param name="action">The action; nothing happens when no item carries it.</param>
+    /// <remarks>
+    /// The console ran the key's command, and a click is what the item's own handlers answer: a ticking item moves its
+    /// tick and reports the change, as the mouse does.
+    /// </remarks>
+    public void Perform(ViewerAction action)
+    {
+        foreach ((ToolStripMenuItem item, ViewerAction bound, _) in _shortcuts)
+        {
+            if (bound == action)
+            {
+                item.PerformClick();
+                return;
+            }
+        }
+    }
+
     /// <summary>Records an item's action and sets its key now, before the item joins a menu.</summary>
     /// <remarks>
     /// **Set at construction, not by <see cref="ApplyBindings"/> after the strip is assembled.** Setting

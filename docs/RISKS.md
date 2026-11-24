@@ -45336,7 +45336,20 @@ word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argum
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
-## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
+## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — FIXED (2026-11-23)
+
+**Fixed.** `ViewerSession.OnConsoleAction` performs every one-shot the console raises, whatever key, alias or button
+ran it, as TF2 runs every bound key's command through the console: the session's own (camera mode, first and third
+person, the resets, screenshot, and play/pause through a new `PlaybackPresenter.TogglePause`) act there, and the rest
+are the menu item's, asked of the window (`IViewerWindow.PerformMenuAction`, a click on the item, so its tick moves as a
+click's does). `ConfigConsole.Perform` now counts a one-shot, so the console takes the key and a registered menu
+shortcut on it does not fire the action again; this reverses B547's rule that a one-shot left the key to the window,
+and `KeyDown_WhatTheBindDid_IsReportedSoTheHostCanTakeTheKey("resetspeed")` now expects it taken. A CTRL or ALT chord
+never reaches the console and keeps its route through `KeyPressed` and the menu shortcut. Found doing it: `demo_togglepause`
+on `o`, the default play/pause key, was performed by nothing. Tests: `KeyPressed_ABareKeyOnAMenuOneShot_PerformsItsMenuActionOnce`
+(four commands), `KeyPressed_ThePlayPauseBinding_PausesPlayback`, `KeyPressed_AnAliasNamingResetSpeed_ResetsTheSpeedOnce`,
+`PerformMenuAction_TheFrameRateAction_TicksItsItem`; red with the dispatch removed, with the one-shot not counted (the
+reset then ran twice), and with the menu clicking nothing.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's

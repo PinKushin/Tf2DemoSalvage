@@ -1269,7 +1269,59 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key(reset)).ShouldBeTrue();
 
-        // ONCE (B547): the key also goes to the console, which raises the one-shot; `OnConsoleAction` must ignore it.
+        // ONCE (B547, B825): the key goes to the console, whose one-shot `OnConsoleAction` performs and the key is taken.
+        rig.Transport.Speeds.ShouldBe([1d]);
+    }
+
+    /// <remarks>
+    /// **A bare key on a menu one-shot performs it, once** (B825): WinForms registers no shortcut for `p`, so the menu item
+    /// never fired, and the console raised the one-shot for nobody. TF2 runs every bound key through the console; here the
+    /// session asks the window to perform the item's action, and the console takes the key, so a registered menu shortcut
+    /// on the same key does not fire it a second time. The control: before the press, nothing was performed.
+    /// </remarks>
+    [TestCase("opendemo", ViewerAction.OpenDemo)]
+    [TestCase("togglefullscreen", ViewerAction.FullScreen)]
+    [TestCase("cl_showfps", ViewerAction.FrameRate)]
+    [TestCase("mat_surfacecolours", ViewerAction.SurfaceColours)]
+    public void KeyPressed_ABareKeyOnAMenuOneShot_PerformsItsMenuActionOnce(string command, ViewerAction action)
+    {
+        using Rig rig = BuildWithAutoexec($"unbindall\nbind p {command}\n");
+        string performed = $"PerformMenuAction {action}";
+        rig.Window.Told.ShouldNotContain(performed, "the control: nothing performed before the press");
+
+        rig.Session.KeyPressed(Key("p")).ShouldBeTrue("the console takes the key");
+
+        rig.Window.Told.Count(told => told == performed).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The play/pause key pauses** (B825): `demo_togglepause` on `o` reached the console and nothing performed it, since no
+    /// menu item carries play/pause. The control: playing before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_ThePlayPauseBinding_PausesPlayback()
+    {
+        using Rig rig = Build();
+        rig.Transport.Playing = true;
+        string playPause = rig.Session.Bindings.KeyFor(ViewerAction.PlayPause).ShouldNotBeNull();
+
+        rig.Session.KeyPressed(Key(playPause)).ShouldBeTrue();
+
+        rig.Transport.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **An alias reaches a session one-shot** (B825): the reset was matched by key in `KeyPressed`, so `alias go resetspeed`
+    /// on `p` raised it through the console for nobody. The control: no speed set before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AnAliasNamingResetSpeed_ResetsTheSpeedOnce()
+    {
+        using Rig rig = BuildWithAutoexec("unbindall\nalias go resetspeed\nbind p go\n");
+        rig.Transport.Speeds.ShouldBeEmpty("the control");
+
+        rig.Session.KeyPressed(Key("p")).ShouldBeTrue();
+
         rig.Transport.Speeds.ShouldBe([1d]);
     }
 
