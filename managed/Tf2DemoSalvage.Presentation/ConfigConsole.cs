@@ -492,7 +492,8 @@ public sealed class ConfigConsole
     /// <remarks>
     /// A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
     /// Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
-    /// Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
+    /// Each config line's budgets are its own, the whole launch line shares one set (B830), and the outer command's are put
+    /// back by `RunCommand` (B820 reviews 3-5).
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
     /// </remarks>
     private void AtStartup(Action run)
@@ -1241,7 +1242,8 @@ public sealed class ConfigConsole
     /// </remarks>
     public const int MaximumAliasRuns = 4096;
 
-    /// <summary>Aliases run since the last line began; see <see cref="MaximumAliasRuns"/>.</summary>
+    /// <summary>Aliases run since the current command began (a key, a config line, or the whole launch line, B830); see
+    /// <see cref="MaximumAliasRuns"/>.</summary>
     private int _aliasRuns;
 
     /// <summary>`COMMAND_MAX_LENGTH`: a command of this many bytes less one or more is skipped (`src/public/tier1/convar.h:207`).</summary>
