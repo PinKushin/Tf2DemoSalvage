@@ -43500,6 +43500,28 @@ gate.
    test pins Silk's null-handle `Dispose`, not code of ours, so no edit here can turn it red. It goes red only if a
    Silk update changes that behaviour.
 
+### Review 11 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `7ba3d024a`. All four reviewers called round 10 mergeable; these are minor.
+
+1. **The packing doc said more than the check** (Fable). *Reworded*: only a packed triangle that does not start a face
+   and no longer follows its own predecessor is refused. A face split across groups whose triangles still follow their
+   predecessors, as T0 (B, edge) then T1 (A, no edge) packs, passes with one plane. That is correct, since the buffer
+   also counts one face.
+2. **The production undo was untested** (Fable). *Fixed*: the register and undo pair over the two dictionaries is
+   `WorldRenderer.CreateAndRegisterModel`, which `UploadModel` calls with `_modelBuffers` and `_modelOutlines`. Test:
+   `CreateAndRegisterModel_WhenTheOutlineInsertThrows_LeavesThePathInNeitherDictionary`. The outline dictionary's
+   comparer throws on its first hash, so the vertex buffer is stored and then the outline insert fails. Both keys are
+   gone afterwards and each buffer is released once. Red, the path still in the vertex buffers, with the vertex
+   buffers' `Remove` deleted. The outlines' `Remove` cannot be reddened this way. The outline insert is the
+   registration's last write, so when it fails there is nothing left in that dictionary to remove; that `Remove` only
+   guards a future registration that writes more after it. The comparer throws `ArgumentException`, standing in for
+   an out-of-memory insert (CA1065 allows only that type from a hash).
+3. **The studio-model test did not pin what it claimed** (Grok, Sonnet). *Replaced*: `Dispose_ADefaultComPtr_DoesNothing`
+   calls `Dispose` on a default `ComPtr<ID3D11Buffer>` directly. Its remark says only a Silk update can turn it red.
+4. **The undo comes before the releases** (Fable). *Asserted*: the registration-throws test records its steps,
+   `["undone", "vertices released", "outline released"]`. Red, with the undo moved after the releases.
+
 *As found (2026-11-21):*
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under

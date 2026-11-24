@@ -8475,24 +8475,54 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps to
         // `debugmrmwireframe` instead (B788) and needs none, and its default outline's release is a no-op (Silk's
         // null-handle Dispose, pinned by CreateAndRegisterTests).
-        CreateAndRegister(
+        CreateAndRegisterModel(
+            _modelBuffers,
+            _modelOutlines,
+            path,
+            faces,
             () => faces is not null ? CreateOutline(device, model.Vertices, path) : default,
-            () => CreateImmutableVertexBuffer(device, description, data),
+            () => CreateImmutableVertexBuffer(device, description, data));
+    }
+
+    /// <summary>
+    /// Makes a model's outline and vertex buffer and registers them by <paramref name="path"/> in the renderer's two
+    /// dictionaries, or, on a failure, neither (B803 reviews 9-11).
+    /// </summary>
+    /// <param name="buffers">The vertex buffers by path, <c>_modelBuffers</c>.</param>
+    /// <param name="outlines">The brush entities' outlines and faces by path, <c>_modelOutlines</c>.</param>
+    /// <param name="path">The model's path.</param>
+    /// <param name="faces">A brush entity's outline faces, or null for a model with no outline.</param>
+    /// <param name="createOutline">Makes the outline; a default one when <paramref name="faces"/> is null.</param>
+    /// <param name="createVertices">Makes the vertex buffer, or throws.</param>
+    /// <remarks>
+    /// Takes the dictionaries so the undo can be tested without a device (review 11, Fable): a registration that throws
+    /// after its first insert removes the path from both, so neither names a buffer that is then released.
+    /// </remarks>
+    internal static void CreateAndRegisterModel<TBuffer>(
+        Dictionary<string, TBuffer> buffers,
+        Dictionary<string, (TBuffer Buffer, FacePlane[] Faces)> outlines,
+        string path,
+        FacePlane[]? faces,
+        Func<TBuffer> createOutline,
+        Func<TBuffer> createVertices)
+        where TBuffer : IDisposable =>
+        CreateAndRegister(
+            createOutline,
+            createVertices,
             (outline, buffer) =>
             {
-                _modelBuffers[path] = buffer;
+                buffers[path] = buffer;
 
                 if (faces is not null)
                 {
-                    _modelOutlines[path] = (outline, faces);
+                    outlines[path] = (outline, faces);
                 }
             },
             () =>
             {
-                _modelBuffers.Remove(path);
-                _modelOutlines.Remove(path);
+                buffers.Remove(path);
+                outlines.Remove(path);
             });
-    }
 
     /// <summary>Makes a model's outline, then its vertex buffer, and registers both; on a failure, neither (B803 reviews 9-10).</summary>
     /// <param name="createOutline">Makes the outline, which this owns until it is registered.</param>

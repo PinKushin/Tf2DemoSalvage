@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
@@ -38,24 +39,44 @@ public sealed class CreateAndRegisterTests
     /// <remarks>
     /// **A registration that throws part way is undone and releases both** (review 10, Grok, Fable): the registration writes
     /// the vertex buffer's dictionary, then the outline's, and an insert can fail between them. The undo runs, both are
-    /// released once, and the failure reaches the caller unchanged, so no dictionary is left naming a released buffer.
+    /// released once, and the failure reaches the caller unchanged, so no dictionary is left naming a released buffer. The
+    /// undo runs first (review 11, Fable), so nothing is released while a dictionary still names it.
     /// </remarks>
     [Test]
     public void CreateAndRegister_WhenTheRegistrationThrows_UndoesItAndReleasesBoth()
     {
-        Resource outline = new();
-        Resource vertices = new();
+        List<string> steps = [];
+        Resource outline = new(steps, "outline released");
+        Resource vertices = new(steps, "vertices released");
         InvalidOperationException failure = new("no room");
-        int unregistered = 0;
 
         Should.Throw<InvalidOperationException>(() => WorldRenderer.CreateAndRegister(
                 () => outline,
                 () => vertices,
                 (_, _) => throw failure,
-                () => unregistered++))
+                () => steps.Add("undone")))
             .ShouldBeSameAs(failure);
 
-        (outline.Released, vertices.Released, unregistered).ShouldBe((1, 1, 1));
+        steps.ShouldBe(["undone", "vertices released", "outline released"]);
+    }
+
+    /// <remarks>
+    /// **The renderer's own undo removes the path from both dictionaries** (review 11, Fable): the registration stores the
+    /// vertex buffer, then its outline insert throws. The path is in neither dictionary afterwards, and each buffer is
+    /// released once; without the vertex buffers' `Remove`, `_modelBuffers` would name a released buffer.
+    /// </remarks>
+    [Test]
+    public void CreateAndRegisterModel_WhenTheOutlineInsertThrows_LeavesThePathInNeitherDictionary()
+    {
+        Resource outline = new();
+        Resource vertices = new();
+        Dictionary<string, Resource> buffers = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, (Resource Buffer, FacePlane[] Faces)> outlines = new(new FailsItsFirstHash());
+
+        Should.Throw<ArgumentException>(() => WorldRenderer.CreateAndRegisterModel(
+            buffers, outlines, "*1", [], () => outline, () => vertices));
+
+        (buffers.ContainsKey("*1"), outlines.ContainsKey("*1"), outline.Released, vertices.Released).ShouldBe((false, false, 1, 1));
     }
 
     /// <remarks>The control: both made, both registered, nothing released or undone.</remarks>
@@ -74,31 +95,51 @@ public sealed class CreateAndRegisterTests
     }
 
     /// <remarks>
-    /// **A studio model's outline is a default ComPtr, and releasing it is a no-op** (review 10, Fable): a studio model has
-    /// no outline, so when its vertex buffer fails the release runs on a null handle. Silk's <c>ComPtr.Dispose</c> skips a
-    /// null handle; were it to throw or fault, the vertex buffer's failure would be replaced by another. The failure still
-    /// reaches the caller unchanged.
+    /// **Releasing a default ComPtr does nothing** (reviews 10-11, Fable, Grok, Sonnet): a studio model has no outline, so
+    /// when its vertex buffer fails, <c>CreateAndRegister</c> releases a default one. This pins Silk's null-handle
+    /// <c>Dispose</c>, not code of this project's: only a Silk update can turn it red.
     /// </remarks>
     [Test]
-    public void CreateAndRegister_ForAStudioModelWhoseVertexBufferThrows_RethrowsItsFailure()
+    public void Dispose_ADefaultComPtr_DoesNothing()
     {
-        InvalidOperationException failure = new("no vertex buffer");
+        ComPtr<ID3D11Buffer> none = default;
 
-        Should.Throw<InvalidOperationException>(() => WorldRenderer.CreateAndRegister<ComPtr<ID3D11Buffer>, ComPtr<ID3D11Buffer>>(
-                () => default,
-                () => throw failure,
-                (_, _) => { },
-                () => { }))
-            .ShouldBeSameAs(failure);
+        Should.NotThrow(() => none.Dispose());
     }
 
-    /// <summary>A buffer that counts its releases.</summary>
-    private sealed class Resource : IDisposable
+    /// <summary>A buffer that counts its releases, and writes each to a shared list of steps when given one.</summary>
+    private sealed class Resource(List<string>? steps = null, string name = "") : IDisposable
     {
         /// <summary>How many times it was released.</summary>
         public int Released { get; private set; }
 
         /// <inheritdoc/>
-        public void Dispose() => Released++;
+        public void Dispose()
+        {
+            Released++;
+            steps?.Add(name);
+        }
+    }
+
+    /// <summary>A key comparer whose first hash throws, so a dictionary's first insert fails and later calls work.</summary>
+    private sealed class FailsItsFirstHash : IEqualityComparer<string>
+    {
+        private bool _failed;
+
+        /// <inheritdoc/>
+        public bool Equals(string? x, string? y) => StringComparer.OrdinalIgnoreCase.Equals(x, y);
+
+        /// <inheritdoc/>
+        public int GetHashCode(string obj)
+        {
+            if (!_failed)
+            {
+                _failed = true;
+                // An argument exception, the one a hash may raise (CA1065); it stands in for the insert's out-of-memory.
+                throw new ArgumentException("no room", nameof(obj));
+            }
+
+            return StringComparer.OrdinalIgnoreCase.GetHashCode(obj);
+        }
     }
 }
