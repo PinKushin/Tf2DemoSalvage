@@ -45413,11 +45413,17 @@ this entry; moved. Gemini (round 5, read after the round-6 edits): no findings.
 
 **Review 7 (2026-11-24).** Sonnet, Grok, Gemini: no findings. Fable: Shift+Escape was not Escape to the view
 (`keyData == Keys.Escape`), so it reached the console as `ESCAPE` and, now that a one-shot runs, ran a config's Escape bind
-and stayed in full screen. Source names the key alone, and Shift is no chord here. *Fixed*: the view masks Shift off the
+and stayed in full screen. Source names the key alone (*interpolated*: `keys.cpp` is engine code, not in the SDK), and
+Shift is no chord here. *Fixed*: the view masks Shift off the
 Escape test (`ProcessCmdKey_ShiftEscapeInFullScreen_LeavesFullScreen`, red before). Fable: the Escape theory had no
 control that its bind took; it asserts `KeyFor` first. *Not changed* (Fable): `opendemo` opens its modal dialog inside
 the key's press, so a release during it re-adds a released key; the stale entry clears on the next press and release,
 and no failing case was found.
+
+**Review 8 (2026-11-24).** Sonnet, Grok: no findings. Fable, nits only: nothing pinned CTRL or ALT with Escape as a chord,
+so a key-code-only mask would pass (`ProcessCmdKey_AChordedEscapeInFullScreen_StaysInFullScreen`, both cases; Windows
+takes these presses first in practice); the Shift+Escape test's remark claimed more than it proves, now narrowed; and the
+`keys.cpp` citation is marked interpolated.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's

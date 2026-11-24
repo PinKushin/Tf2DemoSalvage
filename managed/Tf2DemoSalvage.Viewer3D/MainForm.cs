@@ -1946,6 +1946,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                     FocusKind(),
                     binding => pressed == KeyNames.Resolve(binding),
                     // Shift is no chord: Shift+Escape is Escape, which never reaches a bind (B825 review 7, Fable).
+                    // CTRL and ALT stay chords, so neither of them with Escape is Escape (review 8).
                     (keyData & ~Keys.Shift) == Keys.Escape,
                     $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}",
                     ((long)msg.LParam & PreviousKeyState) != 0))
