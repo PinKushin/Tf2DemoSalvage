@@ -791,6 +791,30 @@ public sealed class MapAssets
     /// <summary>A world decal draws with this in place of its own under <c>mat_wireframe</c>, `0x18069b3f8` (`FUN_1800c6210`).</summary>
     public const string DecalWireframePath = "debug/debugdecalwireframe";
 
+    /// <summary>The five wireframe VMTs as `platform_misc` ships them, read only when the archives lack them (B833).</summary>
+    /// <remarks>
+    /// **Above Valve** (`docs/ABOVE-VALVE.md`): TF2 cannot run without its archives, but this viewer must, and without these
+    /// `mat_wireframe` drew nothing on a machine with no install. The text is the shipped files' (`game-file` probe,
+    /// 2026-11-24) less their comment lines; only the shader, `$color` and `$ignorez` are read.
+    /// </remarks>
+    private static readonly Dictionary<string, byte[]> BuiltInWireframes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["materials/" + WorldWireframePath + ".vmt"] =
+            "\"Wireframe\" { \"$color\" \"[ 0.90 0.50 0.50 ]\" \"$ignorez\" 1 \"$decal\" 1 \"%noToolTexture\" 1 }"u8.ToArray(),
+        ["materials/" + WorldWireframeZBufferPath + ".vmt"] =
+            "\"Wireframe\" { \"$color\" \"[0 1 .5]\" \"$ignoreZ\" 0 \"%noToolTexture\" 1 }"u8.ToArray(),
+        ["materials/" + DisplacementWireframePath + ".vmt"] =
+            "\"Wireframe\" { \"$color\" \"[ 1.00 1.00 1.00 ]\" \"$ignorez\" 0 \"$decal\" 1 \"%noToolTexture\" 1 }"u8.ToArray(),
+        ["materials/" + DecalWireframePath + ".vmt"] =
+            "\"Wireframe\" { \"$color\" \"[ 1.00 1.00 0.00 ]\" \"$ignorez\" 1 \"$decal\" 1 \"%noToolTexture\" 1 }"u8.ToArray(),
+        ["materials/" + WireframeMaterialPath + ".vmt"] =
+            "\"Wireframe\" { \"$color\" \"[ 0.00 1.00 1.00 ]\" \"$ignorez\" 1 \"$decal\" 1 \"$model\" 1 \"%noToolTexture\" 1 }"u8.ToArray(),
+    };
+
+    /// <summary>A file from the archives, or the built-in copy of a wireframe VMT when they lack it (B833).</summary>
+    private static byte[]? ReadGameFile(GameArchives archives, string path) =>
+        archives.Read(path) ?? BuiltInWireframes.GetValueOrDefault(path);
+
     /// <summary>
     /// The textures the demo's war paint composites read, by their name under `materials/` (B754); a name that did not
     /// load is absent, which fails its composite as the engine's does (findings 111 §3.1).
@@ -1025,7 +1049,7 @@ public sealed class MapAssets
         return loaded;
     }
 
-    /// <summary>Appends the studio render's wireframe material to the table (B788), or null when the install lacks it.</summary>
+    /// <summary>Appends the studio render's wireframe material to the table (B788), or null when it does not load.</summary>
     /// <remarks>
     /// It resolves to the standard white: the <c>Wireframe</c> shader reads no <c>$basetexture</c> at all (its vars are all
     /// -1, <c>wireframe_dx9.cpp:32</c>), and this VMT names none either (B807 is a map's <c>Wireframe</c> VMT that does). **Not
@@ -1047,10 +1071,11 @@ public sealed class MapAssets
             Resolve(assets, name, pak, archives, maximumTextureSize, report: false, model: true, textures: textures);
         string path = "materials/" + name + ".vmt";
 
-        if (material.Texture is not { } texture || archives.Read(path) is not { } vmt)
+        if (material.Texture is not { } texture || ReadGameFile(archives, path) is not { } vmt)
         {
             // A warning, one per material at load (B803 review 1): mat_wireframe then does nothing where it would bind this
-            // one, and that reads as the switch being broken. Every install ships all five in `platform_misc`.
+            // one, and that reads as the switch being broken. Every install ships all five in `platform_misc`, and without an
+            // install the built-in copies stand in (B833), so this is reached only when a material that was found does not resolve.
             assets.LogWarning(
                 "{Message}", $"{name} did not load: mat_wireframe draws nothing in its place, and what it replaces keeps its own material");
             return null;
@@ -3309,7 +3334,7 @@ public sealed class MapAssets
 
         byte[]? ReadNow(string path, bool laterFrame)
         {
-            byte[]? found = pak.ReadFile(path) ?? archives.Read(path);
+            byte[]? found = pak.ReadFile(path) ?? ReadGameFile(archives, path);
 
             if (found is not null && TextureReads is { } tally && path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
             {

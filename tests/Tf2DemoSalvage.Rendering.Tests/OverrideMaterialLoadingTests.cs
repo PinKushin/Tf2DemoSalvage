@@ -23,6 +23,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class OverrideMaterialLoadingTests
 {
+    /// <summary>The default map loaded with no game archives, shared by the no-install cases.</summary>
+    private static readonly WeakMemo<MapAssets> WithoutTheGame = new();
+
     /// <remarks>
     /// **Both, by name, rather than a count.** A count of two is satisfied by loading one material
     /// twice, and the two paths are typed out in one array in the loader — a transposition there
@@ -148,6 +151,41 @@ public sealed class OverrideMaterialLoadingTests
         texture.IsErrorTexture.ShouldBeFalse();
 
         // An identity `$color` is stored as none, and draws as white.
+        (texture.Modulation ?? (1f, 1f, 1f, 1f)).ShouldBe((red, green, blue, 1f));
+    }
+
+    /// <remarks>
+    /// **Without the game, the same five materials, from the viewer's own copies of the shipped VMTs** (B833). Without them
+    /// `mat_wireframe` drew nothing on a machine with no install, which CI is (`CaptureUiTests` red from B803's merge on).
+    /// Above Valve: TF2 cannot run without its archives at all. Same map, no archives, same answers as the tests above.
+    /// </remarks>
+    [TestCase(MapAssets.WorldWireframePath, 0.9f, 0.5f, 0.5f, true)]
+    [TestCase(MapAssets.WorldWireframeZBufferPath, 0f, 1f, 0.5f, false)]
+    [TestCase(MapAssets.DisplacementWireframePath, 1f, 1f, 1f, false)]
+    [TestCase(MapAssets.DecalWireframePath, 1f, 1f, 0f, true)]
+    [TestCase(MapAssets.WireframeMaterialPath, 0f, 1f, 1f, true)]
+    public void Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay(
+        string path, float red, float green, float blue, bool ignoresZ)
+    {
+        // One load for all five cases (B833 review 1, Fable). `Bytes` skips only when the map is in neither the game nor the
+        // downloaded-maps folder, so a downloaded map runs this with no game; it is asked BEFORE the memo, as `MapCache` asks.
+        byte[] map = MapCache.Bytes();
+        MapAssets assets = WithoutTheGame.Get(
+            MapCache.DefaultMap, () => MapAssets.Load(map, GameArchives.Open(null), MapCache.DefaultTextureSize));
+        WireframeMaterial? loaded = assets.Wireframe;
+
+        if (path != MapAssets.WireframeMaterialPath)
+        {
+            loaded = assets.EngineWireframes.TryGetValue(path, out WireframeMaterial engine) ? engine : null;
+        }
+
+        WireframeMaterial wireframe =
+            loaded.ShouldNotBeNull($"{path} did not load; loaded: {string.Join(", ", assets.EngineWireframes.Keys)}");
+        MapTexture texture = assets.Textures[wireframe.Material].ShouldNotBeNull();
+
+        (assets.Materials[wireframe.Material].Name, assets.Shaders[wireframe.Material], wireframe.IgnoresZ)
+            .ShouldBe((path, "Wireframe", ignoresZ));
+        texture.IsErrorTexture.ShouldBeFalse();
         (texture.Modulation ?? (1f, 1f, 1f, 1f)).ShouldBe((red, green, blue, 1f));
     }
 }

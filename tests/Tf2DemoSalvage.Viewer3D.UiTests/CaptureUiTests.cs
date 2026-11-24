@@ -295,10 +295,16 @@ public sealed class CaptureUiTests
     /// production path, from the ConVar on the command line through the session, the device and the world pass, read back
     /// from the PNG. The value 0 is the control. A pixel counts as the outline's when its hue is the material's
     /// `$color [0.9 .5 .5]`: green and blue within a tenth of each other and between 0.45 and 0.65 of red, red at least
-    /// 100. Counted by hue because the frame's tone-map scale moves every channel. Measured 2026-11-23 on this capture: 441
-    /// under 0 and 2,580 under 1, twice, so the bound is half the difference; with the surface outline queue disabled, 0
-    /// under 1 (the 441 presumably on models, which the switch turns cyan; not looked at). Findings 113 has the live
-    /// demo's first-person frame, a nearer view with more edges in it (76 to 57,675).
+    /// 100. Counted by hue because the frame's tone-map scale moves every channel. Measured 2026-11-23 on this capture at
+    /// the default window: 441 under 0 and 2,580 under 1, twice; with the surface outline queue disabled, 0 under 1 (the 441
+    /// presumably on models, which the switch turns cyan; not looked at). Findings 113 has the live demo's first-person
+    /// frame, a nearer view with more edges in it (76 to 57,675).
+    /// </remarks>
+    /// <remarks>
+    /// **The view is pinned to CI's 458x343** (B833): a count of one-pixel lines scales with the frame, and the bound was
+    /// set on a larger window, so CI's smaller screen failed it with the outline drawn (574 under 1). Measured 2026-11-24 at
+    /// this size: with the game 164 under 0 and 575 under 1; without it (an empty game folder) 0 and 575; CI 574 under 1.
+    /// The bound is about half the smaller difference (411), and the capture's size is asserted.
     /// </remarks>
     [Test]
     public void Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink()
@@ -319,7 +325,7 @@ public sealed class CaptureUiTests
             int on = PinkAt(folder, 1);
 
             TestContext.Out.WriteLine($"mat_wireframe pink pixels: 0 draws {off}, 1 draws {on}");
-            (on - off).ShouldBeGreaterThan(1_000, "the world's every edge is outlined under 1, and none under 0");
+            (on - off).ShouldBeGreaterThan(200, "the world's every edge is outlined under 1, so far more pink than under 0");
         }
         finally
         {
@@ -332,12 +338,16 @@ public sealed class CaptureUiTests
     {
         string png = Path.Combine(folder, $"wireframe{wireframe}.png");
         (int Exit, string Errors) run = Capture(
+            new System.Collections.Generic.Dictionary<string, string> { [MainForm.ViewportSizeVariable] = "458x343" },
             DemoPath, png, LongEnoughToBeAHang, ShotTick, "+sv_cheats", "1", "+cl_drawhud", "0",
             "+mat_wireframe", wireframe.ToString(CultureInfo.InvariantCulture));
 
         run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
 
         using System.Drawing.Bitmap picture = new(png);
+
+        // The bound holds only for this frame size (B833 review 5, Fable): a clamped view would lower the count unnamed.
+        (picture.Width, picture.Height).ShouldBe((458, 343), "the view the bound was measured at");
         int pink = 0;
 
         for (int y = 0; y < picture.Height; y++)
