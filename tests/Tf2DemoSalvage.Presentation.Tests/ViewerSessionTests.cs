@@ -1331,6 +1331,42 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A chord bound to play/pause pauses** (B825 review 1, Gemini): a CTRL chord never reaches the console, and no menu
+    /// item carries play/pause, so `KeyPressed`'s chord checks are its only route. The control: playing before.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AChordBoundToPlayPause_PausesPlayback()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "CTRL+o");
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true)).ShouldBeTrue();
+
+        rig.Transport.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A held one-shot key does not re-fire on auto-repeat** (B825 review 1, Gemini, Fable): the console took the press,
+    /// and Source binds the press, not its repeats. Reset speed, since every call is recorded. The control: the press
+    /// itself reset once.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldResetSpeedKeyRepeating_ResetsOnce()
+    {
+        using Rig rig = Build();
+        string reset = rig.Session.Bindings.KeyFor(ViewerAction.ResetSpeed).ShouldNotBeNull();
+
+        rig.Session.KeyPressed(Key(reset));
+        rig.Transport.Speeds.ShouldBe([1d], "the control: the press reset");
+
+        rig.Session.KeyPressed(Key(reset, repeat: true)).ShouldBeTrue();
+        rig.Session.KeyPressed(Key(reset, repeat: true));
+
+        rig.Transport.Speeds.ShouldBe([1d], "a repeat does not reset again");
+    }
+
+    /// <remarks>
     /// **An alias reaches a session one-shot** (B825): the reset was matched by key in `KeyPressed`, so `alias go resetspeed`
     /// on `p` raised it through the console for nobody. The control: no speed set before the press.
     /// </remarks>

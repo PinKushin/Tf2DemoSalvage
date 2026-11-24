@@ -45364,6 +45364,18 @@ chord checks in `KeyPressed` are now reached only by a chord (Ctrl+E, Ctrl+B, Ct
 results need a loaded demo to observe. *Not changed* (Fable): a mouse button bound to `opendemo` that is also the drag
 button leaves the drag on, since the dialog takes the button's release, as Ctrl+O's dialog always took its keys'.
 
+**Review 2 (2026-11-24).** Gemini: no menu item carries play/pause, so a CTRL chord bound to it had no route at all; a
+chord check in `KeyPressed` (`KeyPressed_AChordBoundToPlayPause_PausesPlayback`, red without it). Gemini, Fable: a held
+one-shot key's auto-repeat had no test (`KeyPressed_AHeldResetSpeedKeyRepeating_ResetsOnce`, red with the repeat
+guard bypassed; a play/pause version could not fail, since play does nothing without a demo, so reset speed is used).
+Sonnet: the key re-added after the console ran can stay in the set when a modal dialog swallows its release; the next
+press and release clear it, and nothing reads it between. Fable adds: a `+` bind whose other half opens the dialog
+(`bind p "+sw; opendemo"`) then owes its `-` half to the key's next release that reaches the console. Fable: the re-add
+fixes the pressed key only; another held key that `resetcamera` releases (`w` on `+mfwd`, say) still loses its `-`
+half, as a Ctrl+R reset did before this branch. *Not changed*. The first `Add` before `KeyDown` is kept: a release
+re-entering during a dialog must find the key. Fable: a config's bare one-shot is not performed at load, startup or a
+folder pick alike, since `ConfigConsole`'s load guard (B820) skips it while `_loading`.
+
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
 registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`

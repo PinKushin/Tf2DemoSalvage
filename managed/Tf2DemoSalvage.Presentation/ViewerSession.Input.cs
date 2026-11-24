@@ -372,6 +372,13 @@ public sealed partial class ViewerSession
             return _camera.ResetCamera();
         }
 
+        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini).
+        if (key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
+        {
+            _playback.TogglePause();
+            return true;
+        }
+
         // **Through the binding table, and its default key MOVED** (B214, D101). This was
         // `Keys.F12` — which TF2 gives to `replay_togglereplaytips` and Steam's overlay claims for
         // its own capture — while our F5 was a debug view. TF2's screenshot key is F5, so the two
