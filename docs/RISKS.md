@@ -43436,8 +43436,10 @@ On `fix/b803-wireframe-3-r1` at `9d2ed8557`. Same rules.
    `cp_granary` 134 of 134, 0 falling back. The other figures are unchanged from review 7.
 7. **A triangle split across material groups** (Fable). *Fixed*: `EntityModelSet.PackedFacePlanes` returns none when
    any packed triangle holds corners of more than one source triangle. (This said the check also covered a group whose
-   corner count is not a multiple of 3; it did not, since trailing corners were ignored, and missed a rotated triangle.
-   Both are fixed in review 9, item 2.) Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
+   corner count is not a multiple of 3. It did not. Such a group can hold whole source triangles rotated: A A A |
+   B B A | B B B packs `(5, 3, 4)`, all with `order / 3 == 1`, which the check passed. Separately, a total corner count
+   not a multiple of 3 left its trailing corners out of the face count. Both are fixed in review 9, item 2; wording
+   corrected in review 10, Sonnet.) Test: `PackedFacePlanes_OfATriangleThePackingSplits_AreNone`.
    Red with the check removed: it returned a two-plane list. A real brush face's corners share one material, so a real
    brush entity does not reach this check.
 
@@ -43467,6 +43469,36 @@ On `fix/b803-wireframe-3-r1` at `b7c9b7a13`. Same rules.
    `EyePosition.From` recovers it from the test's camera, the same call the renderer makes. The eye is on the plane by
    construction, not only if the recovery returns −300 exactly. Red again with the translucent rule replaced by
    `FacesEye`.
+
+### Review 10 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `49ed5611a`. All four reviewers called round 9 mergeable; these are fixed before the
+gate.
+
+1. **A face split across material groups at a triangle boundary** (Fable). *Fixed*: in `PackedFacePlanes`, a packed
+   triangle that does not start a face must follow its own predecessor in the corners, or there are no planes. Source
+   T0 (A, edge), T1 (A, no edge) | T2 (B, edge), T3 (A, no edge) packs T0 T1 T3 | T2. Every triple is whole and in
+   order, but T3 joins face 0 and would be culled on its plane while both counts agree at 2. Test:
+   `PackedFacePlanes_OfAFaceThePackingSplitsAtATriangle_AreNone`, with a control that the packing put T3 third. Red
+   with the predecessor check removed: two planes. The doc's "a group keeps its corners' order, so a face stays whole"
+   now says this holds only when a face's corners share one material.
+2. **Closures for every model, uploaded or not** (Fable). *Fixed*: the body after the two skips is its own method,
+   `WorldRenderer.UploadModel`, so only a model actually uploaded allocates the closures. *Not tested*: an allocation
+   count over `UploadModels` needs a device and a model already uploaded under the same name. The offscreen target
+   clears its models before each upload, so it cannot give that case. The change is structural.
+3. **A registration that throws part way** (Grok, Fable). *Fixed in code*: `CreateAndRegister` takes an undo step. If
+   the registration throws, it runs the undo (removes the path from both dictionaries), releases the vertex buffer
+   and the outline, and rethrows. Test: `CreateAndRegister_WhenTheRegistrationThrows_UndoesItAndReleasesBoth`. Red
+   with the undo and the releases skipped: `(0, 0, 0)` instead of `(1, 1, 1)`.
+4. **The whole-triangle test's control** (Grok). *Fixed*: it asserts all seven corners were packed before asserting
+   no planes. With the whole-triangle check removed the control held, and the null assertion went red (two planes).
+5. **Review 8 item 7's correction** (Sonnet). *Reworded*: the group case was missed because of the rotation (`(5, 3,
+   4)` all have `order / 3 == 1`). Trailing corners are the separate total-count case.
+6. **A studio model's default outline** (Fable). *Tested*:
+   `CreateAndRegister_ForAStudioModelWhoseVertexBufferThrows_RethrowsItsFailure` releases a default
+   `ComPtr<ID3D11Buffer>` in the failure path, and the vertex buffer's failure still reaches the caller unchanged. The
+   test pins Silk's null-handle `Dispose`, not code of ours, so no edit here can turn it red. It goes red only if a
+   Silk update changes that behaviour.
 
 *As found (2026-11-21):*
 

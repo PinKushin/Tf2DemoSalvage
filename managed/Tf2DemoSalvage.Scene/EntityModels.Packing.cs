@@ -654,10 +654,11 @@ public sealed partial class EntityModelSet
     /// <returns>One plane per packed face, or null for a model with none (a studio model) or not packed.</returns>
     /// <remarks>
     /// The packing groups a model's corners by material, so its faces reach the buffer in another order than the one
-    /// <see cref="PropModels.ModelFrames.FacePlanes"/> lists them in; a group keeps its corners' order, so a face stays whole.
-    /// Each corner's face is counted in corner order by the rule <see cref="FaceFan.Faces"/> applies to the buffer: a face
-    /// starts at each triangle whose first corner's edge is the polygon's. Then each face the buffer starts takes the plane
-    /// of the face its first corner belongs to.
+    /// <see cref="PropModels.ModelFrames.FacePlanes"/> lists them in. A group keeps its corners' order, so a face stays
+    /// whole when all its corners share one material, as a real brush face's do; a face split across groups is refused
+    /// (review 10). Each corner's face is counted in corner order by the rule <see cref="FaceFan.Faces"/> applies to the
+    /// buffer: a face starts at each triangle whose first corner's edge is the polygon's. Then each face the buffer starts
+    /// takes the plane of the face its first corner belongs to.
     /// </remarks>
     public IReadOnlyList<StoredPlane>? PackedFacePlanes(string modelPath)
     {
@@ -706,7 +707,17 @@ public sealed partial class EntityModelSet
                 return null;
             }
 
-            if (packed.Count == 0 || corners[order[at]].FaceEdge)
+            // A triangle that does not start a face joins the one before it in the buffer, so it must follow its own
+            // predecessor in the corners (review 10): T0 T1 | T2 | T3, T3 continuing T2's face but packed with T0 and T1,
+            // would join T0's face and be culled on its plane while both counts agree.
+            bool starts = at == 0 || corners[order[at]].FaceEdge;
+
+            if (!starts && order[at] != order[at - 3] + 3)
+            {
+                return null;
+            }
+
+            if (starts)
             {
                 packed.Add(planes[faceOf[order[at]]]);
             }

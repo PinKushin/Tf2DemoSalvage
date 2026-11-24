@@ -156,6 +156,43 @@ public sealed class PackedFacePlanesTests
 
         models.Precache([Path]);
 
+        models.Vertices.Count.ShouldBe(7, "the control: all seven corners were packed, so the refusal is PackedFacePlanes'");
+        models.PackedFacePlanes(Path).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A face split across material groups at a triangle boundary has no planes** (review 10, Fable): T0 (material 5,
+    /// edge), T1 (5, no edge) | T2 (7, edge), T3 (5, no edge), two faces. It packs T0 T1 T3 | T2, every triple whole and in
+    /// order, but T3, which does not start a face, now follows T1, so it would join face 0 and be culled on its plane
+    /// while both counts agree at two. None instead. The control: the packing did put T3 third.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_OfAFaceThePackingSplitsAtATriangle_AreNone()
+    {
+        PropVertex Corner(float x, int material, bool faceEdge = true) => new(x, 0f, 0f, 0f, 0f, material, FaceEdge: faceEdge);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [
+                    new PropVertex[]
+                    {
+                        Corner(0f, 5), Corner(1f, 5), Corner(2f, 5, false),
+                        Corner(0f, 5, false), Corner(2f, 5), Corner(3f, 5),
+                        Corner(10f, 7), Corner(11f, 7), Corner(12f, 7, false),
+                        Corner(10f, 5, false), Corner(12f, 5), Corner(13f, 5),
+                    },
+                ],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [new StoredPlane(1f, 0f, 0f, 0f, false), new StoredPlane(0f, 1f, 0f, 0f, false)]),
+        };
+
+        models.Precache([Path]);
+
+        models.Vertices.Select(vertex => vertex.X).ShouldBe(
+            [0f, 1f, 2f, 0f, 2f, 3f, 10f, 12f, 13f, 10f, 11f, 12f], "the control: T3 packed third");
         models.PackedFacePlanes(Path).ShouldBeNull();
     }
 

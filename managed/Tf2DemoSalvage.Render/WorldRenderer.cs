@@ -8427,67 +8427,91 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // A brush entity's outline faces, made before anything of the model is registered (review 7); they own nothing.
-            FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
-
-            // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
-            // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
-            // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
-            int floats = model.Vertices.Count * (VertexStride / sizeof(float));
-
-            if (_modelPackScratch.Length < floats)
-            {
-                _modelPackScratch = new float[floats];
-            }
-
-            float[] data = _modelPackScratch;
-            PackInto(model.Vertices, data);
-
-            BufferDesc description = new()
-            {
-                ByteWidth = (uint)((long)floats * sizeof(float)),
-
-                // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
-                // contents never change after creation, which is true of one model's geometry and
-                // was never true of a buffer holding every model.
-                Usage = Usage.Immutable,
-                BindFlags = (uint)BindFlag.VertexBuffer,
-            };
-
-            // The outline buffer, then the vertex buffer, and only then is anything of the model registered (reviews 7-9):
-            // nothing that can throw runs between the outline's creation and the step that releases it on a failure. A
-            // brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps to
-            // `debugmrmwireframe` instead (B788) and needs none.
-            CreateAndRegister(
-                () => faces is not null ? CreateOutline(device, model.Vertices, path) : default,
-                () => CreateImmutableVertexBuffer(device, description, data),
-                (outline, buffer) =>
-                {
-                    _modelBuffers[path] = buffer;
-
-                    if (faces is not null)
-                    {
-                        _modelOutlines[path] = (outline, faces);
-                    }
-                });
+            UploadModel(device, path, model);
         }
 
         _modelBatches = batches;
     }
 
-    /// <summary>Makes a model's outline, then its vertex buffer, and registers both; on a failure, neither (B803 review 9).</summary>
+    /// <summary>Uploads one model not yet uploaded: its vertex buffer, and a brush entity's outline (B803).</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="path">The model's path.</param>
+    /// <param name="model">Its vertices, with at least one.</param>
+    /// <remarks>
+    /// Its own method so that only a model uploaded pays for the closures below (review 10, Fable): in the loop, they were
+    /// allocated at the top of every iteration, a model already uploaded included.
+    /// </remarks>
+    private void UploadModel(ComPtr<ID3D11Device> device, string path, PackedModel model)
+    {
+        // A brush entity's outline faces, made before anything of the model is registered (review 7); they own nothing.
+        FacePlane[]? faces = path.StartsWith(BrushModels.SubmodelPrefix) ? OutlineFaces(path, model) : null;
+
+        // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
+        // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
+        // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
+        int floats = model.Vertices.Count * (VertexStride / sizeof(float));
+
+        if (_modelPackScratch.Length < floats)
+        {
+            _modelPackScratch = new float[floats];
+        }
+
+        float[] data = _modelPackScratch;
+        PackInto(model.Vertices, data);
+
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)((long)floats * sizeof(float)),
+
+            // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
+            // contents never change after creation, which is true of one model's geometry and
+            // was never true of a buffer holding every model.
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        // The outline buffer, then the vertex buffer, and only then is anything of the model registered (reviews 7-10):
+        // nothing that can throw runs between the outline's creation and the step that releases it on a failure. A
+        // brush entity's faces are outlined under `mat_wireframe 3` as the world's are (B803); a studio model swaps to
+        // `debugmrmwireframe` instead (B788) and needs none, and its default outline's release is a no-op (Silk's
+        // null-handle Dispose, pinned by CreateAndRegisterTests).
+        CreateAndRegister(
+            () => faces is not null ? CreateOutline(device, model.Vertices, path) : default,
+            () => CreateImmutableVertexBuffer(device, description, data),
+            (outline, buffer) =>
+            {
+                _modelBuffers[path] = buffer;
+
+                if (faces is not null)
+                {
+                    _modelOutlines[path] = (outline, faces);
+                }
+            },
+            () =>
+            {
+                _modelBuffers.Remove(path);
+                _modelOutlines.Remove(path);
+            });
+    }
+
+    /// <summary>Makes a model's outline, then its vertex buffer, and registers both; on a failure, neither (B803 reviews 9-10).</summary>
     /// <param name="createOutline">Makes the outline, which this owns until it is registered.</param>
     /// <param name="createVertices">Makes the vertex buffer, or throws.</param>
     /// <param name="register">Registers both; called only once both exist.</param>
+    /// <param name="unregister">Removes whatever <paramref name="register"/> wrote, if it throws part way.</param>
     /// <remarks>
-    /// The outline is released when the vertex buffer throws, and the failure goes on to the caller, so a model is never
-    /// registered without its outline and the next upload tries it again (reviews 8-9).
+    /// The outline is released when the vertex buffer throws; both are released, and the registration undone, when the
+    /// registration throws (review 10, Grok: a dictionary insert out of memory after the first had left the model half
+    /// registered). Either way the failure goes on to the caller unchanged, nothing of the model stays registered, and the
+    /// next upload tries it again (reviews 8-10).
     /// </remarks>
     internal static void CreateAndRegister<TOutline, TBuffer>(
         Func<TOutline> createOutline,
         Func<TBuffer> createVertices,
-        Action<TOutline, TBuffer> register)
+        Action<TOutline, TBuffer> register,
+        Action unregister)
         where TOutline : IDisposable
+        where TBuffer : IDisposable
     {
         TOutline outline = createOutline();
         TBuffer vertices;
@@ -8503,7 +8527,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             throw;
         }
 
-        register(outline, vertices);
+        try
+        {
+            register(outline, vertices);
+        }
+        catch
+        {
+            // Undone before release, so no dictionary is left naming a released buffer; then rethrown unchanged.
+            unregister();
+            vertices.Dispose();
+            outline.Dispose();
+            throw;
+        }
     }
 
     /// <summary>An immutable vertex buffer holding <paramref name="data"/>, as <paramref name="description"/> sizes it.</summary>
