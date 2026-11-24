@@ -695,6 +695,80 @@ public sealed class ViewerSettingsTests
         ViewerSettings.Parse(settings.Write()).DelaySoundShift.ShouldBe(expected, "and saved as it was read");
     }
 
+    /// <remarks>
+    /// **A ConVar's number is `atof` of its string** (B823; `ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`): leading
+    /// white space, the longest numeric prefix, 0 when there is none. A console set of `name 0.05 2` holds `0.05 2`.
+    /// </remarks>
+    [TestCase("0.05 2", 0.05f)]
+    [TestCase(" 0.05x", 0.05f)]
+    [TestCase("abc", 0f)]
+    public void Set_ANumberWithTextAroundIt_ReadsAsAtof(string value, float expected)
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.DelaySoundShiftCommand, value).DelaySoundShift.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **A settings file's lone byte survives a load and a save** (B823 review 1, Fable). No ConVar value a config set is
+    /// written — `Write` emits only the settings this viewer types, and the strings among them are folders — so the one
+    /// route for a lone byte into the file is the file itself, edited by hand in a legacy code page. Loaded, its `E9` is
+    /// U+DCE9; saved, it is `E9` again, where UTF-8 replacement would have written `EF BF BD` over the user's folder name.
+    /// </remarks>
+    [Test]
+    public void Save_ALoadedFileWithALoneByte_WritesTheSameByte()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllBytes(file, System.Text.Encoding.Latin1.GetBytes("cl_screenshot_folder \"D:\\caf\u00E9\"\n"));
+
+        ViewerSettings loaded = ViewerSettings.Load(file);
+        loaded.ScreenshotFolder.ShouldBe("D:\\caf\uDCE9");
+        loaded.Save(file).ShouldBeNull();
+
+        System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(file)).ShouldContain("D:\\caf\u00E9\"", Case.Sensitive);
+    }
+
+    /// <remarks>
+    /// **A UTF-16 or UTF-32 settings file is read, not taken for defaults and saved over** (B823 review 2, Fable).
+    /// `File.ReadAllText` honoured those marks; reading the bytes as UTF-8 made the file nothing the parser knew, so the
+    /// viewer started on defaults and its next save destroyed the file. Each mark is read, and the save is UTF-8.
+    /// </remarks>
+    [TestCase("utf-16")]
+    [TestCase("utf-16BE")]
+    [TestCase("utf-32")]
+    [TestCase("utf-32BE")]
+    public void Load_ASettingsFileWithAUnicodeMark_ReadsItsSettings(string encoding)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        System.Text.Encoding writer = encoding == "utf-32BE"
+            ? new System.Text.UTF32Encoding(bigEndian: true, byteOrderMark: true)
+            : System.Text.Encoding.GetEncoding(encoding);
+        File.WriteAllBytes(file, [.. writer.GetPreamble(), .. writer.GetBytes("r_decals 77\n")]);
+
+        ViewerSettings.Load(file).Decals.ShouldBe(77);
+    }
+
+    /// <remarks>
+    /// **An int setting is `GetInt`** (B823 review 1, Sonnet): the float truncated as MSVC's `cvttss2si`, so `nan` and
+    /// `1e10` are `0x80000000`, where C#'s `(int)` gives 0 and int.MaxValue.
+    /// </remarks>
+    [TestCase("nan", int.MinValue)]
+    [TestCase("1e10", int.MinValue)]
+    [TestCase("0x40 x", 64)]
+    public void Set_ADecalCountAtofReads_IsGetInt(string value, int expected)
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.DecalsCommand, value).Decals.ShouldBe(expected);
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.MaxModelDecalCommand, value).MaxModelDecals.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The clamp reads the same `atof`** (`convar.cpp:792-798`): `volume 2 x` is 2, past `volume`'s max of 1, so its string
+    /// is stored as `"%f"` of the clamp.
+    /// </remarks>
+    [Test]
+    public void ConVarText_ABoundedNumberWithTrailingText_IsClampedAsTheEngineStoresIt()
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.VolumeCommand, "2 x").ConVarText(ViewerSettings.VolumeCommand).ShouldBe("1.000000");
+    }
+
     [Test]
     public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
     {

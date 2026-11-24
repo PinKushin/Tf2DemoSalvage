@@ -212,7 +212,7 @@ public sealed partial class ViewerSession
     private const string WireframeCommand = "mat_wireframe";
 
     /// <summary>A <c>mat_wireframe</c> value's integer, as `WireFrameMode()` reads it (`view.h:68`).</summary>
-    private static int WireframeMode(string value) => (int)Core.Primitives.CStdlib.Atof(value);
+    private static int WireframeMode(string value) => Core.Net.ConVarNumber.GetInt(value);
 
     /// <summary>Whether a <c>mat_wireframe</c> value draws wireframe: its integer is not zero.</summary>
     private static bool Wireframes(string value) => WireframeMode(value) != 0;

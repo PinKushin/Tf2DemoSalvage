@@ -240,11 +240,8 @@ public sealed class LoadedMap
                 tracers = new HitscanTracers(game.Archives.Read).Trace(
                     timeline.Shots.All,
                     (tick, from, to) => level.Trace(from, to, 0f, doors.At(tick)),
-                    float.TryParse(
-                        timeline.ServerConVars.Value("tf_use_fixed_weaponspreads"),
-                        NumberStyles.Float,
-                        CultureInfo.InvariantCulture,
-                        out float fixedSpread) && fixedSpread != 0f,
+                    // `GetInt`, so 0.5 is off and `1 x` on (B823 review 1, Fable).
+                    timeline.ServerConVars.GetBool("tf_use_fixed_weaponspreads"),
                     impacts);
             }
 

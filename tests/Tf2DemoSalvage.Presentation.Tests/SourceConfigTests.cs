@@ -297,4 +297,70 @@ public sealed class SourceConfigTests
             KeyBindings.Commands.ContainsKey(action).ShouldBeTrue($"{action} has no command name");
         }
     }
+
+    /// <remarks>Distinct bytes stay distinct tokens (B823): `é` is `C3 A9` and `ã` is `C3 A3`.</remarks>
+    [Test]
+    public void Tokens_TwoCharactersSharingALeadByte_DifferInTheirSecondToken()
+    {
+        SourceConfig.Tokens("é").ShouldBe(["\uDCC3", "\uDCA9"]);
+        SourceConfig.Tokens("ã").ShouldBe(["\uDCC3", "\uDCA3"]);
+    }
+
+    /// <remarks>
+    /// A lone-byte token written back into text is the same byte (B823): an alias body is its arguments joined, and runs
+    /// again through the tokenizer. Every byte from 0x80 to 0xFF comes back as itself.
+    /// </remarks>
+    [Test]
+    public void Tokens_EveryLoneByteSpelledBack_IsTheSameByte()
+    {
+        string[] lone = [.. Enumerable.Range(0x80, 0x80).Select(b => ((char)(0xDC00 + b)).ToString())];
+
+        SourceConfig.Tokens(string.Join(' ', lone)).ShouldBe(lone);
+    }
+
+    /// <remarks>`bind` binds only at three arguments (B823, `engine.dll` build 1007 FUN_1801b67a0); four is the usage line.</remarks>
+    [Test]
+    public void ReadBinds_FourArguments_BindsNothing()
+    {
+        SourceConfig.ReadBinds("bind k +forward\nbind k +back extra\nbind j +jump").ShouldBe([("k", "+forward"), ("j", "+jump")]);
+    }
+
+    /// <remarks>
+    /// **`ReadBinds` keeps the console's rules** (B823 review 1, Sonnet, Grok, Fable): `ESCAPE`, in any case, binds
+    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (build 1007 FUN_1801b6a30).
+    /// </remarks>
+    [Test]
+    public void ReadBinds_EscapeAndUnbindCounts_FollowTheEngine()
+    {
+        SourceConfig.ReadBinds("bind escape +jump\nunbind ESCAPE\nbind k +back\nunbind k x\nunbind")
+            .ShouldBe([("escape", "cancelselect"), ("k", "+back")]);
+    }
+
+    /// <remarks>
+    /// **A clause is trimmed of C's white space only** (B823 review 1, Fable): `EatWhiteSpace` is `isspace` on the byte
+    /// (utlbuffer.cpp:404-415), so U+00A0 (`C2 A0`) is two bytes of a word — `C2`, then `A0bind` — and the command is not
+    /// `bind`. .NET's `Trim` would strip it as Unicode white space. The control is the same line with a tab.
+    /// </remarks>
+    [Test]
+    public void ReadBinds_ALineStartingWithANoBreakSpace_BindsNothing()
+    {
+        SourceConfig.ReadBinds("\tbind k +jump").ShouldBe([("k", "+jump")], "the control");
+        SourceConfig.ReadBinds(" bind k +jump").ShouldBeEmpty();
+        SourceConfig.Clauses(" ; a ").ShouldBe([" ", "a "]);
+    }
+
+    /// <remarks>`unbindall` spares ESCAPE and `` ` `` (B823 review 2, Sonnet; build 1007 FUN_1801b6b10).</remarks>
+    [Test]
+    public void ReadBinds_Unbindall_KeepsEscapeAndTheConsoleKey()
+    {
+        SourceConfig.ReadBinds("bind ` toggleconsole\nbind ESCAPE x\nbind k +jump\nunbindall")
+            .ShouldBe([("`", "toggleconsole"), ("ESCAPE", "cancelselect")]);
+    }
+
+    /// <remarks>A character the text could hold whole is not confused with a lone byte (B823): U+00C3 is `C3 83`.</remarks>
+    [Test]
+    public void Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint()
+    {
+        SourceConfig.Tokens("Ã").ShouldBe(["\uDCC3", "\uDC83"]);
+    }
 }

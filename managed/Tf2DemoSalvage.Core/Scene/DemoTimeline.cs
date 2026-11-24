@@ -1326,6 +1326,15 @@ public sealed class DemoTimeline
     /// <summary>`tf_tournament_hide_domination_icons` (tf_player_shared.cpp:169).</summary>
     private const string HideDominationIconsConVar = "tf_tournament_hide_domination_icons";
 
+    /// <summary>
+    /// `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()` (`ShouldShowNemesisIcon`, c_tf_player.cpp:9376-9395): both
+    /// `!!GetInt`, so `0.5` is false (B823 review 3). The frame builder asks it once a frame.
+    /// </summary>
+    /// <param name="server">The frame's server ConVars.</param>
+    /// <returns>Whether a tournament hides the domination icons.</returns>
+    internal static bool HidesDominationIcons(ServerConVars server) =>
+        server.GetBool(TournamentConVar) && server.GetBool(HideDominationIconsConVar);
+
     /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
     private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
 
@@ -4890,7 +4899,7 @@ public sealed class DemoTimeline
             OverheadFrame overheadFrame = new(
                 recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer) ? DominatingMe(localPlayer) : null,
                 entities.Resolve(rulesNow?.Integer(ItHandleProperty)),
-                serverConVars.Number(TournamentConVar) != 0 && serverConVars.Number(HideDominationIconsConVar) != 0);
+                HidesDominationIcons(serverConVars));
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
@@ -6236,7 +6245,7 @@ public sealed class DemoTimeline
     }
 
     /// <summary>`tf_always_loser.GetBool()`: the int of the float, as `ConVar::GetBool` reads it.</summary>
-    private static bool AlwaysLoser(ServerConVars server) => (int)server.Number(LoserState.AlwaysLoserConVar) != 0;
+    private static bool AlwaysLoser(ServerConVars server) => server.GetBool(LoserState.AlwaysLoserConVar);
 
     /// <summary>`CL_FireEvents` for the gesture events: every one due by a tick, in the order they arrived (B437).</summary>
     /// <param name="queued">The waiting events and their fire ticks; the fired ones are removed.</param>

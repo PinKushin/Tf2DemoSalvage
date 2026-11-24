@@ -746,7 +746,7 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
             if (_serverTimeLabel is not null && _serverTimeBg is not null)
             {
                 int serverTimeLimit = state.ConVars.GetInt("mp_timelimit") * 60;
-                bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0
+                bool display = state.ConVars.GetBool("tf_hud_show_servertimelimit")
                     && !state.Rules.Setup
                     && !state.Rules.WaitingForPlayers
                     && timer.MaxLength > 0 // `IsRoundMaxTimerSet()` (teamplay_round_timer.h:82)
@@ -946,7 +946,7 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
         if (_serverTimeLabel is not null && _serverTimeBg is not null)
         {
             // "This appears in the same space after SetUp and WaitingForPlayers is gone" (tf_time_panel.cpp:593).
-            bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0 && !inSetup && !waiting;
+            bool display = state.ConVars.GetBool("tf_hud_show_servertimelimit") && !inSetup && !waiting;
 
             _serverTimeLabel.Visible = display;
             _serverTimeBg.Visible = display;

@@ -817,6 +817,33 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("cl_detaildist").ShouldBe("900");
     }
 
+    /// <remarks>
+    /// **A cheat the settings hold at `nan` is reverted too** (B823 review 1, the open item). `sv_cheats`' change callback
+    /// (`engine.dll` x64 build 1007 FUN_18013d920) calls `RevertFlaggedConVars( FCVAR_CHEAT )`, and `ConVar::Revert` sets the
+    /// default (`src/tier1/convar.cpp:1076-1081`), whose callbacks run when the STRING changed: `V_strcmp( pszOldValue,
+    /// m_pszString ) != 0` (`:844`). `nan` is not `0`, so it reverts; a float compare finds no difference with a NaN. The
+    /// control is a value already at its default string, which is not announced.
+    /// </remarks>
+    [Test]
+    public void Load_SvCheatsBackToZeroWithACheatAtNan_AnnouncesItsRevert()
+    {
+        Dictionary<string, string> settings = new(StringComparer.Ordinal)
+        {
+            ["r_screenfademinsize"] = "nan",
+            ["r_screenfademaxsize"] = "0",
+        };
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(name => settings.GetValueOrDefault(name));
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Stuff("sv_cheats 1");
+        console.Stuff("sv_cheats 0");
+
+        set.ShouldContain("r_screenfademinsize 0");
+        set.ShouldNotContain(entry => entry.StartsWith("r_screenfademaxsize", StringComparison.Ordinal));
+    }
+
     [Test]
     public void KeyDown_AnAliasThatSetsACvar_SetsIt()
     {
@@ -925,7 +952,8 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("incrementvar no_such_cvar 0 2 1")]
     [TestCase("multvar cl_showpos 0 2")]
     [TestCase("multvar no_such_cvar 0 2 1")]
-    // toggle, engine.dll FUN_180177cd0: fewer than 2 tokens is Usage; FUN_180176f20: "%s is not a valid cvar".
+    // toggle, engine.dll build 1007 FUN_180179390: fewer than 2 tokens is Usage; its validity check, build 1007
+    // FUN_1801785e0: "%s is not a valid cvar".
     [TestCase("toggle")]
     [TestCase("toggle no_such_cvar")]
     [TestCase("toggle no_such_cvar 1 2")]
@@ -1368,11 +1396,31 @@ public sealed class ConfigConsoleConformanceTests
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
         string command = $"{Alpha} 5 \"";
+        string padding = new(pad, length - command.Length - 1);
 
-        console.Load(lead + command + new string(pad, length - command.Length - 1) + "\"" + tail);
+        console.Load(lead + command + padding + "\"" + tail);
 
-        console.ConVar(Alpha).ShouldBe(expected);
+        // The value is `ArgS`, the quoted padding with it (B823, `SourceConfig.ConVarValue`).
+        console.ConVar(Alpha).ShouldBe(expected is null ? null : $"{expected} \"{padding}\"");
         log.Count("WARNING: Command too long... ignoring!").ShouldBe(expected is null ? 1 : 0);
+    }
+
+    /// <remarks>
+    /// **A lone byte is one byte of the 511** (B823 review 1, Sonnet): a byte that is no UTF-8 character reaches the console
+    /// as U+DC00 + byte (`SourceConfig.Tokens`), and `GetNextCommandLength` counts it once, as it counts every byte.
+    /// </remarks>
+    [TestCase(510, true)]
+    [TestCase(511, false)]
+    public void Load_ACommandOfLoneBytesAtTheBuffersLength_CountsEachAsOneByte(int length, bool runs)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string command = $"{Alpha} 5 \"";
+
+        console.Load(command + new string('\uDCE9', length - command.Length - 1) + "\"");
+
+        (console.ConVar(Alpha) is not null).ShouldBe(runs);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(runs ? 0 : 1);
     }
 
     /// <remarks>
@@ -1535,6 +1583,487 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` build 1007 FUN_180178310): a trailing non-ASCII character
+    /// is stripped as a signed `char` below `' '`, a leading one kept whole, and two words are one value.
+    /// </remarks>
+    [TestCase("cl_voice_filter café", "caf")]
+    [TestCase("cl_voice_filter éa", "éa")]
+    [TestCase("cl_voice_filter \"café\"", "café")]
+    [TestCase("cl_voice_filter a b", "a b")]
+    public void Load_AConVarLine_SetsArgSTrimmedAsTheEngine(string line, string expected)
+    {
+        ConfigConsole console = new();
+
+        console.Load(line);
+
+        console.ConVar("cl_voice_filter").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **An exec'd Latin-1 file reaches the tokenizer as its bytes** (B823 review 1, Sonnet): `exec` decodes through
+    /// `Tf2ConfigFiles.Decode`, so `E9` — `é` in Latin-1, no UTF-8 character alone — is the lone byte U+DCE9 and the ConVar
+    /// holds `63 61 66 E9 78`, as TF2's would. Replacement decoding would have set `caf�x`.
+    /// </remarks>
+    [Test]
+    public void Exec_ALatin1File_SetsItsBytes()
+    {
+        ConfigConsole console = new()
+        {
+            FindConfig = path => path == "cfg/latin.cfg" ? System.Text.Encoding.Latin1.GetBytes("cl_voice_filter caféx") : null,
+        };
+
+        console.Load("exec latin");
+
+        console.ConVar("cl_voice_filter").ShouldBe("caf\uDCE9x");
+    }
+
+    /// <remarks>
+    /// **`Define` runs before the ConVar set's `ArgS`** (B823 review 1, Grok): `bind k screenshot` is three arguments to
+    /// `Define`, not a value collapsed for a ConVar, and a bound viewer command that carries arguments still runs its
+    /// command. With `bind` no longer taken by `Define`, this fails. The guard that once kept the collapse to ConVars was
+    /// removed in review 2 (Sonnet, Grok): nothing past the set reads a non-ConVar's arguments, so no test could fail for it.
+    /// </remarks>
+    [Test]
+    public void Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nbind j \"screenshot now please\"");
+        console.KeyDown("k");
+        console.KeyDown("j");
+
+        fired.ShouldBe([ViewerAction.Screenshot, ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **An alias body keeps a lone byte as its byte** (B823): `Cmd_Alias_f` (`engine.dll` build 1007 FUN_180168060) joins arguments 2 on
+    /// with spaces, so `alias x cl_voice_filter éa b` stores the bytes `C3 20 A9 61 20 62` after the name, and running
+    /// it sets those bytes — a space now inside the character — where the same line typed directly sets `éa b`. A
+    /// spelling that re-encoded a lone byte (Latin-1's `Ã` is `C3 83`) would set different bytes.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasWithANonAsciiWord_RunsItsBytesAgain()
+    {
+        ConfigConsole console = new();
+
+        console.Load("cl_voice_filter éa b");
+        console.ConVar("cl_voice_filter").ShouldBe("éa b", "the control is the line typed directly");
+
+        console.Load("alias x cl_voice_filter éa b\nx");
+        console.ConVar("cl_voice_filter").ShouldBe("\uDCC3 \uDCA9a b");
+    }
+
+    /// <remarks>
+    /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0): `argc - 2 &lt; 2`, else
+    /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
+    /// the key as it was — not cleared — where the viewer had bound the third token.
+    /// </remarks>
+    [TestCase("bind k screenshot extra")]
+    [TestCase("bind k café")]
+    [TestCase("bind")]
+    public void Bind_OtherThanTwoOrThreeArguments_PrintsUsageAndBindsNothing(string line)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot");
+        console.Load(line);
+        console.KeyDown("k");
+
+        log.Count("bind <key> [command] : attach a command to a key").ShouldBe(1);
+        fired.ShouldBe([ViewerAction.Screenshot], "the earlier bind stands");
+    }
+
+    /// <remarks>
+    /// **Two arguments print the key's binding and change nothing** (build 1007 FUN_1801b67a0 passes `argc == 2` to build 1007 FUN_1801b5ea0 as
+    /// "show"): `"%s" = "%s"` for a bound key, `"%s" is not bound` for one that is not.
+    /// </remarks>
+    [Test]
+    public void Bind_TwoArguments_PrintsTheBindingAndChangesNothing()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nbind k\nbind j");
+        console.KeyDown("k");
+
+        log.Count("\"k\" = \"screenshot\"").ShouldBe(1);
+        log.Count("\"j\" is not bound").ShouldBe(1);
+        log.Count("bind <key> [command]").ShouldBe(0);
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **`ESCAPE` is bound to `cancelselect` whatever the line says** (build 1007 FUN_1801b5ea0: key 0x46, `KEY_ESCAPE`, takes
+    /// "cancelselect" in place of the command). The control is another key given the same command.
+    /// </remarks>
+    [Test]
+    public void Bind_Escape_BindsCancelSelect()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F1 screenshot\nbind escape screenshot\nbind ESCAPE");
+        console.KeyDown("F1");
+        console.KeyDown("ESCAPE");
+
+        fired.ShouldBe([ViewerAction.Screenshot], "F1 is the control; ESCAPE runs cancelselect, which this viewer does not know");
+        log.Count("\"ESCAPE\" = \"cancelselect\"").ShouldBe(1, "bound, under a name that differs from the bind's only in case");
+    }
+
+    /// <remarks>
+    /// **`unbind` acts only at two arguments** (B823 review 1, Fable; `Key_Unbind_f`, `engine.dll` x64 build 1007
+    /// FUN_1801b6a30): `argc != 2` prints `unbind &lt;key&gt; : remove commands from a key`; `KEY_ESCAPE` prints `Can't unbind
+    /// ESCAPE key`; any other key's binding becomes the empty string — not null — so `bind k` then shows `"k" = ""`.
+    /// </remarks>
+    [TestCase("unbind")]
+    [TestCase("unbind k x")]
+    public void Unbind_OtherThanTwoArguments_PrintsUsageAndUnbindsNothing(string line)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load($"bind k screenshot\n{line}");
+        console.KeyDown("k");
+
+        log.Count("unbind <key> : remove commands from a key").ShouldBe(1);
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **A key name is matched without case** (B823 review 2, Grok): the bind table's comparer is `OrdinalIgnoreCase`
+    /// (`ConfigConsole._binds`), so `bind K …` is pressed as `k`, and `bind escape …` is the key a press of `ESCAPE` or
+    /// `escape` finds. *Interpolated* for the engine: its key-name lookup (an input-system call, vtable +0xe8) is not read.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundInAnotherCase_RunsTheBinding()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind K screenshot\nbind escape screenshot");
+        console.KeyDown("k");
+        console.KeyDown("escape");
+
+        fired.ShouldBe([ViewerAction.Screenshot], "k finds K; escape finds escape, which holds cancelselect");
+    }
+
+    /// <remarks>
+    /// **`unbindall` spares ESCAPE and the console key** (B823 review 2, Sonnet; `Key_Unbindall_f`, `engine.dll` x64 build
+    /// 1007 FUN_1801b6b10): every key from 0 to 0x27a whose binding is set and not empty becomes "", except 0x46
+    /// (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`, the `` ` `` that opens the console). So `bind k` then shows `"k" = ""`.
+    /// <see cref="ConfigConsole.Bound"/>, the bind lines that stand, is then the two spared (B823 review 3, Fable).
+    /// </remarks>
+    [Test]
+    public void Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind ` toggleconsole\nbind escape x\nbind k screenshot\nunbindall");
+        console.Bound.ShouldBe(2);
+
+        console.Load("bind k\nbind `\nbind escape");
+
+        log.Count("\"k\" = \"\"").ShouldBe(1);
+        log.Count("\"`\" = \"toggleconsole\"").ShouldBe(1);
+        log.Count("\"escape\" = \"cancelselect\"").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`Applied of Bound` counts the same things: keys bound to a command** (B823 review 4, Fable, Sonnet). The load's log
+    /// line reads "{Applied} of {Bound} binds applied", and `Applied` is per key, so `Bound` is the keys standing — a key
+    /// bound twice is one, an unbound key none — not the `bind` lines seen. The control: one key does something here.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k screenshot\nbind k screenshot\nbind j nonsense\nbind q screenshot\nunbind q");
+
+        console.Bound.ShouldBe(2, "k and j");
+        console.Applied.ShouldBe(1, "k alone reaches an action; q was unbound");
+    }
+
+    /// <remarks>
+    /// **An unbound key is not applied, though the viewer's own default stands behind it** (B823 reviews 4 and 5): `F5` falls
+    /// back to the viewer's `screenshot` when nothing the config left binds it, but `unbind F5` left no binding to count.
+    /// </remarks>
+    [Test]
+    public void Applied_AKeyUnboundOverAViewerDefault_IsNotCounted()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("bind F5 screenshot");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "the control: the config bound F5");
+
+        console.Load("unbind F5");
+
+        (console.Applied, console.Bound).ShouldBe((0, 0), "F5's binding is gone, whatever answers for it");
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the viewer's default still answers for it");
+    }
+
+    /// <remarks>
+    /// **The viewer's own defaults are no config's binds** (B823 review 5, Fable, Sonnet): `WithDefaults` seeds the table, and
+    /// a config with no `bind` line must log `0 of 0`, not `N of N` — an empty config must not look like a loaded one
+    /// (<see cref="ConfigConsole.WithDefaults"/>'s remark).
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("sensitivity 3");
+
+        (console.Applied, console.Bound).ShouldBe((0, 0));
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the control: the defaults were seeded");
+    }
+
+    /// <remarks>
+    /// **`Applied` is the config's own command, not the default behind it** (B823 review 6, Fable, Sonnet): `bind F5
+    /// nonsense` leaves F5 taking a screenshot by the viewer's fallback, but the config's bind did nothing here, so it is
+    /// one bound and none applied. The control binds F5 to the screenshot itself.
+    /// </remarks>
+    [TestCase("bind F5 nonsense", 0, 1)]
+    [TestCase("bind F5 screenshot", 1, 1)]
+    public void BoundAndApplied_AConfigBindOverADefault_CountTheConfigsCommand(string line, int applied, int bound)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load(line);
+
+        (console.Applied, console.Bound).ShouldBe((applied, bound));
+    }
+
+    /// <remarks>
+    /// **A bind counts however it ran** (B823 reviews 6 and 7, Sonnet, Fable): a key's command binding another key at run
+    /// time, an alias whose body binds, and a key bound again after `unbindall` each leave one key standing that does
+    /// something here. A key whose command is itself a `bind` does something — the console runs it — so it is applied.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_BindsAtRunTimeThroughAnAliasAndAfterUnbindall_CountEachStandingKey()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k \"bind j screenshot\"");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "k's command is a bind the console runs");
+
+        console.KeyDown("k");
+        (console.Applied, console.Bound).ShouldBe((2, 2), "a run-time bind: j now takes the screenshot");
+
+        console.Load("alias b \"bind h screenshot\"\nb");
+        (console.Applied, console.Bound).ShouldBe((3, 3), "a bind an alias ran");
+
+        console.Load("unbindall\nbind j screenshot");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "unbindall emptied k, j and h; j bound again");
+    }
+
+    /// <remarks>
+    /// **A bind that sets state is applied** (B823 review 7, Fable): `bind F5 "toggle cl_showpos"` over the defaults runs the
+    /// toggle and takes F5 from the screenshot, as `CommandFor` already reads it (a command that expands to an action OR sets
+    /// state does something), so `Applied` asks the same question.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AStateSettingBindOverADefault_IsApplied()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"toggle cl_showpos\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 1));
+
+        console.KeyDown("F5");
+        fired.ShouldBeEmpty("the control: F5 runs the toggle, not the screenshot");
+        console.ConVar("cl_showpos").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **`bind F5` prints the seeded default** (B823 review 6, Fable): TF2's default binds come from `config_default.cfg`
+    /// into the same table, so its `bind F5` prints them; <see cref="ConfigConsole.WithDefaults"/> plays that file's part.
+    /// </remarks>
+    [Test]
+    public void Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Log = log;
+
+        console.Load("bind F5");
+
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1);
+
+        // The table, not the viewer's default (B823 review 7, Grok): rebound, F5 prints its new binding.
+        console.Load("bind F5 \"toggle cl_showpos\"\nbind F5");
+
+        log.Count("\"F5\" = \"toggle cl_showpos\"").ShouldBe(1);
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1, "printed once, before the rebind");
+
+        // And a binding that does nothing here (B823 review 8, Fable): `CommandFor` falls back to the screenshot for
+        // `nonsense`, so only a show that reads the table prints `nonsense`.
+        console.Load("bind F5 nonsense\nbind F5");
+
+        log.Count("\"F5\" = \"nonsense\"").ShouldBe(1);
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1, "still only the first show, before any rebind");
+    }
+
+    /// <remarks>
+    /// **A key that toggles `sv_cheats` is the config's** (B823 review 9, Fable): the console takes `sv_cheats` though it is
+    /// replicated (B718), so `toggle`, `incrementvar` and `multvar` on it run, as TF2 runs them, and the key must not fall
+    /// back to the viewer's screenshot. `sv_gravity`, replicated and no `sv_cheats`, is refused by the console and is the
+    /// control: it names nothing the console runs, so F6 keeps its default.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AToggleOfSvCheatsOnAKey_TogglesCheatsAndCounts()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.StartCheatsOff();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"toggle sv_cheats\"\nbind F6 \"toggle sv_gravity\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: F6's sv_gravity is the server's");
+
+        console.KeyDown("F5");
+        fired.ShouldNotContain(ViewerAction.Screenshot);
+        console.ConVar("sv_cheats").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A plain set of a replicated ConVar is not applied** (B823 review 9, Gemini): `sv_gravity` is declared but the
+    /// server's, so the console refuses `sv_gravity 800` and F6 keeps the viewer's default. `sv_cheats 1` on F5 is the
+    /// control: replicated too, but the one the console takes (B718).
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_ASetOfAReplicatedConVar_IsNotApplied()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind F6 \"sv_gravity 800\"\nbind F5 \"sv_cheats 1\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: F5's sv_cheats is taken");
+    }
+
+    /// <remarks>
+    /// **`incrementvar sv_cheats` on a key, the same** (B823 review 9, Fable): five tokens, so `CvarCommand` assigns it
+    /// and the console takes `sv_cheats 1.000000`.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnIncrementvarOfSvCheatsOnAKey_SetsCheatsAndCounts()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.StartCheatsOff();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"incrementvar sv_cheats 0 1 1\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 1));
+
+        console.KeyDown("F5");
+        fired.ShouldNotContain(ViewerAction.Screenshot);
+        console.ConVar("sv_cheats").ShouldBe("1.000000");
+    }
+
+    /// <remarks>
+    /// **An alias with an empty body is applied, deliberately** (B823 review 8, Fable, Sonnet): `Applied` counts what a
+    /// binding names, not what it changes. TF2 runs `none` when `k` is pressed; the bind owns the key and no viewer default
+    /// stands behind it, so <c>CommandFor</c> taking it is parity, and `Applied` asks <c>CommandFor</c>'s question.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_ABindToAnAliasWithAnEmptyBody_IsApplied()
+    {
+        ConfigConsole console = new();
+
+        console.Load("alias none \"\"\nbind k none\nbind j nothing");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: j names nothing the console runs");
+    }
+
+    /// <remarks>
+    /// **An emptied key is unbound to every reader** (B823 review 3, Sonnet): after `unbindall` the table holds `""` for
+    /// `k`, and <see cref="ConfigConsole.Bindings"/> gives it no action (the menu's <c>ShowBindings</c> reads
+    /// <c>KeyFor</c>) and no `%command%` (the HUD's <c>KeyForCommand</c>): `""` names no command a HUD asks, since
+    /// `UTIL_ReplaceKeyBindings` skips `%%` (`cdll_util.cpp:891`).
+    /// </remarks>
+    [Test]
+    public void Bindings_AfterUnbindall_NameNoActionAndNoCommandForTheEmptiedKey()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k screenshot\nbind j +jump");
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("k", "the control: bound before");
+
+        console.Load("unbindall");
+        KeyBindings bindings = console.Bindings();
+
+        bindings.ActionsFor("k").ShouldBeEmpty();
+        bindings.KeyFor(ViewerAction.Screenshot).ShouldNotBe("k", "screenshot goes back to the viewer's own key");
+        bindings.KeyForCommand("+jump").ShouldBeNull();
+        bindings.KeyForCommand("jump").ShouldBeNull();
+    }
+
+    [Test]
+    public void Unbind_TwoArguments_LeavesTheKeyBoundToNothing()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nunbind k\nbind k");
+        console.KeyDown("k");
+
+        fired.ShouldBeEmpty();
+        log.Count("\"k\" = \"\"").ShouldBe(1, "an unbound key holds the empty string, which `bind k` prints");
+    }
+
+    [Test]
+    public void Unbind_Escape_PrintsAndKeepsItsBinding()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind escape x\nunbind Escape\nbind escape");
+
+        log.Count("Can't unbind ESCAPE key").ShouldBe(1);
+        log.Count("\"escape\" = \"cancelselect\"").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A numeric ConVar reads its value as `atof`** (B823; `ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`): the
+    /// longest numeric prefix, 0 when there is none, and `inf` is infinity (C11 7.22.1.3), whose int is MSVC's
+    /// `0x80000000`. `toggle name` flips that int (build 1007 FUN_180179390): zero becomes 1, anything else 0. `name 1 2`, whose value
+    /// is `ArgS` `1 2`, is 1.
+    /// </remarks>
+    [TestCase("1 2", "0")]
+    [TestCase(" 2x", "0")]
+    [TestCase("abc", "1")]
+    [TestCase("inf", "0")]
+    public void Toggle_AConVarSetToText_ReadsItsNumberAsAtof(string value, string expected)
+    {
+        ConfigConsole console = new();
+
+        console.Load($"cl_showpos \"{value}\"\ntoggle cl_showpos");
+
+        console.ConVar("cl_showpos").ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **The launch line is not a file** (B820 review 8, Sonnet): `stuffcmds` hands its text to `Cbuf_AddText`, so a `\\` in
     /// a launch value stays two backslashes where a config line's would become one.
     /// </remarks>
@@ -1615,19 +2144,40 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
-    /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
+    /// **Two keys on one action: the first bound has it, and a rebind keeps its place** (B823 review 9, Fable): the order
+    /// is the console's by design, not a dictionary's. `b` is bound after `a`, then `a` is rebound, and `a` keeps it.
     /// </remarks>
     [Test]
-    public void Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction()
+    public void Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind a +forward\nbind b +forward\nbind a +forward");
+
+        console.Bindings().KeyFor(ViewerAction.FlyForward).ShouldBe("a");
+    }
+
+    /// <remarks>
+    /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
+    /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
+    /// Read through <see cref="ConfigConsole.Bindings"/>' actions per key: `Applied` counts any bind that runs an alias
+    /// since B823 review 7 (`CommandFor`'s own question), so it no longer tells the two routes apart.
+    /// **`y` is bound first** (B823 review 8, Fable): `Bindings` gives an action to the first key that reaches it, so with
+    /// `x` first a depth cut that let `y` through stayed green; with `y` first, that fault takes the action from `x`. That
+    /// power rests on the first-bound order, which `Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` pins (B823 review 9).
+    /// </remarks>
+    [Test]
+    public void Bindings_AnAliasReachedDeepThenShallow_StillReachesItsAction()
     {
         ConfigConsole console = new();
         IEnumerable<string> chain = Enumerable.Range(1, 19)
             .Select(at => $"alias c{at} {(at < 19 ? $"c{at + 1}" : "s")}");
 
-        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
+        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind y c1\nbind x \"c1;s\"");
 
-        console.Applied.ShouldBe(1, "x counts; y, whose only route to s is the cut one, does not (B820 review 5, Fable)");
+        KeyBindings bindings = console.Bindings();
+        bindings.ActionsFor("x").ShouldContain(ViewerAction.FlyForward, "x reaches s at the top (B820 review 5, Fable)");
+        bindings.ActionsFor("y").ShouldNotContain(ViewerAction.FlyForward, "y's only route to s is the cut one");
     }
 
     /// <remarks>

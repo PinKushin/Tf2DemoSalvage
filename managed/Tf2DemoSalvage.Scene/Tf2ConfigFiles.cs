@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -169,9 +168,10 @@ public static class Tf2ConfigFiles
     /// decoder turning an international name into a plausible different one rather than into an
     /// error — see `docs/memory/international-names-are-required.md`.
     ///
-    /// **Invalid bytes are replaced rather than thrown on.** A config edited in a legacy code page
-    /// is a file the engine still reads; losing one character from a `say` bind costs nothing, and
-    /// refusing the file would cost the player every binding in it.
+    /// **Invalid bytes are kept, not thrown on and not replaced** (B823 review 1, Sonnet). A config edited in a legacy code
+    /// page is a file the engine still reads, byte by byte, so a Latin-1 `é` (`E9`) reaches the tokenizer as the lone byte
+    /// U+DCE9 (<see cref="Core.Primitives.Utf8Escaped"/>) and a ConVar set from it holds `E9`, as TF2's would. It was
+    /// replaced by U+FFFD until then.
     /// </remarks>
     public static string Decode(byte[] bytes)
     {
@@ -184,7 +184,6 @@ public static class Tf2ConfigFiles
             span = span[3..];
         }
 
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false)
-            .GetString(span);
+        return Core.Primitives.Utf8Escaped.GetString(span);
     }
 }

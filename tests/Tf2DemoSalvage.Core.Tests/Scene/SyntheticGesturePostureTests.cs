@@ -313,6 +313,44 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <remarks>
+    /// **`GetBool()` is `!!GetInt()`, and `GetInt` the float truncated as MSVC's `cvttss2si`** (B823 review 2, Sonnet;
+    /// `convar.cpp:791-802`): `0.5` is 0, so no loser; `nan` is `0x80000000`, so a loser; `0x1` is 1.
+    /// </remarks>
+    [TestCase("0.5", "ACT_MP_DOUBLEJUMP")]
+    [TestCase("nan", "ACT_MP_DOUBLEJUMP_LOSERSTATE")]
+    [TestCase("0x1", "ACT_MP_DOUBLEJUMP_LOSERSTATE")]
+    public void Build_ADoubleJumpUnderTfAlwaysLoserText_ReadsItAsGetBool(string sent, string expected)
+    {
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGesturesSendingAlwaysLoser(
+            Interval,
+            SceneTeams.Red,
+            Scout,
+            (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
+            sent,
+            At(100, 0f, OnGround),
+            At(101, 4f, InAir) with { Events = [PlayerAnimEvent.DoubleJump] }));
+
+        Gesture(timeline, 101, GestureSlot.Jump).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **A frame's nemesis icon follows the tournament switch as `GetBool` reads it** (B823 review 4, Fable): the frame
+    /// builder's `HidesDominationIcons` is `mp_tournament.GetBool() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`
+    /// (`ShouldShowNemesisIcon`, c_tf_player.cpp:9376-9395), so `0.5` hides nothing and the dominating blu player carries
+    /// `particle_nemesis_blue`. The output read is the frame's player, decoded from a synthetic demo.
+    /// </remarks>
+    [TestCase("1", "0.5", true)]
+    [TestCase("1", "1", false)]
+    [TestCase("0", "1", true)]
+    public void Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads(string tournament, string hide, bool shown)
+    {
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfANemesis(tournament, hide));
+        ScenePlayer nemesis = timeline.Frames.Single(frame => frame.Tick == 100).Players.Single(player => player.EntityIndex == 2);
+
+        (nemesis.OverheadEffects?.Any(icon => icon.Name == "particle_nemesis_blue") ?? false).ShouldBe(shown);
+    }
+
+    /// <remarks>
     /// **The player's activity table is chosen every tick from the same `IsLoser` the gestures ask** (B437) —
     /// `CTFPlayerAnimState::ActivityOverride` (`tf_playeranimstate.cpp:223-269`) — so the losing team's body runs
     /// and stands as the loser during humiliation, and the winning team's does not.

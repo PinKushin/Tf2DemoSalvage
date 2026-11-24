@@ -69,7 +69,17 @@ public sealed class ConfigConsole
     private const string AliasIssued = "-1";
 
     private readonly Dictionary<string, string> _aliases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Each key's binding, in the order keys were first bound: nothing removes a key (`unbind` and `unbindall`
+    /// store `""`), and a rebind keeps its place, so <see cref="Bindings"/> gives an action to the first key bound to it by
+    /// design rather than by a <see cref="Dictionary{TKey, TValue}"/>'s unspecified order (B823 review 9, Fable).</summary>
+    private readonly OrderedDictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Every key a <c>bind</c> line has set; it only grows. <see cref="Bound"/> and <see cref="Applied"/> count those whose
+    /// binding is still a command — `unbind` and `unbindall` empty the binding, not this set — so the defaults
+    /// <see cref="WithDefaults"/> seeds into <see cref="_binds"/> are never a config's (B823 reviews 5 and 6).
+    /// </summary>
+    private readonly HashSet<string> _configBound = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _conVars = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ViewerAction, Button> _buttons = [];
 
@@ -108,7 +118,17 @@ public sealed class ConfigConsole
     /// <summary>Whether <see cref="Load"/> is running a config, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
     private bool _loading;
 
-    /// <summary>How many binds name something this viewer implements.</summary>
+    /// <summary>
+    /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that names something the
+    /// console runs: a viewer action, a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
+    /// consults, or a console definer (B823 reviews 6 to 9).
+    /// </summary>
+    /// <remarks>
+    /// **What it names, not what it changes.** An alias counts whatever its body, `alias none ""` included, because TF2 runs
+    /// the alias and the bind owns the key; a definer counts whatever its arguments; an `incrementvar` or `multvar` with the
+    /// wrong token count, which `CvarCommand` drops, and a refused cheat set still count (B823 reviews 8 and 9). This is the
+    /// project's own diagnostic, so its rule is this one; the engine has no such count.
+    /// </remarks>
     /// <remarks>
     /// **Computed on demand rather than counted as binds arrive, because the count depends on
     /// aliases that may not exist yet.** TF2 execs `config.cfg` before `autoexec.cfg`, and the binds
@@ -125,9 +145,13 @@ public sealed class ConfigConsole
         {
             int applied = 0;
 
-            foreach (string key in _binds.Keys)
+            // The keys `Bound` counts: a config's (never a seeded default, B823 review 5), and not one emptied since
+            // (`unbind`, `unbindall`), whatever default it falls back to.
+            foreach (string key in _configBound)
             {
-                if (Expand(CommandFor(key) ?? string.Empty, depth: 0).Count > 0)
+                // The config's own command, not `CommandFor`'s fallback to the viewer's default (B823 review 6), asked
+                // `CommandFor`'s own question (review 7): a bind that does nothing here is bound and not applied.
+                if (DoesSomething(_binds[key]))
                 {
                     applied++;
                 }
@@ -137,13 +161,18 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>How many <c>bind</c> lines were seen, whether or not they meant anything here.</summary>
+    /// <summary>How many keys a <c>bind</c> line set that still hold a command, whether or not it means anything here.</summary>
     /// <remarks>
     /// **The pair of numbers is what lets a caller say something true.** A config full of `mat_*`
     /// and one that failed to load are both "loaded"; only `0 applied of 206 binds` versus
     /// `0 of 0` distinguishes them.
+    ///
+    /// **Keys, not `bind` lines, because <see cref="Applied"/> is per key** (B823 review 4, Fable, Sonnet): the log line is
+    /// "{Applied} of {Bound} binds applied", so a key bound twice is one and a key `unbind` or `unbindall` emptied is none —
+    /// after `unbindall`, the two it spares if a config bound them. The keys <see cref="WithDefaults"/> seeds are not a
+    /// config's and are never counted (B823 review 5, Fable, Sonnet), so a config with no `bind` reads `0 of 0`.
     /// </remarks>
-    public int Bound { get; private set; }
+    public int Bound => _configBound.Count(key => _binds[key].Length > 0);
 
     /// <summary>Counts every <c>bind</c>, <c>unbind</c>, <c>unbindall</c> and <c>alias</c> run, so a host can tell its projection is stale.</summary>
     /// <remarks>
@@ -293,8 +322,7 @@ public sealed class ConfigConsole
     /// </remarks>
     private string? CommandFor(string key)
     {
-        if (_binds.TryGetValue(key, out string? command) &&
-            (Expand(command, depth: 0).Count > 0 || SetsState(command)))
+        if (_binds.TryGetValue(key, out string? command) && DoesSomething(command))
         {
             return command;
         }
@@ -317,8 +345,24 @@ public sealed class ConfigConsole
         return fallback;
     }
 
-    /// <summary>Whether a command line defines an alias or sets a declared ConVar, through its aliases.</summary>
+    /// <summary>
+    /// Whether a bound command names something the console runs: a viewer action, a set of a client (non-replicated)
+    /// ConVar or `sv_cheats`, an alias the dispatcher consults, or a console definer (B823 reviews 7 to 9).
+    /// </summary>
+    /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
+    /// <see cref="Applied"/>, which counts it.</remarks>
+    private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
+
+    /// <summary>
+    /// Whether a command line names a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
+    /// consults, or a console definer — what it names, not what it changes: any alias whatever its body, any definer
+    /// whatever its arguments, an `incrementvar` or `multvar` with the wrong token count (which `CvarCommand` drops) and
+    /// a refused cheat set all count (B823 reviews 8 and 9).
+    /// </summary>
     /// <remarks>
+    /// **An alias bind is the config's, whatever its body.** TF2 runs the alias; the bind owns the key and no viewer
+    /// default stands behind it, so <see cref="CommandFor"/> taking it is parity and this is not narrowed.
+    ///
     /// **A `toggle` is not a no-op because it names no action** (B547). The fallback above was written for binds that
     /// mean nothing here; `bind HOME "toggle cl_showpos"` means something, and fell back to `resetspeed`.
     /// </remarks>
@@ -339,12 +383,13 @@ public sealed class ConfigConsole
                 || verb.Equals("multvar", StringComparison.OrdinalIgnoreCase);
 
             // The same tests `Run` acts on: the console's own ConCommands (`exec` and `bind` included, B820 review 1, Fable),
-            // an alias the dispatcher would consult, and a ConVar `SetConVar` would accept - which is how the console treats
-            // a typed line; a name the game does not declare is no ConVar in the engine either.
+            // an alias the dispatcher would consult, and a name `SetConVar` takes (`TakesSet`, the one test both ask: a client
+            // ConVar or `sv_cheats`, B823 review 9) - which is how the console treats a typed line; a name the game does not
+            // declare is no ConVar in the engine either.
             if (Definers.Contains(verb)
                 || (ConsultsAlias(verb) && _aliases.ContainsKey(verb))
-                || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
-                || (tokens.Count >= 2 && (IsClientConVar(verb) || verb.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))))
+                || (cvarCommand && tokens.Count >= 2 && TakesSet(tokens[1]))
+                || (tokens.Count >= 2 && TakesSet(verb)))
             {
                 return true;
             }
@@ -498,7 +543,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                length += Utf8Size(c);
+                length += Core.Primitives.Utf8Escaped.ByteCount(text, at);
                 command.Append(c);
                 at++;
             }
@@ -514,7 +559,7 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// A file's lines as `Cmd_Exec_f` reads them, each handed to `Cbuf_AddText` on its own (`engine.dll` FUN_180177310, read
+    /// A file's lines as `Cmd_Exec_f` reads them, each handed to `Cbuf_AddText` on its own (`engine.dll` build 1007 FUN_180177310, read
     /// in B820 review 7): a line ends at any control byte but tab, so a CRLF line's CR ends it and is not counted; leading
     /// spaces are kept and leading tabs and non-ASCII characters dropped (the skip between lines is a signed `char` compare);
     /// a line is cut at 1023 bytes and the rest read as the next; and a line that is not a `bind` (the word
@@ -542,7 +587,7 @@ public sealed class ConfigConsole
             do
             {
                 char c = text[at];
-                int size = Utf8Size(c);
+                int size = Core.Primitives.Utf8Escaped.ByteCount(text, at);
 
                 if (bytes + size > MaximumLine)
                 {
@@ -575,16 +620,6 @@ public sealed class ConfigConsole
             }
         }
     }
-
-    /// <summary>A character's UTF-8 bytes, as the engine's `char` loops count: a surrogate pair is four, on its first half.</summary>
-    private static int Utf8Size(char c) => c switch
-    {
-        < (char)0x80 => 1,
-        < (char)0x800 => 2,
-        _ when char.IsHighSurrogate(c) => 4,
-        _ when char.IsLowSurrogate(c) => 0,
-        _ => 3,
-    };
 
     /// <summary>The lines of <see cref="RunFile"/>.</summary>
     private void RunLines(string text, int depth)
@@ -1039,7 +1074,7 @@ public sealed class ConfigConsole
     /// </summary>
     /// <remarks>
     /// The engine consults an alias only when `FindCommandBase` finds nothing, or when the name starts with `+` or `-`
-    /// (`engine.dll` FUN_1801678a0). Known here: this console's own ConCommands, every declared ConVar, and every command
+    /// (`engine.dll` build 1007 FUN_1801678a0). Known here: this console's own ConCommands, every declared ConVar, and every command
     /// a viewer action is spelled as. *Interpolated*: a TF2 ConCommand this viewer does not know (`say`, say) is
     /// shadowed by an alias of its name here and is not in TF2; that alias's command does nothing here either way.
     /// </remarks>
@@ -1052,8 +1087,13 @@ public sealed class ConfigConsole
     {
         if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
         {
-            _binds.Clear();
-            Bound = 0;
+            // Every key bound to something becomes "", but ESCAPE and the console key (`Key_Unbindall_f`, build 1007
+            // FUN_1801b6b10, the same build; `SourceConfig.SurvivesUnbindAll`, B823 review 2).
+            foreach (string key in _binds.Keys.Where(key => !SourceConfig.SurvivesUnbindAll(key) && _binds[key].Length > 0).ToList())
+            {
+                _binds[key] = string.Empty;
+            }
+
             _claimed = null;
             BindsRevision++;
             return true;
@@ -1061,11 +1101,18 @@ public sealed class ConfigConsole
 
         if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
         {
-            if (tokens.Count >= 2)
+            // `Key_Unbind_f` (`engine.dll` x64 build 1007 FUN_1801b6a30, B823 review 1): see `SourceConfig.Unbinds`.
+            if (SourceConfig.Unbinds(tokens))
             {
-                _binds.Remove(tokens[1]);
+                _binds[tokens[1]] = string.Empty;
                 _claimed = null;
                 BindsRevision++;
+            }
+            else
+            {
+                Log.LogInformation(
+                    "{Message}",
+                    tokens.Count == 2 ? "Can't unbind ESCAPE key" : "unbind <key> : remove commands from a key");
             }
 
             return true;
@@ -1091,14 +1138,7 @@ public sealed class ConfigConsole
 
         if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase))
         {
-            if (tokens.Count >= 3)
-            {
-                _binds[tokens[1]] = tokens[2];
-                Bound++;
-                _claimed = null;
-                BindsRevision++;
-            }
-
+            Bind(tokens);
             return true;
         }
 
@@ -1111,7 +1151,43 @@ public sealed class ConfigConsole
         return false;
     }
 
-    /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` FUN_1801672f0).</summary>
+    /// <summary>`bind`, as `Key_Bind_f` (`engine.dll` x64 build 1007 FUN_1801b67a0, with build 1007 FUN_1801b5ea0) runs it (B823).</summary>
+    /// <remarks>
+    /// Read in the decompile and disassembly: only `argc - 2 &lt; 2` acts, so one argument or four and more print the usage
+    /// line and change nothing — `bind k café` is five arguments by bytes. Two print the key's binding (`"%s" = "%s"`, or
+    /// `"%s" is not bound`); three bind `Arg(2)`, except that key 0x46, `KEY_ESCAPE`, is bound to `cancelselect` whatever
+    /// the line says (*interpolated*: the name matched without case, since the engine's key-name lookup, the vtable call at
+    /// +0xe8, is not read). *Not ported (B826):* `"%s" isn't a valid key` — the key names are the view's (`KeyNames`, D214), so a name
+    /// TF2 does not know is kept here and no key ever reaches it. The binding printed is the table's, seeded defaults
+    /// included: TF2's own defaults come from `config_default.cfg` into the same table, so its `bind F5` prints them, and
+    /// <see cref="WithDefaults"/> plays that file's part (B823 review 6, Fable).
+    /// </remarks>
+    private void Bind(IReadOnlyList<string> tokens)
+    {
+        if (tokens.Count == 2)
+        {
+            Log.LogInformation(
+                "{Message}",
+                // A key bound to "" holds a string (build 1007 FUN_1801b65d0 copies it; `unbind` sets one), so it prints `= ""`.
+                _binds.TryGetValue(tokens[1], out string? bound)
+                    ? $"\"{tokens[1]}\" = \"{bound}\""
+                    : $"\"{tokens[1]}\" is not bound");
+            return;
+        }
+
+        if (!SourceConfig.Binds(tokens))
+        {
+            Log.LogInformation("{Message}", "bind <key> [command] : attach a command to a key");
+            return;
+        }
+
+        _binds[tokens[1]] = SourceConfig.Binding(tokens[1], tokens[2]);
+        _configBound.Add(tokens[1]);
+        _claimed = null;
+        BindsRevision++;
+    }
+
+    /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` build 1007 FUN_1801672f0).</summary>
     private static readonly string[] RefusedFileTypes =
         [".exe", ".vbs", ".com", ".bat", ".dll", ".ini", ".gcf", ".sys", ".zip", ".vpk", ".blob", ".scr"];
 
@@ -1149,7 +1225,7 @@ public sealed class ConfigConsole
     /// <summary>Clauses run since the last command at depth 0; see <see cref="MaximumCommandClauses"/>.</summary>
     private int _commandClauses;
 
-    /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
+    /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` build 1007 FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
 
     /// <summary>The missing files `Cmd_Exec_f` says nothing about, matched in the argument as typed, ignoring case.</summary>
@@ -1157,7 +1233,7 @@ public sealed class ConfigConsole
 
     /// <summary>`exec &lt;name&gt;`: runs <c>cfg/&lt;name&gt;</c> where the line stands, as `Cmd_Exec_f` (B820).</summary>
     /// <remarks>
-    /// Messages are TF2's, from `engine.dll` FUN_1801672f0; the path in the two refusals is `//MOD/cfg/…` there and
+    /// Messages are TF2's, from `engine.dll` build 1007 FUN_1801672f0; the path in the two refusals is `//MOD/cfg/…` there and
     /// `cfg/…` here, the search path being <see cref="FindConfig"/>'s. *Interpolated*: nothing in `Cmd_Exec_f` bounds a
     /// file that execs itself; this stops at <see cref="MaximumExpansion"/>, as an alias does.
     /// </remarks>
@@ -1184,7 +1260,7 @@ public sealed class ConfigConsole
         string name = tokens[1];
         string path = "cfg/" + name;
 
-        // `V_DefaultExtension`: `.cfg` only when the last segment has no dot (FUN_180282920).
+        // `V_DefaultExtension`: `.cfg` only when the last segment has no dot (build 1007 FUN_180282920).
         if (path.IndexOf('.', path.LastIndexOfAny(['/', '\\']) + 1) < 0)
         {
             path += ".cfg";
@@ -1240,12 +1316,20 @@ public sealed class ConfigConsole
     private static bool IsClientConVar(string name) =>
         EngineConVars.TryByConsoleName(name, out EngineConVar? declared) && !declared.Replicated;
 
+    /// <summary>
+    /// Whether the console takes a set of this name: a client ConVar, or `sv_cheats` though replicated (B718). The one
+    /// test <see cref="SetConVar"/> and <see cref="SetsState"/> share, so what a key counts as running cannot drift from
+    /// what it runs (B823 review 9, Fable).
+    /// </summary>
+    private static bool TakesSet(string name) =>
+        name.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase) || IsClientConVar(name);
+
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
     {
         _refusedNow = false;
 
-        if (tokens.Count < 2)
+        if (tokens.Count < 2 || !TakesSet(tokens[0]))
         {
             return false;
         }
@@ -1267,7 +1351,7 @@ public sealed class ConfigConsole
             return true;
         }
 
-        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
+        if (!EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
         {
             return false;
         }
@@ -1331,7 +1415,7 @@ public sealed class ConfigConsole
     /// </summary>
     /// <param name="value">The value as written.</param>
     /// <returns>True when cheats are on.</returns>
-    internal static bool CheatsAllowed(string value) => (int)Atof(value.Trim()) != 0;
+    internal static bool CheatsAllowed(string value) => ConVarNumber.GetInt(value) != 0;
 
     /// <summary>Whether the last <see cref="SetConVar"/> refused a cheat ConVar.</summary>
     private bool _refusedNow;
@@ -1365,9 +1449,11 @@ public sealed class ConfigConsole
             // The value as `CurrentValue` reads it — the settings, then a config's line the console keeps — so a cheat a
             // watcher config set is reverted too (B791 review 15).
             else if ((_settingValue(cheat.Name) ?? _conVars.GetValueOrDefault(cheat.Name)) is { } now &&
-                MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
+                !string.Equals(now, cheat.Default, StringComparison.Ordinal))
             {
-                // Only what differs from its default is announced, so the host logs and applies a real change.
+                // Only what differs from its default is announced, as `ConVar::Revert` runs a ConVar's callbacks only when its
+                // STRING changed (`V_strcmp`, `src/tier1/convar.cpp:844`), so `nan` reverts where a float compare saw no
+                // difference (B823 review 1). *Not read:* the filter inside `RevertFlaggedConVars`, which is vstdlib's.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
             }
         }
@@ -1378,8 +1464,9 @@ public sealed class ConfigConsole
     /// the line is not one of them or the engine would set nothing.
     /// </summary>
     /// <remarks>
-    /// Read from x64 `engine.dll` (Ghidra `tf2engine`, 2026-10-14): `incrementvar` FUN_1801a7fe0, `multvar`
-    /// FUN_1801a8bc0, `toggle` FUN_180177cd0. The engine's warnings (usage, `cvar "%s" not found`, `%s = %f`) go to its
+    /// Read from x64 `engine.dll` (Ghidra `tf2engine`, 2026-10-14), and re-found in build 1007 (B823 review 3): `incrementvar`
+    /// build 1007 FUN_1801a9920, `multvar` build 1007 FUN_1801aa500, `toggle` build 1007 FUN_180179390 (the earlier build's
+    /// FUN_1801a7fe0, FUN_1801a8bc0 and FUN_180177cd0). The engine's warnings (usage, `cvar "%s" not found`, `%s = %f`) go to its
     /// console, which this viewer does not have, so they are not reproduced. A replicated cvar is refused afterwards by
     /// <see cref="SetConVar"/>, as the engine's executed `name value` would be.
     /// </remarks>
@@ -1396,10 +1483,10 @@ public sealed class ConfigConsole
                 return null;
             }
 
-            float min = Atof(tokens[2]);
-            float max = Atof(tokens[3]);
-            float step = Atof(tokens[4]);
-            float result = increment ? Atof(current) + step : Atof(current) * step;
+            float min = ConVarNumber.GetFloat(tokens[2]);
+            float max = ConVarNumber.GetFloat(tokens[3]);
+            float step = ConVarNumber.GetFloat(tokens[4]);
+            float result = increment ? ConVarNumber.GetFloat(current) + step : ConVarNumber.GetFloat(current) * step;
 
             if (result > max)
             {
@@ -1421,7 +1508,8 @@ public sealed class ConfigConsole
             return null;
         }
 
-        // Fewer than two tokens is Usage; an unknown cvar is "%s is not a valid cvar". FUN_180176f20 also refuses
+        // Fewer than two tokens is Usage; an unknown cvar is "%s is not a valid cvar". Its validity check (build 1007
+        // FUN_1801785e0; the earlier build's FUN_180176f20) also refuses
         // FCVAR_DEVELOPMENTONLY (2) and FCVAR_HIDDEN (0x10), which no cvar `EngineConVars` declares carries, and applies
         // multiplayer, cheat and replicated server rules that do not arise in demo playback; none of those is ported.
         if (tokens.Count < 2 || CurrentValue(tokens[1]) is not { } value)
@@ -1432,7 +1520,7 @@ public sealed class ConfigConsole
         if (tokens.Count == 2)
         {
             // The cvar's INT value: zero becomes 1, anything else 0.
-            return [tokens[1], (int)Atof(value) == 0 ? "1" : "0"];
+            return [tokens[1], ConVarNumber.GetInt(value) == 0 ? "1" : "0"];
         }
 
         // Exact byte compare of the STRING value against each listed value; the one after the match, wrapping, or
@@ -1460,20 +1548,6 @@ public sealed class ConfigConsole
     /// <summary>Reads ConVar values from the viewer's settings, which then hold every ConVar they implement (D215).</summary>
     /// <param name="value">A ConVar's current value as the engine holds its string, or null where the settings have none.</param>
     public void ReadSettingsFrom(Func<string, string?> value) => _settingValue = value;
-
-    /// <summary>C's <c>atof</c>, the engine's parse: the longest numeric prefix, and 0 when there is none.</summary>
-    private static float Atof(string text)
-    {
-        for (int length = text.Length; length > 0; length--)
-        {
-            if (float.TryParse(text.AsSpan(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return 0f;
-    }
 
     /// <summary>Runs a command line, expanding aliases, in press or release direction.</summary>
     /// <remarks>
@@ -1598,6 +1672,15 @@ public sealed class ConfigConsole
             {
                 // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
                 tokens = assignment;
+            }
+            else if (tokens.Count >= 2)
+            {
+                // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
+                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. `bind`, `alias` and `exec`
+                // were taken by `Define` above. A command that is no ConVar reaches only `SetConVar`, which refuses it, and
+                // then `tokens[0]` and the count: its arguments are read by nothing past here (B823 review 2, Sonnet, Grok —
+                // a guard to collapse only for a ConVar had no test that could fail, and was removed).
+                tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
             }
 
             if (SetConVar(tokens))

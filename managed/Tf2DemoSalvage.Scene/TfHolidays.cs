@@ -150,7 +150,7 @@ public static class TfHolidays
     }
 
     private static int Int(string? value) =>
-        value is null ? 0 : (int)Hud.PanelLayout.Atof(value);
+        value is null ? 0 : Core.Net.ConVarNumber.GetInt(value);
 
     /// <summary>`s_HolidayChecks`' names (econ_holidays.cpp:337-353), in `EHoliday` order.</summary>
     private static readonly string[] HolidayNames =

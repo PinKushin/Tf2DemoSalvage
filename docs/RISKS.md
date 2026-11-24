@@ -45324,7 +45324,7 @@ on the first line (*disassembly*). The command name is then the mark's first byt
 (`src/tier1/utlbuffer.cpp:1303-1320`) ends a word at any signed `char <= ' '` (*published source*), which the live
 `Unknown command "�"`, one glyph and no `echo`, agrees with. Findings 13 has the whole read.
 
-## B823 — a config word does not end at a byte of 0x80 or more, where TF2's tokenizer ends it there (2026-11-23) — OPEN
+## B823 — a config word does not end at a byte of 0x80 or more, where TF2's tokenizer ends it there (2026-11-23) — FIXED
 
 Found in B822 review 4 (Fable). `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`), which `CCommand::Tokenize`
 calls for every argument, stores a word's first `char` unchecked and ends the word at `c <= ' '` with `c` a signed `char`,
@@ -45335,6 +45335,435 @@ TF2: `alias café x` is `alias`, `caf`, `C3`, `A9`, `x` by bytes. `SourceConfig.
 word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argument. *Not measured* on live TF2; the B822
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
+
+**Fixed (2026-11-24).** What was read: `CCommand::Tokenize` (`src/tier1/convar.cpp:389-478`) — the copy cut at
+`Q_strlen`, one `ParseToken` per argument, `m_nArgv0Size` (`:432-451`), which puts `ArgS()` (`convar.h:232-235`) at
+argument 1's start, its opening quote included; `ParseToken` (`utlbuffer.cpp:1242-1326`) — `EatWhiteSpace` on the unsigned
+byte, a quoted string to the next `"` whatever its bytes, the break set `{}()':` (`convar.cpp:326`, `IN_CHARACTERSET`
+indexes by unsigned byte), and the signed `c <= ' '` word end; and, in the x64 `engine.dll`, the three consumers.
+**A ConVar set takes `ArgS`** (build 1007 FUN_180178310, the function holding "Can't use cheat cvar %s"): it drops a leading `"`,
+clears trailing bytes while `CMP byte ptr [RCX],0x20; JG` does not jump — SIGNED, so a trailing non-ASCII character's
+bytes go with the spaces — then one trailing `"` if it began with one (*disassembly*). So `name café` sets `caf`,
+`name éa` sets `éa` (where `Arg(1)` is `C3` alone), and `name a b` sets `a b`, where the viewer had set `Arg(1)`, `a`.
+**An alias body is arguments 2 on, each followed by a space** (`Cmd_Alias_f`, build 1007 FUN_180168060), so its lone bytes run again
+as bytes. **`bind` takes `Arg(2)` and only at two or three arguments** (build 1007 FUN_1801b67a0: `argc - 2 < 2`, else the usage line).
+
+**The representation: a lone byte is the lone surrogate U+DC00 + byte** (Python's `surrogateescape`, PEP 383).
+`SourceConfig.Tokenise` encodes each clause to UTF-8 — a spelled lone byte back to its byte — tokenizes the bytes, and
+decodes each token as UTF-8, spelling each byte that is not part of a valid sequence. Rejected: UTF-8 decoding with
+replacement makes every lone byte U+FFFD, so `é` and `ã` (`C3 A9`, `C3 A3`) would tokenize alike; Latin-1 keeps bytes
+distinct but re-encodes `C3` as `C3 83` when an alias body runs again. A surrogate cannot come out of valid UTF-8, so a
+spelled byte never collides with a character, and a quoted string, valid UTF-8 between ASCII quotes, decodes as its text.
+`SourceConfig.ConVarValue` is the set's value, and `ConfigConsole.Run` uses it for every direct set; `toggle`,
+`incrementvar` and `multvar` keep their own value. D265's mark strip is unchanged, before any of this.
+
+Tests: `Tokens_AnUnquotedNonAsciiWord_IsOneArgumentPerByte` (`EF BB BF echo x` is four tokens; `alias café x`; `bind k éa`),
+`Tokens_AQuotedNonAsciiString_StaysWhole`, `ConVarValue_ACommand_IsArgSWithTheEnginesTrim` (`CommandTokenizeConformanceTests`);
+`Load_AConVarLine_SetsArgSTrimmedAsTheEngine`, `Load_AnAliasWithANonAsciiWord_RunsItsBytesAgain`
+(`ConfigConsoleConformanceTests`); `Tokens_TwoCharactersSharingALeadByte_DifferInTheirSecondToken`,
+`Tokens_EveryLoneByteSpelledBack_IsTheSameByte`, `Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint`
+(`SourceConfigTests`). `Load_ACommandAtAndPastTheBuffersLength_RunsOnlyUnderIt` now expects `ArgS`, the quoted padding
+with it. Sabotage, each restored by its inverse edit: the word end compared unsigned reddened the three unquoted cases,
+the alias, Latin-1 and lead-byte tests; a lone byte decoded to U+FFFD reddened those and the spell-back test; a lone byte
+written back one low reddened the spell-back and alias tests; the value trim unsigned reddened both `café` value cases; the
+leading quote kept reddened the quoted value cases; `ArgS` taken from argument 2 reddened every value, length and alias
+test; the console setting `Arg(1)` reddened `éa`, `a b`, the alias and the four running length cases; a quoted string
+decoded as Latin-1 reddened both quoted cases. Not measured on live TF2.
+
+**Part 2, `bind` (2026-11-24).** Byte tokenizing made `bind k café` five arguments, and the viewer bound `tokens[2]` at any
+count. Read in full (x64 `engine.dll`): `Key_Bind_f`, build 1007 FUN_1801b67a0, acts only when `argc - 2 < 2`, else prints `bind <key>
+[command] : attach a command to a key` and returns — so one argument and four or more print the usage line and change
+nothing; it joins arguments 2 on into the binding, which at three is `Arg(2)` alone, and calls build 1007 FUN_1801b5ea0 with
+`argc == 2` as "show". build 1007 FUN_1801b5ea0 looks the key name up (`"%s" isn't a valid key` at -1); shown, it prints `"%s" =
+"%s"` when the key's slot holds a string and `"%s" is not bound` when it is null; set, it replaces the binding with
+`cancelselect` for key 0x46 (`KEY_ESCAPE`) and calls build 1007 FUN_1801b65d0, which copies the string — so `bind k ""` holds `""`
+and shows as `= ""` (*disassembly*). `ConfigConsole.Bind` now does each of these, and `SourceConfig.ReadBinds` binds only
+at exactly three. *Interpolated:* `ESCAPE` matched without case, the key-name lookup (a vtable call at +0xe8) not read.
+*Not ported, filed as B826:* `isn't a valid key`.
+
+**Part 3, a ConVar's number is `atof` (2026-11-24).** `ConVar::InternalSetValue` (`src/tier1/convar.cpp:791-802`) sets
+`m_fValue = (float)atof(value)` and `m_nValue = (int)m_fValue`; `GetFloat` and `GetInt` read those. The viewer read the
+numbers three ways: the settings with a strict `float.TryParse` (`name 1 2`, `0.05x` set nothing), the console with its
+own prefix-retrying `float.TryParse` (which does not know C's `inf`), and the camera's `sv_restrict_aspect_ratio_fov` with
+`int.TryParse` (`1.0` fell to the default). Now ONE helper, `Core.Net.ConVarNumber` — `GetFloat` is `(float)CStdlib.Atof`,
+`GetInt` is that truncated as MSVC's `cvttss2si` (`CStdlib.Truncate`) — is read by `ViewerSettings` (every numeric
+setting and the clamp in `ConVarText`), `ConfigConsole` (`sv_cheats`, `toggle`, `incrementvar`, `multvar`, the cheat
+revert), `ServerConVars.Apply`, the camera's aspect switch and `mat_wireframe`. A word now reads as 0, as in TF2, where
+the settings used to ignore it. *Not tested at its own call:* the camera's aspect switch, which needs a demo's server
+ConVars; the helper it calls is.
+
+Tests and sabotage (each restored by its inverse edit): `ConVarNumberConformanceTests` (Core) —
+`GetFloat_AValue_IsAtofNarrowedToFloat`, `GetInt_AValue_IsTheFloatTruncatedAsMsvcDoes`; `ConfigConsoleConformanceTests` —
+`Bind_OtherThanTwoOrThreeArguments_PrintsUsageAndBindsNothing` (`bind`, four, and `café`'s five),
+`Bind_TwoArguments_PrintsTheBindingAndChangesNothing`, `Bind_Escape_BindsCancelSelect`,
+`Toggle_AConVarSetToText_ReadsItsNumberAsAtof`; `SourceConfigTests.ReadBinds_FourArguments_BindsNothing`;
+`ViewerSettingsTests` (Viewer3D) — `Set_ANumberWithTextAroundIt_ReadsAsAtof`,
+`ConVarText_ABoundedNumberWithTrailingText_IsClampedAsTheEngineStoresIt`. `GetFloat` as a strict `TryParse` reddened
+three `GetFloat` and two `GetInt` cases, three `toggle` cases and all three settings cases; `GetInt` as a plain cast
+reddened its `inf`, `nan` and `1e10` cases; the settings' `ReadNumber` strict reddened its three; the clamp strict
+reddened the clamp test; `bind` acting at four and more reddened the four and five argument cases; one argument silent
+reddened `bind`; the not-bound line misspelled, and two arguments clearing the key, each reddened the two-argument test;
+`ESCAPE` matched case-sensitively, and never matched, each reddened the escape test; `ReadBinds` at four and more reddened
+its test. Not measured on live TF2.
+
+**Review 1 (2026-11-24): Fable, Sonnet, Grok.** Each item, its reviewer, and what was done. Every fix has a test that failed
+first or was reddened by sabotage, restored by its inverse edit.
+
+1. *Unused usings (Sonnet)* — fixed: `System.Globalization` in `CameraPresenter.cs` and `Tf2DemoSalvage.Core.Primitives`
+   in `ServerConVars.cs` removed, and `System.Text` in `Tf2ConfigFiles.cs`, unused once its decode moved; the solution
+   builds with 0 warnings without them. `dotnet format style --diagnostics IDE0005` was tried as the instrument and failed
+   its control (a planted `using System.Net.Sockets;` was not reported), so the build is the evidence, not that tool.
+2. *ConVar numbers outside the helper (Fable, Sonnet)* — fixed: `HudConVars.GetFloat`/`GetInt`, `TfHolidays`' cvars,
+   `LoadedMap`'s `tf_use_fixed_weaponspreads` (now `ServerConVars.GetInt`, new), `ViewerSettings`' `r_decals` and
+   `r_maxmodeldecal` (now `GetInt`), and `ShotSidecar.DiffersFromDefault` (a ConVar whose declared default is a number
+   compares `GetFloat`s, a NaN differing from all) all read through `ConVarNumber`. Tests:
+   `GetBool_AValueAtofReads_IsItsTruncatedInt` (`nan` is true), `IsChristmasActive_InJuly_FollowsTheCvarsAndTheMap`
+   (`nan`, `0x3`), `GetInt_AfterTheServerSentText_IsAtofTruncated`, `Set_ADecalCountAtofReads_IsGetInt`, and four
+   `DiffersFromDefault` cases; each reddened under its reader put back. Searched and left, not ConVars: material
+   parameters (`CloakPass`, `FrameBufferUse`), `.res` keys (`PanelLayout.Atof` and the HUD panels), weapon scripts
+   (`HitscanTracers`), game-event data, launch flags (`LaunchOptions`), environment variables, window geometry and
+   capture files. The cheat revert, found here, is fixed below (2b).
+2b. *The cheat revert at `nan` (found in item 2; fixed 2026-11-24)* — `sv_cheats`' change callback (`engine.dll` x64 build
+   1007 FUN_18013d920, read through the Ghidra MCP) calls `RevertFlaggedConVars( FCVAR_CHEAT )` (vtable +0xd0) when the
+   value's int is 0, and `ConVar::Revert` sets the default (`src/tier1/convar.cpp:1076-1081`), whose callbacks run when the
+   STRING changed: `V_strcmp( pszOldValue, m_pszString ) != 0` (`:844`). The viewer compared floats,
+   `MathF.Abs(a - b) > 1e-6f`, which is false for a NaN, so a cheat the settings held at `nan` was not announced as
+   reverted. It now compares the strings, ordinally. *Not read:* `RevertFlaggedConVars` itself, which lives in
+   `vstdlib.dll`, not in the program the running Ghidra holds — which ConVars it calls `Revert` on, and whether it
+   filters, is unknown. What is read is only the end of the path: if `Revert` runs on a ConVar whose string is already
+   the default's, `ChangeStringValue` runs no callback (`convar.cpp:844`). (Reworded in review 2, Fable: it once said the
+   filter "changes nothing", which nothing read supports.) `Load_SvCheatsBackToZeroWithACheatAtNan_AnnouncesItsRevert` was red before the
+   fix; with every cheat announced, its control (a cheat already at its default string) reddened it.
+3. *Hexadecimal `atof` (Fable, Sonnet)* — fixed: `CStdlib.Atof` reads `0x` floats, `p` exponents, and `nan(snan)`,
+   `nan(ind)` and `nan(…)`, as UCRT's `parse_floating_point_from_source` does (Windows SDK 10.0.26100.0,
+   `ucrt/inc/corecrt_internal_strtox.h:1326-1739`). That TF2 runs this parser: `engine.dll` (x64, build 1007) imports no
+   `api-ms-win-crt-*` and links a static CRT, and its UCRT `IND)`/`ind)` tables sit at 0x180406a48, read by build 1007 FUN_180334360,
+   beside `nan(snan)` and `nan(ind)` (*disassembly*). Tests: `Atof_AHexadecimalFloat_IsReadAsTheMicrosoftRuntimeReadsIt`,
+   `Atof_ANanSpelling_IsTheRuntimesNan`, and `GetInt` at `-1e10`, `-inf`, `-nan`, `0x10`, `2147483647` (rounds to 2^31,
+   so `0x80000000`) and `2147483520`. Sabotage: no hex branch reddened nine cases and `0x10`; ties not to even reddened
+   `0x20000000000003`; `(snan)` and `(ind)` unmatched each reddened their cases. `BigInteger`'s own conversion to double
+   truncates, which the ties case caught before any sabotage.
+4. *`unbind` argument count (Fable)* — fixed: `Key_Unbind_f`, read in `engine.dll` x64 build 1007 (FUN_1801b6a30, the Ghidra
+   MCP on 8089): `argc != 2` prints `unbind <key> : remove commands from a key`; key 0x46 prints `Can't unbind ESCAPE key`;
+   an unknown name prints `isn't a valid key` (B826); otherwise the binding becomes the empty string, not null, so
+   `bind k` shows `"k" = ""`. `SourceConfig.Unbinds` holds the rule for the console and `ReadBinds`. Tests:
+   `Unbind_OtherThanTwoArguments_PrintsUsageAndUnbindsNothing`, `Unbind_TwoArguments_LeavesTheKeyBoundToNothing`,
+   `Unbind_Escape_PrintsAndKeepsItsBinding`, `ReadBinds_EscapeAndUnbindCounts_FollowTheEngine`; at two or more and with the
+   key removed rather than emptied, three reddened; with ESCAPE allowed, two.
+5. *ESCAPE in one place (Sonnet, Grok, Fable)* — fixed: `SourceConfig.Binding`/`IsEscape` are the one rule; the console and
+   `ReadBinds` both call them. `Bind_Escape_BindsCancelSelect` now asserts `"ESCAPE" = "cancelselect"` after `bind escape …`
+   — a bind dropped entirely reddened it, as did the rule removed and a case-sensitive match. That the engine's key
+   lookup folds case is *interpolated*: it is an input-system call (vtable +0xe8) not read, and `inputsystem.dll` is not
+   in a Ghidra project here. `KeyNames`' `ESC` is noted in B826.
+6. *A lone byte's length (Sonnet)* — fixed: the 511-byte count counted U+DC80..U+DCFF as 0; `Utf8Escaped.ByteCount` counts
+   it 1, a pair 4 then 0 (even with its low half in that range), an unpaired surrogate 3. Tests:
+   `Load_ACommandOfLoneBytesAtTheBuffersLength_CountsEachAsOneByte` (510 runs, 511 refused; red before the fix) and
+   `ByteCount_EveryKindOfCharacter_IsItsShareOfTheBytes`; counted 0 again, both reddened.
+7. *Misplaced remark (Sonnet)* — fixed: `Stuff_ALaunchValueWithTwoBackslashes_KeepsThem` has its remark back.
+8. *Grok's claim, checked* — not a break: `Define` takes `bind`, `unbind`, `alias` and `exec` before any ConVar set, and no
+   reader after the set looks past `tokens[0]` for a command that is not a ConVar. Changed to the engine's shape anyway:
+   `ArgS` is taken only when `tokens[0]` names a ConVar (build 1007 FUN_180178310 is a ConVar's path; a ConCommand reads argv).
+   `Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands` holds both paths; with `bind` no longer taken by `Define`
+   it reddened. The guard itself cannot be reddened: nothing observable differs.
+9. *.NET `Trim` (Fable)* — fixed: `Clauses` trims C's `isspace` set only, so a line starting with U+00A0 (`C2 A0`) is the
+   word `C2`, then `A0bind`, as in TF2. `ReadBinds_ALineStartingWithANoBreakSpace_BindsNothing` was red before the fix.
+10. *Lone bytes on save (Fable)* — no ConVar value is written: `ViewerSettings.Write` emits only the settings the viewer
+    types, and its strings are folders. The file itself was the route: a hand-edited Latin-1 `settings.cfg` was read with
+    `ReadAllText` (U+FFFD) and saved over. Now read through `Tf2ConfigFiles.Decode` and written as UTF-8 with its mark,
+    each lone byte as itself. `Save_ALoadedFileWithALoneByte_WritesTheSameByte`: red with the old save, red with the old
+    decode.
+11. *Loader encoding (Sonnet)* — fixed: `Tf2ConfigFiles.Decode` (`ReadFiles` and the console's `exec`) replaced invalid
+    bytes with U+FFFD; it now decodes through `Core.Primitives.Utf8Escaped`, the codec the tokenizer moved there.
+    `Exec_ALatin1File_SetsItsBytes` and a `Decode` case (`73 E9 78`) were red before; the `EF BB` case now expects the two
+    lone bytes where it expected one U+FFFD.
+12. *Missing tests (Fable)* — added: `ConVarValue` on `name "a`, `name "` and `name "a "`; `GetInt` at `-1e10` and `-inf`;
+    `KeyPressed_ABindOfMatWireframeAtofReads_TellsTheDeviceGetInt` (`nan` reddened with `(int)` of the float);
+    `ServerConVars.Apply` through `GetInt_AfterTheServerSentText_IsAtofTruncated` (a strict parse in `Apply` reddened it).
+13. *`setlocale` (noted, not fixed)* — not read. `engine.dll` imports no `setlocale` (its CRT is static, so it would not
+    be an import), and an ASCII search found no `LC_*` name — no evidence, since UCRT spells those wide. tier1's
+    `ParseToken` is linked into `engine.dll` and calls that static CRT's `isspace`, whose locale only `engine.dll`'s own
+    code can change. Whether it does, making `isspace(0x85)` or `isspace(0xA0)` true, is open.
+
+**Review 2 (2026-11-24): Sonnet, Fable, Grok, Gemini.** Each item, its reviewer, and what was done; each fix has a test that
+failed before it or under a sabotage, restored by its inverse edit.
+
+1. *Phantom reverts (Sonnet, Fable; Gemini disagreed)* — fixed. `ViewerSettings.ConVarText` rendered an untouched typed
+   setting as `%f` (`0.000000`), so on a fresh viewer `sv_cheats 1` then `0` announced five reverts
+   (`r_screenfademinsize`, `r_screenfademaxsize`, `r_lightinterp`, `r_ambientfraction`, `mat_force_tonemap_scale`). An
+   untouched ConVar's string is its registered default, so `ConVarText` now returns the declared default string while
+   nothing was written and the setting still holds the default's value — which also makes `toggle name 0 12` match `0` as
+   the engine's byte compare does. `SettingsPresenterTests.SvCheatsOffAgain_OnAFreshViewer_AnnouncesNoRevertButAMovedCheat`,
+   through the real `SettingsPresenter`, failed before with exactly those five; with the revert never announced, its
+   control (a cheat the settings moved) failed. Gemini's claim that untouched settings already returned
+   `registered.Default` does not hold for bf4ef6d27, which has no such line (`git show bf4ef6d27:…/ViewerSettings.cs`);
+   the line it cited is this fix. Sonnet and Fable were right.
+2. *Bool and int ConVar reads outside the helper (Sonnet; Gemini the same three)* — fixed: new `ServerConVars.GetBool`
+   (`!!GetInt`, `convar.h:520`) for `DemoTimeline`'s tournament domination icons and `AlwaysLoser`,
+   `RecorderPrediction.IsLoser` and `MovementConVars.From`'s `tf_clamp_airducks`. Tests:
+   `ServerConVarsTests.GetBool_AfterTheServerSentText_IsGetIntNotZero` (0.5 false, nan true),
+   `SyntheticGesturePostureTests.Build_ADoubleJumpUnderTfAlwaysLoserText_ReadsItAsGetBool` (a synthetic demo's signon, through
+   `DemoTimeline.AlwaysLoser`), `TfGameMovementDuckConformanceTests.From_AClampAirDucksTheServerSent_IsGetBool`; `GetBool` as
+   `(int)Number` reddened the first two `nan` cases, and each call site put back reddened its own. The tournament
+   flag and `RecorderPrediction.IsLoser` are held only through `GetBool`'s test — reaching them needs a full frame or a
+   prediction run. Swept and left: every other `Number(` read is a float (`sv_*` speeds, interp ratios), and the
+   `Number(` calls on materials, particles and models are not ConVars.
+3. *Sidecar infinities (Grok)* — fixed. The sidecar asks what the picture used, so a numeric ConVar compares as `GetFloat`
+   reads it (a string compare would record `1200.000000` against `1200`); the same string never differs, the floats compare
+   by their bits first (inf - inf is NaN), and a default is numeric if .NET or `atof` reads a number from it (`0x10`,
+   `inf`). New `DiffersFromDefault` cases `1e39`, `Infinity`, `inf`/`Infinity`, `16`/`0x10`, `nan`/`nan`, `-inf`/`inf`;
+   five failed before; with the bit compare removed `inf`/`Infinity` failed, with the `atof` gate removed `16`/`0x10`.
+4. *Addresses from the wrong build (Fable)* — fixed: every citation re-pointed to `engine.dll` x64 build 1007 and named so —
+   `Key_Bind_f` FUN_1801b67a0 with its show/set helper FUN_1801b5ea0 and setter FUN_1801b65d0, the ConVar set
+   FUN_180178310 (the cheat-refusal string's other reference, FUN_1801785e0, is `toggle`'s validity check — corrected in
+   review 3), `Cmd_Alias_f` FUN_180168060 — each
+   decompiled again from the running Ghidra MCP on port 8089.
+5. *UTF-16 and UTF-32 settings files (Fable)* — fixed: `ViewerSettings.Load` reads the four marks as `File.ReadAllText`
+   did, UTF-32's little-endian first. `Load_ASettingsFileWithAUnicodeMark_ReadsItsSettings` failed for all four before;
+   with UTF-32 LE dropped, its case failed (read as UTF-16).
+6. *An unfailable guard (Sonnet, Grok)* — not kept: no command whose result changes when collapsed exists — past the ConVar
+   set only `tokens[0]` and the count are read — so the guard limiting the `ArgS` collapse to ConVars was removed.
+   `Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands` stays for what it can fail on (`Define` taking `bind`
+   first).
+7. *ESCAPE's case (Grok)* — shown: the bind table's comparer is `StringComparer.OrdinalIgnoreCase`;
+   `KeyDown_AKeyBoundInAnotherCase_RunsTheBinding` presses `k` for `bind K` and `escape`, and failed with the comparer made
+   `Ordinal`. The engine's case rule remains *interpolated*.
+8. *`unbindall` (Sonnet)* — fixed: `Key_Unbindall_f` (build 1007 FUN_1801b6b10, read through the running Ghidra) empties
+   every set, non-empty binding from key 0 to 0x27a except 0x46 (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`, `` ` ``).
+   `SourceConfig.SurvivesUnbindAll` holds the rule for the console and `ReadBinds`.
+   `Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey` and `ReadBinds_Unbindall_KeepsEscapeAndTheConsoleKey`
+   failed before; with `` ` `` not spared both failed; with the binding removed rather than emptied the first failed.
+9. *Item 2b's wording (Fable)* — fixed: it now says `RevertFlaggedConVars` is not read.
+10. *Hexadecimal subnormals rounded twice (Grok)* — not changed; recorded in `CStdlib.Atof`'s remark and review 1 item 3.
+
+**Review 3 (2026-11-24): Fable, Sonnet; Grok and Gemini found nothing.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *Addresses from the earlier build (Fable)* — fixed, each re-found in build 1007 through the Ghidra MCP on 8089:
+   `toggle` FUN_180179390 (registered by FUN_18000c410; the earlier build's FUN_180177cd0 lies inside `cvarlist` in
+   1007), its validity check FUN_1801785e0 (earlier FUN_180176f20; it holds "%s is not a valid cvar"), `incrementvar`
+   FUN_1801a9920 and `multvar` FUN_1801aa500 (by their usage strings; earlier FUN_1801a7fe0, FUN_1801a8bc0), and
+   `Cmd_ExecuteCommand` FUN_1801678a0, `Cmd_Exec_f` FUN_1801672f0, its path check FUN_180176d10, line reader
+   FUN_180177310 and `V_DefaultExtension` FUN_180282920, which sit at the same addresses in 1007 (the first two by their
+   strings, the last three as `Cmd_Exec_f`'s callees). Every address this branch added names build 1007, and the
+   earlier ones are labelled "the earlier build's" where kept; `docs/DECISIONS.md` gives both. Review 2's note that
+   FUN_1801785e0 is "the cheat-refusal string's other reference" is corrected: it is `toggle`'s validity check.
+2. *`GetBool` call sites without a failing test (Fable, Sonnet)* — fixed: `DemoTimeline.HidesDominationIcons`, the rule
+   the frame builder calls, and `RecorderPrediction.IsLoser`, now static over the timeline. Tests:
+   `ServerConVarsTests.HidesDominationIcons_ATournamentAndItsSwitch_AreGetBools` (`mp_tournament 1` with `0.5` shows the
+   icons) and `RecorderPredictionLoserTests.IsLoser_UnderTfAlwaysLoserText_ReadsItAsGetBool` (a synthetic demo's signon
+   `tf_always_loser nan`). With `Number != 0` put back, the two `0.5` cases failed; with `(int)Number` put back, `nan`
+   failed.
+3. *Sidecar colour defaults (Fable)* — fixed: numeric means the WHOLE default is a number, to .NET or to `atof`
+   (`ConVarNumber.IsWholeNumber`, over a new `CStdlib.Atof(text, out used)`, `strtod`'s end pointer read from UCRT's
+   parser). `255 0 0` differs from `255 255 255`, and `0.1` from `0.1f`; both failed with "starts with a number".
+   `Atof_AText_UsesWhatStrtodTakes` holds the end pointer; a hex `0x` taken as two, a closed `nan(…)` short by one and a
+   decimal taking the whole text each failed it.
+4. *`EngineConVar.Number` on `"0.1f"` (Fable)* — fixed: it reads `atof` (0.1, as TF2 does), and throws
+   `InvalidOperationException` (a property may not throw `FormatException`, CA1065) only when no number starts the
+   default. `ServerSoundClock.Shift`, the one other `float.Parse` of a declared default, now reads `Number`.
+   `Number_ADefaultWithATrailingSuffix_IsWhatAtofReads` threw before.
+5. *Menu edits and the default string (Fable, Sonnet)* — not changed, with the paths: `SettingsPresenter`'s writes that
+   bypass `Set` are `SetFrameRateMeter` (`cl_showfps`), `SetPositionReadout` (`cl_showpos`), `SetMuteLoseFocus`
+   (`snd_mute_losefocus`), `SetFullScreenExclusive` (`mat_fullscreen_mode`) and `SetTextureQuality`
+   (`texture_quality`); `SetVolume`, `SetConVar` and the launch options go through `Set` and keep their written string.
+   The last two names declare no `EngineConVar`, so have no ConVar text; the first three are ints or a switch whose
+   declared defaults are `"0"`, `"0"` and `"1"`, the same text `SetValue(int)` writes (`%d`), so a menu toggle back to the
+   default reads what the engine would hold. A float setting changed by a menu without `Set` would differ (`%f`); none
+   exists.
+6. *`""` bindings to the HUD and the menu (Sonnet)* — confirmed unbound: `Bindings()` expands `""` to no action, so the
+   menu's `ShowBindings` (which reads `KeyFor`) shows none, and `CommandFor` falls back to the viewer's default as the
+   cleared table did; the HUD's `KeyForCommand` matches `""` only for a `%+%` token, which no HUD string carries and which
+   TF2's `Key_LookupBinding` (closed, not read) would answer the same way from its own `""` bindings; `%%` is skipped by
+   `UTIL_ReplaceKeyBindings` (`cdll_util.cpp:891`). `Bindings_AfterUnbindall_NameNoActionAndNoCommandForTheEmptiedKey`;
+   with `unbindall` emptying nothing it failed.
+7. *`Bound` after `unbindall` (Fable)* — fixed: the bind lines that stand, the two spared keys. Asserted in
+   `Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey` (2); `Bound = 0` failed it.
+8. *Misplaced remarks (Fable, Sonnet)* — moved to `Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey`.
+9. *`DiffersFromDefault`'s remark (Sonnet)* — corrected: bit-identical NaNs match.
+10. *`GetBool` at the remaining sites (Sonnet, optional)* — done: `LoadedMap`'s `tf_use_fixed_weaponspreads`,
+    `TfHudMatchStatus`'s `tf_hud_show_servertimelimit` (twice), and `HudConVars.GetBool` over a new
+    `ConVarNumber.GetBool` (`GetBool_AValue_IsGetIntNotZero`; `(int)` of the float failed its `nan` case).
+    `ServerConVars.GetBool` stays its own: it reads the CLAMPED float the server's value became, which a string helper
+    cannot see.
+
+**Review 4 (2026-11-24): Fable, Sonnet; Grok found nothing.** Each fix's test failed before it or under a sabotage,
+restored by its inverse edit.
+
+1. *`nan(sind)` (Fable, Sonnet)* — fixed: `CStdlib.Atof` ports UCRT's order — `is_snan` keeps the characters it matched
+   before failing and `is_ind` goes on from there (`parse_next_characters_from_source`, `corecrt_internal_strtox.h:1241-1261`;
+   `:1364-1374`) — so `nan(sind)`, `nan(snind)` and `nan(snanind)` are the indeterminate (0xfff8000000000000).
+   `Atof_AParenthesisedNan_ConsumesAsUcrtDoes` checks the bits and the end pointer, `nan(in)`, `nan(sx)`, `nan(s-)` and two
+   unclosed spellings included; the three failed before.
+2. *End-pointer cases (Fable, Sonnet)* — added: `nan(snan)` 9, `nan(ind)` 8, `nan()` 5, `.` 0, `1.` 2, `0x1.` 4, `0x0p5` 5,
+   `infinit` 3, ` inf` 4, `+5` 2, `-0x` 2 (UCRT restores to the state after the `0`, `:1456-1470`, so the subject is `-0`),
+   `0x.8` 4, `1e+` 1. Fable's sabotages: the `snan` end pointer set to 0 failed four cases; the `ind` one set to 5 failed
+   the three spellings that reach `ind` after a partial `snan`; the zero-mantissa return moved before the exponent scan
+   failed `0x0p5`.
+3. *The sidecar and `0.1f` (Fable)* — fixed: a default is numeric when `atof` reads a number and no digit follows it
+   (`ConVarNumber.HoldsOneNumber`, replacing `IsWholeNumber`), so `0.1f` is the 0.1 `EngineConVar.Number` reads and
+   `255 255 255` stays a string. `0.1` against `0.1f` no longer differs; `0.2` against it does. With the whole-string rule
+   back, `0.1f` and `1 x` failed; with no second-number check, `255 255 255`, `1 2` and the colour case failed.
+4. *What `Bound` means (Fable, Sonnet)* — fixed as keys, not lines: the load's line is "{Applied} of {Bound} binds
+   applied" and `Applied` is per key, so `Bound` is now computed, the keys bound to a non-empty command, and `Applied`
+   counts only those (an emptied key no longer counts through the viewer default behind it).
+   `BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys` (2 and 1) failed before;
+   `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` failed with the empty check removed from `Applied`; `Bound` as
+   the table's count failed it and the `unbindall` test.
+5. *Output-level assertions (Fable)* — done, both halves (the prediction half in a second commit). **The frame:**
+   `SyntheticPlayer.DemoOfANemesis` writes a recorder dominated by a connected blu player with the tournament ConVars at
+   signon, and
+   `Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads` reads `particle_nemesis_blue` off the decoded frame:
+   shown at `mp_tournament 1` with `0.5`, gone at `1`, shown with no tournament. With the frame builder's line
+   (`DemoTimeline.cs`, the `OverheadFrame` construction) put back to `Number != 0`, the `0.5` case failed. **The
+   prediction:** what the loser flag feeds is `PredictedPlayer.IsLoser`, which `TfGameMovement` reads for the loser's
+   duck crop (`_speedCropped && _player.IsLoser`). The packet path's step from timeline and ticks to that value is now one
+   method, `RecorderPrediction.IsLoserAt(timeline, recorder, packetTick, commandTick)` — the game rules at the packet, the
+   server's ConVars at the command tick, as `PredictFrom` reads them — and the packet path's line is that call.
+   `RecorderPredictionLoserTests.IsLoser_UnderTfAlwaysLoserText_ReadsItAsGetBool` drives it from the synthetic demo:
+   `nan` a loser, `0.5` not, no ConVar not (the control). With the step bypassing the demo's ConVars (a fresh
+   `ServerConVars`), `nan` failed. A full `MotionAt` run is not needed for this: it would add a map and user commands, and
+   neither touches the loser flag.
+6. *Callers of `EngineConVar.Number` and `FormatException` (Sonnet)* — checked with the C# LSP's `find_references`:
+   `ServerSoundClock`, `AudioOutput`, `VoiceOverdrive`, `SpeechDucker`, `SoundGain`, `VoiceAutoGain`, `VoicePlan`,
+   `VoicePresenter`, `ServerConVars.Number`, `DemoViewConVars`, `ViewerSettings`' defaults, and the tests
+   `MovementConVarConformanceTests` and `EngineConVarsLookupTests`. None is inside a `catch`; the solution's
+   `FormatException` handlers are `SoundSample`'s file decode, `AssemblyText`, `DemoAssembly` and `ShotSidecar.Read`, none
+   around `Number`. The LSP reported its index incomplete when asked, so the list may be short; the `catch` sites were
+   found by a text search of the whole tree.
+
+**Review 5 (2026-11-24): Fable, Sonnet, Grok; no blockers.** Each fix's test failed before it or under a sabotage,
+restored by its inverse edit.
+
+1. *`Bound` counted the viewer's defaults (Fable, Sonnet)* — fixed. `WithDefaults` seeds `_binds`, so counting from it
+   made a config with no `bind` line log `N of N`. A new set, `_configBound`, holds the keys a `bind` line set, and
+   `Bound` and `Applied` count only those still bound to something — `WithDefaults`' remark (an empty config must not
+   look loaded) holds again. `BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero` (`sensitivity 3` over the
+   defaults is 0 of 0) and the reworked `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` (bind `F5`: 1 of 1; unbind:
+   0 of 0) failed before, and again with either count read from `_binds`. `Tf2ConfigFilesTests`' real-config test now
+   first asserts the defaults alone are 0 of 0, so its `> 10` and `> 5` cannot pass on them.
+2. *The loser test could not see the ticks (Fable, Sonnet, Grok)* — fixed. The old packet path read the ConVars at the
+   command tick: `ServerConVars serverConVars = _timeline.ServerConVarsAt(tick);` (RecorderPrediction.cs at 180494a01,
+   `:304`), passed with `packet.Tick` to `IsLoser` (`:359`), so the extraction moved those reads and changed neither.
+   `SyntheticPlayer.DemoOfGesturesSendingAlwaysLoserAt` sends `tf_always_loser 1` in tick 102's packet, and
+   `IsLoserAt_AConVarArrivingBetweenThePacketAndTheCommand_IsTheCommandTicks` asserts a packet at 101 re-running 102's
+   commands is a loser and 101's is not; with the step reading the packet's tick, the first failed.
+3. *`HoldsOneNumber` took words (Fable)* — fixed: after the number, at most one C float suffix (`f`, `F`, `l`, `L`)
+   directly, then only C white space. `2fort`, `infantry`, `nano`, `1 x` and `0.1 f` are strings; `0.1f`, `1L` and `1 `
+   numbers. `1 x` is a string because a word after a value is text, not a literal. The five failed before; with no
+   suffix allowed, `0.1f`, `1L` and the sidecar's `0.1`/`0.1f` failed.
+4. *Review 4 item 5's opening (Fable)* — reworded: both halves are done.
+5. *`ShouldShowNemesisIcon`'s file (Fable)* — fixed: `c_tf_player.cpp:9376-9395`, read there, in `DemoTimeline` and the
+   two test remarks.
+6. *The sidecar remark's width (Sonnet)* — rewrapped.
+
+**Review 6 (2026-11-24): Fable, Sonnet; Grok found nothing; no blockers.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *`bind F5` prints a seeded default (Fable)* — the code stays and the remark is corrected: TF2's defaults come from
+   `config_default.cfg` into the same table, so its `bind F5` prints them, and `WithDefaults` plays that file's part.
+   `Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault` (`"F5" = "screenshot"`); a show that skipped keys no config bound
+   failed it.
+2. *`Applied` counted the default behind a config's no-op (Fable, Sonnet)* — fixed: it expands the config's own binding,
+   not `CommandFor`'s fallback. `BoundAndApplied_AConfigBindOverADefault_CountTheConfigsCommand`: `bind F5 nonsense` over
+   the defaults is 0 of 1, failed before (1 of 1); `bind F5 screenshot` 1 of 1 is the control.
+3. *`_configBound`'s remark (Fable)* — corrected: the set only grows; `Bound` and `Applied` count its keys whose binding
+   is still a command.
+4. *Test gaps (Fable, Sonnet)* — the test is renamed `HoldsOneNumber_ANumberThenASuffixThenWhiteSpace_IsOneNumber`, with
+   `2F`, `2.5l`, tab and newline cases (a suffix set of `f` alone and white space of a space alone failed six);
+   `BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero` gains the seeded control (`KeyFor(Screenshot)` is `F5`);
+   `BoundAndApplied_BindsAtRunTimeThroughAnAliasAndAfterUnbindall_CountEachStandingKey` walks a key's run-time bind (1 of
+   2), an alias's (2 of 3) and `unbindall` then a rebind (1 of 1); with a bind counted only while loading, it failed.
+5. *`inff`, `nanf`, `infl`, `1f` (Fable, Sonnet)* — not restricted; the remark states the limit (C takes a suffix only
+   after a `.` or an exponent; no declared default spells these) and the four are pinned as accepted, `1ff` as a string.
+6. *Review 4 item 5's long line (Sonnet)* — wrapped.
+
+**Review 7 (2026-11-24): Fable, Sonnet, Grok; Gemini no findings.** Each fix's test failed under a sabotage, restored by
+its inverse edit.
+
+1. *`Applied` missed a state-setting bind (Fable)* — fixed: one predicate, `ConfigConsole.DoesSomething` (expands to an
+   action or `SetsState`), decides both `CommandFor` and `Applied`, so a key `CommandFor` runs is a key `Applied` counts.
+   `BoundAndApplied_AStateSettingBindOverADefault_IsApplied`: `bind F5 "toggle cl_showpos"` over the defaults is 1 of 1,
+   F5 fires no action and `cl_showpos` reads `1`. The run-time walk test now expects (1,1), (2,2), (3,3), (1,1), a key
+   whose command is a `bind` being one the console runs. With `Applied` asking only for an action, both failed.
+   `Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction` now asserts on the action table (`x` reaches
+   `FlyForward`, `y` not), since every alias-running bind now counts; a re-walk only at 100 levels shallower failed it.
+2. *Stale summaries (Sonnet, Fable)* — `Bound` reads "keys a bind line set that still hold a command"; `Applied` states
+   the review 7 rule.
+3. *The real-install number (Fable)* — measured once, 2026-11-24, on the owner's install with item 1 in place:
+   `3 configs found`, **`12 of 79 binds applied`**, nothing unreachable, by `dotnet test tests/Tf2DemoSalvage.Rendering.Tests
+   --filter "FullyQualifiedName~Read_TheInstalledGame_FindsTheConfigsAndTheyBind" --logger "console;verbosity=detailed"`
+   (*measured*). D71 and `ROADMAP.md` carried 12 of 95, a count from before reviews 5 to 7 redefined `Bound`; both now
+   carry this line.
+4. *Rebind then print (Grok, optional)* — `Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault` goes on to
+   `bind F5 "toggle cl_showpos"` then `bind F5`, and expects `"F5" = "toggle cl_showpos"` once beside the earlier
+   `"F5" = "screenshot"` once. A rebind that kept the first value (`TryAdd`) failed it.
+
+**Review 8 (2026-11-24): Fable, Sonnet; Gemini found nothing; no blockers.** Each fix's test failed under a sabotage, restored by its inverse
+edit.
+
+1. *`Applied` and `SetsState` said less than the code does (Fable, Sonnet)* — the summaries now state the rule the code
+   has: a binding counts when it names something the console runs (a viewer action, a declared ConVar set, an alias, or
+   a console definer), whatever an alias's body, a definer's arguments, an `incrementvar` the ConVar refuses or a refused
+   cheat set. `SetsState` is not narrowed: in TF2 a key bound to an alias runs it whatever its body, the bind owns the
+   key and no viewer default stands behind it, so `CommandFor` taking it is parity; `Applied` is this project's own
+   diagnostic and asks `CommandFor`'s question. `BoundAndApplied_ABindToAnAliasWithAnEmptyBody_IsApplied` pins it:
+   `alias none ""`, `bind k none`, `bind j nothing` is 1 of 2 (`j` the control). An alias clause narrowed to aliases that
+   reach an action failed it.
+2. *The deep-then-shallow alias test had no power (Fable)* — `Bindings` gives an action to the first key that reaches
+   it, so with `x` bound first a depth cut that let `y` through stayed green. `y` is now bound first, and the test is
+   renamed `Bindings_AnAliasReachedDeepThenShallow_StillReachesItsAction`. A depth cut five levels deeper failed it
+   (`x` lost `FlyForward`).
+3. *The print test did not prove "the table, not the default" (Fable)* — `toggle cl_showpos` passes `CommandFor` too,
+   so the test now also runs `bind F5 nonsense` then `bind F5` and expects `"F5" = "nonsense"`, where `CommandFor`'s
+   fallback is the screenshot. A show that printed `CommandFor(key)` failed it.
+
+**Review 9 (2026-11-24): Fable, Gemini; Sonnet and Grok found nothing blocking.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *`toggle sv_cheats` on a key did nothing and fell back to the default (Fable; Gemini found it independently, with
+   the `incrementvar` case)* — fixed, a parity bug of this
+   branch's: `SetsState`'s `toggle`/`incrementvar`/`multvar` branch asked `IsClientConVar` of the target, false for the
+   replicated `sv_cheats`, while `Run` performs it (`CvarCommand`, then `SetConVar`, which takes `sv_cheats`, B718). So
+   `bind F5 "toggle sv_cheats"` over the defaults took the screenshot and left cheats off, where TF2's F5 toggles them.
+   `ConfigConsole.TakesSet` (a client ConVar, or `sv_cheats`) is now the one test `SetConVar` and `SetsState` both ask.
+   `KeyDown_AToggleOfSvCheatsOnAKey_TogglesCheatsAndCounts` (F5 sets `sv_cheats` to `1`, no screenshot; with F6 on
+   `toggle sv_gravity`, replicated and refused, as the control, 1 of 2) and
+   `KeyDown_AnIncrementvarOfSvCheatsOnAKey_SetsCheatsAndCounts` (`1.000000`, 1 of 1) failed before the fix on the count.
+   The old target check failed both; a `TakesSet` that took any declared ConVar failed the control.
+2. *Summary wording (Fable, Sonnet; Gemini: "declared ConVar" over-promised for a replicated one such as `sv_gravity
+   800`)* — `Applied`, `DoesSomething` and `SetsState` now say a set of a client (non-replicated) ConVar or `sv_cheats`
+   (`BoundAndApplied_ASetOfAReplicatedConVar_IsNotApplied`: `bind F6 "sv_gravity 800"` beside `bind F5 "sv_cheats 1"`
+   is 1 of 2; a `TakesSet` that took any declared ConVar failed it), an alias the dispatcher consults (`ConsultsAlias`; one a command name shadows
+   does not count), and name the counted-but-inert `incrementvar`/`multvar` as the one with the wrong token count, which
+   `CvarCommand` drops — not one "the ConVar refuses".
+3. *`Bindings` rested on a dictionary's order (Fable, nit)* — made deterministic by design: `_binds` is an
+   `OrderedDictionary`, so keys enumerate in the order first bound (nothing removes a key; a rebind keeps its place).
+   `Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` (`a`, `b`, `a` again: `a` has `FlyForward`) pins it, and the
+   deep-then-shallow test's remark names it as that test's footing. Enumerating keys in reverse failed it.
+
+**Review 10 (2026-11-24): Fable, Sonnet, Grok, Gemini — no findings.** Fable and Sonnet both noted that
+`Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` cannot fail against the old `Dictionary`, which with no removals also
+enumerates in insertion order; accepted, since nothing removes a key and the test pins against a reordering collection.
+The lead's integration pass took Fable's one unchecked question: whether a key's `toggle sv_cheats` reads a stale value,
+since `CurrentValue` asks the settings before the console's own copy. It does not; the settings hold no `sv_cheats`, so
+the console's copy answers. `SettingsPresenterTests.Toggle_SvCheatsOnAKeyThroughTheSettings_TogglesBackOff` presses it
+twice through the real `SettingsPresenter` and reads 1 then 0; with the console's copy skipped in `CurrentValue` it
+failed. Sonnet's nit, one 206-character remark line in `Applied`, is wrapped.
+
+**Review 11 (2026-11-24)**, on the integration pass only: Fable, Sonnet, Grok, Gemini — no findings. Fable traced why
+the settings hold no `sv_cheats` (`ViewerSettings.Parse` drops replicated names) and that the sabotage reddens the
+second press's assertion, not the control.
+
+## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
+
+Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
++0xe8) and, at -1, prints `"%s" isn't a valid key` and returns, for a show and a set alike (*disassembly*).
+`ConfigConsole.Bind` stores any name. No key ever reaches an unknown name, so what differs is the console's line and
+`Bound`, `BindsRevision` and the bind table a binding report reads. The key names are the view's (`Viewer3D/KeyNames.cs`),
+and the console may not reach the view (D214), so the fix needs the engine's key-name list (`ButtonCodeToString`, not
+read) in a layer below both. `Viewer3D/KeyNames.cs` also maps `ESC` to the escape key, a name TF2's table may not have
+(B823 review 1, Sonnet, Grok, Fable); whether `bind ESC x` is TF2's `KEY_ESCAPE` is this same read. `unbind` prints the same
+line for an unknown name (`Key_Unbind_f`, FUN_1801b6a30, build 1007), and is not ported either.
 
 ## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — FIXED (2026-11-23)
 

@@ -356,7 +356,7 @@ public sealed class RecorderPrediction
             CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
             VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
             GrapplingHook = grapple,
-            IsLoser = IsLoser(recorder, packet.Tick, serverConVars),
+            IsLoser = IsLoserAt(_timeline, recorder, packet.Tick, tick),
             LastDeployTime = recorder.ActiveWeapon is { } active
                 ? LastDeployTime(
                     _timeline.UserCommands, packet.Acknowledged, active, ActiveBefore, packetTime, _timeline.IntervalPerTick)
@@ -398,13 +398,22 @@ public sealed class RecorderPrediction
         return new PredictedMotion((player.Velocity.X, player.Velocity.Y, player.Velocity.Z), player.OnGround);
     }
 
-    /// <summary><c>m_Shared.IsLoser()</c> off the game rules and ConVars at the packet; the rule is <see cref="LoserState.IsLoser"/>.</summary>
-    private bool IsLoser(ScenePlayer recorder, int packetTick, ServerConVars serverConVars) =>
+    /// <summary>
+    /// <c>m_Shared.IsLoser()</c> as the packet path sets <see cref="PredictedPlayer.IsLoser"/>: the game rules at the packet,
+    /// the server's ConVars at the command tick (as <c>PredictFrom</c> reads them); the rule is <see cref="LoserState.IsLoser"/>.
+    /// </summary>
+    /// <param name="timeline">The demo's timeline.</param>
+    /// <param name="recorder">The recorder.</param>
+    /// <param name="packetTick">The packet's tick, for the game rules.</param>
+    /// <param name="commandTick">The tick whose commands are read, for the ConVars; `tf_always_loser` is `GetBool`'s (B823).</param>
+    /// <returns>Whether the recorder is a loser.</returns>
+    /// <remarks>One step, so the packet path's wiring — which ConVars, which ticks — has a test (B823 review 4, Fable).</remarks>
+    internal static bool IsLoserAt(DemoTimeline timeline, ScenePlayer recorder, int packetTick, int commandTick) =>
         LoserState.IsLoser(
-            alwaysLoser: (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0,
-            matchTypeCompetitive: _timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
-            roundState: _timeline.RoundStateAt(packetTick),
-            winningTeam: _timeline.RulesAt(packetTick).WinningTeam,
+            alwaysLoser: timeline.ServerConVarsAt(commandTick).GetBool(LoserState.AlwaysLoserConVar),
+            matchTypeCompetitive: timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
+            roundState: timeline.RoundStateAt(packetTick),
+            winningTeam: timeline.RulesAt(packetTick).WinningTeam,
             team: recorder.Team,
             playerClass: recorder.PlayerClass,
             conditions: recorder.Conditions,

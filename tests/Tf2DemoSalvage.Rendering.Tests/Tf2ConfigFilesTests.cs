@@ -39,6 +39,7 @@ public sealed class Tf2ConfigFilesTests
         configs.Count.ShouldBeGreaterThan(0, "a real install has at least config_default.cfg");
 
         ConfigConsole console = ConfigConsole.WithDefaults();
+        (console.Applied, console.Bound).ShouldBe((0, 0), "the viewer's own defaults are no config's binds (B823 review 5)");
         configs.ForEach(console.Load);
 
         TestContext.Out.WriteLine($"{console.Applied} of {console.Bound} binds applied");
@@ -349,12 +350,14 @@ public sealed class Tf2ConfigFilesTests
     }
 
     /// <remarks>
-    /// The mark is exactly `EF BB BF` at the start (D265): the mark alone is an empty config, a two-byte start is one
-    /// replacement character, a mark after the first byte stays, and three near-misses are characters kept whole. The
-    /// expectation is UTF-16 code units, so no invisible character sits in the source.
+    /// The mark is exactly `EF BB BF` at the start (D265): the mark alone is an empty config, a two-byte start is its two
+    /// bytes kept alone (B823 review 1: the lone bytes U+DCEF, U+DCBB, where this case once expected one U+FFFD), a mark
+    /// after the first byte stays, and three near-misses are characters kept whole. The expectation is UTF-16 code units,
+    /// so no invisible character sits in the source.
     /// </remarks>
     [TestCase(new byte[] { 0xEF, 0xBB, 0xBF }, new int[] { })]
-    [TestCase(new byte[] { 0xEF, 0xBB }, new[] { 0xFFFD })]
+    [TestCase(new byte[] { 0xEF, 0xBB }, new[] { 0xDCEF, 0xDCBB })]
+    [TestCase(new byte[] { 0x73, 0xE9, 0x78 }, new[] { 0x73, 0xDCE9, 0x78 })]
     [TestCase(new byte[] { 0x61, 0xEF, 0xBB, 0xBF, 0x62 }, new[] { 0x61, 0xFEFF, 0x62 })]
     [TestCase(new byte[] { 0xEF, 0xBB, 0xA0, 0x61 }, new[] { 0xFEE0, 0x61 })]
     [TestCase(new byte[] { 0xEF, 0xBA, 0xBF, 0x61 }, new[] { 0xFEBF, 0x61 })]

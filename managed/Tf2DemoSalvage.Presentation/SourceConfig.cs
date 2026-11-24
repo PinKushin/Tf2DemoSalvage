@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Tf2DemoSalvage.Core.Primitives;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>
@@ -49,20 +51,24 @@ public static class SourceConfig
 
             if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
             {
-                // Everything before this is discarded, exactly as the engine would.
-                binds.Clear();
+                // Everything before this is discarded but ESCAPE and the console key, as the engine does (`SurvivesUnbindAll`).
+                binds.RemoveAll(bind => !SurvivesUnbindAll(bind.Key));
                 continue;
             }
 
-            if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 2)
+            if (tokens[0].Equals("unbind", StringComparison.OrdinalIgnoreCase))
             {
-                binds.Add((tokens[1], string.Empty));
+                if (Unbinds(tokens))
+                {
+                    binds.Add((tokens[1], string.Empty));
+                }
+
                 continue;
             }
 
-            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 3)
+            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && Binds(tokens))
             {
-                binds.Add((tokens[1], tokens[2]));
+                binds.Add((tokens[1], Binding(tokens[1], tokens[2])));
             }
 
             // Everything else — cvars, alias, exec, incrementvar — is somebody else's business.
@@ -70,6 +76,48 @@ public static class SourceConfig
 
         return binds;
     }
+
+    /// <summary>Whether a <c>bind</c> sets its key: exactly three arguments (`Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0).</summary>
+    /// <param name="tokens">The command's arguments, `bind` first.</param>
+    /// <returns>True at three; two show the binding, and anything else prints the usage line.</returns>
+    internal static bool Binds(IReadOnlyList<string> tokens) => tokens.Count == 3;
+
+    /// <summary>Whether an <c>unbind</c> clears its key: exactly two arguments, and not `ESCAPE` (`Key_Unbind_f`).</summary>
+    /// <param name="tokens">The command's arguments, `unbind` first.</param>
+    /// <returns>True when the key's binding becomes the empty string.</returns>
+    /// <remarks>`engine.dll` x64 build 1007 FUN_1801b6a30: `argc != 2` prints the usage line, key 0x46 prints `Can't unbind
+    /// ESCAPE key`; otherwise the binding is set to "" — not null, so `bind k` then prints `"k" = ""` (B823 review 1).</remarks>
+    internal static bool Unbinds(IReadOnlyList<string> tokens) => tokens.Count == 2 && !IsEscape(tokens[1]);
+
+    /// <summary>What <c>bind key command</c> stores: `cancelselect` for `ESCAPE`, whatever the line says (build 1007 FUN_1801b5ea0).</summary>
+    /// <param name="key">The key's name.</param>
+    /// <param name="command">The command the line gives.</param>
+    /// <returns>The binding.</returns>
+    internal static string Binding(string key, string command) => IsEscape(key) ? EscapeBinding : command;
+
+    /// <summary>Whether a key name is `KEY_ESCAPE` (0x46), the key `bind` and `unbind` treat apart.</summary>
+    /// <remarks>*Interpolated:* matched without case — the engine's key-name lookup (an input system call, vtable +0xe8) is
+    /// not read. `KeyNames` in the view also takes `ESC` for this key, which TF2's name table may not (B826).</remarks>
+    internal static bool IsEscape(string key) => key.Equals(EscapeKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether <c>unbindall</c> leaves a key's binding alone: `ESCAPE` and `` ` ``, the console key.</summary>
+    /// <param name="key">The key's name.</param>
+    /// <returns>True for the two keys `Key_Unbindall_f` skips.</returns>
+    /// <remarks>
+    /// `engine.dll` x64 build 1007 FUN_1801b6b10 (B823 review 2): for every key 0 to 0x27a whose binding is set and not
+    /// empty, except 0x46 (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`), the binding becomes "". The names are TF2's
+    /// `ButtonCodeToString` spellings, *interpolated* (the table is the input system's, not read).
+    /// </remarks>
+    internal static bool SurvivesUnbindAll(string key) => IsEscape(key) || key == ConsoleKey;
+
+    /// <summary>`KEY_BACKQUOTE`'s name, the key that opens TF2's console.</summary>
+    private const string ConsoleKey = "`";
+
+    /// <summary>`KEY_ESCAPE`'s name.</summary>
+    private const string EscapeKey = "ESCAPE";
+
+    /// <summary>What `bind ESCAPE …` binds.</summary>
+    private const string EscapeBinding = "cancelselect";
 
     /// <summary>Every <c>alias</c> in a config, by name.</summary>
     /// <param name="text">The config's text.</param>
@@ -182,7 +230,9 @@ public static class SourceConfig
 
         static void Add(List<string> into, StringBuilder from)
         {
-            if (from.ToString().Trim() is { Length: > 0 } clause)
+            // C's `isspace` alone (B823 review 1, Fable): .NET's `Trim` would take U+00A0 and U+2003, which the engine reads as
+            // the bytes of a word.
+            if (from.ToString().Trim(CSpace) is { Length: > 0 } clause)
             {
                 into.Add(clause);
             }
@@ -194,7 +244,50 @@ public static class SourceConfig
     /// <summary>Splits one command into its tokens, honouring quotes and comments.</summary>
     /// <param name="clause">The command.</param>
     /// <returns>The tokens, quotes removed.</returns>
-    public static IReadOnlyList<string> Tokens(string? clause) => Tokenise(clause ?? string.Empty);
+    /// <remarks>
+    /// **TF2 tokenizes BYTES, so this does too** (B823): the clause is encoded to UTF-8 first, and a word ends at any byte of
+    /// 0x80 or more (see <see cref="Tokenise"/>), so an unquoted `café` is `caf`, `C3`, `A9`.
+    ///
+    /// **A lone byte is spelled as the lone surrogate U+DC00 + byte** — Python's `surrogateescape` (PEP 383). Chosen because
+    /// it is the one spelling that round-trips: an alias body is its arguments joined by spaces (`Cmd_Alias_f`, `engine.dll`
+    /// build 1007 FUN_180168060) and runs through this tokenizer again, so `C3` must come back as the byte `C3`. UTF-8 decoding with
+    /// replacement makes every lone byte U+FFFD, losing which byte it was; Latin-1 keeps them distinct but re-encodes `C3`
+    /// as `C3 83` on the second pass. A surrogate cannot come out of valid UTF-8, so a spelled byte never collides with a
+    /// character, and a quoted string, valid UTF-8 between two ASCII quotes, decodes as its text.
+    /// </remarks>
+    public static IReadOnlyList<string> Tokens(string? clause) => Tokenise(clause ?? string.Empty, out _);
+
+    /// <summary>The value a console ConVar set takes from a command: its `ArgS`, trimmed as the engine trims it (B823).</summary>
+    /// <param name="clause">The command, its ConVar name first.</param>
+    /// <returns>The value; empty when the command has no argument.</returns>
+    /// <remarks>
+    /// `engine.dll` build 1007 FUN_180178310 (x64, the function holding "Can't use cheat cvar %s in multiplayer"), read in the
+    /// disassembly: it copies `ArgS()` — the command's text from argument 1 on, its opening quote included
+    /// (`CCommand::Tokenize`'s `m_nArgv0Size`, tier1/convar.cpp:432-451; convar.h:232-235) — drops a leading `"`, clears
+    /// trailing bytes while `CMP byte ptr [RCX],0x20; JG` does not jump (a SIGNED compare, so every byte of 0x80 or more is
+    /// cleared with the spaces), then clears one trailing `"` if it began with one. So `name a b` sets `a b`, `name café`
+    /// sets `caf`, and `name éa` sets `éa`. *Not implemented*: the 1024-byte copy cap, past the 511-byte command limit.
+    /// </remarks>
+    public static string ConVarValue(string? clause)
+    {
+        _ = Tokenise(clause ?? string.Empty, out byte[] argS);
+
+        bool quoted = argS.Length > 0 && argS[0] == '"';
+        ReadOnlySpan<byte> value = quoted ? argS.AsSpan(1) : argS;
+        int end = value.Length;
+
+        while (end > 0 && (sbyte)value[end - 1] <= ' ')
+        {
+            end--;
+        }
+
+        if (quoted && end > 0 && value[end - 1] == '"')
+        {
+            end--;
+        }
+
+        return Utf8Escaped.GetString(value[..end]);
+    }
 
     /// <summary>`CCommand::Tokenize`'s break set (tier1/convar.cpp:326): each is an argument of its own.</summary>
     private const string BreakSet = "{}()':";
@@ -206,17 +299,26 @@ public static class SourceConfig
     /// EatWhiteSpace (isspace); a "//" here eats to the end of the line
     /// '"' → everything to the next '"' or the end of the buffer, the quotes dropped — an EMPTY string is an argument
     /// a break character → itself, alone
-    /// else a word: up to a break character, a '"' or anything &lt;= ' '
+    /// else a word: up to a break character, a '"' or anything &lt;= ' ' — `c` a signed char, so any byte &gt;= 0x80 too
     /// </code>
     ///
     /// **This replaced a tokenizer of this project's own**, which dropped `""` — so `alias noop ""` and `bind k ""` were
     /// two arguments and ignored — glued a quoted run to the word beside it, and did not know the break set. A config
     /// is not KeyValues and has no escapes at all.
+    ///
+    /// **It reads the clause's UTF-8 bytes** (B823): `ParseToken` stores a word's first `char` unchecked and ends the word at
+    /// `c &lt;= ' '` (utlbuffer.cpp:1303-1320), and `EatWhiteSpace` tests `isspace` on the unsigned byte (:404-415), so a byte
+    /// of 0x80 or more ends a word and starts the next. A word therefore holds at most one such byte, its first. The text is
+    /// cut at a NUL, as `Q_strlen` cuts the copy (convar.cpp:404-411).
     /// </remarks>
-    private static List<string> Tokenise(string line)
+    /// <param name="text">The command.</param>
+    /// <param name="argS">`ArgS()`: the bytes from argument 1's start, its opening quote included, or none.</param>
+    private static List<string> Tokenise(string text, out byte[] argS)
     {
+        byte[] line = Bytes(text);
         List<string> tokens = [];
         int at = 0;
+        argS = [];
 
         while (true)
         {
@@ -226,41 +328,61 @@ public static class SourceConfig
                 at = IsComment(line, at) ? EndOfLine(line, at) : at + 1;
             }
 
-            if (at >= line.Length || line[at] == '\0')
+            if (at >= line.Length)
             {
                 return tokens;
             }
 
-            char first = line[at++];
+            if (tokens.Count == 1)
+            {
+                // `m_nArgv0Size` (convar.cpp:432-451): where argument 1 starts, an opening quote included.
+                argS = line[at..];
+            }
+
+            byte first = line[at++];
 
             if (first == '"')
             {
-                int close = line.IndexOfAny(['"', '\0'], at);
+                int close = Array.IndexOf(line, (byte)'"', at);
                 int end = close < 0 ? line.Length : close;
 
-                tokens.Add(line[at..end]);
+                tokens.Add(Utf8Escaped.GetString(line.AsSpan(at, end - at)));
                 at = end + 1;
             }
-            else if (BreakSet.Contains(first, StringComparison.Ordinal))
+            else if (IsBreak(first))
             {
-                tokens.Add(first.ToString());
+                tokens.Add(((char)first).ToString());
             }
             else
             {
                 int start = at - 1;
 
-                while (at < line.Length && line[at] > ' ' && line[at] != '"' && !BreakSet.Contains(line[at], StringComparison.Ordinal))
+                while (at < line.Length && (sbyte)line[at] > ' ' && line[at] != '"' && !IsBreak(line[at]))
                 {
                     at++;
                 }
 
-                tokens.Add(line[start..at]);
+                tokens.Add(Utf8Escaped.GetString(line.AsSpan(start, at - start)));
             }
         }
     }
 
-    /// <summary>C's `isspace` in the "C" locale: space, and tab through carriage return.</summary>
-    private static bool IsSpace(char c) => c == ' ' || (c >= '\t' && c <= '\r');
+    /// <summary>The bytes TF2 would hold for a clause (<see cref="Utf8Escaped.GetBytes"/>), cut at a NUL.</summary>
+    private static byte[] Bytes(string text)
+    {
+        byte[] bytes = Utf8Escaped.GetBytes(text);
+        int nul = Array.IndexOf(bytes, (byte)0);
+
+        return nul < 0 ? bytes : bytes[..nul];
+    }
+
+    private static bool IsBreak(byte b) => b < 0x80 && BreakSet.Contains((char)b, StringComparison.Ordinal);
+
+    /// <summary>C's `isspace` on the unsigned byte in the "C" locale: space, and tab through carriage return.</summary>
+    private static bool IsSpace(byte b) => b == ' ' || (b >= '\t' && b <= '\r');
+
+    /// <summary>The characters <see cref="IsSpace"/> is true of, for trimming text.</summary>
+    private static readonly char[] CSpace = [' ', '\t', '\n', '\v', '\f', '\r'];
 
     /// <summary>Every command of a config as its arguments: lines, then `;` clauses, then <see cref="Tokens"/>.</summary>
     private static IEnumerable<List<string>> Commands(string? text)
@@ -269,17 +391,17 @@ public static class SourceConfig
         {
             foreach (string clause in Clauses(line))
             {
-                yield return Tokenise(clause);
+                yield return Tokenise(clause, out _);
             }
         }
     }
 
-    private static bool IsComment(string line, int at) => line[at] == '/' && at + 1 < line.Length && line[at + 1] == '/';
+    private static bool IsComment(byte[] line, int at) => line[at] == '/' && at + 1 < line.Length && line[at + 1] == '/';
 
     /// <summary>Past the line break that ends a comment, or the end of the text.</summary>
-    private static int EndOfLine(string line, int at)
+    private static int EndOfLine(byte[] line, int at)
     {
-        int end = line.IndexOf('\n', at);
+        int end = Array.IndexOf(line, (byte)'\n', at);
 
         return end < 0 ? line.Length : end + 1;
     }

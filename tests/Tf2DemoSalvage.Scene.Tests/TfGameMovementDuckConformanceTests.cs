@@ -160,4 +160,20 @@ public sealed class TfGameMovementDuckConformanceTests
         new TfGameMovement(trace ?? Floor(), MovementConVars.Defaults, maxClients: 24)
             .ProcessMovement(ref player, command, Tick, first: true, commandNumber: 1).ShouldBeTrue();
     }
+
+    /// <remarks>
+    /// **`tf_clamp_airducks.GetBool()` is `!!GetInt()`** (B823 review 2, Sonnet; `convar.cpp:791-802`): `0.5` is off and
+    /// `nan` on, `0x80000000` from MSVC's `cvttss2si`, where C#'s `(int)` of a NaN is 0.
+    /// </remarks>
+    [TestCase("0.5", false)]
+    [TestCase("nan", true)]
+    [TestCase("1", true)]
+    public void From_AClampAirDucksTheServerSent_IsGetBool(string sent, bool expected)
+    {
+        Tf2DemoSalvage.Core.Net.ServerConVars server = new();
+        server.Apply(new Tf2DemoSalvage.Core.Net.SetConVarMessage(
+            [new System.Collections.Generic.KeyValuePair<string, string>("tf_clamp_airducks", sent)]));
+
+        MovementConVars.From(server).ClampAirDucks.ShouldBe(expected);
+    }
 }

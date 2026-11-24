@@ -313,6 +313,58 @@ public sealed class ServerConVarsTests
         }
     }
 
+    /// <remarks>
+    /// **`GetInt` is the float truncated, and the float is `atof`** (B823 review 1, Fable; `convar.cpp:791-802`):
+    /// `tf_use_fixed_weaponspreads` is read with `GetInt`, so 0.5 is off and `1 x` on. The text a server sent passes
+    /// through <see cref="ServerConVars.Apply"/>, the call site, not through a test-side parse.
+    /// </remarks>
+    [TestCase("0.5", 0)]
+    [TestCase("1 x", 1)]
+    [TestCase("nan", int.MinValue)]
+    [TestCase("x", 0)]
+    public void GetInt_AfterTheServerSentText_IsAtofTruncated(string sent, int expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("tf_use_fixed_weaponspreads", sent)));
+
+        server.GetInt("tf_use_fixed_weaponspreads").ShouldBe(expected);
+    }
+
+    /// <remarks>`GetBool() { return !!GetInt(); }` (convar.h:520; B823 review 2, Sonnet): 0.5 false, nan true.</remarks>
+    [TestCase("0.5", false)]
+    [TestCase("nan", true)]
+    [TestCase("2", true)]
+    [TestCase("0", false)]
+    public void GetBool_AfterTheServerSentText_IsGetIntNotZero(string sent, bool expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("tf_tournament_hide_domination_icons", sent)));
+
+        server.GetBool("tf_tournament_hide_domination_icons").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The frame's domination-icon switch is two `GetBool`s** (B823 review 3, Fable, Sonnet; `ShouldShowNemesisIcon`,
+    /// c_tf_player.cpp:9376-9395, with `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`):
+    /// `0.5` is false, so a tournament still shows the icons, where `Number != 0` hid them. Read through
+    /// `DemoTimeline.HidesDominationIcons`, the rule the frame builder calls.
+    /// </remarks>
+    [TestCase("1", "0.5", false)]
+    [TestCase("1", "1", true)]
+    [TestCase("1", "nan", true)]
+    [TestCase("0.5", "1", false)]
+    [TestCase("0", "1", false)]
+    public void HidesDominationIcons_ATournamentAndItsSwitch_AreGetBools(string tournament, string hide, bool expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("mp_tournament", tournament), ("tf_tournament_hide_domination_icons", hide)));
+
+        Tf2DemoSalvage.Core.Scene.DemoTimeline.HidesDominationIcons(server).ShouldBe(expected);
+    }
+
     private static SetConVarMessage Message(params (string Name, string Value)[] pairs)
     {
         List<KeyValuePair<string, string>> variables = [];

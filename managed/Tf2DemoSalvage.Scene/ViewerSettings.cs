@@ -1113,7 +1113,8 @@ public sealed record ViewerSettings
 
         try
         {
-            return File.Exists(file) ? Parse(File.ReadAllText(file)) : new ViewerSettings();
+            // Every byte kept (B823 review 1, Fable): a ConVar value can hold a lone byte, saved below as itself.
+            return File.Exists(file) ? Parse(Text(File.ReadAllBytes(file))) : new ViewerSettings();
         }
         catch (Exception failure) when (
             failure is IOException or UnauthorizedAccessException or ArgumentException)
@@ -1616,14 +1617,14 @@ public sealed record ViewerSettings
             settings = settings with { ScreenFadeMaxSize = screenFadeMax };
         }
 
-        if (ReadNumber(values, DecalsCommand) is { } decals)
+        if (Read(values, DecalsCommand) is { } decals)
         {
-            settings = settings with { Decals = (int)decals };
+            settings = settings with { Decals = decals };
         }
 
-        if (ReadNumber(values, MaxModelDecalCommand) is { } modelDecals)
+        if (Read(values, MaxModelDecalCommand) is { } modelDecals)
         {
-            settings = settings with { MaxModelDecals = (int)modelDecals };
+            settings = settings with { MaxModelDecals = modelDecals };
         }
 
         // Bounded later, against the recording server's limits, exactly as the engine bounds them.
@@ -1670,11 +1671,12 @@ public sealed record ViewerSettings
         }
 
         // A value the cvar's declared bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543),
-        // by `ClampValue`'s own two tests (`:891`, `:897`); every other value keeps its string as written.
-        if (written is not null &&
-            EngineConVars.TryByName(name, out EngineConVar? declared) &&
-            float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten))
+        // by `ClampValue`'s own two tests (`:891`, `:897`), on `atof` of the string (`:792`, B823); every other value keeps
+        // its string as written.
+        if (written is not null && EngineConVars.TryByName(name, out EngineConVar? declared))
         {
+            float asWritten = ConVarNumber.GetFloat(written);
+
             if (asWritten < declared.Min)
             {
                 return EngineFloat(declared.Min.Value);
@@ -1686,7 +1688,47 @@ public sealed record ViewerSettings
             }
         }
 
-        return written is not null && Set(name, written).Typed(name) == typed ? written : typed;
+        if (written is not null)
+        {
+            return Set(name, written).Typed(name) == typed ? written : typed;
+        }
+
+        // **An untouched ConVar's string is its declared default** (B823 review 2, Sonnet, Fable): the engine keeps the
+        // string it was registered with until something sets it, so a setting still at the declared default's value reads
+        // that string — `0`, not `0.000000` — and `sv_cheats 0`'s revert changes no string and runs no callback
+        // (`src/tier1/convar.cpp:844`). `toggle name 0 12` then matches the `0` too, as the engine's byte compare does.
+        return EngineConVars.TryByName(name, out EngineConVar? registered) && Set(name, registered.Default).Typed(name) == typed
+            ? registered.Default
+            : typed;
+    }
+
+    /// <summary>A settings file's text: UTF-16 or UTF-32 by its mark, else UTF-8 with every byte kept.</summary>
+    /// <remarks>
+    /// **The UTF-16 and UTF-32 marks are read as `File.ReadAllText` read them** (B823 review 2, Fable): a file saved that
+    /// way by an editor was otherwise nothing the parser knew, so the viewer started on defaults and its next save
+    /// destroyed the file. UTF-32's little-endian mark begins with UTF-16's, so it is asked first.
+    /// </remarks>
+    private static string Text(byte[] bytes)
+    {
+        Encoding[] marked =
+        [
+            new UTF32Encoding(bigEndian: false, byteOrderMark: true),
+            new UTF32Encoding(bigEndian: true, byteOrderMark: true),
+            new UnicodeEncoding(bigEndian: false, byteOrderMark: true),
+            new UnicodeEncoding(bigEndian: true, byteOrderMark: true),
+        ];
+
+        foreach (Encoding encoding in marked)
+        {
+            ReadOnlySpan<byte> mark = encoding.Preamble;
+
+            if (bytes.AsSpan().StartsWith(mark))
+            {
+                return encoding.GetString(bytes, mark.Length, bytes.Length - mark.Length);
+            }
+        }
+
+        return Tf2ConfigFiles.Decode(bytes);
     }
 
     /// <summary>A float as `"%f"` prints it: promoted to double, six places — 179.9f is "179.899994".</summary>
@@ -1809,7 +1851,8 @@ public sealed record ViewerSettings
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file)!);
-            File.WriteAllText(file, Write(), Encoding.UTF8);
+            // UTF-8 with its mark, as before, but a lone byte (U+DC80 to U+DCFF) written as that byte (B823 review 1, Fable).
+            File.WriteAllBytes(file, [.. Encoding.UTF8.Preamble, .. Core.Primitives.Utf8Escaped.GetBytes(Write())]);
             return null;
         }
         catch (Exception failure) when (
@@ -2091,14 +2134,11 @@ public sealed record ViewerSettings
     /// <summary>Reads an integer setting as the engine's <c>GetInt</c> would: the float's integer part, so <c>1.000000</c> is 1.</summary>
     /// <remarks>`incrementvar` and `multvar` set a cvar as <c>"%s %f"</c> (D215); an int-only parse ignored every such set.</remarks>
     private static int? Read(Dictionary<string, string> values, string command) =>
-        ReadNumber(values, command) is { } number && number is >= int.MinValue and <= int.MaxValue ? (int)number : null;
+        values.TryGetValue(command, out string? value) ? ConVarNumber.GetInt(value) : null;
 
-    /// <summary>Reads a fractional setting, for the ones the game states as floats.</summary>
+    /// <summary>Reads a fractional setting as the engine's <c>GetFloat</c> would: <c>atof</c>, so <c>1 2</c> is 1 (B823).</summary>
     private static float? ReadNumber(Dictionary<string, string> values, string command) =>
-        values.TryGetValue(command, out string? value) &&
-        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
-            ? number
-            : null;
+        values.TryGetValue(command, out string? value) ? ConVarNumber.GetFloat(value) : null;
 }
 
 /// <summary>The crosshair's cvars, each at its TF2 default.</summary>

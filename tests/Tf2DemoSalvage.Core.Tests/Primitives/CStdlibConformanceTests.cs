@@ -72,6 +72,102 @@ public sealed class CStdlibConformanceTests
         CStdlib.Atof("in").ShouldBe(0d, "the control: a prefix of a special is no number");
     }
 
+    /// <remarks>
+    /// **The Microsoft runtime reads hexadecimal floats** (B823 review 1, Fable, Sonnet): UCRT's
+    /// <c>parse_floating_point_from_source</c> (Windows SDK 10.0.26100.0, <c>ucrt/inc/corecrt_internal_strtox.h:1452-1475</c>)
+    /// takes a <c>0x</c> prefix, hex digits on both sides of the point, and a <c>p</c> exponent in decimal, base 2
+    /// (<c>:1590-1594</c>, <c>:1700</c>); <c>0x</c> with no digit after it is the subject <c>0</c> (<c>:1563-1570</c>), and
+    /// <c>p</c> with no digit after it is not an exponent (<c>:1648-1661</c>).
+    /// </remarks>
+    [TestCase("0x10", 16d)]
+    [TestCase(" -0X1.8p1", -3d)]
+    [TestCase("0x.8", 0.5d)]
+    [TestCase("0x1p-2", 0.25d)]
+    [TestCase("0x1p", 1d)]
+    [TestCase("0xg", 0d)]
+    [TestCase("0x", 0d)]
+    [TestCase("0x1e", 30d)]
+    [TestCase("0x8000000000000001", 9223372036854775808d)]
+    [TestCase("0x20000000000003", 9007199254740996d)]
+    public void Atof_AHexadecimalFloat_IsReadAsTheMicrosoftRuntimeReadsIt(string text, double expected) =>
+        CStdlib.Atof(text).ShouldBe(expected);
+
+    /// <remarks>
+    /// **`nan(…)` is a NaN, and two of its spellings are not the quiet one** (UCRT <c>corecrt_internal_strtox.h:1326-1399</c>,
+    /// <c>:552-613</c>): <c>nan(snan)</c> has mantissa 1; <c>nan(ind)</c> is the "negative" indeterminate, sign set and
+    /// only the quiet bit; any other run of letters, digits and <c>_</c> closed by <c>)</c> is the quiet NaN; an unclosed
+    /// one is <c>nan</c> alone. A sign carries to the quiet and signalling NaNs.
+    /// </remarks>
+    [TestCase("nan(snan)", 0x7ff0000000000001L)]
+    [TestCase("-nan(SNAN)", unchecked((long)0xfff0000000000001UL))]
+    [TestCase("nan(ind)", unchecked((long)0xfff8000000000000UL))]
+    [TestCase("nan(x_1)", 0x7fffffffffffffffL)]
+    [TestCase("nan(x", 0x7fffffffffffffffL)]
+    [TestCase("-nan", unchecked((long)0xffffffffffffffffUL))]
+    public void Atof_ANanSpelling_IsTheRuntimesNan(string text, long bits) =>
+        BitConverter.DoubleToInt64Bits(CStdlib.Atof(text)).ShouldBe(bits);
+
+    /// <remarks>
+    /// **The `snan` test consumes what it matched before it fails, and `ind` goes on from there** (B823 review 4, Fable,
+    /// Sonnet): `parse_next_characters_from_source` advances on each match (UCRT <c>corecrt_internal_strtox.h:1241-1261</c>),
+    /// and <c>parse_floating_point_possible_nan</c> asks `is_snan` then `is_ind` on the same source (<c>:1364-1374</c>). So
+    /// <c>nan(sind)</c>, <c>nan(snind)</c> and <c>nan(snanind)</c> are the indeterminate; a partial <c>in</c> then <c>)</c>
+    /// is the quiet NaN through the parenthesis; an unclosed match takes <c>nan</c> alone.
+    /// </remarks>
+    [TestCase("nan(sind)", unchecked((long)0xfff8000000000000UL), 9)]
+    [TestCase("nan(snind)", unchecked((long)0xfff8000000000000UL), 10)]
+    [TestCase("nan(snanind)", unchecked((long)0xfff8000000000000UL), 12)]
+    [TestCase("nan(in)", 0x7fffffffffffffffL, 7)]
+    [TestCase("nan(sx)", 0x7fffffffffffffffL, 7)]
+    [TestCase("nan(s-)", 0x7fffffffffffffffL, 3)]
+    [TestCase("nan(ind", 0x7fffffffffffffffL, 3)]
+    [TestCase("nan(snan", 0x7fffffffffffffffL, 3)]
+    [TestCase("NaN(SnAn)", 0x7ff0000000000001L, 9)]
+    public void Atof_AParenthesisedNan_ConsumesAsUcrtDoes(string text, long bits, int used)
+    {
+        BitConverter.DoubleToInt64Bits(CStdlib.Atof(text, out int took)).ShouldBe(bits);
+        took.ShouldBe(used);
+    }
+
+    /// <remarks>
+    /// **Where `strtod`'s end pointer stops** (B823 review 3, Fable): the subject sequence UCRT's parser accepts
+    /// (<c>corecrt_internal_strtox.h:1401-1722</c>) — leading white space counted, `0x` with no digit the `0` alone, a `p` or
+    /// `e` with no digit not taken, `nan(` taken only when closed.
+    /// </remarks>
+    [TestCase("0.1f", 3)]
+    [TestCase("255 255 255", 3)]
+    [TestCase("  12", 4)]
+    [TestCase("abc", 0)]
+    [TestCase("", 0)]
+    [TestCase("inf", 3)]
+    [TestCase("-Infinity", 9)]
+    [TestCase("nan(x_1)", 8)]
+    [TestCase("nan(x", 3)]
+    [TestCase("0x", 1)]
+    [TestCase("0x1p", 3)]
+    [TestCase("0x1p2", 5)]
+    [TestCase("1e", 1)]
+    [TestCase("1e5", 3)]
+    [TestCase("nan(snan)", 9)]
+    [TestCase("nan(ind)", 8)]
+    [TestCase("nan()", 5)]
+    [TestCase(".", 0)]
+    [TestCase("1.", 2)]
+    [TestCase("0x1.", 4)]
+    [TestCase("0x0p5", 5)]
+    [TestCase("infinit", 3)]
+    [TestCase(" inf", 4)]
+    [TestCase("+5", 2)]
+    [TestCase("-0x", 2)]
+    [TestCase("0x.8", 4)]
+    [TestCase("1e+", 1)]
+    public void Atof_AText_UsesWhatStrtodTakes(string text, int used)
+    {
+        _ = CStdlib.Atof(text, out int took);
+
+        took.ShouldBe(used);
+    }
+
     [Test]
     public void Atof_ADecimalWithNoLeadingZero_IsRead()
     {

@@ -53,6 +53,51 @@ public sealed class CommandTokenizeConformanceTests
         SourceConfig.Tokens(command).ShouldBe(expected);
 
     /// <remarks>
+    /// **A byte of 0x80 or more ends a word and starts the next** (B823): `ParseToken` stores a word's first `char` unchecked
+    /// and ends it at `c &lt;= ' '` with `c` a signed `char` (tier1/utlbuffer.cpp:1303-1320), and `EatWhiteSpace` tests
+    /// `isspace` on the unsigned byte (:404-415). So TF2 tokenizes a config's UTF-8 BYTES, and a non-ASCII character
+    /// unquoted is one argument per byte. A lone byte is spelled as the lone surrogate U+DC00 + byte (see
+    /// <see cref="SourceConfig.Tokens"/>). `EF BB BF` running straight into `echo x` is the B822 measurement's line. A
+    /// source, not attributes: an attribute's string is stored as UTF-8 and loses a lone surrogate to U+FFFD, and a lone
+    /// surrogate in a test's name drops the test from discovery, so each case names itself in ASCII.
+    /// </remarks>
+    [TestCaseSource(nameof(UnquotedNonAscii))]
+    public void Tokens_AnUnquotedNonAsciiWord_IsOneArgumentPerByte(string command, string[] expected) =>
+        SourceConfig.Tokens(command).ShouldBe(expected);
+
+    private static readonly TestCaseData[] UnquotedNonAscii =
+    [
+        new TestCaseData("﻿echo x", new[] { "\uDCEF", "\uDCBB", "\uDCBFecho", "x" }).SetArgDisplayNames("EF BB BF echo x"),
+        new TestCaseData("alias café x", new[] { "alias", "caf", "\uDCC3", "\uDCA9", "x" }).SetArgDisplayNames("alias caf C3 A9 x"),
+        new TestCaseData("bind k éa", new[] { "bind", "k", "\uDCC3", "\uDCA9a" }).SetArgDisplayNames("bind k C3 A9 a"),
+    ];
+
+    /// <remarks>A quoted string runs to the next `"` whatever its bytes (utlbuffer.cpp:1268-1287), so its text stays whole.</remarks>
+    [TestCase("echo \"café\"", new[] { "echo", "café" })]
+    [TestCase("echo \"﻿ €\"", new[] { "echo", "﻿ €" })]
+    public void Tokens_AQuotedNonAsciiString_StaysWhole(string command, string[] expected) =>
+        SourceConfig.Tokens(command).ShouldBe(expected);
+
+    /// <remarks>
+    /// **A ConVar's value is `ArgS`, not `Arg(1)`** (B823): `engine.dll` build 1007 FUN_180178310 (x64), the console's ConVar set — the
+    /// function holding "Can't use cheat cvar %s in multiplayer" — copies `ArgS()` (convar.h:232-235, the text from argument
+    /// 1 on), drops a leading `"`, strips trailing bytes `&lt;= ' '` by a SIGNED compare (`CMP byte ptr [RCX],0x20; JG`), and
+    /// then one trailing `"` if it began with one. So the bytes of a trailing non-ASCII character are stripped as if they were
+    /// spaces, and a leading one is kept whole, where `Arg(1)` would be its first byte alone.
+    /// </remarks>
+    [TestCase("cl_voice_filter café", "caf")]
+    [TestCase("cl_voice_filter éa", "éa")]
+    [TestCase("cl_voice_filter \"café\"", "café")]
+    [TestCase("cl_voice_filter a b \t", "a b")]
+    [TestCase("cl_voice_filter \"a\" b", "a\" b")]
+    [TestCase("cl_voice_filter", "")]
+    [TestCase("cl_voice_filter \"a", "a")]
+    [TestCase("cl_voice_filter \"", "")]
+    [TestCase("cl_voice_filter \"a \"", "a ")]
+    public void ConVarValue_ACommand_IsArgSWithTheEnginesTrim(string command, string expected) =>
+        SourceConfig.ConVarValue(command).ShouldBe(expected);
+
+    /// <remarks>
     /// **`GetNextCommandLength`** (tier1/commandbuffer.cpp:163-203): a `;` outside quotes ends a command, and a `//` outside
     /// quotes hides the rest of the line — the `;` in it included.
     /// </remarks>

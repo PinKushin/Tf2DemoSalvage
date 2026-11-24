@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -31,14 +30,21 @@ public sealed record EngineConVar(
     string Name, string Default, bool Replicated, bool Cheat, bool UserInfo = false, float? Min = null, float? Max = null)
 {
     /// <summary>The default as a number, for the ones that are numbers.</summary>
-    /// <exception cref="FormatException">The default is not numeric, so a caller asked wrongly.</exception>
+    /// <exception cref="InvalidOperationException">The default is not numeric, so a caller asked wrongly.</exception>
     /// <remarks>
     /// **Throws rather than returning zero.** A zero `sv_maxspeed` is a camera that does not move
     /// and a reason nobody can find; the memory directory calls this the sentinel trap. Invariant
     /// culture because a ConVar's default is engine text, not the reader's locale — `"0.1"` is
     /// `snd_mixahead` on every machine.
+    ///
+    /// **Read as the engine reads it, `atof`** (B823 review 3, Fable; <see cref="ConVarNumber"/>): `"0.1f"`, which
+    /// `tf_rd_points_approach_interval` declares, is 0.1 where `float.Parse` threw. Still a throw when no number starts
+    /// the default at all.
     /// </remarks>
-    public float Number => float.Parse(Default, CultureInfo.InvariantCulture);
+    public float Number =>
+        ConVarNumber.ReadsANumber(Default)
+            ? ConVarNumber.GetFloat(Default)
+            : throw new InvalidOperationException($"{Name}'s default \"{Default}\" is not a number.");
 }
 
 /// <summary>
