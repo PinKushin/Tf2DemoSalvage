@@ -46054,9 +46054,9 @@ the `sv_cheats` tracking (test `Read_ASetBeforeARefusedStatementOnItsLine_IsStor
 its control; sabotage: gating on `AddsWhole` again reddens it alone). A command the console refuses is no longer
 logged as run (Fable, Gemini). Two budget comments name the shared launch-line budget (Gemini). The test's long-value
 case now uses a value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the
-launch line shares one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own folder settings, which
-only the early store sets, follow the same rule, so one after a refused command, or one whose first command is 511
-bytes or more, is not applied.
+launch line shares one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own
+folder settings, which only the early store sets, follow the same rule, so one after a refused command, or one whose
+first command is 511 bytes or more, is not applied.
 
 **Review 2** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: the new test's control could not fail, its
 long statement read as 0, the default (Fable, Gemini, Sonnet); it now reads as 80, and a gate that ignores the first
