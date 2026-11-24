@@ -45775,7 +45775,25 @@ out of TF2's table (UB there; refused here). Tests `Bind_AKeyNameTf2DoesNotKnow_
 `Bind_AnAuxNamePastThirtyTwo_SaysItIsNotAValidKey`, `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds`,
 `Defaults_EveryKey_IsATf2KeyName`, `ReadBinds_AnUnknownNameAndAnAuxName_FollowTheEngine`. Sabotage: an unknown name
 passed through reddened the six refusal tests; the typed name kept in place of the table's reddened the five spelling
-tests. The paragraph below is the entry as filed.
+tests.
+
+**Review 1** (Fable, Sonnet, Grok; Gemini pending). Fixed (Fable, Sonnet; Fable called it a blocker): the view named the
+keypad, the punctuation keys, Scroll Lock and the Application key in WinForms spelling (`NumPad3`, `Oemcomma`), which
+TF2's names refuse, so those keys could no longer be bound at all. `KeyNames` (Viewer3D) now names and resolves them as
+TF2's table does (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), one table both ways. Test
+`KeyNamesConformanceTests.NameOf_EveryKeyTf2Names_IsATf2NameThatResolvesBack`, over every keyboard key TF2's table
+names; sabotage: `NumPad3` named in WinForms spelling reddens it. A config that used the viewer's old Windows spelling
+(`bind NumPad3 x`) now needs TF2's (`KP_PGDN`), as TF2 itself does; named in the release notes. Fixed (Fable, Grok): the
+chord rule ran before TF2's own lookup, so `aux+1` (`atoi("+1")`, `JOY2` in TF2) was refused; the lookup now runs
+first. Tests: `aux+1`, bare `aux` (`JOY1`) and `aux28` (`JOY29`) added to `Bind_ANameTheTableKnows_BindsTheKeyItNames`.
+Fixed (Fable, low): a chord's key is stored in the table's spelling (`CTRL+aux1` is `CTRL+JOY2`, test
+`KeyOf_AChordOnAnAuxName_IsTheChordOnItsJoystickButton`), its modifiers match ASCII case only, and a bad modifier
+(`x+e`) is tested as refused. Confirmed (Sonnet asked): the `aux` compare is signed in the decompile
+(`(int)uVar2 < 0x1d`), as implemented. *Not handled*: the keypad's Enter is WinForms' `Enter` too, and a keypad key with
+Num Lock off arrives as its navigation key (`INS` for `KP_INS`); telling them apart needs the scan code's extended bit,
+which the view does not read.
+
+The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
 +0xe8) and, at -1, prints `"%s" isn't a valid key` and returns, for a show and a set alike (*disassembly*).

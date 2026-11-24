@@ -16,13 +16,27 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// hand, exactly as TF2's own <c>config.cfg</c> does. `bind "SPACE" "+jump"` is readable and
 /// survives a version change; a numeric virtual-key code is neither.
 ///
-/// **Only the names the viewer actually binds are mapped**, not all 200-odd members of
-/// <see cref="Keys"/>. An exhaustive table would be mostly dead and would still miss whatever
-/// somebody typed; the fallback parses anything else by <see cref="Keys"/>'s own names, so a user
-/// binding "F7" or "NumPad3" works without this file knowing about it.
+/// **Every key TF2 names is spelled as TF2 spells it** (B826): its console refuses any other name (`"%s" isn't a valid
+/// key`, `ButtonCodeNames`), so a key named here in WinForms spelling could never be bound. Keys whose WinForms name
+/// already matches TF2's ignoring case (`F7`, `Tab`, `Home`, `NumLock`) fall through to <see cref="Keys"/>'s own names.
 /// </remarks>
 internal static class KeyNames
 {
+    /// <summary>
+    /// The keys whose TF2 name is neither their WinForms name nor in the switches below (B826, review 1, Fable, Sonnet):
+    /// the numeric keypad, as `inputsystem.dll`'s table spells it (`KEY_PAD_0` is `KP_INS` …), and the punctuation,
+    /// Scroll Lock and Application keys. Both directions read this one table.
+    /// </summary>
+    private static readonly (Keys Key, string Name)[] Tf2Names =
+    [
+        (Keys.NumPad0, "KP_INS"), (Keys.NumPad1, "KP_END"), (Keys.NumPad2, "KP_DOWNARROW"), (Keys.NumPad3, "KP_PGDN"),
+        (Keys.NumPad4, "KP_LEFTARROW"), (Keys.NumPad5, "KP_5"), (Keys.NumPad6, "KP_RIGHTARROW"), (Keys.NumPad7, "KP_HOME"),
+        (Keys.NumPad8, "KP_UPARROW"), (Keys.NumPad9, "KP_PGUP"), (Keys.Divide, "KP_SLASH"), (Keys.Multiply, "KP_MULTIPLY"),
+        (Keys.Subtract, "KP_MINUS"), (Keys.Add, "KP_PLUS"), (Keys.Decimal, "KP_DEL"),
+        (Keys.Oemcomma, ","), (Keys.OemPeriod, "."), (Keys.OemMinus, "-"), (Keys.Oemplus, "="), (Keys.OemPipe, "\\"),
+        (Keys.Oemtilde, "`"), (Keys.Scroll, "SCROLLLOCK"), (Keys.Apps, "APP"),
+    ];
+
     /// <summary>The key a bound name refers to, or <c>Keys.None</c> when it names nothing.</summary>
     /// <param name="name">The name as a settings file spells it.</param>
     /// <returns>The key, or <c>Keys.None</c>.</returns>
@@ -74,6 +88,14 @@ internal static class KeyNames
                 // A combination naming an unresolvable key is `None`, not a bare modifier — which
                 // would otherwise be a shortcut that fires on Ctrl alone.
                 return bare == Keys.None ? Keys.None : bare | modifiers;
+            }
+        }
+
+        foreach ((Keys key, string tf2) in Tf2Names)
+        {
+            if (string.Equals(tf2, name.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return key;
             }
         }
 
@@ -198,7 +220,7 @@ internal static class KeyNames
         >= Keys.D0 and <= Keys.D9 => ((char)('0' + (key & Keys.KeyCode) - Keys.D0)).ToString(),
 
         Keys.None => string.Empty,
-        _ => Enum.GetName(key & Keys.KeyCode) ?? string.Empty,
+        var code => Tf2Names.FirstOrDefault(pair => pair.Key == code).Name ?? Enum.GetName(code) ?? string.Empty,
     };
 
     /// <summary>What a config would call this mouse button.</summary>

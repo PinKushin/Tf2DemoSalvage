@@ -2094,6 +2094,9 @@ public sealed class ConfigConsoleConformanceTests
     /// then `bind JOY2` shows the binding, and `bind kp_ins` is `KP_INS`.
     /// </remarks>
     [TestCase("aux1", "JOY2")]
+    [TestCase("aux+1", "JOY2")]
+    [TestCase("aux", "JOY1")]
+    [TestCase("aux28", "JOY29")]
     [TestCase("AUX29", "POV_UP")]
     [TestCase("aux32", "POV_LEFT")]
     [TestCase("kp_ins", "KP_INS")]
@@ -2136,11 +2139,20 @@ public sealed class ConfigConsoleConformanceTests
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
 
-        console.Load("bind CTRL+e screenshot\nbind CTRL+e\nbind CTRL+ESC screenshot");
+        console.Load("bind CTRL+e screenshot\nbind CTRL+e\nbind CTRL+ESC screenshot\nbind x+e screenshot");
 
         log.Count("\"CTRL+e\" = \"screenshot\"").ShouldBe(1);
-        log.Count("\"CTRL+ESC\" isn't a valid key").ShouldBe(1, "the control");
+        log.Count("\"CTRL+ESC\" isn't a valid key").ShouldBe(1, "the control: a key TF2 does not know");
+        log.Count("\"x+e\" isn't a valid key").ShouldBe(1, "the control: no modifier");
     }
+
+    /// <remarks>
+    /// **A chord's key is stored in the table's spelling** (B826 review 1, Fable): `CTRL+aux1` is `CTRL+JOY2`, the name the
+    /// view resolves, so the two are one chord.
+    /// </remarks>
+    [Test]
+    public void KeyOf_AChordOnAnAuxName_IsTheChordOnItsJoystickButton() =>
+        ButtonCodeNames.KeyOf("CTRL+aux1").ShouldBe("CTRL+JOY2");
 
     /// <remarks>
     /// **Every key the viewer binds by default is one TF2 names, or a chord on one** (B826): a default on a name the

@@ -83,12 +83,18 @@ public static class ButtonCodeNames
             return null;
         }
 
-        if (name.Length > 1 && name.LastIndexOf('+') is var plus and > 0)
+        // TF2's own lookup first (B826 review 1, Fable, Grok): `aux+1` is `aux` and `atoi("+1")`, `JOY2`, not a chord.
+        if (TableKey(name) is { } key)
         {
-            return IsModifiers(name.AsSpan(0, plus)) && TableKey(name[(plus + 1)..]) is not null ? name : null;
+            return key;
         }
 
-        return TableKey(name);
+        // The chord's key in the table's spelling (B826 review 1, Fable), so `CTRL+aux1` is `CTRL+JOY2` and the view can
+        // resolve it; its modifiers as written.
+        return name.LastIndexOf('+') is var plus and > 0 &&
+               IsModifiers(name.AsSpan(0, plus)) && TableKey(name[(plus + 1)..]) is { } chordKey
+            ? name[..(plus + 1)] + chordKey
+            : null;
     }
 
     /// <summary>The input system's own lookup, without the chord extension.</summary>
@@ -143,7 +149,7 @@ public static class ButtonCodeNames
 
             foreach (string modifier in Modifiers)
             {
-                known |= text[part].Equals(modifier, StringComparison.OrdinalIgnoreCase);
+                known |= Ascii.EqualsIgnoreCase(text[part], modifier);
             }
 
             if (!known)
