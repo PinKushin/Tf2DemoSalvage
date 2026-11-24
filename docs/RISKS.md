@@ -45754,7 +45754,28 @@ failed. Sonnet's nit, one 206-character remark line in `Applied`, is wrapped.
 the settings hold no `sv_cheats` (`ViewerSettings.Parse` drops replicated names) and that the sabotage reddens the
 second press's assertion, not the control.
 
-## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
+## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** The input system's lookup, read in TF2's `inputsystem.dll` x64 (headless Ghidra, project `tf2inputsystem` on
+`D:`): `engine.dll`'s vtable +0xe8 call reaches the thunk FUN_180003630, which calls FUN_180005880 with a member flag
+(byte +0x29c5). That function refuses an empty name; reads a name starting `aux` (`V_strnicmp`, FUN_1800087f0) as `atoi`
+of the rest (FUN_18000d7a0, the CRT's), below 29 the code `n + 0x72` (`JOY1`), 29 to 32 `n + 0x75` (`POV_UP`), else no
+key; and otherwise returns the index of the first of 635 names in the table at 0x180034430 that equals it under
+`V_stricmp` (FUN_1800086f0: ASCII case only, a byte of 0x80 or more must match). With the flag set it also takes 48
+X-controller names (`A_BUTTON` …); *not modelled*, the flag needs a configured controller. `ButtonCodeNames`
+(Presentation) holds the table's first 171 entries in code order and its distinct Steam Controller names, and `KeyOf`
+runs the lookup.
+`bind` (after its argument count) and `unbind` (after its count, before `ESCAPE`) print `"%s" isn't a valid key` for an
+unknown name, as FUN_1801b5ea0 and FUN_1801b6a30 do, and bind under the table's spelling, so `aux1` and `JOY2` are one
+key; `SourceConfig.ReadBinds` does the same for the key projection. `ESC` is not a TF2 name (`ESCAPE` is). **Kept above
+Valve** (`docs/ABOVE-VALVE.md`): a chord, a modifier and `+` before a TF2 name (`CTRL+e`), since the viewer's own
+defaults and menu use them and TF2 configs hold none. *Not handled*: `aux-114` and below, whose code is `KEY_NONE` or
+out of TF2's table (UB there; refused here). Tests `Bind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKeyAndBindsNothing`,
+`Unbind_AKeyNameTf2DoesNotKnow_SaysItIsNotAValidKey`, `Bind_ANameTheTableKnows_BindsTheKeyItNames`,
+`Bind_AnAuxNamePastThirtyTwo_SaysItIsNotAValidKey`, `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds`,
+`Defaults_EveryKey_IsATf2KeyName`, `ReadBinds_AnUnknownNameAndAnAuxName_FollowTheEngine`. Sabotage: an unknown name
+passed through reddened the six refusal tests; the typed name kept in place of the table's reddened the five spelling
+tests. The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
 +0xe8) and, at -1, prints `"%s" isn't a valid key` and returns, for a show and a set alike (*disassembly*).
