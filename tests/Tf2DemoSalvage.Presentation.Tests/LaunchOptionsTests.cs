@@ -688,6 +688,20 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **A viewer setting given in quotes on the launch line loses them, as the console's `ArgS` would drop them** (B831
+    /// review 1, Fable): `stuffcmds` pastes `cl_screenshot_folder "D:\shots"`, and a set drops one leading `"` and, then,
+    /// one trailing `"` (`convar.cpp:432-451`, B823). Before B831 the re-parse stripped them; storing the argument whole
+    /// kept them, an invalid path. The control: an unquoted folder.
+    /// </remarks>
+    [Test]
+    public void Read_AViewerSettingInQuotes_DropsItsQuotesAsArgSDoes()
+    {
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, @"D:\shots").Settings.ScreenshotFolder.ShouldBe(@"D:\shots", "the control");
+
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "\"D:\\shots\"").Settings.ScreenshotFolder.ShouldBe(@"D:\shots");
+    }
+
+    /// <remarks>
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
     /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
     /// </remarks>

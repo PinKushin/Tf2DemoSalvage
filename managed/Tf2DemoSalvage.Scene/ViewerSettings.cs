@@ -1660,7 +1660,7 @@ public sealed record ViewerSettings
         return settings;
     }
 
-    /// <summary>These settings with one command applied: <c>name value</c>, read exactly as a config line is.</summary>
+    /// <summary>These settings with one command's value applied, as a config line's is once read.</summary>
     /// <param name="name">The command's name.</param>
     /// <param name="value">Its value, as typed.</param>
     /// <returns>The settings with that command applied over them.</returns>

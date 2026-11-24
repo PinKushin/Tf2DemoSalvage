@@ -46018,6 +46018,14 @@ launch argument). `Set_AValueHoldingAQuoteAndADoubleSlash_StoresItWhole` (`x"//y
 through `+cl_voice_filter`; the control, a plain value) failed before. **The save is not affected:** `Write` saves only
 the typed settings, never the free ConVar table, and the ones it quotes are folders, which cannot hold a `"` on Windows.
 
+**Review 1 (2026-11-24): Fable, Sonnet, Grok.** Fable: the one caller that leaned on the old re-parse was the launch
+line's store of a viewer setting (`LaunchOptions.cs`), whose quotes the re-parse stripped. With the argument stored
+whole, `+cl_screenshot_folder "\"D:\shots\""` kept its quotes, an invalid path, where TF2's paste and `ArgS` drop them.
+It now drops one leading `"` and then one trailing `"`, as `ArgS` does (`convar.cpp:432-451`);
+`Read_AViewerSettingInQuotes_DropsItsQuotesAsArgSDoes`, red before. `Set`'s summary no longer says "read exactly as a
+config line is". Sonnet, Grok: no other caller depended on the cut; a value with a line break, which once injected a
+second parsed line, is now kept whole.
+
 ## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
