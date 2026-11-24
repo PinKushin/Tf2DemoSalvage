@@ -45837,6 +45837,8 @@ the chord is inert, since the press carries no modifier (Fable, Gemini). The rec
 (Fable), and no longer says the comment lists the mouse and controller keys (Grok). Tested that `CTRL+KP_ENTER` and
 `CTRL+mouse1` are kept (Sonnet).
 
+**Review 8** (Fable, Gemini, Sonnet, Grok). No findings.
+
 The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
