@@ -45806,7 +45806,7 @@ the `KeyNames` summary lists every key that falls through to its WinForms name (
 stored as `CTRL+E`, since TF2's table spells letters `a` to `z`; and `[ ] SEMICOLON ' /` missing from `Tf2Names`,
 since `KeyNames` already names them as TF2 does and the round trip covers them.
 
-**Review 3** (Fable, Sonnet, Grok; Gemini pending). No blocker; Grok had no findings. Fixed (Fable): the guide called
+**Review 3** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. Fixed (Fable): the guide called
 every punctuation key its character, where TF2's `;` is `SEMICOLON`, and now lists `[ ] ' /` too; a chord's modifiers
 are stored in one spelling and order, `CTRL+SHIFT+ALT` (`CONTROL` read as `CTRL`), so `CTRL+e` and `CONTROL+e`, or
 `SHIFT+CTRL+e` and `CTRL+SHIFT+e`, are one entry for one press; `CTRL+SHIFT` (a key named like a modifier) and
