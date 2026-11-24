@@ -43549,13 +43549,14 @@ and renamed the test but not its headline.
 
 ### Review 14 (2026-11-23)
 
-On `9e237cb91` (commit `10594a43c`). All four reviewers called round 13 mergeable. Records only: review 13's section
+On `9e237cb91` (commit `10594a43c`). All four reviewers called round 13 mergeable. Records and comments only: review 13's section
 was added, and the accept test's remark now cites review 10's check (`7ba3d024a`) as the rule, where review 13 had
 cited review 11, which only wrote the rule down (Fable). This section was written in review 15.
 
 ### Review 15 (2026-11-23)
 
-Commit `b006af8f3`. Records only: review 12 item 3 and review 13 now say which round changed what, and review 14's
+On `10594a43c` (commit `b006af8f3`); all four reviewers called round 14 mergeable. Records and one test remark
+rewrapped: review 12 item 3 and review 13 now say which round changed what, and review 14's
 section was written (Sonnet, Fable, Grok). Review 16 (the commit that adds this section) corrected two sentences that
 round 15 got wrong the same way: review 13 said review 12 item 3 "renamed without rewording", and review 14 credited
 itself with its own section (Fable).
