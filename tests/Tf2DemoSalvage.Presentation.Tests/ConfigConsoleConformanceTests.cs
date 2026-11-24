@@ -1677,6 +1677,47 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **Each config line is its own `Cbuf_AddText`** (B830 review 4, Fable): `Cmd_Exec_f` (`engine.dll` build 1007
+    /// FUN_1801672f0) adds every line through FUN_180166e30, so a refused line says `Cbuf_AddText: buffer overflow`, and the
+    /// next line, added on its own, still runs. The control: the line after it sets `fps_max`.
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithACommandOf511Bytes_SaysTheBufferOverflowedAndRunsTheNextLine()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("alias a " + new string('x', 600) + "\nfps_max 60");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+        console.ConVar("fps_max").ShouldBe("60", "the control: the next line is added on its own");
+    }
+
+    /// <remarks>
+    /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
+    /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by
+    /// depth, the launch line's call does not say it again.
+    /// </remarks>
+    [Test]
+    public void Stuff_AnExecOfAFileWithACommandOf511Bytes_SaysTheBufferOverflowedOnce()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new()
+        {
+            Log = log,
+            FindConfig = path => path == "cfg/long.cfg"
+                ? System.Text.Encoding.ASCII.GetBytes("alias a " + new string('x', 600))
+                : null,
+        };
+
+        console.Stuff("exec long.cfg");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0): `argc - 2 &lt; 2`, else
     /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
     /// the key as it was — not cleared — where the viewer had bound the third token.

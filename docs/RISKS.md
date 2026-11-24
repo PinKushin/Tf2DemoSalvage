@@ -46063,8 +46063,7 @@ long statement read as 0, the default (Fable, Gemini, Sonnet); it now reads as 8
 command's length reddens it. The wording above (Fable). Recorded elsewhere: `wait` is consumed by
 `AddText` before the length check while `wait` is enabled (`:235-240`), so `+wait <600 bytes>` refuses nothing in
 TF2; the viewer has no `wait` (B832), and counts it as refusable in both the run and the store, so the two agree
-(Fable). Filed: B834, the argument
-buffer's own refusal (Fable).
+(Fable). Filed: B834, the argument buffer's own refusal (Fable).
 
 **Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings. Fixed (Fable):
 `Cbuf_AddText` (`engine.dll` build 1007 FUN_180166e30, which `stuffcmds` calls; `engine/cmd.cpp`) prints
@@ -46072,7 +46071,17 @@ buffer's own refusal (Fable).
 line now says it too (test `Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed`, with a line that fits
 as its control; sabotage: a refusal not counted reddens it). The `wait` note now says "while `wait` is enabled"
 (Fable). Filed: B835, the same line on the console's other paths. Not taken: a test remark of 122 columns, in a file
-with others longer. The paragraph below is the entry as filed, before the fix.
+with others longer.
+
+**Review 4** (Fable, Sonnet, Grok; Gemini pending). Fixed (all three): the refusal count was one for the whole launch
+run, so a refusal in a file the line `exec`s, or in an alias body, made the launch line say the overflow line too, once
+however many there were. Refusals are now counted by depth, and each adder hears only its own text's: the launch line
+(`stuffcmds`) and each line of a config, since `Cmd_Exec_f` adds every line through its own FUN_180166e30 call, read in
+the decompile (Fable). So a config line refused at load now says the line, and the next line still runs. Tests
+`Load_ALineWithACommandOf511Bytes_SaysTheBufferOverflowedAndRunsTheNextLine` and
+`Stuff_AnExecOfAFileWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: counting a nested refusal at the
+top as well reddens the second. B835 narrowed to keys and alias bodies (Fable). The paragraph below is the entry as
+filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
@@ -46154,14 +46163,14 @@ viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+f
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
-## B835 — a config line or a key cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
+## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
 FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever
 `CCommandBuffer::AddText` returns false, after `InsertCommand`'s `WARNING: Command too long... ignoring!`. B830 prints
-it for the launch line. The console's other refusals (a config line, a key's bind, an alias body) print only the first
-line. *Not read*: which of those paths reach `Cbuf_AddText` and which reach another adder (`Cbuf_AddTextWithMarkers`
-has its own overflow line); each needs its caller read before the line is added there. *Not fixed*.
+it for the launch line and for each config line (`Cmd_Exec_f` adds each line through FUN_180166e30, read in review 4).
+A key's bind and an alias body print only the first line. *Not read*: which adder each of those two reaches; the
+engine's strings also hold `Cbuf_AddTextWithMarkers: buffer overflow`, whose callers are not read either. *Not fixed*.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 

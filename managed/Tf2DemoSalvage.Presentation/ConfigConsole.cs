@@ -452,21 +452,30 @@ public sealed class ConfigConsole
     /// launch line reaches the buffer whole: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0, B824) pastes every
     /// `+command` into one text and adds it once (B830), so the viewer hands its whole launch line here in one call.
     /// </remarks>
-    public void Stuff(string? text) => AtStartup(() =>
-    {
-        int refusals = _refusals;
-        _ = RunCommand(text ?? string.Empty, key: null);
+    public void Stuff(string? text) =>
+        AtStartup(() => AddedAsOne(depth: 0, () => _ = RunCommand(text ?? string.Empty, key: null)));
 
-        // **`stuffcmds` adds through a `Cbuf_AddText` that says so when `AddText` refuses** (B830 review 3; `engine.dll`
-        // build 1007 FUN_180166e30, `engine/cmd.cpp`): `Cbuf_AddText: buffer overflow` follows the `Command too long` line.
-        if (_refusals != refusals)
+    /// <summary>
+    /// Runs text the engine adds in one `Cbuf_AddText` call, and says what that call says when `AddText` refuses one of the
+    /// text's own commands: `Cbuf_AddText: buffer overflow`, after the `Command too long` line (B830 review 3; `engine.dll`
+    /// build 1007 FUN_180166e30, `engine/cmd.cpp`). The launch line is one such call (`stuffcmds`), and so is each line of
+    /// an exec'd file (`Cmd_Exec_f`).
+    /// </summary>
+    /// <param name="depth">The depth the text's own commands run at: a refusal deeper is another adder's (B835).</param>
+    /// <param name="run">Runs the text.</param>
+    private void AddedAsOne(int depth, Action run)
+    {
+        int refusals = _refusalsAt[depth];
+        run();
+
+        if (_refusalsAt[depth] != refusals)
         {
             Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
         }
-    });
+    }
 
-    /// <summary>Commands refused for their length so far (B830): how <see cref="Stuff"/> knows its text was cut.</summary>
-    private int _refusals;
+    /// <summary>Commands refused for their length so far, by the depth they ran at (B830): see <see cref="AddedAsOne"/>.</summary>
+    private readonly int[] _refusalsAt = new int[MaximumExpansion];
 
     /// <summary>Whether one `AddText` call would queue every command in this text, refusing none for its length (B830).</summary>
     /// <param name="text">The text, as it would be added.</param>
@@ -676,16 +685,22 @@ public sealed class ConfigConsole
     {
         foreach (string line in ExecLines(text))
         {
-            // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
-            // whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
-            if (depth == 0)
+            // **Each file line is its own `Cbuf_AddText`** (B830 review 4, Fable): `Cmd_Exec_f` (`engine.dll` build 1007
+            // FUN_1801672f0) adds every line through FUN_180166e30, which says `Cbuf_AddText: buffer overflow` when `AddText`
+            // refuses one of its commands, before the next line is read.
+            AddedAsOne(depth, () =>
             {
-                _ = RunCommand(line, key: null);
-                continue;
-            }
+                // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config
+                // tree, whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+                if (depth == 0)
+                {
+                    _ = RunCommand(line, key: null);
+                    return;
+                }
 
-            _aliasRuns = 0;
-            _ = Run(line, key: null, depth);
+                _aliasRuns = 0;
+                _ = Run(line, key: null, depth);
+            });
         }
     }
 
@@ -1674,7 +1689,10 @@ public sealed class ConfigConsole
             if (IsTooLong(length))
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
-                _refusals++;
+
+                // By depth, so each adder hears only its own text's refusals (B830 review 4, Fable, Sonnet): an exec'd
+                // file's line or an alias body runs deeper, under its own adder.
+                _refusalsAt[depth]++;
                 return acted;
             }
 
