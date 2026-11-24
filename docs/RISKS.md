@@ -45777,10 +45777,10 @@ out of TF2's table (UB there; refused here). Tests `Bind_AKeyNameTf2DoesNotKnow_
 passed through reddened the six refusal tests; the typed name kept in place of the table's reddened the five spelling
 tests.
 
-**Review 1** (Fable, Sonnet, Grok; Gemini pending). Fixed (Fable, Sonnet; Fable called it a blocker): the view named the
-keypad, the punctuation keys, Scroll Lock and the Application key in WinForms spelling (`NumPad3`, `Oemcomma`), which
-TF2's names refuse, so those keys could no longer be bound at all. `KeyNames` (Viewer3D) now names and resolves them as
-TF2's table does (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), one table both ways. Test
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed (Fable, Gemini, Sonnet; Fable and Gemini called it a blocker): the
+view named the keypad, the punctuation keys, Scroll Lock and the Application key in WinForms spelling (`NumPad3`,
+`Oemcomma`), which TF2's names refuse, so those keys could no longer be bound at all. `KeyNames` (Viewer3D) now names
+and resolves them as TF2's table does (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), one table both ways. Test
 `KeyNamesConformanceTests.NameOf_EveryKeyTf2Names_IsATf2NameThatResolvesBack`, over every keyboard key TF2's table
 names; sabotage: `NumPad3` named in WinForms spelling reddens it. A config that used the viewer's old Windows spelling
 (`bind NumPad3 x`) now needs TF2's (`KP_PGDN`), as TF2 itself does; named in the release notes. Fixed (Fable, Grok): the
