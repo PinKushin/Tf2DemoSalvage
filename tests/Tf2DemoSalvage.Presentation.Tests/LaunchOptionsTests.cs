@@ -688,9 +688,10 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
-    /// **A viewer setting given in quotes on the launch line loses them, as the console's `ArgS` would drop them** (B831
-    /// review 1, Fable): `stuffcmds` pastes `cl_screenshot_folder "D:\shots"`, and a set drops one leading `"` and, then,
-    /// one trailing `"` (`convar.cpp:432-451`, B823). Before B831 the re-parse stripped them; storing the argument whole
+    /// **A viewer setting given in quotes on the launch line loses them, as a console set does to its `ArgS`** (B831
+    /// review 1, Fable): `stuffcmds` pastes `cl_screenshot_folder "D:\shots"`; `ArgS` keeps the opening quote
+    /// (`convar.cpp:432-451`) and the set drops one leading `"` and, then, one trailing `"` (`engine.dll` build 1007
+    /// FUN_180178310, B823). Before B831 the re-parse stripped them; storing the argument whole
     /// kept them, an invalid path. The control: an unquoted folder.
     /// </remarks>
     [Test]
@@ -699,6 +700,10 @@ public sealed class LaunchOptionsTests
         Read("+" + ViewerSettings.ScreenshotFolderCommand, @"D:\shots").Settings.ScreenshotFolder.ShouldBe(@"D:\shots", "the control");
 
         Read("+" + ViewerSettings.ScreenshotFolderCommand, "\"D:\\shots\"").Settings.ScreenshotFolder.ShouldBe(@"D:\shots");
+
+        // B831 review 2, Fable: the leading quote goes alone, and a trailing one stays unless one led.
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "\"D:\\shots").Settings.ScreenshotFolder.ShouldBe(@"D:\shots");
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "D:\\shots\"").Settings.ScreenshotFolder.ShouldBe("D:\\shots\"");
     }
 
     /// <remarks>

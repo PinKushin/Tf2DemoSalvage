@@ -46021,7 +46021,8 @@ the typed settings, never the free ConVar table, and the ones it quotes are fold
 **Review 1 (2026-11-24): Fable, Sonnet, Grok.** Fable: the one caller that leaned on the old re-parse was the launch
 line's store of a viewer setting (`LaunchOptions.cs`), whose quotes the re-parse stripped. With the argument stored
 whole, `+cl_screenshot_folder "\"D:\shots\""` kept its quotes, an invalid path, where TF2's paste and `ArgS` drop them.
-It now drops one leading `"` and then one trailing `"`, as `ArgS` does (`convar.cpp:432-451`);
+It now drops one leading `"` and then one trailing `"`, as a console set does to its `ArgS` (`ArgS` keeps the opening
+quote, `convar.cpp:432-451`; the set drops it, `engine.dll` build 1007 FUN_180178310);
 `Read_AViewerSettingInQuotes_DropsItsQuotesAsArgSDoes`, red before. `Set`'s summary no longer says "read exactly as a
 config line is". Sonnet, Grok: no other caller depended on the cut; a value with a line break, which once injected a
 second parsed line, is now kept whole.

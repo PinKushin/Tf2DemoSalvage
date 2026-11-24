@@ -514,8 +514,9 @@ public static class LaunchOptionsReader
             // before, since the console never reads it: a folder may hold a `;` (B824 review 2, Fable).
             if (declared is null)
             {
-                // Its quotes go as `ArgS`'s do: one leading `"`, then one trailing `"` if it began with one (B831 review 1,
-                // Fable; `convar.cpp:432-451`). Nothing else of the console's trim, since no console reads it.
+                // Its quotes go as a console set drops them from its `ArgS`: one leading `"`, then one trailing `"` if it
+                // began with one (B831 review 1, Fable; `engine.dll` build 1007 FUN_180178310, B823). Nothing else of the
+                // set's trim, since no console reads it.
                 string whole = value.StartsWith('"') ? value[1..] : value;
                 whole = value.StartsWith('"') && whole.EndsWith('"') ? whole[..^1] : whole;
                 read = read with { Settings = read.Settings.Set(own, whole) };
