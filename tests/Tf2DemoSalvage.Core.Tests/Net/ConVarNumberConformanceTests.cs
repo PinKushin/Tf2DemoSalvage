@@ -46,14 +46,19 @@ public sealed class ConVarNumberConformanceTests
     public void GetBool_AValue_IsGetIntNotZero(string value, bool expected) =>
         ConVarNumber.GetBool(value).ShouldBe(expected);
 
-    /// <remarks>A whole number to `atof`, trailing C white space aside; `0.1f` and a colour are not (B823 review 3, Fable).</remarks>
+    /// <remarks>
+    /// **One number to `atof` and no second one after it** (B823 review 4, Fable): `0.1f` is the number 0.1, as
+    /// `EngineConVar.Number` reads it, while `255 255 255` holds three and stays a string.
+    /// </remarks>
     [TestCase("16", true)]
     [TestCase("0x10", true)]
     [TestCase("inf", true)]
-    [TestCase("1 ", true)]
-    [TestCase("0.1f", false)]
+    [TestCase("0.1f", true)]
+    [TestCase("1 x", true)]
+    [TestCase("1 2", false)]
     [TestCase("255 255 255", false)]
     [TestCase("", false)]
-    public void IsWholeNumber_AText_IsWhetherAtofTakesAllOfIt(string value, bool expected) =>
-        ConVarNumber.IsWholeNumber(value).ShouldBe(expected);
+    [TestCase("abc", false)]
+    public void HoldsOneNumber_AText_IsANumberWithNoSecondAfterIt(string value, bool expected) =>
+        ConVarNumber.HoldsOneNumber(value).ShouldBe(expected);
 }

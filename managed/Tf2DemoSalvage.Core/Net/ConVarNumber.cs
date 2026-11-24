@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -43,14 +45,19 @@ public static class ConVarNumber
         return used > 0;
     }
 
-    /// <summary>Whether the WHOLE text is one number to <c>atof</c>, C white space at its end aside (B823 review 3).</summary>
+    /// <summary>Whether <c>atof</c> reads a number from the text and no digit follows it — one number, not several.</summary>
     /// <param name="value">The text.</param>
-    /// <returns>True for <c>16</c>, <c>0x10</c>, <c>inf</c>; false for <c>0.1f</c> and <c>255 255 255</c>.</returns>
-    public static bool IsWholeNumber(string value)
+    /// <returns>True for <c>16</c>, <c>0x10</c>, <c>inf</c> and <c>0.1f</c>; false for <c>255 255 255</c> and <c>1 2</c>.</returns>
+    /// <remarks>
+    /// B823 review 4 (Fable): `0.1f` is the number <see cref="EngineConVar.Number"/> reads, 0.1, so a caller asking whether
+    /// a default is numeric must agree; a colour's three numbers are a string.
+    /// </remarks>
+    public static bool HoldsOneNumber(string value)
     {
+        ArgumentNullException.ThrowIfNull(value);
         _ = CStdlib.Atof(value, out int used);
 
-        return used > 0 && value[used..].Trim(' ', '\t', '\n', '\v', '\f', '\r').Length == 0;
+        return used > 0 && !value.AsSpan(used).ContainsAnyInRange('0', '9');
     }
 
     /// <summary>`m_nValue = ( int )( fNewValue )` on a float already made — a clamped one, say.</summary>

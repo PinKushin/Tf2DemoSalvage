@@ -125,9 +125,10 @@ public sealed class ConfigConsole
         {
             int applied = 0;
 
-            foreach (string key in _binds.Keys)
+            // The keys `Bound` counts: an emptied one (`unbind`, `unbindall`) is not bound, whatever default it falls back to.
+            foreach ((string key, string bound) in _binds)
             {
-                if (Expand(CommandFor(key) ?? string.Empty, depth: 0).Count > 0)
+                if (bound.Length > 0 && Expand(CommandFor(key) ?? string.Empty, depth: 0).Count > 0)
                 {
                     applied++;
                 }
@@ -137,13 +138,17 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>How many <c>bind</c> lines were seen, whether or not they meant anything here.</summary>
+    /// <summary>How many keys the configs leave bound to a command, whether or not it means anything here.</summary>
     /// <remarks>
     /// **The pair of numbers is what lets a caller say something true.** A config full of `mat_*`
     /// and one that failed to load are both "loaded"; only `0 applied of 206 binds` versus
     /// `0 of 0` distinguishes them.
+    ///
+    /// **Keys, not `bind` lines, because <see cref="Applied"/> is per key** (B823 review 4, Fable, Sonnet): the log line is
+    /// "{Applied} of {Bound} binds applied", so a key bound twice is one and a key `unbind` or `unbindall` emptied is none —
+    /// after `unbindall`, the two it spares.
     /// </remarks>
-    public int Bound { get; private set; }
+    public int Bound => _binds.Values.Count(command => command.Length > 0);
 
     /// <summary>Counts every <c>bind</c>, <c>unbind</c>, <c>unbindall</c> and <c>alias</c> run, so a host can tell its projection is stale.</summary>
     /// <remarks>
@@ -1049,8 +1054,6 @@ public sealed class ConfigConsole
                 _binds[key] = string.Empty;
             }
 
-            // The bind lines that still stand: the spared keys (B823 review 3, Fable).
-            Bound = _binds.Values.Count(command => command.Length > 0);
             _claimed = null;
             BindsRevision++;
             return true;
@@ -1138,7 +1141,6 @@ public sealed class ConfigConsole
         }
 
         _binds[tokens[1]] = SourceConfig.Binding(tokens[1], tokens[2]);
-        Bound++;
         _claimed = null;
         BindsRevision++;
     }

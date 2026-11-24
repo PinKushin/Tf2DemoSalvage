@@ -131,7 +131,8 @@ public sealed class ShotSidecarTests
     [TestCase("nan", "nan", false)]
     [TestCase("-inf", "inf", true)]
     [TestCase("255 0 0", "255 255 255", true)]
-    [TestCase("0.1", "0.1f", true)]
+    [TestCase("0.1", "0.1f", false)]
+    [TestCase("0.2", "0.1f", true)]
     public void DiffersFromDefault_AValueAndItsDeclaredDefault_ComparesNumbersAsNumbers(string value, string declared, bool differs)
     {
         ShotSidecar.DiffersFromDefault(value, declared).ShouldBe(differs);

@@ -108,6 +108,28 @@ public sealed class CStdlibConformanceTests
         BitConverter.DoubleToInt64Bits(CStdlib.Atof(text)).ShouldBe(bits);
 
     /// <remarks>
+    /// **The `snan` test consumes what it matched before it fails, and `ind` goes on from there** (B823 review 4, Fable,
+    /// Sonnet): `parse_next_characters_from_source` advances on each match (UCRT <c>corecrt_internal_strtox.h:1241-1261</c>),
+    /// and <c>parse_floating_point_possible_nan</c> asks `is_snan` then `is_ind` on the same source (<c>:1364-1374</c>). So
+    /// <c>nan(sind)</c>, <c>nan(snind)</c> and <c>nan(snanind)</c> are the indeterminate; a partial <c>in</c> then <c>)</c>
+    /// is the quiet NaN through the parenthesis; an unclosed match takes <c>nan</c> alone.
+    /// </remarks>
+    [TestCase("nan(sind)", unchecked((long)0xfff8000000000000UL), 9)]
+    [TestCase("nan(snind)", unchecked((long)0xfff8000000000000UL), 10)]
+    [TestCase("nan(snanind)", unchecked((long)0xfff8000000000000UL), 12)]
+    [TestCase("nan(in)", 0x7fffffffffffffffL, 7)]
+    [TestCase("nan(sx)", 0x7fffffffffffffffL, 7)]
+    [TestCase("nan(s-)", 0x7fffffffffffffffL, 3)]
+    [TestCase("nan(ind", 0x7fffffffffffffffL, 3)]
+    [TestCase("nan(snan", 0x7fffffffffffffffL, 3)]
+    [TestCase("NaN(SnAn)", 0x7ff0000000000001L, 9)]
+    public void Atof_AParenthesisedNan_ConsumesAsUcrtDoes(string text, long bits, int used)
+    {
+        BitConverter.DoubleToInt64Bits(CStdlib.Atof(text, out int took)).ShouldBe(bits);
+        took.ShouldBe(used);
+    }
+
+    /// <remarks>
     /// **Where `strtod`'s end pointer stops** (B823 review 3, Fable): the subject sequence UCRT's parser accepts
     /// (<c>corecrt_internal_strtox.h:1401-1722</c>) — leading white space counted, `0x` with no digit the `0` alone, a `p` or
     /// `e` with no digit not taken, `nan(` taken only when closed.
@@ -126,6 +148,19 @@ public sealed class CStdlibConformanceTests
     [TestCase("0x1p2", 5)]
     [TestCase("1e", 1)]
     [TestCase("1e5", 3)]
+    [TestCase("nan(snan)", 9)]
+    [TestCase("nan(ind)", 8)]
+    [TestCase("nan()", 5)]
+    [TestCase(".", 0)]
+    [TestCase("1.", 2)]
+    [TestCase("0x1.", 4)]
+    [TestCase("0x0p5", 5)]
+    [TestCase("infinit", 3)]
+    [TestCase(" inf", 4)]
+    [TestCase("+5", 2)]
+    [TestCase("-0x", 2)]
+    [TestCase("0x.8", 4)]
+    [TestCase("1e+", 1)]
     public void Atof_AText_UsesWhatStrtodTakes(string text, int used)
     {
         _ = CStdlib.Atof(text, out int took);

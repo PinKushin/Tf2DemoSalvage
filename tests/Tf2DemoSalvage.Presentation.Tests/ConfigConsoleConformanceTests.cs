@@ -1782,6 +1782,38 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **`Applied of Bound` counts the same things: keys bound to a command** (B823 review 4, Fable, Sonnet). The load's log
+    /// line reads "{Applied} of {Bound} binds applied", and `Applied` is per key, so `Bound` is the keys standing — a key
+    /// bound twice is one, an unbound key none — not the `bind` lines seen. The control: one key does something here.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k screenshot\nbind k screenshot\nbind j nonsense\nbind q screenshot\nunbind q");
+
+        console.Bound.ShouldBe(2, "k and j");
+        console.Applied.ShouldBe(1, "k alone reaches an action; q was unbound");
+    }
+
+    /// <remarks>
+    /// **An unbound key is not applied, though the viewer's own default stands behind it** (B823 review 4): `F5` falls back
+    /// to the viewer's `screenshot` when the config's binding does nothing, but `unbind F5` left no binding to count.
+    /// </remarks>
+    [Test]
+    public void Applied_AKeyUnboundOverAViewerDefault_IsNotCounted()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        (int applied, int bound) = (console.Applied, console.Bound);
+
+        console.Load("unbind F5");
+
+        (console.Applied, console.Bound).ShouldBe((applied - 1, bound - 1), "F5's binding is gone, whatever answers for it");
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the control: the default still answers for it");
+    }
+
+    /// <remarks>
     /// **An emptied key is unbound to every reader** (B823 review 3, Sonnet): after `unbindall` the table holds `""` for
     /// `k`, and <see cref="ConfigConsole.Bindings"/> gives it no action (the menu's <c>ShowBindings</c> reads
     /// <c>KeyFor</c>) and no `%command%` (the HUD's <c>KeyForCommand</c>): `""` names no command a HUD asks, since

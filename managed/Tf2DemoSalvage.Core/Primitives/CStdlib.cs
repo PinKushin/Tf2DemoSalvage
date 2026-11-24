@@ -174,37 +174,64 @@ public static class CStdlib
         const ulong IndeterminateBits = 0xfff8000000000000UL;
         const long Sign = long.MinValue;
         used = 0;
+        double quiet = BitConverter.Int64BitsToDouble(negative ? Quiet | Sign : Quiet);
 
-        if (after.StartsWith("(snan)", StringComparison.OrdinalIgnoreCase))
+        if (after.Length == 0 || after[0] != '(')
         {
-            used = 6;
+            return quiet;
+        }
+
+        // `is_snan` then `is_ind` on ONE source (:1364-1374): each match advances, a failing test keeps what it matched,
+        // and the next test starts where the last stopped (`parse_next_characters_from_source`, :1241-1261). So `(sind)` is
+        // `s` for `snan`, then `ind)` (B823 review 4).
+        int at = 1;
+
+        if (Matches(after, ref at, "snan)"))
+        {
+            used = at;
             return BitConverter.Int64BitsToDouble(negative ? SignalingBits | Sign : SignalingBits);
         }
 
         // The indeterminate is "negative" whatever the text's sign (`assemble_floating_point_ind`, :602-613).
-        if (after.StartsWith("(ind)", StringComparison.OrdinalIgnoreCase))
+        if (Matches(after, ref at, "ind)"))
         {
-            used = 5;
+            used = at;
             return BitConverter.Int64BitsToDouble(unchecked((long)IndeterminateBits));
         }
 
-        // Letters, digits and `_` closed by `)` are taken; anything else leaves `nan` alone (:1379-1398).
-        if (after.Length > 0 && after[0] == '(')
+        // Letters, digits and `_` to a `)` are taken; anything else, or no `)`, leaves `nan` alone (:1379-1398).
+        while (at < after.Length && after[at] != ')' && after[at] != '\0')
         {
-            int close = 1;
-
-            while (close < after.Length && (char.IsAsciiLetterOrDigit(after[close]) || after[close] == '_'))
+            if (!char.IsAsciiLetterOrDigit(after[at]) && after[at] != '_')
             {
-                close++;
+                return quiet;
             }
 
-            if (close < after.Length && after[close] == ')')
-            {
-                used = close + 1;
-            }
+            at++;
         }
 
-        return BitConverter.Int64BitsToDouble(negative ? Quiet | Sign : Quiet);
+        if (at < after.Length && after[at] == ')')
+        {
+            used = at + 1;
+        }
+
+        return quiet;
+    }
+
+    /// <summary>`parse_next_characters_from_source`: each character of <paramref name="word"/>, without case, advancing on a match and stopping at the first that is not.</summary>
+    private static bool Matches(ReadOnlySpan<char> text, ref int at, string word)
+    {
+        foreach (char expected in word)
+        {
+            if (at >= text.Length || char.ToLowerInvariant(text[at]) != expected)
+            {
+                return false;
+            }
+
+            at++;
+        }
+
+        return true;
     }
 
     /// <summary>The digits after a <c>0x</c>: hex on both sides of a point, then an optional <c>p</c> exponent, base 2.</summary>

@@ -45586,6 +45586,46 @@ sabotage, restored by its inverse edit.
     `ServerConVars.GetBool` stays its own: it reads the CLAMPED float the server's value became, which a string helper
     cannot see.
 
+**Review 4 (2026-11-24): Fable, Sonnet; Grok found nothing.** Each fix's test failed before it or under a sabotage,
+restored by its inverse edit.
+
+1. *`nan(sind)` (Fable, Sonnet)* — fixed: `CStdlib.Atof` ports UCRT's order — `is_snan` keeps the characters it matched
+   before failing and `is_ind` goes on from there (`parse_next_characters_from_source`, `corecrt_internal_strtox.h:1241-1261`;
+   `:1364-1374`) — so `nan(sind)`, `nan(snind)` and `nan(snanind)` are the indeterminate (0xfff8000000000000).
+   `Atof_AParenthesisedNan_ConsumesAsUcrtDoes` checks the bits and the end pointer, `nan(in)`, `nan(sx)`, `nan(s-)` and two
+   unclosed spellings included; the three failed before.
+2. *End-pointer cases (Fable, Sonnet)* — added: `nan(snan)` 9, `nan(ind)` 8, `nan()` 5, `.` 0, `1.` 2, `0x1.` 4, `0x0p5` 5,
+   `infinit` 3, ` inf` 4, `+5` 2, `-0x` 2 (UCRT restores to the state after the `0`, `:1456-1470`, so the subject is `-0`),
+   `0x.8` 4, `1e+` 1. Fable's sabotages: the `snan` end pointer set to 0 failed four cases; the `ind` one set to 5 failed
+   the three spellings that reach `ind` after a partial `snan`; the zero-mantissa return moved before the exponent scan
+   failed `0x0p5`.
+3. *The sidecar and `0.1f` (Fable)* — fixed: a default is numeric when `atof` reads a number and no digit follows it
+   (`ConVarNumber.HoldsOneNumber`, replacing `IsWholeNumber`), so `0.1f` is the 0.1 `EngineConVar.Number` reads and
+   `255 255 255` stays a string. `0.1` against `0.1f` no longer differs; `0.2` against it does. With the whole-string rule
+   back, `0.1f` and `1 x` failed; with no second-number check, `255 255 255`, `1 2` and the colour case failed.
+4. *What `Bound` means (Fable, Sonnet)* — fixed as keys, not lines: the load's line is "{Applied} of {Bound} binds
+   applied" and `Applied` is per key, so `Bound` is now computed, the keys bound to a non-empty command, and `Applied`
+   counts only those (an emptied key no longer counts through the viewer default behind it).
+   `BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys` (2 and 1) failed before;
+   `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` failed with the empty check removed from `Applied`; `Bound` as
+   the table's count failed it and the `unbindall` test.
+5. *Output-level assertions (Fable)* — half done. **The frame:** `SyntheticPlayer.DemoOfANemesis` writes a recorder
+   dominated by a connected blu player with the tournament ConVars at signon, and
+   `Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads` reads `particle_nemesis_blue` off the decoded frame:
+   shown at `mp_tournament 1` with `0.5`, gone at `1`, shown with no tournament. With the frame builder's line
+   (`DemoTimeline.cs`, the `OverheadFrame` construction) put back to `Number != 0`, the `0.5` case failed. **The
+   prediction: not done.** `RecorderPrediction.MotionAt` has no test caller anywhere (`find_references`: only
+   `IMomentSource`), and a run of it needs a `MapLevel` the movement traces against, the recorder's user commands and its
+   `MaxSpeed`; no synthetic fixture builds those. `IsLoser` is covered as the static function the packet path calls,
+   which a bypass of the packet path's own line would not turn red. Left open: a synthetic prediction fixture.
+6. *Callers of `EngineConVar.Number` and `FormatException` (Sonnet)* — checked with the C# LSP's `find_references`:
+   `ServerSoundClock`, `AudioOutput`, `VoiceOverdrive`, `SpeechDucker`, `SoundGain`, `VoiceAutoGain`, `VoicePlan`,
+   `VoicePresenter`, `ServerConVars.Number`, `DemoViewConVars`, `ViewerSettings`' defaults, and the tests
+   `MovementConVarConformanceTests` and `EngineConVarsLookupTests`. None is inside a `catch`; the solution's
+   `FormatException` handlers are `SoundSample`'s file decode, `AssemblyText`, `DemoAssembly` and `ShotSidecar.Read`, none
+   around `Number`. The LSP reported its index incomplete when asked, so the list may be short; the `catch` sites were
+   found by a text search of the whole tree.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

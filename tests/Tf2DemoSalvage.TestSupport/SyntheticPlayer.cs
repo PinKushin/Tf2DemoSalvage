@@ -635,6 +635,81 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>
+    /// A point-of-view recording whose recorder (entity 1, red) is dominated by entity 2 (blu), both connected by the player
+    /// resource, with the server's <c>mp_tournament</c> and <c>tf_tournament_hide_domination_icons</c> sent at signon
+    /// (B823 review 4): the nemesis icon over entity 2 is what those two decide.
+    /// </summary>
+    /// <param name="tournament">The text sent for <c>mp_tournament</c>.</param>
+    /// <param name="hide">The text sent for <c>tf_tournament_hide_domination_icons</c>.</param>
+    /// <returns>A demo's bytes, one snapshot at tick 100.</returns>
+    public static byte[] DemoOfANemesis(string tournament, string hide)
+    {
+        DemoSchema gestures = SchemaWithGestures();
+        int resourceClassId = gestures.ServerClasses.Count;
+        DemoSchema schema = new(
+            [
+                .. gestures.Tables.Select(table => table.Name == "DT_TFPlayerShared"
+                    ? table with { Properties = [.. table.Properties, Table("m_bPlayerDominatingMe", "m_bPlayerDominatingMe")] }
+                    : table),
+
+                // tf_player_shared.cpp:523: one bool per player slot, `MAX_PLAYERS_ARRAY_SAFE` (102) of them.
+                new SendTable("m_bPlayerDominatingMe", NeedsDecoder: true,
+                    [.. Enumerable.Range(0, 102).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 1))]),
+                ArrayTable("m_iTeam"),
+                ArrayTable("m_bConnected", bits: 2),
+                new SendTable("DT_TFPlayerResource", NeedsDecoder: true,
+                    [Table("m_iTeam", "m_iTeam"), Table("m_bConnected", "m_bConnected")]),
+            ],
+            [.. gestures.ServerClasses, new ServerClass(resourceClassId, "CTFPlayerResource", "DT_TFPlayerResource")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        ServerInfoMessage serverInfo = ServerInfo(0.015f, playerSlot: 0, sourceTv: false);
+        GestureSnapshot standing = new(100, 0f, PlayerActivityState.OnGround);
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>(GesturePlayerValues(standing, SceneTeams.Red, 1))
+            {
+                ["m_bPlayerDominatingMe.002"] = PropertyValue.FromInt(1),
+            }),
+            Entity(decoder, PlayerClassId, 2, GesturePlayerValues(standing, SceneTeams.Blu, 1)),
+            Entity(decoder, resourceClassId, ResourceEntityIndex, new Dictionary<string, PropertyValue>
+            {
+                ["m_iTeam.001"] = PropertyValue.FromInt(SceneTeams.Red),
+                ["m_iTeam.002"] = PropertyValue.FromInt(SceneTeams.Blu),
+                ["m_bConnected.001"] = PropertyValue.FromInt(1),
+                ["m_bConnected.002"] = PropertyValue.FromInt(1),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                serverInfo,
+                new SetConVarMessage(
+                [
+                    new KeyValuePair<string, string>("mp_tournament", tournament),
+                    new KeyValuePair<string, string>("tf_tournament_hide_domination_icons", hide),
+                ])),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.PacketAfter(
+                serverInfo,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>What <see cref="DemoOfGestures"/> sends for its player on one snapshot.</summary>
     private static Dictionary<string, PropertyValue> GesturePlayerValues(GestureSnapshot snapshot, int team, int playerClass)
     {
