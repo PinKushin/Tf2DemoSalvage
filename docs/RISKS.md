@@ -46053,8 +46053,8 @@ Grok); `ConfigConsole.AddsFirst` now says whether a line's first command is queu
 the `sv_cheats` tracking (test `Read_ASetBeforeARefusedStatementOnItsLine_IsStored`, with the long statement first as
 its control; sabotage: gating on `AddsWhole` again reddens it alone). A command the console refuses is no longer
 logged as run (Fable, Gemini). Two budget comments name the shared launch-line budget (Gemini). The test's long-value
-case now uses a value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the launch line shares
-one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own folder settings, which
+case now uses a value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the
+launch line shares one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own folder settings, which
 only the early store sets, follow the same rule, so one after a refused command, or one whose first command is 511
 bytes or more, is not applied.
 
