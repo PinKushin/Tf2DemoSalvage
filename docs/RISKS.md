@@ -44682,8 +44682,20 @@ owner kept the strip above Valve (D265); `docs/ABOVE-VALVE.md` lists it with
 
 Found in B820 review 7. `Tf2ConfigFiles.Decode` strips a leading `EF BB BF`. TF2 does not: `Cmd_Exec_f`'s line reader
 (`engine.dll` FUN_180177310) copies the file's first byte whatever it is and the rest as ordinary bytes, so the mark stays
-on the first line (*disassembly*). The console showed `Unknown command "�"` with no `echo` after the glyph, so the
-tokenizer ends that token at the mark; why is not read.
+on the first line (*disassembly*). The command name is then the mark's first byte alone: `CUtlBuffer::ParseToken`
+(`src/tier1/utlbuffer.cpp:1303-1320`) ends a word at any signed `char <= ' '` (*published source*), which the live
+`Unknown command "�"`, one glyph and no `echo`, agrees with. Findings 13 has the whole read.
+
+## B823 — a config word does not end at a byte of 0x80 or more, where TF2's tokenizer ends it there (2026-11-23) — OPEN
+
+Found in B822 review 4 (Fable). `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`), which `CCommand::Tokenize`
+calls for every argument, stores a word's first `char` unchecked and ends the word at `c <= ' '` with `c` a signed `char`,
+so every byte of 0x80 or more ends a word; `EatWhiteSpace` (`:404-415`) tests `isspace` on the unsigned byte, so that byte
+then starts the next token (*published source*, SDK 2013). An unquoted non-ASCII word is therefore several arguments in
+TF2: `alias café x` is `alias`, `caf`, `C3`, `A9`, `x` by bytes. `SourceConfig.Tokenise` (`SourceConfig.cs:252`) continues a
+word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argument. *Not measured* on live TF2; the B822
+measurement (`Unknown command "�"`, one glyph, for a line starting `EF BB BF echo`) agrees with the source. The viewer
+tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
 
