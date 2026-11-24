@@ -45750,6 +45750,10 @@ the console's copy answers. `SettingsPresenterTests.Toggle_SvCheatsOnAKeyThrough
 twice through the real `SettingsPresenter` and reads 1 then 0; with the console's copy skipped in `CurrentValue` it
 failed. Sonnet's nit, one 206-character remark line in `Applied`, is wrapped.
 
+**Review 11 (2026-11-24)**, on the integration pass only: Fable, Sonnet, Grok, Gemini — no findings. Fable traced why
+the settings hold no `sv_cheats` (`ViewerSettings.Parse` drops replicated names) and that the sabotage reddens the
+second press's assertion, not the control.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
