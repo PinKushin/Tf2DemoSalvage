@@ -45386,6 +45386,15 @@ defaults. `ApplyBindings` now clears every registered item once any changes, the
 trusts that nothing reads `Bindings` between a key's console call and its check, which no path does today. Sonnet: two
 actions on one key leave one item firing, which one key can only do.
 
+**Review 4 (2026-11-23).** Fable (*measured* by Fable on .NET 11 WinForms, and here: the test threw
+`InvalidEnumArgumentException`): WinForms refuses a menu shortcut with no modifier unless it is a function key, Insert or
+Delete, so a config binding `p` to a menu action threw from a key press, and after the clearing pass every shortcut
+was left dead. `ViewerMenu.SetKey` now registers only a key `ToolStripManager.IsValidShortcut` accepts and prints any
+other; `ShowBindings_ABareLetterOnAMenuAction_PrintsItAndKeepsTheOtherShortcuts`, red with the old setter. Fable: the
+command half of `KeyBindings.SameAs` had no test; `SameAs_TwoTablesDifferingOnlyInTheirCommands_AreSameOnlyWhenEqualInOrder`,
+three cases red with that half bypassed. Sonnet: `ReleaseHeldKeys` runs `-` aliases that could bind; it does not —
+`ConfigConsole.ReleaseEverything` only releases the viewer's own buttons. Grok: a stale remark; corrected.
+
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`
 reads live, and not the projection. So the key works and its label is stale. TF2's own binding menu reads the live

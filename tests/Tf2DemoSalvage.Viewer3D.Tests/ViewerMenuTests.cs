@@ -257,6 +257,42 @@ public sealed class ViewerMenuTests
             KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
     }
 
+    /// <remarks>
+    /// **A bare key on a menu action is printed, not registered** (B821 review 4, Fable): WinForms refuses a shortcut with no
+    /// modifier unless it is a function key, Insert or Delete, and threw from a key press when a config's toggle bound
+    /// `p`. The session takes the key through the console, so the item only names it. The control: another item keeps
+    /// its own key in the owner's table.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_ABareLetterOnAMenuAction_PrintsItAndKeepsTheOtherShortcuts()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        Keys secondKeys = second.ShortcutKeys;
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+
+        Should.NotThrow(() =>
+            ((IViewerWindow)form).ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = "p" })));
+
+        first.ShortcutKeys.ShouldBe(Keys.None);
+        first.ShortcutKeyDisplayString.ShouldBe("p");
+        shortcuts[secondKeys].ShouldBeSameAs(second, "the control: the other item keeps its key");
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
         if (strip is null)
