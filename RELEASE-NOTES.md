@@ -2,7 +2,7 @@
 
 ## Changes in 0.1.0-beta.72
 
-- **The launch line is one command buffer, as TF2's (B830).** TF2 adds every `+command` on the command line to its console in one go, and a command of 511 bytes or more is refused together with every `+command` after it; the ones before it still run. The viewer now does the same, where before it refused only the long command. A value after the refused command is no longer stored early for the settings either.
+- **The launch line is one command buffer, as TF2's (B830).** TF2 adds every `+command` on the command line to its console in one go, and a command of 511 bytes or more is refused together with every `+command` after it; the ones before it still run. The viewer now does the same, where before it refused only the long command. A setting in the refused command or after it is not applied either, the viewer's own folder settings (`cl_game_folder`, `cl_screenshot_folder`) included. Statements on one `+command`'s value before a refused statement still run, as in TF2.
 
 ## Changes in 0.1.0-beta.71
 

@@ -143,8 +143,25 @@ public sealed class LaunchOptionsTests
         LaunchOptions read = Read("+alias", "a " + new string('x', 600), "+demo_fov_override", "75");
 
         read.Settings.DemoFovOverride.ShouldBe(ViewerSettings.Load().DemoFovOverride);
-        Read("+demo_fov_override", "7" + new string('5', 600)).Settings.DemoFovOverride.ShouldBe(
+        // A long value that still reads as 75 (`atof` stops at the space), so only the gate keeps it out (B830 review 1, Fable).
+        Read("+demo_fov_override", "75 " + new string('x', 600)).Settings.DemoFovOverride.ShouldBe(
             ViewerSettings.Load().DemoFovOverride, "the long command's own value");
+    }
+
+    /// <remarks>
+    /// **A set first on its line is stored though a later statement on that line is refused** (B830 review 1, Sonnet):
+    /// `AddText` queues the commands before the one it refuses (`commandbuffer.cpp:242-243`), so `demo_fov_override 75`
+    /// runs in TF2 and the early store must hold it. The control: the same long statement first refuses the set.
+    /// </remarks>
+    [Test]
+    public void Read_ASetBeforeARefusedStatementOnItsLine_IsStored()
+    {
+        string tooLong = "alias a " + new string('x', 600);
+
+        Read("+demo_fov_override", tooLong + ";demo_fov_override 75").Settings.DemoFovOverride
+            .ShouldBe(ViewerSettings.Load().DemoFovOverride, "the control: the long statement first");
+
+        Read("+demo_fov_override", "75;" + tooLong).Settings.DemoFovOverride.ShouldBe(75f);
     }
 
     [Test]

@@ -432,12 +432,17 @@ public static class LaunchOptionsReader
 
         // Hands a line to the console, noting whether the console will refuse it (B830): the launch line is one `AddText`
         // buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126, 242-243`), so
-        // from there on nothing is stored early either. A line is split at its own line feeds, so measuring each line alone
-        // measures the joined buffer.
-        void Add(string line)
+        // from there on nothing is stored early or logged as run either. Measuring each line alone measures the joined
+        // buffer, because `GetNextCommandLength` (`:163-203`) ends a command at every line feed and starts each with its
+        // quote and comment state cleared.
+        // Returns whether the line's first command will run, which is the set the early store mirrors: the commands before a
+        // refused one on the same line still run (B830 review 1, Sonnet).
+        bool Add(string line)
         {
+            bool runs = !refused && ConfigConsole.AddsFirst(line);
             refused |= !ConfigConsole.AddsWhole(line);
             afterConfigs.Add(line);
+            return runs;
         }
 
         // Hands one command to the console after the configs, `quoted` for the sidecar's `--set`, as `stuffcmds` pastes it
@@ -450,7 +455,7 @@ public static class LaunchOptionsReader
             {
                 if (value is not null)
                 {
-                    Add($" {value}");
+                    _ = Add($" {value}");
                 }
 
                 return;
@@ -459,8 +464,11 @@ public static class LaunchOptionsReader
             // A name alone, as `stuffcmds` pastes it when no value follows: the console runs it, or prints a ConVar's value.
             if (value is null)
             {
-                Add(command);
-                log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
+                if (Add(command))
+                {
+                    log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
+                }
+
                 return;
             }
 
@@ -484,11 +492,16 @@ public static class LaunchOptionsReader
             // the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it. None is
             // stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred set of the same
             // ConVar win over a later admitted one).
-            Add(line);
+            // A line the console refuses at its first command is neither stored nor logged as run (B830 review 1, Fable): TF2
+            // prints only its `Command too long` line, which the console logs.
+            if (!Add(line))
+            {
+                return;
+            }
 
             if (own == CheatsConVar)
             {
-                if (held is not null && !refused)
+                if (held is not null)
                 {
                     cheats = ConfigConsole.CheatsAllowed(held);
                 }
@@ -524,11 +537,7 @@ public static class LaunchOptionsReader
             // them and this is their only route (B824 review 1, Sonnet); an unknown name is ignored by the settings (D69). A
             // declared ConVar stores what the console's set will hold; the viewer's own setting stores its value whole, as
             // before, since the console never reads it: a folder may hold a `;` (B824 review 2, Fable).
-            if (refused)
-            {
-                // The console refuses this command or one before it, so nothing reads the value (B830).
-            }
-            else if (declared is null)
+            if (declared is null)
             {
                 // Its quotes go as a console set drops them from its `ArgS`: one leading `"`, then one trailing `"` if it
                 // began with one (B831 review 1, Fable; `engine.dll` build 1007 FUN_180178310, B823). Nothing else of the

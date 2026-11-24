@@ -46047,6 +46047,16 @@ refuse, measured by the console's own split and bound (`ConfigConsole.AddsWhole`
 `fps_max 60` after it does not) and `Read_AConVarAfterACommandOf511Bytes_IsNotStored`; both red before. Sabotage: the
 store gate disabled reddens the second alone, since the autoexec's `fps_max 123` overrides an early store in the first.
 
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed: the store was gated per launch argument, so a set before a refused
+statement in the same argument (`+fps_max "60;alias a <600 bytes>"`) was not stored, where TF2 runs it (Fable, Sonnet,
+Grok); `ConfigConsole.AddsFirst` now says whether a line's first command is queued, and only that gates the store and
+the `sv_cheats` tracking (test `Read_ASetBeforeARefusedStatementOnItsLine_IsStored`, with the long statement first as
+its control). A command the console refuses is no longer logged as run (Fable). The test's long-value case now uses a
+value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the launch line shares
+one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own folder settings, which
+only the early store sets, follow the same rule, so one after a refused command, or one of 511 bytes or more, is not
+applied. The paragraph below is the entry as filed, before the fix.
+
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
 (`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>

@@ -461,6 +461,24 @@ public sealed class ConfigConsole
     internal static bool AddsWhole(string text) =>
         !BufferCommands(text).Any(command => NamesACommand(SourceConfig.Tokens(command.Command)) && IsTooLong(command.Length));
 
+    /// <summary>Whether one `AddText` call would queue the first named command in this text (B830 review 1).</summary>
+    /// <param name="text">The text, as it would be added.</param>
+    /// <returns>False only when that first command is 511 bytes or more; true when the text names none.</returns>
+    /// <remarks>The commands before a refused one are queued and run, so a set first on its line runs even when a later
+    /// command on that line is refused.</remarks>
+    internal static bool AddsFirst(string text)
+    {
+        foreach ((int length, string command, _) in BufferCommands(text))
+        {
+            if (NamesACommand(SourceConfig.Tokens(command)))
+            {
+                return !IsTooLong(length);
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// Whether a split command is a command at all: `ParseArgV0` finding an empty first token skips it before
     /// `InsertCommand` measures it (`src/tier1/commandbuffer.cpp:230-232`).
@@ -696,7 +714,8 @@ public sealed class ConfigConsole
 
     /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
     /// <remarks>
-    /// The one place budgets start (B820 review 5, Fable): a key, and each line of a file <see cref="Load"/> reads. Saved and
+    /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
+    /// launch line, which <see cref="Stuff"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
     /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
     /// </remarks>
     private bool RunCommand(string line, string? key)
