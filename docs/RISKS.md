@@ -45351,6 +45351,19 @@ on `o`, the default play/pause key, was performed by nothing. Tests: `KeyPressed
 `PerformMenuAction_TheFrameRateAction_TicksItsItem`; red with the dispatch removed, with the one-shot not counted (the
 reset then ran twice), and with the menu clicking nothing.
 
+**Seen by a user**, all the engine's way: SHIFT with a bare one-shot key fires it (SHIFT is not a chord); a held one-shot
+key no longer re-fires on auto-repeat, where the chord check and the menu shortcut ran on every repeat; a bare key
+bound to a one-shot is always taken.
+
+**Review 1 (2026-11-24).** Sonnet: `resetcamera` releases every held key and now runs inside the console's `KeyDown`,
+so a `+` bind that also resets the camera lost its release, and `-` never ran; `PressIntoConsole` adds the key back
+after the console ran (`KeyUp_APlusBindThatResetsTheCamera_RunsItsMinusHalf`, red before). Fable: `TogglePause`'s
+resume half had no test with a demo loaded (`TogglePause_PlayingThenPaused_PausesThenPlaysAgain`, red with its `return`
+removed). Sonnet, Fable: three comments still said a one-shot is not taken; corrected. *Not tested* (Fable): the CTRL
+chord checks in `KeyPressed` are now reached only by a chord (Ctrl+E, Ctrl+B, Ctrl+R by default), and their camera
+results need a loaded demo to observe. *Not changed* (Fable): a mouse button bound to `opendemo` that is also the drag
+button leaves the drag on, since the dialog takes the button's release, as Ctrl+O's dialog always took its keys'.
+
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
 registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`

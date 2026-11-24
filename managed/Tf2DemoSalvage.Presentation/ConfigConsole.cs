@@ -607,9 +607,9 @@ public sealed class ConfigConsole
     /// <summary>Presses a key, running whatever it is bound to.</summary>
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
     /// <returns>
-    /// Whether the bind did something of the console's own - set a ConVar, ran an alias, moved a button - so the key is
-    /// the bind's (B547). False for nothing bound, a command this viewer does not implement, and the viewer's own
-    /// one-shots, which the host routes by their key and must still be given.
+    /// Whether the bind did something - set a ConVar, ran an alias, moved a button, or raised one of the viewer's own
+    /// one-shots, which the host performs from <see cref="Triggered"/> (B825) - so the key is the bind's (B547). False for
+    /// nothing bound and a command this viewer does not implement.
     /// </returns>
     public bool KeyDown(string key)
     {
@@ -1506,7 +1506,7 @@ public sealed class ConfigConsole
     /// *press* forward rather than release it. Carrying a direction flag down the recursion was the
     /// second bug in this class, and it failed the same test.
     /// </remarks>
-    /// <returns>Whether it did something of the console's own: an alias, a ConVar set, a button (B547).</returns>
+    /// <returns>Whether it did something: an alias, a ConVar set, a button (B547), or a one-shot raised (B825).</returns>
     private bool Run(string commandLine, string? key, int depth)
     {
         bool acted = false;

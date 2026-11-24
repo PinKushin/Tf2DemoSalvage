@@ -121,6 +121,10 @@ public sealed partial class ViewerSession
         _consoleKeysDown.Add(name);
 
         bool took = _console.KeyDown(name);
+
+        // Again after the console ran: a `resetcamera` in the bind releases every held key, this one included, and its
+        // up must still reach the console for a `+` bind's `-` half (B825 review 1, Sonnet).
+        _consoleKeysDown.Add(name);
         ShowBindingsIfChanged();
 
         if (!took)

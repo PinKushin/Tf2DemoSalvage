@@ -179,6 +179,29 @@ public sealed class PlaybackPresenterTests
         time.Seconds.ShouldBe(0, "the pause is discarded rather than carried in");
     }
 
+    /// <remarks>
+    /// **`demo_togglepause` pauses while playing and plays while paused** (B825): one press each way, and a paused clock
+    /// does not move. The control: the tick a played frame moves to, which the pause must stop.
+    /// </remarks>
+    [Test]
+    public void TogglePause_PlayingThenPaused_PausesThenPlaysAgain()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        view.PressPlayPause(true);
+
+        presenter.TogglePause();
+        view.Playing.ShouldBeFalse("the first press pauses");
+        time.Seconds = 0.015;
+        presenter.Advance();
+        view.ShownTicks.ShouldBeEmpty("a paused clock does not move");
+
+        presenter.TogglePause();
+        view.Playing.ShouldBeTrue("the second press plays");
+        time.Seconds = 0.015;
+        presenter.Advance();
+        view.LastShownTick.ShouldBe(1, "the control: a playing clock moves a tick");
+    }
+
     [Test]
     public void PlayPause_Stopping_ResetsTheElapsedClock()
     {

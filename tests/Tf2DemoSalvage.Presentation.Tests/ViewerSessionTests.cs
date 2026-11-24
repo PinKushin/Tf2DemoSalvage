@@ -1295,6 +1295,26 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A `+` bind that also resets the camera still gets its release** (B825 review 1, Sonnet): `resetcamera` releases
+    /// every held key, and it now runs inside the console's `KeyDown`, so the key it was pressed by was forgotten and its
+    /// up never reached the console. Source sends a `+` bind's whole command with the `-` on release, so `-sw` must run.
+    /// The control: the press ran `+sw`.
+    /// </remarks>
+    [Test]
+    public void KeyUp_APlusBindThatResetsTheCamera_RunsItsMinusHalf()
+    {
+        using Rig rig = BuildWithAutoexec(
+            "unbindall\nalias +sw \"fps_max 10\"\nalias -sw \"fps_max 20\"\nbind r \"+sw; resetcamera\"\n");
+
+        rig.Session.KeyPressed(Key("r"));
+        rig.Settings.Current.FrameRateLimit.ShouldBe(10, "the control: the press ran +sw");
+
+        rig.Session.KeyUp("r");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(20);
+    }
+
+    /// <remarks>
     /// **The play/pause key pauses** (B825): `demo_togglepause` on `o` reached the console and nothing performed it, since no
     /// menu item carries play/pause. The control: playing before the press.
     /// </remarks>

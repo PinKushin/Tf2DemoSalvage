@@ -876,7 +876,7 @@ internal sealed class ViewerMenu : IDisposable
 
         // **A key WinForms will not register is printed instead** (B821 review 4, Fable): its setter throws on a shortcut
         // with no modifier unless it is a function key, Insert or Delete, and a config may bind `p` to a menu action. The
-        // item names the key; a held action or a ConVar set works through the console, a menu one-shot does not (B825).
+        // item names the key, and the console performs it: the session asks this menu to click the item (B825).
         Keys keys = Registered(key);
         item.ShortcutKeys = keys;
         item.ShortcutKeyDisplayString = keys == Keys.None && key.Length > 0 ? key : null;
