@@ -122,8 +122,8 @@ Any key can run any of the viewer's actions, a bare letter included, and `demo_t
 menus and the HUD show follow binds and aliases made while the viewer runs. Escape, bound or not, leaves full screen,
 and so does Shift+Escape.
 
-A command the viewer does not implement is ignored, and the key stays free for whatever else uses it. A key you
-bind to a command the viewer does not implement loses its default action.
+A command the viewer does not implement is ignored. A key you bind to such a command keeps the viewer's own default
+action for that key, unless your config gives that action another key.
 
 You can run a console command for one run only, as on TF2's launch line: `tf2demoview <demo> +fps_max 0`,
 `+exec my.cfg` or `+toggle cl_showfps`. It runs after your configs. As in TF2, a `+command` takes the one argument
