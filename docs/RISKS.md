@@ -43537,6 +43537,13 @@ On `fix/b803-wireframe-3-r1` at `6847123c8`. All four reviewers called round 11 
 4. *Not changed*: the step-order test also fixes vertices-before-outline release order, which no rule needs (Fable,
    nit). It is the production order, so a reorder is a change worth seeing.
 
+### Review 13 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `1ba0b91e4`. All four reviewers called round 12 mergeable. Comments only: the inline
+comment above the predecessor check now says "the triangle before it in the source corners" (Sonnet, Fable); the
+accept test's remark names review 10's check as the rule and review 12 as the test (Fable); the default-ComPtr test's
+headline says "does not throw" (Fable).
+
 *As found (2026-11-21):*
 
 Found implementing B788. B788 swaps the studio render's `debugmrmwireframe` in for every studio model under
