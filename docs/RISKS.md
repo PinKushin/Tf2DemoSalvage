@@ -45825,6 +45825,11 @@ now refused like one on `SHIFT` (Gemini), tested with `CTRL+RSHIFT`, `SHIFT+rctr
 stays, a TF2 key. The `KeyOf` remarks name the six modifiers a chord's key may not be (Sonnet). The brief said all four
 found review 4's defect; the record above is right, Grok had none (Fable, Sonnet).
 
+**Review 6** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini and Grok had no findings. The rule is that a chord's key is no
+modifier, not that the view can name it: a chord on `KP_ENTER`, `MOUSE1` to `MOUSE5` or a controller key is kept and
+inert, as a bare bind on one is (Fable, Sonnet); the comment says so. Tested that a bare `rshift`, `RCTRL` and `Ralt`
+still bind (Fable, Sonnet); the chord test's remarks cover review 5 (Fable).
+
 The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

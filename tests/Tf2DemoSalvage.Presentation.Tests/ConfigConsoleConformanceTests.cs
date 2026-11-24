@@ -2101,6 +2101,9 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("aux32", "POV_LEFT")]
     [TestCase("kp_ins", "KP_INS")]
     [TestCase("Escape", "ESCAPE")]
+    [TestCase("rshift", "RSHIFT")]
+    [TestCase("RCTRL", "RCTRL")]
+    [TestCase("Ralt", "RALT")]
     public void Bind_ANameTheTableKnows_BindsTheKeyItNames(string typed, string key)
     {
         RecordingLogger log = new();
@@ -2159,7 +2162,8 @@ public sealed class ConfigConsoleConformanceTests
     /// `aux` name with a `+` of its own are chords; a modifier matches ignoring ASCII case only, so `ſHIFT` (U+017F, which
     /// .NET's `OrdinalIgnoreCase` folds to `S`) is none, as TF2's `V_stricmp` would refuse it. The modifiers are stored in
     /// one spelling and order, `CTRL+SHIFT+ALT`, so one press is one entry (review 3, Fable); a chord whose key is itself a
-    /// modifier (`CTRL+SHIFT`) is none, since the view could never match that press (review 4, Fable).
+    /// modifier (`CTRL+SHIFT`) is none, since the view could never match that press (review 4, Fable), and nor is one on a
+    /// right-hand modifier (`CTRL+RSHIFT`, review 5, Gemini), though a bare bind on one is a TF2 key.
     /// </remarks>
     [TestCase("CTRL+SHIFT+e", "CTRL+SHIFT+e")]
     [TestCase("SHIFT+CTRL+e", "CTRL+SHIFT+e")]

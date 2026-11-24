@@ -104,7 +104,8 @@ public static class ButtonCodeNames
 
             // A key that is itself a modifier is no chord (review 4, Fable): the view reads `CTRL+SHIFT` as Shift held with
             // Control, a press WinForms reports with the Shift modifier too, so it could never fire.
-            // So is one on a right-hand modifier (review 5, Gemini), which the view cannot name (`KeyNames`).
+            // So is one on a right-hand modifier (review 5, Gemini): the rule is that a chord's key is no modifier. A chord on
+            // a key the view cannot name for another reason (`CTRL+KP_ENTER`) is kept, as a bare bind on it is (review 6).
             if (TableKey(name[at..]) is { } chordKey && ModifierOf(chordKey) < 0 && !SidedModifiers.Contains(chordKey))
             {
                 return string.Concat(CanonicalModifiers.Where((_, i) => held[i]).Select(m => m + "+")) + chordKey;
