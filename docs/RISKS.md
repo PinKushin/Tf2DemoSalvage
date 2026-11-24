@@ -46091,7 +46091,7 @@ before a later command's refusal, where TF2 refuses at add time; this predates B
 text. Gemini (latent): a key pressed by a handler inside a launch or config line would leak a refusal to that line.
 A key's own text cannot be refused (a binding of 511 bytes or more needs a longer `bind` statement), but see review 6.
 
-**Review 6** (Fable, Sonnet, Grok; Gemini pending; Sonnet and Grok had no blocking findings). Fixed (Fable): an alias
+**Review 6** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no blocking findings). Fixed (Fable): an alias
 body can be refused although its definition fits, since `alias` joins its words with spaces and `(` splits a word with
 no space in the line (a 504-byte definition holds a 557-byte body). Run by a handler, or a key, while an exec'd file's
 line was running, the body's refusal sat at that line's depth and the line said the overflow line for it. An alias body
