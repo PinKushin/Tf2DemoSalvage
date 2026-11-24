@@ -45401,6 +45401,13 @@ false would take a repeat after leaving the press; all four calls answer true on
 `:733`), so the case cannot arise. Fable: "one rule" holds for the checks in `KeyPressed` only; a chord the menu routes
 re-fires per repeat, as on main (B827).
 
+**Review 6 (2026-11-24).** Sonnet: the repeat theory's log instrument sees only the camera calls, since reset speed,
+screenshot and play/pause log nothing; its remark now says so and names the three tests that hold their run-nothing
+half. Sonnet: `bind ESCAPE screenshot` (or any chord action) fired outside full screen on main and now never does. Kept:
+Escape already skipped the console ("Escape never reaches a bind", the Quake `menubound[K_ESCAPE]` heritage, at
+`KeyPressed`), so the chord checks were the one route left where a config's Escape bind ran. *Not changed* (Sonnet): the
+`chordKey` copy is required, since `key` is an `in` parameter a local function cannot capture (CS1628).
+
 ## B827 — a held chord on a menu shortcut re-fires on every auto-repeat (2026-11-24) — OPEN
 
 Found in B825 review 5 (Fable). A chord that `KeyPressed` does not match falls to `base.ProcessCmdKey`

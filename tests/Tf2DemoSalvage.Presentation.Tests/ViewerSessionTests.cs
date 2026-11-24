@@ -1407,9 +1407,11 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **Every chord check takes its repeat and runs nothing** (B825 review 5, Sonnet, Fable): a repeat the toolkit saw
-    /// again would be a menu mnemonic or shortcut. The camera calls always answer true, so the return cannot tell a
-    /// guarded repeat from one that cycled again; the log can, since each camera call writes a line. The control: an
-    /// unbound chord's repeat is left.
+    /// again would be a menu mnemonic or shortcut. Every case asserts the repeat is taken. The camera calls always answer
+    /// true, so the return cannot tell a guarded repeat from one that cycled again; the log can, since each camera call
+    /// writes a line. Reset speed, screenshot and play/pause log nothing, so their run-nothing half is held by their own
+    /// tests (`…ResetSpeedChordRepeating_ResetsOnce`, `…ScreenshotChordRepeating_CapturesOnce`,
+    /// `…PlayPauseChordRepeating_TogglesOnce`). The control: an unbound chord's repeat is left.
     /// </remarks>
     [TestCase(ViewerAction.SwitchCameraMode)]
     [TestCase(ViewerAction.FirstPersonView)]
