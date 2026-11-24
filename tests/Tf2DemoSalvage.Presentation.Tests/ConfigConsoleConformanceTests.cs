@@ -952,7 +952,8 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("incrementvar no_such_cvar 0 2 1")]
     [TestCase("multvar cl_showpos 0 2")]
     [TestCase("multvar no_such_cvar 0 2 1")]
-    // toggle, engine.dll FUN_180177cd0: fewer than 2 tokens is Usage; FUN_180176f20: "%s is not a valid cvar".
+    // toggle, engine.dll build 1007 FUN_180179390: fewer than 2 tokens is Usage; its validity check, build 1007
+    // FUN_1801785e0: "%s is not a valid cvar".
     [TestCase("toggle")]
     [TestCase("toggle no_such_cvar")]
     [TestCase("toggle no_such_cvar 1 2")]
@@ -1740,11 +1741,6 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **`unbindall` spares ESCAPE and the console key** (B823 review 2, Sonnet; `Key_Unbindall_f`, `engine.dll` x64 build
-    /// 1007 FUN_1801b6b10): every key from 0 to 0x27a whose binding is set and not empty becomes "", except 0x46
-    /// (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`, the `` ` `` that opens the console). So `bind k` then shows `"k" = ""`.
-    /// </remarks>
-    /// <remarks>
     /// **A key name is matched without case** (B823 review 2, Grok): the bind table's comparer is `OrdinalIgnoreCase`
     /// (`ConfigConsole._binds`), so `bind K …` is pressed as `k`, and `bind escape …` is the key a press of `ESCAPE` or
     /// `escape` finds. *Interpolated* for the engine: its key-name lookup (an input-system call, vtable +0xe8) is not read.
@@ -1763,17 +1759,49 @@ public sealed class ConfigConsoleConformanceTests
         fired.ShouldBe([ViewerAction.Screenshot], "k finds K; escape finds escape, which holds cancelselect");
     }
 
+    /// <remarks>
+    /// **`unbindall` spares ESCAPE and the console key** (B823 review 2, Sonnet; `Key_Unbindall_f`, `engine.dll` x64 build
+    /// 1007 FUN_1801b6b10): every key from 0 to 0x27a whose binding is set and not empty becomes "", except 0x46
+    /// (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`, the `` ` `` that opens the console). So `bind k` then shows `"k" = ""`.
+    /// <see cref="ConfigConsole.Bound"/>, the bind lines that stand, is then the two spared (B823 review 3, Fable).
+    /// </remarks>
     [Test]
     public void Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey()
     {
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
 
-        console.Load("bind ` toggleconsole\nbind escape x\nbind k screenshot\nunbindall\nbind k\nbind `\nbind escape");
+        console.Load("bind ` toggleconsole\nbind escape x\nbind k screenshot\nunbindall");
+        console.Bound.ShouldBe(2);
+
+        console.Load("bind k\nbind `\nbind escape");
 
         log.Count("\"k\" = \"\"").ShouldBe(1);
         log.Count("\"`\" = \"toggleconsole\"").ShouldBe(1);
         log.Count("\"escape\" = \"cancelselect\"").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **An emptied key is unbound to every reader** (B823 review 3, Sonnet): after `unbindall` the table holds `""` for
+    /// `k`, and <see cref="ConfigConsole.Bindings"/> gives it no action (the menu's <c>ShowBindings</c> reads
+    /// <c>KeyFor</c>) and no `%command%` (the HUD's <c>KeyForCommand</c>): `""` names no command a HUD asks, since
+    /// `UTIL_ReplaceKeyBindings` skips `%%` (`cdll_util.cpp:891`).
+    /// </remarks>
+    [Test]
+    public void Bindings_AfterUnbindall_NameNoActionAndNoCommandForTheEmptiedKey()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k screenshot\nbind j +jump");
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("k", "the control: bound before");
+
+        console.Load("unbindall");
+        KeyBindings bindings = console.Bindings();
+
+        bindings.ActionsFor("k").ShouldBeEmpty();
+        bindings.KeyFor(ViewerAction.Screenshot).ShouldNotBe("k", "screenshot goes back to the viewer's own key");
+        bindings.KeyForCommand("+jump").ShouldBeNull();
+        bindings.KeyForCommand("jump").ShouldBeNull();
     }
 
     [Test]
@@ -1806,7 +1834,7 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **A numeric ConVar reads its value as `atof`** (B823; `ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`): the
     /// longest numeric prefix, 0 when there is none, and `inf` is infinity (C11 7.22.1.3), whose int is MSVC's
-    /// `0x80000000`. `toggle name` flips that int (FUN_180177cd0): zero becomes 1, anything else 0. `name 1 2`, whose value
+    /// `0x80000000`. `toggle name` flips that int (build 1007 FUN_180179390): zero becomes 1, anything else 0. `name 1 2`, whose value
     /// is `ArgS` `1 2`, is 1.
     /// </remarks>
     [TestCase("1 2", "0")]

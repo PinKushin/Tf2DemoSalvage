@@ -356,7 +356,7 @@ public sealed class RecorderPrediction
             CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
             VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
             GrapplingHook = grapple,
-            IsLoser = IsLoser(recorder, packet.Tick, serverConVars),
+            IsLoser = IsLoser(_timeline, recorder, packet.Tick, serverConVars),
             LastDeployTime = recorder.ActiveWeapon is { } active
                 ? LastDeployTime(
                     _timeline.UserCommands, packet.Acknowledged, active, ActiveBefore, packetTime, _timeline.IntervalPerTick)
@@ -399,12 +399,17 @@ public sealed class RecorderPrediction
     }
 
     /// <summary><c>m_Shared.IsLoser()</c> off the game rules and ConVars at the packet; the rule is <see cref="LoserState.IsLoser"/>.</summary>
-    private bool IsLoser(ScenePlayer recorder, int packetTick, ServerConVars serverConVars) =>
+    /// <param name="timeline">The demo's timeline, for the game rules at the packet.</param>
+    /// <param name="recorder">The recorder.</param>
+    /// <param name="packetTick">The packet's tick.</param>
+    /// <param name="serverConVars">The server's ConVars at the packet; `tf_always_loser` is `GetBool`'s (B823).</param>
+    /// <returns>Whether the recorder is a loser.</returns>
+    internal static bool IsLoser(DemoTimeline timeline, ScenePlayer recorder, int packetTick, ServerConVars serverConVars) =>
         LoserState.IsLoser(
             alwaysLoser: serverConVars.GetBool(LoserState.AlwaysLoserConVar),
-            matchTypeCompetitive: _timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
-            roundState: _timeline.RoundStateAt(packetTick),
-            winningTeam: _timeline.RulesAt(packetTick).WinningTeam,
+            matchTypeCompetitive: timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
+            roundState: timeline.RoundStateAt(packetTick),
+            winningTeam: timeline.RulesAt(packetTick).WinningTeam,
             team: recorder.Team,
             playerClass: recorder.PlayerClass,
             conditions: recorder.Conditions,

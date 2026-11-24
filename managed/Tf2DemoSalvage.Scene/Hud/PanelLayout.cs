@@ -338,6 +338,6 @@ public static class PanelLayout
     }
 
     /// <summary>C's `atof`: the longest prefix that reads as a decimal number, else zero — narrowed to the float its callers hold.</summary>
-    /// <remarks>A caller whose engine counterpart does arithmetic on the double before assigning wants <see cref="CStdlib.Atof"/>.</remarks>
+    /// <remarks>A caller whose engine counterpart does arithmetic on the double before assigning wants <see cref="CStdlib.Atof(ReadOnlySpan{char})"/>.</remarks>
     internal static float Atof(ReadOnlySpan<char> text) => (float)CStdlib.Atof(text);
 }

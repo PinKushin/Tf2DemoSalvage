@@ -345,6 +345,26 @@ public sealed class ServerConVarsTests
         server.GetBool("tf_tournament_hide_domination_icons").ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **The frame's domination-icon switch is two `GetBool`s** (B823 review 3, Fable, Sonnet; `ShouldShowNemesisIcon`,
+    /// tf_player_shared.cpp:9376-9395, with `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()`):
+    /// `0.5` is false, so a tournament still shows the icons, where `Number != 0` hid them. Read through
+    /// `DemoTimeline.HidesDominationIcons`, the rule the frame builder calls.
+    /// </remarks>
+    [TestCase("1", "0.5", false)]
+    [TestCase("1", "1", true)]
+    [TestCase("1", "nan", true)]
+    [TestCase("0.5", "1", false)]
+    [TestCase("0", "1", false)]
+    public void HidesDominationIcons_ATournamentAndItsSwitch_AreGetBools(string tournament, string hide, bool expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("mp_tournament", tournament), ("tf_tournament_hide_domination_icons", hide)));
+
+        Tf2DemoSalvage.Core.Scene.DemoTimeline.HidesDominationIcons(server).ShouldBe(expected);
+    }
+
     private static SetConVarMessage Message(params (string Name, string Value)[] pairs)
     {
         List<KeyValuePair<string, string>> variables = [];

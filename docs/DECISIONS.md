@@ -10013,7 +10013,8 @@ project). The wrap/clamp rule and the missing-ConVar behaviour need those functi
 **Closed, 2026-10-14** (branch `feat/toggle-incrementvar`). The lead read the three from x64 `engine.dll`
 (`tf2engine`): `incrementvar` FUN_1801a7fe0 (5 tokens exactly; float current + delta; above max wraps to min, below
 min wraps to max, equal keeps; executes `"%s %f"`), `multvar` FUN_1801a8bc0 (same arity; current * factor; above max
-clamps to max, `<=` min clamps to min; `"%s %f"`), `toggle` FUN_180177cd0 with validity FUN_180176f20 (unknown cvar
+clamps to max, `<=` min clamps to min; `"%s %f"`), `toggle` FUN_180177cd0 with validity FUN_180176f20 — addresses of the build read then; in build 1007 `incrementvar` is
+FUN_1801a9920, `multvar` FUN_1801aa500, `toggle` FUN_180179390 and its validity check FUN_1801785e0 (B823 review 3) — (unknown cvar
 refused; bare `toggle name` flips the INT value; with values, an exact byte compare of the STRING value picks the
 next, the first on the last or on no match). `ConfigConsole` turns each into the `name value` it executes and sends
 that through the same `SetConVar`/`ConVarSet` path, so it applies as above. An unset cvar's current value is its

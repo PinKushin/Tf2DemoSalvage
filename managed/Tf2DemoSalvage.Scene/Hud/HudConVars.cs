@@ -41,5 +41,5 @@ public readonly record struct HudConVars(Func<string, string?>? Find, Func<strin
     /// <summary>`GetBool() { return !!GetInt(); }` (convar.h:520).</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>Whether the int value is non-zero.</returns>
-    public bool GetBool(string name) => GetInt(name) != 0;
+    public bool GetBool(string name) => ConVarNumber.GetBool(GetString(name));
 }

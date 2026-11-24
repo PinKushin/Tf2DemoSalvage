@@ -37,4 +37,23 @@ public sealed class ConVarNumberConformanceTests
     [TestCase("2147483520", 2147483520)]
     public void GetInt_AValue_IsTheFloatTruncatedAsMsvcDoes(string value, int expected) =>
         ConVarNumber.GetInt(value).ShouldBe(expected);
+
+    /// <remarks>`GetBool() { return !!GetInt(); }` (convar.h:520): 0.5 false, nan true (B823 review 3, Sonnet).</remarks>
+    [TestCase("0.5", false)]
+    [TestCase("nan", true)]
+    [TestCase("1 x", true)]
+    [TestCase("abc", false)]
+    public void GetBool_AValue_IsGetIntNotZero(string value, bool expected) =>
+        ConVarNumber.GetBool(value).ShouldBe(expected);
+
+    /// <remarks>A whole number to `atof`, trailing C white space aside; `0.1f` and a colour are not (B823 review 3, Fable).</remarks>
+    [TestCase("16", true)]
+    [TestCase("0x10", true)]
+    [TestCase("inf", true)]
+    [TestCase("1 ", true)]
+    [TestCase("0.1f", false)]
+    [TestCase("255 255 255", false)]
+    [TestCase("", false)]
+    public void IsWholeNumber_AText_IsWhetherAtofTakesAllOfIt(string value, bool expected) =>
+        ConVarNumber.IsWholeNumber(value).ShouldBe(expected);
 }

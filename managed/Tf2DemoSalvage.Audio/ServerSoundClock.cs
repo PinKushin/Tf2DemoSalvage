@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 
 using Tf2DemoSalvage.Core.Net;
 
@@ -29,7 +28,7 @@ public readonly record struct ServerSoundTime(float Time, float IntervalPerTick,
 public sealed class ServerSoundClock
 {
     /// <summary>`snd_delay_sound_shift`'s default, added to every delay this answers.</summary>
-    public static readonly float Shift = float.Parse(EngineConVars.ByName("snd_delay_sound_shift").Default, CultureInfo.InvariantCulture);
+    public static readonly float Shift = EngineConVars.ByName("snd_delay_sound_shift").Number;
 
     /// <summary>The server time latched against <see cref="_paintedBase"/>, less one tick; 0 when unlatched.</summary>
     private float _soundTimeBase;

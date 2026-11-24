@@ -327,7 +327,7 @@ public sealed class SourceConfigTests
 
     /// <remarks>
     /// **`ReadBinds` keeps the console's rules** (B823 review 1, Sonnet, Grok, Fable): `ESCAPE`, in any case, binds
-    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (FUN_1801b6a30).
+    /// `cancelselect` and cannot be unbound; `unbind` acts only at two arguments (build 1007 FUN_1801b6a30).
     /// </remarks>
     [Test]
     public void ReadBinds_EscapeAndUnbindCounts_FollowTheEngine()

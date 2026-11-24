@@ -514,7 +514,7 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// A file's lines as `Cmd_Exec_f` reads them, each handed to `Cbuf_AddText` on its own (`engine.dll` FUN_180177310, read
+    /// A file's lines as `Cmd_Exec_f` reads them, each handed to `Cbuf_AddText` on its own (`engine.dll` build 1007 FUN_180177310, read
     /// in B820 review 7): a line ends at any control byte but tab, so a CRLF line's CR ends it and is not counted; leading
     /// spaces are kept and leading tabs and non-ASCII characters dropped (the skip between lines is a signed `char` compare);
     /// a line is cut at 1023 bytes and the rest read as the next; and a line that is not a `bind` (the word
@@ -1029,7 +1029,7 @@ public sealed class ConfigConsole
     /// </summary>
     /// <remarks>
     /// The engine consults an alias only when `FindCommandBase` finds nothing, or when the name starts with `+` or `-`
-    /// (`engine.dll` FUN_1801678a0). Known here: this console's own ConCommands, every declared ConVar, and every command
+    /// (`engine.dll` build 1007 FUN_1801678a0). Known here: this console's own ConCommands, every declared ConVar, and every command
     /// a viewer action is spelled as. *Interpolated*: a TF2 ConCommand this viewer does not know (`say`, say) is
     /// shadowed by an alias of its name here and is not in TF2; that alias's command does nothing here either way.
     /// </remarks>
@@ -1043,13 +1043,14 @@ public sealed class ConfigConsole
         if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
         {
             // Every key bound to something becomes "", but ESCAPE and the console key (`Key_Unbindall_f`, build 1007
-            // FUN_1801b6b10; `SourceConfig.SurvivesUnbindAll`, B823 review 2).
+            // FUN_1801b6b10, the same build; `SourceConfig.SurvivesUnbindAll`, B823 review 2).
             foreach (string key in _binds.Keys.Where(key => !SourceConfig.SurvivesUnbindAll(key) && _binds[key].Length > 0).ToList())
             {
                 _binds[key] = string.Empty;
             }
 
-            Bound = 0;
+            // The bind lines that still stand: the spared keys (B823 review 3, Fable).
+            Bound = _binds.Values.Count(command => command.Length > 0);
             _claimed = null;
             BindsRevision++;
             return true;
@@ -1142,7 +1143,7 @@ public sealed class ConfigConsole
         BindsRevision++;
     }
 
-    /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` FUN_1801672f0).</summary>
+    /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` build 1007 FUN_1801672f0).</summary>
     private static readonly string[] RefusedFileTypes =
         [".exe", ".vbs", ".com", ".bat", ".dll", ".ini", ".gcf", ".sys", ".zip", ".vpk", ".blob", ".scr"];
 
@@ -1180,7 +1181,7 @@ public sealed class ConfigConsole
     /// <summary>Clauses run since the last command at depth 0; see <see cref="MaximumCommandClauses"/>.</summary>
     private int _commandClauses;
 
-    /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` FUN_180176d10).</summary>
+    /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` build 1007 FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
 
     /// <summary>The missing files `Cmd_Exec_f` says nothing about, matched in the argument as typed, ignoring case.</summary>
@@ -1188,7 +1189,7 @@ public sealed class ConfigConsole
 
     /// <summary>`exec &lt;name&gt;`: runs <c>cfg/&lt;name&gt;</c> where the line stands, as `Cmd_Exec_f` (B820).</summary>
     /// <remarks>
-    /// Messages are TF2's, from `engine.dll` FUN_1801672f0; the path in the two refusals is `//MOD/cfg/…` there and
+    /// Messages are TF2's, from `engine.dll` build 1007 FUN_1801672f0; the path in the two refusals is `//MOD/cfg/…` there and
     /// `cfg/…` here, the search path being <see cref="FindConfig"/>'s. *Interpolated*: nothing in `Cmd_Exec_f` bounds a
     /// file that execs itself; this stops at <see cref="MaximumExpansion"/>, as an alias does.
     /// </remarks>
@@ -1215,7 +1216,7 @@ public sealed class ConfigConsole
         string name = tokens[1];
         string path = "cfg/" + name;
 
-        // `V_DefaultExtension`: `.cfg` only when the last segment has no dot (FUN_180282920).
+        // `V_DefaultExtension`: `.cfg` only when the last segment has no dot (build 1007 FUN_180282920).
         if (path.IndexOf('.', path.LastIndexOfAny(['/', '\\']) + 1) < 0)
         {
             path += ".cfg";
@@ -1411,8 +1412,9 @@ public sealed class ConfigConsole
     /// the line is not one of them or the engine would set nothing.
     /// </summary>
     /// <remarks>
-    /// Read from x64 `engine.dll` (Ghidra `tf2engine`, 2026-10-14): `incrementvar` FUN_1801a7fe0, `multvar`
-    /// FUN_1801a8bc0, `toggle` FUN_180177cd0. The engine's warnings (usage, `cvar "%s" not found`, `%s = %f`) go to its
+    /// Read from x64 `engine.dll` (Ghidra `tf2engine`, 2026-10-14), and re-found in build 1007 (B823 review 3): `incrementvar`
+    /// build 1007 FUN_1801a9920, `multvar` build 1007 FUN_1801aa500, `toggle` build 1007 FUN_180179390 (the earlier build's
+    /// FUN_1801a7fe0, FUN_1801a8bc0 and FUN_180177cd0). The engine's warnings (usage, `cvar "%s" not found`, `%s = %f`) go to its
     /// console, which this viewer does not have, so they are not reproduced. A replicated cvar is refused afterwards by
     /// <see cref="SetConVar"/>, as the engine's executed `name value` would be.
     /// </remarks>
@@ -1454,7 +1456,8 @@ public sealed class ConfigConsole
             return null;
         }
 
-        // Fewer than two tokens is Usage; an unknown cvar is "%s is not a valid cvar". FUN_180176f20 also refuses
+        // Fewer than two tokens is Usage; an unknown cvar is "%s is not a valid cvar". Its validity check (build 1007
+        // FUN_1801785e0; the earlier build's FUN_180176f20) also refuses
         // FCVAR_DEVELOPMENTONLY (2) and FCVAR_HIDDEN (0x10), which no cvar `EngineConVars` declares carries, and applies
         // multiplayer, cheat and replicated server rules that do not arise in demo playback; none of those is ported.
         if (tokens.Count < 2 || CurrentValue(tokens[1]) is not { } value)

@@ -28,6 +28,31 @@ public static class ConVarNumber
     /// <returns>The int; <see cref="int.MinValue"/> for infinity, NaN or past an int's range.</returns>
     public static int GetInt(string value) => Truncate(GetFloat(value));
 
+    /// <summary>`GetBool() { return !!GetInt(); }` (`convar.h:520`): `0.5` false, `nan` true.</summary>
+    /// <param name="value">The ConVar's string.</param>
+    /// <returns>Whether <see cref="GetInt"/> is not zero.</returns>
+    public static bool GetBool(string value) => GetInt(value) != 0;
+
+    /// <summary>Whether <c>atof</c> finds any number at the start of the text.</summary>
+    /// <param name="value">The text.</param>
+    /// <returns>True when <c>strtod</c>'s end pointer moves.</returns>
+    public static bool ReadsANumber(string value)
+    {
+        _ = CStdlib.Atof(value, out int used);
+
+        return used > 0;
+    }
+
+    /// <summary>Whether the WHOLE text is one number to <c>atof</c>, C white space at its end aside (B823 review 3).</summary>
+    /// <param name="value">The text.</param>
+    /// <returns>True for <c>16</c>, <c>0x10</c>, <c>inf</c>; false for <c>0.1f</c> and <c>255 255 255</c>.</returns>
+    public static bool IsWholeNumber(string value)
+    {
+        _ = CStdlib.Atof(value, out int used);
+
+        return used > 0 && value[used..].Trim(' ', '\t', '\n', '\v', '\f', '\r').Length == 0;
+    }
+
     /// <summary>`m_nValue = ( int )( fNewValue )` on a float already made — a clamped one, say.</summary>
     /// <param name="value">The ConVar's float.</param>
     /// <returns>The int, as <see cref="GetInt"/> gives it.</returns>

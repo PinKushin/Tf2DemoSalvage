@@ -1326,6 +1326,15 @@ public sealed class DemoTimeline
     /// <summary>`tf_tournament_hide_domination_icons` (tf_player_shared.cpp:169).</summary>
     private const string HideDominationIconsConVar = "tf_tournament_hide_domination_icons";
 
+    /// <summary>
+    /// `IsInTournamentMode() &amp;&amp; tf_tournament_hide_domination_icons.GetBool()` (tf_player_shared.cpp:9376-9395): both
+    /// `!!GetInt`, so `0.5` is false (B823 review 3). The frame builder asks it once a frame.
+    /// </summary>
+    /// <param name="server">The frame's server ConVars.</param>
+    /// <returns>Whether a tournament hides the domination icons.</returns>
+    internal static bool HidesDominationIcons(ServerConVars server) =>
+        server.GetBool(TournamentConVar) && server.GetBool(HideDominationIconsConVar);
+
     /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
     private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
 
@@ -4890,7 +4899,7 @@ public sealed class DemoTimeline
             OverheadFrame overheadFrame = new(
                 recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer) ? DominatingMe(localPlayer) : null,
                 entities.Resolve(rulesNow?.Integer(ItHandleProperty)),
-                serverConVars.GetBool(TournamentConVar) && serverConVars.GetBool(HideDominationIconsConVar));
+                HidesDominationIcons(serverConVars));
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {

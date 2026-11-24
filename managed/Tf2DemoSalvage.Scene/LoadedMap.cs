@@ -241,7 +241,7 @@ public sealed class LoadedMap
                     timeline.Shots.All,
                     (tick, from, to) => level.Trace(from, to, 0f, doors.At(tick)),
                     // `GetInt`, so 0.5 is off and `1 x` on (B823 review 1, Fable).
-                    timeline.ServerConVars.GetInt("tf_use_fixed_weaponspreads") != 0,
+                    timeline.ServerConVars.GetBool("tf_use_fixed_weaponspreads"),
                     impacts);
             }
 

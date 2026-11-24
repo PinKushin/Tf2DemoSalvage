@@ -107,6 +107,32 @@ public sealed class CStdlibConformanceTests
     public void Atof_ANanSpelling_IsTheRuntimesNan(string text, long bits) =>
         BitConverter.DoubleToInt64Bits(CStdlib.Atof(text)).ShouldBe(bits);
 
+    /// <remarks>
+    /// **Where `strtod`'s end pointer stops** (B823 review 3, Fable): the subject sequence UCRT's parser accepts
+    /// (<c>corecrt_internal_strtox.h:1401-1722</c>) — leading white space counted, `0x` with no digit the `0` alone, a `p` or
+    /// `e` with no digit not taken, `nan(` taken only when closed.
+    /// </remarks>
+    [TestCase("0.1f", 3)]
+    [TestCase("255 255 255", 3)]
+    [TestCase("  12", 4)]
+    [TestCase("abc", 0)]
+    [TestCase("", 0)]
+    [TestCase("inf", 3)]
+    [TestCase("-Infinity", 9)]
+    [TestCase("nan(x_1)", 8)]
+    [TestCase("nan(x", 3)]
+    [TestCase("0x", 1)]
+    [TestCase("0x1p", 3)]
+    [TestCase("0x1p2", 5)]
+    [TestCase("1e", 1)]
+    [TestCase("1e5", 3)]
+    public void Atof_AText_UsesWhatStrtodTakes(string text, int used)
+    {
+        _ = CStdlib.Atof(text, out int took);
+
+        took.ShouldBe(used);
+    }
+
     [Test]
     public void Atof_ADecimalWithNoLeadingZero_IsRead()
     {

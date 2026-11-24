@@ -18,6 +18,18 @@ public sealed class EngineConVarsLookupTests
         declared.Name.ShouldBe("mat_wireframe");
     }
 
+    /// <remarks>
+    /// **A declared default's number is `atof`'s** (B823 review 3, Fable): the engine registers `"0.1f"` for
+    /// `tf_rd_points_approach_interval` (tf_logic_robot_destruction.cpp:56) and reads 0.1 (`convar.cpp:792`), where
+    /// `float.Parse` threw. A default with no number at its start still throws: asking for one is a caller's mistake.
+    /// </remarks>
+    [Test]
+    public void Number_ADefaultWithATrailingSuffix_IsWhatAtofReads()
+    {
+        EngineConVars.ByName("tf_rd_points_approach_interval").Number.ShouldBe(0.1f);
+        Should.Throw<System.InvalidOperationException>(() => new EngineConVar("x", "tf", Replicated: false, Cheat: false).Number);
+    }
+
     [Test]
     public void TryByName_AnotherCase_FindsNothing()
     {

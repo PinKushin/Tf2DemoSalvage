@@ -45437,7 +45437,7 @@ first or was reddened by sabotage, restored by its inverse edit.
 3. *Hexadecimal `atof` (Fable, Sonnet)* — fixed: `CStdlib.Atof` reads `0x` floats, `p` exponents, and `nan(snan)`,
    `nan(ind)` and `nan(…)`, as UCRT's `parse_floating_point_from_source` does (Windows SDK 10.0.26100.0,
    `ucrt/inc/corecrt_internal_strtox.h:1326-1739`). That TF2 runs this parser: `engine.dll` (x64, build 1007) imports no
-   `api-ms-win-crt-*` and links a static CRT, and its UCRT `IND)`/`ind)` tables sit at 0x180406a48, read by FUN_180334360,
+   `api-ms-win-crt-*` and links a static CRT, and its UCRT `IND)`/`ind)` tables sit at 0x180406a48, read by build 1007 FUN_180334360,
    beside `nan(snan)` and `nan(ind)` (*disassembly*). Tests: `Atof_AHexadecimalFloat_IsReadAsTheMicrosoftRuntimeReadsIt`,
    `Atof_ANanSpelling_IsTheRuntimesNan`, and `GetInt` at `-1e10`, `-inf`, `-nan`, `0x10`, `2147483647` (rounds to 2^31,
    so `0x80000000`) and `2147483520`. Sabotage: no hex branch reddened nine cases and `0x10`; ties not to even reddened
@@ -45514,7 +45514,8 @@ failed before it or under a sabotage, restored by its inverse edit.
    five failed before; with the bit compare removed `inf`/`Infinity` failed, with the `atof` gate removed `16`/`0x10`.
 4. *Addresses from the wrong build (Fable)* — fixed: every citation re-pointed to `engine.dll` x64 build 1007 and named so —
    `Key_Bind_f` FUN_1801b67a0 with its show/set helper FUN_1801b5ea0 and setter FUN_1801b65d0, the ConVar set
-   FUN_180178310 (the cheat-refusal string's other reference is FUN_1801785e0), `Cmd_Alias_f` FUN_180168060 — each
+   FUN_180178310 (the cheat-refusal string's other reference, FUN_1801785e0, is `toggle`'s validity check — corrected in
+   review 3), `Cmd_Alias_f` FUN_180168060 — each
    decompiled again from the running Ghidra MCP on port 8089.
 5. *UTF-16 and UTF-32 settings files (Fable)* — fixed: `ViewerSettings.Load` reads the four marks as `File.ReadAllText`
    did, UTF-32's little-endian first. `Load_ASettingsFileWithAUnicodeMark_ReadsItsSettings` failed for all four before;
@@ -45533,6 +45534,57 @@ failed before it or under a sabotage, restored by its inverse edit.
    failed before; with `` ` `` not spared both failed; with the binding removed rather than emptied the first failed.
 9. *Item 2b's wording (Fable)* — fixed: it now says `RevertFlaggedConVars` is not read.
 10. *Hexadecimal subnormals rounded twice (Grok)* — not changed; recorded in `CStdlib.Atof`'s remark and review 1 item 3.
+
+**Review 3 (2026-11-24): Fable, Sonnet; Grok and Gemini found nothing.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *Addresses from the earlier build (Fable)* — fixed, each re-found in build 1007 through the Ghidra MCP on 8089:
+   `toggle` FUN_180179390 (registered by FUN_18000c410; the earlier build's FUN_180177cd0 lies inside `cvarlist` in
+   1007), its validity check FUN_1801785e0 (earlier FUN_180176f20; it holds "%s is not a valid cvar"), `incrementvar`
+   FUN_1801a9920 and `multvar` FUN_1801aa500 (by their usage strings; earlier FUN_1801a7fe0, FUN_1801a8bc0), and
+   `Cmd_ExecuteCommand` FUN_1801678a0, `Cmd_Exec_f` FUN_1801672f0, its path check FUN_180176d10, line reader
+   FUN_180177310 and `V_DefaultExtension` FUN_180282920, which sit at the same addresses in 1007 (the first two by their
+   strings, the last three as `Cmd_Exec_f`'s callees). Every address this branch added names build 1007, and the
+   earlier ones are labelled "the earlier build's" where kept; `docs/DECISIONS.md` gives both. Review 2's note that
+   FUN_1801785e0 is "the cheat-refusal string's other reference" is corrected: it is `toggle`'s validity check.
+2. *`GetBool` call sites without a failing test (Fable, Sonnet)* — fixed: `DemoTimeline.HidesDominationIcons`, the rule
+   the frame builder calls, and `RecorderPrediction.IsLoser`, now static over the timeline. Tests:
+   `ServerConVarsTests.HidesDominationIcons_ATournamentAndItsSwitch_AreGetBools` (`mp_tournament 1` with `0.5` shows the
+   icons) and `RecorderPredictionLoserTests.IsLoser_UnderTfAlwaysLoserText_ReadsItAsGetBool` (a synthetic demo's signon
+   `tf_always_loser nan`). With `Number != 0` put back, the two `0.5` cases failed; with `(int)Number` put back, `nan`
+   failed.
+3. *Sidecar colour defaults (Fable)* — fixed: numeric means the WHOLE default is a number, to .NET or to `atof`
+   (`ConVarNumber.IsWholeNumber`, over a new `CStdlib.Atof(text, out used)`, `strtod`'s end pointer read from UCRT's
+   parser). `255 0 0` differs from `255 255 255`, and `0.1` from `0.1f`; both failed with "starts with a number".
+   `Atof_AText_UsesWhatStrtodTakes` holds the end pointer; a hex `0x` taken as two, a closed `nan(…)` short by one and a
+   decimal taking the whole text each failed it.
+4. *`EngineConVar.Number` on `"0.1f"` (Fable)* — fixed: it reads `atof` (0.1, as TF2 does), and throws
+   `InvalidOperationException` (a property may not throw `FormatException`, CA1065) only when no number starts the
+   default. `ServerSoundClock.Shift`, the one other `float.Parse` of a declared default, now reads `Number`.
+   `Number_ADefaultWithATrailingSuffix_IsWhatAtofReads` threw before.
+5. *Menu edits and the default string (Fable, Sonnet)* — not changed, with the paths: `SettingsPresenter`'s writes that
+   bypass `Set` are `SetFrameRateMeter` (`cl_showfps`), `SetPositionReadout` (`cl_showpos`), `SetMuteLoseFocus`
+   (`snd_mute_losefocus`), `SetFullScreenExclusive` (`mat_fullscreen_mode`) and `SetTextureQuality`
+   (`texture_quality`); `SetVolume`, `SetConVar` and the launch options go through `Set` and keep their written string.
+   The last two names declare no `EngineConVar`, so have no ConVar text; the first three are ints or a switch whose
+   declared defaults are `"0"`, `"0"` and `"1"`, the same text `SetValue(int)` writes (`%d`), so a menu toggle back to the
+   default reads what the engine would hold. A float setting changed by a menu without `Set` would differ (`%f`); none
+   exists.
+6. *`""` bindings to the HUD and the menu (Sonnet)* — confirmed unbound: `Bindings()` expands `""` to no action, so the
+   menu's `ShowBindings` (which reads `KeyFor`) shows none, and `CommandFor` falls back to the viewer's default as the
+   cleared table did; the HUD's `KeyForCommand` matches `""` only for a `%+%` token, which no HUD string carries and which
+   TF2's `Key_LookupBinding` (closed, not read) would answer the same way from its own `""` bindings; `%%` is skipped by
+   `UTIL_ReplaceKeyBindings` (`cdll_util.cpp:891`). `Bindings_AfterUnbindall_NameNoActionAndNoCommandForTheEmptiedKey`;
+   with `unbindall` emptying nothing it failed.
+7. *`Bound` after `unbindall` (Fable)* — fixed: the bind lines that stand, the two spared keys. Asserted in
+   `Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey` (2); `Bound = 0` failed it.
+8. *Misplaced remarks (Fable, Sonnet)* — moved to `Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey`.
+9. *`DiffersFromDefault`'s remark (Sonnet)* — corrected: bit-identical NaNs match.
+10. *`GetBool` at the remaining sites (Sonnet, optional)* — done: `LoadedMap`'s `tf_use_fixed_weaponspreads`,
+    `TfHudMatchStatus`'s `tf_hud_show_servertimelimit` (twice), and `HudConVars.GetBool` over a new
+    `ConVarNumber.GetBool` (`GetBool_AValue_IsGetIntNotZero`; `(int)` of the float failed its `nan` case).
+    `ServerConVars.GetBool` stays its own: it reads the CLAMPED float the server's value became, which a string helper
+    cannot see.
 
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
