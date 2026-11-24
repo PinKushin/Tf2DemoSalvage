@@ -46086,12 +46086,15 @@ on a larger window. CI's view is 458x343. Measured locally at that size: with th
 with an empty game folder 0 and 575. The test now pins the view at 458x343 and bounds the difference at 200, about half
 the smaller measured difference (411).
 
-**Review 5** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini had no findings. Fixed: the test asserts the capture is 458x343, so a
-clamped view fails by naming its size rather than by a low count (Fable); "half" is "about half" of 411 (Fable, Sonnet,
-Grok); the assertion's
-message no longer says no pink under 0, since the game frame has 164 (Grok). Not taken: Grok read the test comment and
-the review 4 record as contradicting each other; both say a downloaded map is found without the game, and `Find` does
-that (Fable read `MapCache.cs:264-290`).
+**Review 5** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini had no findings. Fixed: the test asserts the capture is
+458x343, so a clamped view fails by naming its size rather than by a low count (Fable); "half" is "about half" of 411
+(Fable, Sonnet, Grok); the assertion's message no longer says no pink under 0, since the game frame has 164 (Grok). Not
+taken: Grok read the test comment and the review 4 record as contradicting each other; both say a downloaded map is
+found without the game, and `Find` does that (Fable read `MapCache.cs:264-290`).
+
+**Review 6** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the assertion's message
+says far more pink under 1 than under 0, since "not under 0" described the difference, not the frame (Sonnet); this
+paragraph's line breaks (Fable, Sonnet).
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 

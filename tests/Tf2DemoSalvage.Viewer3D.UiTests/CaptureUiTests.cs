@@ -325,7 +325,7 @@ public sealed class CaptureUiTests
             int on = PinkAt(folder, 1);
 
             TestContext.Out.WriteLine($"mat_wireframe pink pixels: 0 draws {off}, 1 draws {on}");
-            (on - off).ShouldBeGreaterThan(200, "the world's every edge is outlined under 1, and not under 0");
+            (on - off).ShouldBeGreaterThan(200, "the world's every edge is outlined under 1, so far more pink than under 0");
         }
         finally
         {
