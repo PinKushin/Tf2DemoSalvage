@@ -103,7 +103,7 @@ public sealed class ServerConVars
 
             // `fNewValue = ( float )atof( value ); if ( ClampValue( fNewValue ) ) ...` (`convar.cpp:791-797`): the engine
             // never refuses a value, it reads what number leads the text and clamps it to the declared bounds.
-            float parsed = (float)CStdlib.Atof(variable.Value);
+            float parsed = ConVarNumber.GetFloat(variable.Value);
 
             if (EngineConVars.TryByName(variable.Key, out EngineConVar? declared) && Clamped(declared, parsed) is { } clamped)
             {

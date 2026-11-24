@@ -45370,9 +45370,50 @@ leading quote kept reddened the quoted value cases; `ArgS` taken from argument 2
 test; the console setting `Arg(1)` reddened `éa`, `a b`, the alias and the four running length cases; a quoted string
 decoded as Latin-1 reddened both quoted cases. Not measured on live TF2.
 
-*Left open, not B823:* the viewer's `bind` keeps `tokens[2]` at any count where TF2 prints its usage line above three
-arguments, so `bind k café` binds `caf` here and nothing in TF2; and a numeric setting reads its value with a strict
-`float.TryParse` where the engine sets the float by `atof` (`ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`), so `name 1 2`, now set as `1 2`, applies nothing here.
+**Part 2, `bind` (2026-11-24).** Byte tokenizing made `bind k café` five arguments, and the viewer bound `tokens[2]` at any
+count. Read in full (x64 `engine.dll`): `Key_Bind_f`, FUN_1801b4e60, acts only when `argc - 2 < 2`, else prints `bind <key>
+[command] : attach a command to a key` and returns — so one argument and four or more print the usage line and change
+nothing; it joins arguments 2 on into the binding, which at three is `Arg(2)` alone, and calls FUN_1801b4560 with
+`argc == 2` as "show". FUN_1801b4560 looks the key name up (`"%s" isn't a valid key` at -1); shown, it prints `"%s" =
+"%s"` when the key's slot holds a string and `"%s" is not bound` when it is null; set, it replaces the binding with
+`cancelselect` for key 0x46 (`KEY_ESCAPE`) and calls FUN_1801b4c90, which copies the string — so `bind k ""` holds `""`
+and shows as `= ""` (*disassembly*). `ConfigConsole.Bind` now does each of these, and `SourceConfig.ReadBinds` binds only
+at exactly three. *Interpolated:* `ESCAPE` matched without case, the key-name lookup (a vtable call at +0xe8) not read.
+*Not ported, filed as B826:* `isn't a valid key`.
+
+**Part 3, a ConVar's number is `atof` (2026-11-24).** `ConVar::InternalSetValue` (`src/tier1/convar.cpp:791-802`) sets
+`m_fValue = (float)atof(value)` and `m_nValue = (int)m_fValue`; `GetFloat` and `GetInt` read those. The viewer read the
+numbers three ways: the settings with a strict `float.TryParse` (`name 1 2`, `0.05x` set nothing), the console with its
+own prefix-retrying `float.TryParse` (which does not know C's `inf`), and the camera's `sv_restrict_aspect_ratio_fov` with
+`int.TryParse` (`1.0` fell to the default). Now ONE helper, `Core.Net.ConVarNumber` — `GetFloat` is `(float)CStdlib.Atof`,
+`GetInt` is that truncated as MSVC's `cvttss2si` (`CStdlib.Truncate`) — is read by `ViewerSettings` (every numeric
+setting and the clamp in `ConVarText`), `ConfigConsole` (`sv_cheats`, `toggle`, `incrementvar`, `multvar`, the cheat
+revert), `ServerConVars.Apply`, the camera's aspect switch and `mat_wireframe`. A word now reads as 0, as in TF2, where
+the settings used to ignore it. *Not tested at its own call:* the camera's aspect switch, which needs a demo's server
+ConVars; the helper it calls is.
+
+Tests and sabotage (each restored by its inverse edit): `ConVarNumberConformanceTests` (Core) —
+`GetFloat_AValue_IsAtofNarrowedToFloat`, `GetInt_AValue_IsTheFloatTruncatedAsMsvcDoes`; `ConfigConsoleConformanceTests` —
+`Bind_OtherThanTwoOrThreeArguments_PrintsUsageAndBindsNothing` (`bind`, four, and `café`'s five),
+`Bind_TwoArguments_PrintsTheBindingAndChangesNothing`, `Bind_Escape_BindsCancelSelect`,
+`Toggle_AConVarSetToText_ReadsItsNumberAsAtof`; `SourceConfigTests.ReadBinds_FourArguments_BindsNothing`;
+`ViewerSettingsTests` (Viewer3D) — `Set_ANumberWithTextAroundIt_ReadsAsAtof`,
+`ConVarText_ABoundedNumberWithTrailingText_IsClampedAsTheEngineStoresIt`. `GetFloat` as a strict `TryParse` reddened
+three `GetFloat` and two `GetInt` cases, three `toggle` cases and all three settings cases; `GetInt` as a plain cast
+reddened its `inf`, `nan` and `1e10` cases; the settings' `ReadNumber` strict reddened its three; the clamp strict
+reddened the clamp test; `bind` acting at four and more reddened the four and five argument cases; one argument silent
+reddened `bind`; the not-bound line misspelled, and two arguments clearing the key, each reddened the two-argument test;
+`ESCAPE` matched case-sensitively, and never matched, each reddened the escape test; `ReadBinds` at four and more reddened
+its test. Not measured on live TF2.
+
+## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
+
+Found in B823 part 2. `engine.dll` x64 FUN_1801b4560 looks the key name up through the input system (a vtable call at
++0xe8) and, at -1, prints `"%s" isn't a valid key` and returns, for a show and a set alike (*disassembly*).
+`ConfigConsole.Bind` stores any name. No key ever reaches an unknown name, so what differs is the console's line and
+`Bound`, `BindsRevision` and the bind table a binding report reads. The key names are the view's (`Viewer3D/KeyNames.cs`),
+and the console may not reach the view (D214), so the fix needs the engine's key-name list (`ButtonCodeToString`, not
+read) in a layer below both.
 
 ## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
 

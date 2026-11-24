@@ -318,6 +318,13 @@ public sealed class SourceConfigTests
         SourceConfig.Tokens(string.Join(' ', lone)).ShouldBe(lone);
     }
 
+    /// <remarks>`bind` binds only at three arguments (B823, `engine.dll` FUN_1801b4e60); four is the usage line.</remarks>
+    [Test]
+    public void ReadBinds_FourArguments_BindsNothing()
+    {
+        SourceConfig.ReadBinds("bind k +forward\nbind k +back extra\nbind j +jump").ShouldBe([("k", "+forward"), ("j", "+jump")]);
+    }
+
     /// <remarks>A character the text could hold whole is not confused with a lone byte (B823): U+00C3 is `C3 83`.</remarks>
     [Test]
     public void Tokens_ALatin1Character_IsItsTwoBytesNotItsCodePoint()

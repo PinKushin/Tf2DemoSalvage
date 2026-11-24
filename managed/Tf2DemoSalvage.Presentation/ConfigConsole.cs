@@ -1091,14 +1091,7 @@ public sealed class ConfigConsole
 
         if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase))
         {
-            if (tokens.Count >= 3)
-            {
-                _binds[tokens[1]] = tokens[2];
-                Bound++;
-                _claimed = null;
-                BindsRevision++;
-            }
-
+            Bind(tokens);
             return true;
         }
 
@@ -1110,6 +1103,47 @@ public sealed class ConfigConsole
 
         return false;
     }
+
+    /// <summary>`bind`, as `Key_Bind_f` (`engine.dll` x64 FUN_1801b4e60, with FUN_1801b4560) runs it (B823).</summary>
+    /// <remarks>
+    /// Read in the decompile and disassembly: only `argc - 2 &lt; 2` acts, so one argument or four and more print the usage
+    /// line and change nothing — `bind k café` is five arguments by bytes. Two print the key's binding (`"%s" = "%s"`, or
+    /// `"%s" is not bound`); three bind `Arg(2)`, except that key 0x46, `KEY_ESCAPE`, is bound to `cancelselect` whatever
+    /// the line says (*interpolated*: the name matched without case, since the engine's key-name lookup, the vtable call at
+    /// +0xe8, is not read). *Not ported (B826):* `"%s" isn't a valid key` — the key names are the view's (`KeyNames`, D214), so a name
+    /// TF2 does not know is kept here and no key ever reaches it. The binding printed is the config's, not this viewer's
+    /// own defaults, which TF2 does not have.
+    /// </remarks>
+    private void Bind(IReadOnlyList<string> tokens)
+    {
+        if (tokens.Count is not (2 or 3))
+        {
+            Log.LogInformation("{Message}", "bind <key> [command] : attach a command to a key");
+            return;
+        }
+
+        if (tokens.Count == 2)
+        {
+            Log.LogInformation(
+                "{Message}",
+                // A key bound to "" holds a string (FUN_1801b4c90 copies it), so it prints `= ""`; `unbind` removes it.
+                _binds.TryGetValue(tokens[1], out string? bound)
+                    ? $"\"{tokens[1]}\" = \"{bound}\""
+                    : $"\"{tokens[1]}\" is not bound");
+            return;
+        }
+
+        _binds[tokens[1]] = tokens[1].Equals(EscapeKey, StringComparison.OrdinalIgnoreCase) ? EscapeBinding : tokens[2];
+        Bound++;
+        _claimed = null;
+        BindsRevision++;
+    }
+
+    /// <summary>`KEY_ESCAPE`'s name, the key `bind` will not give any command but <see cref="EscapeBinding"/>.</summary>
+    private const string EscapeKey = "ESCAPE";
+
+    /// <summary>What `bind ESCAPE …` binds, whatever the line says (FUN_1801b4560).</summary>
+    private const string EscapeBinding = "cancelselect";
 
     /// <summary>The file types `Cmd_Exec_f` refuses anywhere in the path, case-sensitively (`engine.dll` FUN_1801672f0).</summary>
     private static readonly string[] RefusedFileTypes =
@@ -1331,7 +1365,7 @@ public sealed class ConfigConsole
     /// </summary>
     /// <param name="value">The value as written.</param>
     /// <returns>True when cheats are on.</returns>
-    internal static bool CheatsAllowed(string value) => (int)Atof(value.Trim()) != 0;
+    internal static bool CheatsAllowed(string value) => ConVarNumber.GetInt(value) != 0;
 
     /// <summary>Whether the last <see cref="SetConVar"/> refused a cheat ConVar.</summary>
     private bool _refusedNow;
@@ -1365,7 +1399,7 @@ public sealed class ConfigConsole
             // The value as `CurrentValue` reads it — the settings, then a config's line the console keeps — so a cheat a
             // watcher config set is reverted too (B791 review 15).
             else if ((_settingValue(cheat.Name) ?? _conVars.GetValueOrDefault(cheat.Name)) is { } now &&
-                MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
+                MathF.Abs(ConVarNumber.GetFloat(now) - ConVarNumber.GetFloat(cheat.Default)) > 1e-6f)
             {
                 // Only what differs from its default is announced, so the host logs and applies a real change.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
@@ -1396,10 +1430,10 @@ public sealed class ConfigConsole
                 return null;
             }
 
-            float min = Atof(tokens[2]);
-            float max = Atof(tokens[3]);
-            float step = Atof(tokens[4]);
-            float result = increment ? Atof(current) + step : Atof(current) * step;
+            float min = ConVarNumber.GetFloat(tokens[2]);
+            float max = ConVarNumber.GetFloat(tokens[3]);
+            float step = ConVarNumber.GetFloat(tokens[4]);
+            float result = increment ? ConVarNumber.GetFloat(current) + step : ConVarNumber.GetFloat(current) * step;
 
             if (result > max)
             {
@@ -1432,7 +1466,7 @@ public sealed class ConfigConsole
         if (tokens.Count == 2)
         {
             // The cvar's INT value: zero becomes 1, anything else 0.
-            return [tokens[1], (int)Atof(value) == 0 ? "1" : "0"];
+            return [tokens[1], ConVarNumber.GetInt(value) == 0 ? "1" : "0"];
         }
 
         // Exact byte compare of the STRING value against each listed value; the one after the match, wrapping, or
@@ -1460,20 +1494,6 @@ public sealed class ConfigConsole
     /// <summary>Reads ConVar values from the viewer's settings, which then hold every ConVar they implement (D215).</summary>
     /// <param name="value">A ConVar's current value as the engine holds its string, or null where the settings have none.</param>
     public void ReadSettingsFrom(Func<string, string?> value) => _settingValue = value;
-
-    /// <summary>C's <c>atof</c>, the engine's parse: the longest numeric prefix, and 0 when there is none.</summary>
-    private static float Atof(string text)
-    {
-        for (int length = text.Length; length > 0; length--)
-        {
-            if (float.TryParse(text.AsSpan(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
-            {
-                return parsed;
-            }
-        }
-
-        return 0f;
-    }
 
     /// <summary>Runs a command line, expanding aliases, in press or release direction.</summary>
     /// <remarks>

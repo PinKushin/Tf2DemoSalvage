@@ -60,7 +60,8 @@ public static class SourceConfig
                 continue;
             }
 
-            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && tokens.Count >= 3)
+            // Exactly three: `Key_Bind_f` prints its usage at four and more and binds nothing (B823, `engine.dll` FUN_1801b4e60).
+            if (tokens[0].Equals("bind", StringComparison.OrdinalIgnoreCase) && tokens.Count == 3)
             {
                 binds.Add((tokens[1], tokens[2]));
             }

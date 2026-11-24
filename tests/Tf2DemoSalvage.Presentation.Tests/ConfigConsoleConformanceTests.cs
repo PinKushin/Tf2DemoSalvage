@@ -1574,6 +1574,87 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("cl_voice_filter").ShouldBe("\uDCC3 \uDCA9a b");
     }
 
+    /// <remarks>
+    /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 FUN_1801b4e60): `argc - 2 &lt; 2`, else
+    /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
+    /// the key as it was — not cleared — where the viewer had bound the third token.
+    /// </remarks>
+    [TestCase("bind k screenshot extra")]
+    [TestCase("bind k café")]
+    [TestCase("bind")]
+    public void Bind_OtherThanTwoOrThreeArguments_PrintsUsageAndBindsNothing(string line)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot");
+        console.Load(line);
+        console.KeyDown("k");
+
+        log.Count("bind <key> [command] : attach a command to a key").ShouldBe(1);
+        fired.ShouldBe([ViewerAction.Screenshot], "the earlier bind stands");
+    }
+
+    /// <remarks>
+    /// **Two arguments print the key's binding and change nothing** (FUN_1801b4e60 passes `argc == 2` to FUN_1801b4560 as
+    /// "show"): `"%s" = "%s"` for a bound key, `"%s" is not bound` for one that is not.
+    /// </remarks>
+    [Test]
+    public void Bind_TwoArguments_PrintsTheBindingAndChangesNothing()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind k screenshot\nbind k\nbind j");
+        console.KeyDown("k");
+
+        log.Count("\"k\" = \"screenshot\"").ShouldBe(1);
+        log.Count("\"j\" is not bound").ShouldBe(1);
+        log.Count("bind <key> [command]").ShouldBe(0);
+        fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **`ESCAPE` is bound to `cancelselect` whatever the line says** (FUN_1801b4560: key 0x46, `KEY_ESCAPE`, takes
+    /// "cancelselect" in place of the command). The control is another key given the same command.
+    /// </remarks>
+    [Test]
+    public void Bind_Escape_BindsCancelSelect()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F1 screenshot\nbind escape screenshot");
+        console.KeyDown("F1");
+        console.KeyDown("ESCAPE");
+
+        fired.ShouldBe([ViewerAction.Screenshot], "F1 is the control; ESCAPE runs cancelselect, which this viewer does not know");
+    }
+
+    /// <remarks>
+    /// **A numeric ConVar reads its value as `atof`** (B823; `ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`): the
+    /// longest numeric prefix, 0 when there is none, and `inf` is infinity (C11 7.22.1.3), whose int is MSVC's
+    /// `0x80000000`. `toggle name` flips that int (FUN_180177cd0): zero becomes 1, anything else 0. `name 1 2`, whose value
+    /// is `ArgS` `1 2`, is 1.
+    /// </remarks>
+    [TestCase("1 2", "0")]
+    [TestCase(" 2x", "0")]
+    [TestCase("abc", "1")]
+    [TestCase("inf", "0")]
+    public void Toggle_AConVarSetToText_ReadsItsNumberAsAtof(string value, string expected)
+    {
+        ConfigConsole console = new();
+
+        console.Load($"cl_showpos \"{value}\"\ntoggle cl_showpos");
+
+        console.ConVar("cl_showpos").ShouldBe(expected);
+    }
+
     [Test]
     public void Stuff_ALaunchValueWithTwoBackslashes_KeepsThem()
     {

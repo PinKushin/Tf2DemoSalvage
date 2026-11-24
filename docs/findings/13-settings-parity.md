@@ -288,7 +288,10 @@ byte as the lone surrogate U+DC00 + byte so an alias body joined from such token
 found that a console ConVar set takes `ArgS`, not `Arg(1)`: `engine.dll` FUN_180176c50 (x64) copies the text from
 argument 1 on, drops a leading quote, and strips trailing bytes `<= ' '` by a SIGNED compare (`CMP byte ptr [RCX],0x20;
 JG`), so `name a b` sets `a b`, and `name café` sets `caf` because the bytes of a trailing `é` are stripped like spaces
-(*disassembly*). The viewer strips the mark
+(*disassembly*). Two consumers followed: `Key_Bind_f` (FUN_1801b4e60) acts only at two or three arguments, printing its
+usage line otherwise, so the viewer stopped binding a third token out of four or more; and a ConVar's number is `atof` of
+its string (`convar.cpp:792`), which the viewer's settings had read with a strict parse that set nothing for `1 2` — now
+one helper, `ConVarNumber`, for every reader. The viewer strips the mark
 anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it to
 `Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
 

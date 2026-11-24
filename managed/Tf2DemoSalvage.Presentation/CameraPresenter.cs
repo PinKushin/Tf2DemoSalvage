@@ -301,7 +301,7 @@ public sealed class CameraPresenter
         string? sent = _timeline?.ServerConVarsAt(_window().Tick).Value(ViewFov.RestrictAspectConVar);
 
         return ViewFov.RestrictsAspect(
-            int.TryParse(sent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : 1,
+            sent is null ? 1 : Core.Net.ConVarNumber.GetInt(sent),
             windowed: !(_window().FullScreenExclusive),
             _timeline?.MaxClients ?? 0);
     }

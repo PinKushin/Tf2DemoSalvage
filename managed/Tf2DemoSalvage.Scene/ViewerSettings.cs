@@ -1670,11 +1670,12 @@ public sealed record ViewerSettings
         }
 
         // A value the cvar's declared bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543),
-        // by `ClampValue`'s own two tests (`:891`, `:897`); every other value keeps its string as written.
-        if (written is not null &&
-            EngineConVars.TryByName(name, out EngineConVar? declared) &&
-            float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten))
+        // by `ClampValue`'s own two tests (`:891`, `:897`), on `atof` of the string (`:792`, B823); every other value keeps
+        // its string as written.
+        if (written is not null && EngineConVars.TryByName(name, out EngineConVar? declared))
         {
+            float asWritten = ConVarNumber.GetFloat(written);
+
             if (asWritten < declared.Min)
             {
                 return EngineFloat(declared.Min.Value);
@@ -2091,14 +2092,11 @@ public sealed record ViewerSettings
     /// <summary>Reads an integer setting as the engine's <c>GetInt</c> would: the float's integer part, so <c>1.000000</c> is 1.</summary>
     /// <remarks>`incrementvar` and `multvar` set a cvar as <c>"%s %f"</c> (D215); an int-only parse ignored every such set.</remarks>
     private static int? Read(Dictionary<string, string> values, string command) =>
-        ReadNumber(values, command) is { } number && number is >= int.MinValue and <= int.MaxValue ? (int)number : null;
+        values.TryGetValue(command, out string? value) ? ConVarNumber.GetInt(value) : null;
 
-    /// <summary>Reads a fractional setting, for the ones the game states as floats.</summary>
+    /// <summary>Reads a fractional setting as the engine's <c>GetFloat</c> would: <c>atof</c>, so <c>1 2</c> is 1 (B823).</summary>
     private static float? ReadNumber(Dictionary<string, string> values, string command) =>
-        values.TryGetValue(command, out string? value) &&
-        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
-            ? number
-            : null;
+        values.TryGetValue(command, out string? value) ? ConVarNumber.GetFloat(value) : null;
 }
 
 /// <summary>The crosshair's cvars, each at its TF2 default.</summary>

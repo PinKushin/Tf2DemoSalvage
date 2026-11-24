@@ -695,6 +695,28 @@ public sealed class ViewerSettingsTests
         ViewerSettings.Parse(settings.Write()).DelaySoundShift.ShouldBe(expected, "and saved as it was read");
     }
 
+    /// <remarks>
+    /// **A ConVar's number is `atof` of its string** (B823; `ConVar::InternalSetValue`, `src/tier1/convar.cpp:792`): leading
+    /// white space, the longest numeric prefix, 0 when there is none. A console set of `name 0.05 2` holds `0.05 2`.
+    /// </remarks>
+    [TestCase("0.05 2", 0.05f)]
+    [TestCase(" 0.05x", 0.05f)]
+    [TestCase("abc", 0f)]
+    public void Set_ANumberWithTextAroundIt_ReadsAsAtof(string value, float expected)
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.DelaySoundShiftCommand, value).DelaySoundShift.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The clamp reads the same `atof`** (`convar.cpp:792-798`): `volume 2 x` is 2, past `volume`'s max of 1, so its string
+    /// is stored as `"%f"` of the clamp.
+    /// </remarks>
+    [Test]
+    public void ConVarText_ABoundedNumberWithTrailingText_IsClampedAsTheEngineStoresIt()
+    {
+        ViewerSettings.Parse(string.Empty).Set(ViewerSettings.VolumeCommand, "2 x").ConVarText(ViewerSettings.VolumeCommand).ShouldBe("1.000000");
+    }
+
     [Test]
     public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
     {
