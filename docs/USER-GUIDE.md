@@ -114,8 +114,10 @@ alike, as in TF2.
 A command the viewer does not implement is ignored, and the key stays free for whatever else uses it. A key you
 bind to a command the viewer does not implement loses its default action.
 
-You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 0`. Anything in
-`settings.cfg` works this way.
+You can run a console command for one run only, as on TF2's launch line: `tf2demoview <demo> +fps_max 0`,
+`+exec my.cfg` or `+toggle cl_showfps`. It runs after your configs. As in TF2, a `+command` takes the one argument
+after it as its value, and none when that argument starts with `+` or `-`: `+mat_picmip -1` sets nothing. To set a
+cvar to a negative value, use `--set <cvar> <value>`, which takes the value whole.
 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while

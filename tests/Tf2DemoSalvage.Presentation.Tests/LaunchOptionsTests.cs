@@ -198,8 +198,67 @@ public sealed class LaunchOptionsTests
     /// one is returned and pasted as `name ` with nothing after the space, as the engine's `"%s %s\n"` does.
     /// </remarks>
     [Test]
-    public void Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValue() =>
-        Read("+cl_voice_filter", string.Empty, "a.dem").AfterConfigs.ShouldBe(["cl_voice_filter "]);
+    public void Read_ALonePlus_PastesAnEmptyNameAndItsValue()
+    {
+        // B824 review 1, Sonnet: FUN_1801683d0 tests only the first character, so `+` alone is a command with an empty
+        // name; `" %s"` puts its value first on the line, where the console runs it as the command. Alone, it pastes a
+        // bare line, which runs nothing. Before, `+` fell through and was opened as a demo.
+        LaunchOptions quit = Read("+", "quit");
+        quit.AfterConfigs.ShouldBe([" quit"]);
+        quit.Paths.ShouldBeEmpty();
+
+        LaunchOptions alone = Read("+", "a.dem");
+        alone.AfterConfigs.ShouldBe([" a.dem"], "the next argument is its value, as for any `+`");
+
+        Read("a.dem", "+").Paths.ShouldBe(["a.dem"], "a lone `+` at the end is no demo");
+    }
+
+    [Test]
+    public void Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValueAndStoresNothing()
+    {
+        // The console line `fps_max ` has one token, so it prints and sets nothing (B824 review 1, Fable); the early store
+        // must not set what the console will not. Whether tier0's own tokenizer ever yields an empty argument is
+        // *interpolated* (tier0's parser is not read); `ParmValueByIndex` returns one if it is there. The control: a
+        // plain value is stored.
+        Read("+fps_max", "60").Settings.ConVarText("fps_max").ShouldBe("60", "the control");
+
+        LaunchOptions empty = Read("+fps_max", string.Empty, "a.dem");
+        empty.AfterConfigs.ShouldBe(["fps_max "]);
+        empty.Settings.ConVarText("fps_max").ShouldBe(Read("a.dem").Settings.ConVarText("fps_max"));
+    }
+
+    /// <remarks>
+    /// **A value of several statements is handed on whole and stored early only when it is one** (B824 review 1, Fable):
+    /// the console splits `fps_max 60;quit` at the `;` and sets `60`, so storing `60;quit` for early readers would be a
+    /// value the console never holds; and a refused set's line still runs its other statements, as TF2's would, so even
+    /// a replicated cheat's line is handed on. The control: one statement is stored.
+    /// </remarks>
+    [Test]
+    public void Read_AValueOfSeveralStatements_IsHandedOnWholeAndNotStoredEarly()
+    {
+        LaunchOptions several = Read("+fps_max", "60;quit", "+cl_forwardspeed", "500;bind q quit", "a.dem");
+
+        several.AfterConfigs.ShouldBe(["fps_max 60;quit", "cl_forwardspeed 500;bind q quit"]);
+        several.Settings.ConVarText("fps_max").ShouldBe(Read("a.dem").Settings.ConVarText("fps_max"));
+    }
+
+    /// <remarks>
+    /// **An empty `+sv_cheats` changes nothing the line's cheat gate reads** (B824 review 1, Fable): the console prints it
+    /// and keeps 1, so a replicated cheat after it is not refused. The control: `+sv_cheats 0` refuses it.
+    /// </remarks>
+    [Test]
+    public void Read_AnEmptySvCheats_KeepsTheLinesCheatsOn()
+    {
+        const string Refusal = "Can't use cheat cvar cl_forwardspeed in multiplayer";
+        RecordingLogger off = new();
+        RecordingLogger empty = new();
+
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", "0", "+cl_forwardspeed", "5"], ViewerSettings.Load(), off);
+        LaunchOptionsReader.Read(["+sv_cheats", "1", "+sv_cheats", string.Empty, "+cl_forwardspeed", "5"], ViewerSettings.Load(), empty);
+
+        off.Count(Refusal).ShouldBe(1, "the control");
+        empty.Count(Refusal).ShouldBe(0);
+    }
 
     [Test]
     public void Read_TheFlags_AreOffUnlessGiven()
@@ -417,10 +476,12 @@ public sealed class LaunchOptionsTests
         RecordingLogger refusedLog = new();
         RecordingLogger admittedLog = new();
 
+        // B824 review 1: the line is handed on either way, as `stuffcmds` pastes it; the console's client sets never take a
+        // replicated ConVar, and a line of several statements still runs the rest.
         LaunchOptionsReader.Read(["+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), refusedLog)
-            .AfterConfigs.ShouldBeNull();
+            .AfterConfigs.ShouldBe(["cl_forwardspeed 500"]);
         LaunchOptionsReader.Read(["+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), admittedLog)
-            .AfterConfigs.ShouldBe(["sv_cheats 1"]);
+            .AfterConfigs.ShouldBe(["sv_cheats 1", "cl_forwardspeed 500"]);
 
         refusedLog.Count(Refusal).ShouldBe(1);
         admittedLog.Count(Refusal).ShouldBe(0, "the control: the line's own sv_cheats admits it");
@@ -463,6 +524,23 @@ public sealed class LaunchOptionsTests
         LaunchOptions undeclared = Read("--set", "x\nbind q quit", "1", "--set", "alias", "a", "a.dem");
         undeclared.AfterConfigs.ShouldBeNull();
         undeclared.Paths.ShouldBe(["a.dem"]);
+    }
+
+    /// <remarks>
+    /// **`--set` with its value missing is reported, and its name is no demo** (B824 review 1, Fable, Grok). The control:
+    /// a whole `--set` is handed on.
+    /// </remarks>
+    [Test]
+    public void Read_ASetWithItsValueMissing_IsReportedRatherThanTakenAsAPath()
+    {
+        Read("--set", "cl_showfps", "1").AfterConfigs.ShouldBe(["cl_showfps \"1\""], "the control");
+
+        RecordingLogger log = new();
+        LaunchOptions read = LaunchOptionsReader.Read(["a.dem", "--set", "cl_showfps"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["a.dem"]);
+        read.AfterConfigs.ShouldBeNull();
+        log.Count("--set wants a ConVar and a value").ShouldBe(1);
     }
 
     /// <remarks>

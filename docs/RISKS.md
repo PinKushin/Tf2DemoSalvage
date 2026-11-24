@@ -45910,6 +45910,31 @@ turns the readout on). Handing on only declared ConVars again reddened four, the
 that starts with `-` reddened the no-value test. The `-flag` value skip and the bare-path table are not this entry's:
 B828.
 
+**Review 1 (2026-11-24): Fable, Sonnet, Grok, Gemini.** Each fix's test failed before it or under a sabotage.
+
+1. *A `+` setting that is no engine ConVar was dropped (Fable, blocker; Sonnet).* The rewrite stored only a declared
+   ConVar for early readers, and the console takes none of the viewer's own settings, so `+cl_game_folder`,
+   `+cl_screenshot_folder` and `+cl_game_folder_ask` (every UI launch passes the last two) were lost. Now stored whatever
+   the name, as before; `Launch_AViewerFolderWithASpace_ReachesTheSettingWhole` failed at its control and reddens with
+   the declared-only store put back. Sonnet's spaced path: a declared ConVar's value keeps its spaces through the
+   console's `ArgS` (B823), `Build_ALaunchConVarValueWithASpace_ReachesTheConVarWhole`.
+2. *A lone `+` became a demo path (Fable, Sonnet, Grok, Gemini).* FUN_1801683d0 tests the first character only, so `+`
+   is a command with an empty name, and `"%s %s"` puts its value first on the line: `+ quit` runs `quit`.
+   `Read_ALonePlus_PastesAnEmptyNameAndItsValue`, red before.
+3. *An empty or several-statement value set early state the console never holds (Fable).* `fps_max ` prints and sets
+   nothing, `fps_max 60;quit` sets `60`, and an empty `+sv_cheats` keeps cheats as they were; the early store and the
+   line's `sv_cheats` now follow a value only when it is one statement with a word. A refused replicated cheat's line is
+   now handed on too, so the rest of its statements run, as TF2's line would. `Read_APlusCommandWithAnEmptyArgument_
+   TakesItAsTheValueAndStoresNothing`, `Read_AValueOfSeveralStatements_IsHandedOnWholeAndNotStoredEarly` and
+   `Read_AnEmptySvCheats_KeepsTheLinesCheatsOn`, all red before. Whether tier0 ever yields an empty argument is
+   *interpolated* (its parser is not read).
+4. *`--set` with its value missing left its name as a demo (Fable, Grok).* Now reported and consumed;
+   `Read_ASetWithItsValueMissing_IsReportedRatherThanTakenAsAPath`, red before.
+5. *User docs (Fable, Sonnet).* `--help` and USER-GUIDE now say any `+command` runs after the configs with one argument
+   as its value, none when it starts with `+` or `-`, and describe `--set`. RELEASE-NOTES is the release pass's.
+6. *Not changed:* a `--set` value ending in a backslash cannot close its quotes early (Sonnet asked): the launch line
+   runs through `Stuff`, which unescapes nothing (B820 review 8), and a `"` or line break is refused anyway.
+
 ## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the

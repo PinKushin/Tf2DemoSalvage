@@ -89,8 +89,13 @@ public static class ViewerHelp
           --windows                  Also walk the demo into 2-second checkpoints and, on every seek,
                                      log what answering it through a window cost and whether it
                                      matched; nothing drawn changes.
-          +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in
-                                     settings.cfg works here: fps_max 0, developer 1, and so on.
+          +<command> [<value>]       Run a console command after the configs, as TF2's launch
+                                     line does: +fps_max 0, +exec my.cfg, +toggle cl_showfps.
+                                     As in TF2, the value is the one argument after it, and
+                                     none is taken when that starts with + or -, so
+                                     +mat_picmip -1 sets nothing.
+          --set <cvar> <value>       Set one declared cvar to a value taken whole, negative
+                                     ones included. --like uses it for a sidecar's cvars.
 
         SETTINGS
           Everything a user sets lives in %LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg, written in
