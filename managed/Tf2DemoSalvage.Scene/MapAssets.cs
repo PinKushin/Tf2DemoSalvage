@@ -1049,7 +1049,7 @@ public sealed class MapAssets
         return loaded;
     }
 
-    /// <summary>Appends the studio render's wireframe material to the table (B788), or null when the install lacks it.</summary>
+    /// <summary>Appends the studio render's wireframe material to the table (B788), or null when it does not load.</summary>
     /// <remarks>
     /// It resolves to the standard white: the <c>Wireframe</c> shader reads no <c>$basetexture</c> at all (its vars are all
     /// -1, <c>wireframe_dx9.cpp:32</c>), and this VMT names none either (B807 is a map's <c>Wireframe</c> VMT that does). **Not
@@ -1075,7 +1075,7 @@ public sealed class MapAssets
         {
             // A warning, one per material at load (B803 review 1): mat_wireframe then does nothing where it would bind this
             // one, and that reads as the switch being broken. Every install ships all five in `platform_misc`, and without an
-            // install the built-in copies stand in (B833), so this is reached only by a VMT that fails to parse.
+            // install the built-in copies stand in (B833), so this is reached only when a material that was found does not resolve.
             assets.LogWarning(
                 "{Message}", $"{name} did not load: mat_wireframe draws nothing in its place, and what it replaces keeps its own material");
             return null;

@@ -46061,6 +46061,14 @@ loads the default map with no archives and asserts each material's path, shader,
 were red before the fix ("did not load; loaded: " with nothing listed). The output-level check is the CI capture test
 itself, run on this branch.
 
+**Review 1** (Fable, Sonnet, Grok; Gemini pending): no blocker. Fixed: the test loads the map once through
+`MapCache.Bytes` (Fable: five uncached loads, and it missed a downloaded map); the loader's summary no longer says null
+means a missing install (Fable); the warning's comment says it is reached when a found material does not resolve (Grok:
+"fails to parse" was too narrow). Not taken: Grok's case of a map pakfile holding a debug VMT. `LoadWireframeMaterial`
+passes an empty pakfile, so neither of its reads consults one. Sabotage: the fallback lookup pointed at a key that
+cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
+skips on CI, which has no map; the CI capture test is the no-install guard.
+
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
 Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's

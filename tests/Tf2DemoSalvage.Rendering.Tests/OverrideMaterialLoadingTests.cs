@@ -1,9 +1,7 @@
 using System;
-using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -25,6 +23,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class OverrideMaterialLoadingTests
 {
+    /// <summary>The default map loaded with no game archives, shared by the no-install cases.</summary>
+    private static readonly WeakMemo<MapAssets> WithoutTheGame = new();
+
     /// <remarks>
     /// **Both, by name, rather than a count.** A count of two is satisfied by loading one material
     /// twice, and the two paths are typed out in one array in the loader — a transposition there
@@ -166,15 +167,10 @@ public sealed class OverrideMaterialLoadingTests
     public void Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay(
         string path, float red, float green, float blue, bool ignoresZ)
     {
-        string map = Path.Combine(GameInstall.Root ?? string.Empty, "maps", MapCache.DefaultMap + ".bsp");
-
-        if (!File.Exists(map))
-        {
-            Assert.Ignore($"{MapCache.DefaultMap} is not installed.");
-            return;
-        }
-
-        MapAssets assets = MapAssets.Load(File.ReadAllBytes(map), GameArchives.Open(null), MapCache.DefaultTextureSize);
+        // One load for all five cases (B833 review 1, Fable); `Bytes` skips when the map is absent and finds a downloaded one.
+        MapAssets assets = WithoutTheGame.Get(
+            MapCache.DefaultMap,
+            () => MapAssets.Load(MapCache.Bytes(), GameArchives.Open(null), MapCache.DefaultTextureSize));
         WireframeMaterial? loaded = assets.Wireframe;
 
         if (path != MapAssets.WireframeMaterialPath)
