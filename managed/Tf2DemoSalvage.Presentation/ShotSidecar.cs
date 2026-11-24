@@ -381,7 +381,7 @@ public static class ShotSidecar
     }
 
     /// <summary>
-    /// Turns <c>--like &lt;sidecar&gt;</c> into what the viewer already obeys: <c>--tick</c>, a <c>+cvar value</c> per
+    /// Turns <c>--like &lt;sidecar&gt;</c> into what the viewer already obeys: <c>--tick</c>, a <c>--set cvar value</c> per
     /// ConVar, <c>TF2VIEW_CAMERA</c> and <c>TF2VIEW_VIEWPORT_SIZE</c>, and the demo beside the sidecar when none is named.
     /// </summary>
     /// <param name="arguments">The command line.</param>
@@ -427,8 +427,7 @@ public static class ShotSidecar
                 Core.Net.EngineConVars.TryByConsoleName(name, out Core.Net.EngineConVar? declared) &&
                 declared.Cheat && !declared.Replicated))
         {
-            expanded.Add("+sv_cheats");
-            expanded.Add("1");
+            expanded.AddRange([LaunchOptionsReader.SetOption, "sv_cheats", "1"]);
         }
 
         // **`sv_cheats` first** (B811 review 7, Fable): the line now runs in its order after the configs, so a cheat sorted
@@ -437,8 +436,10 @@ public static class ShotSidecar
             .OrderBy(pair => pair.Key.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ThenBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            expanded.Add("+" + name);
-            expanded.Add(value);
+            // **Through `--set`, not `+`** (B824): `+` pastes its value unquoted and drops one starting with `-`, as TF2's
+            // `stuffcmds` does, so a sidecar's text would run as console lines of its own; `--set` takes a declared ConVar
+            // and its value whole.
+            expanded.AddRange([LaunchOptionsReader.SetOption, name, value]);
         }
 
         expanded.AddRange(arguments);

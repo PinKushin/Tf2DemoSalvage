@@ -45879,16 +45879,46 @@ and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a 
 to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
 repeats.
 
-## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
+## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — FIXED (2026-11-24)
 
 Found implementing B821. `LaunchOptionsReader.Read` reads a `+name` and the one argument after it, and hands the console only
 a declared ConVar's set (`LaunchOptions.cs`, B816 review 5): an undeclared name was refused there because a `--like`
 sidecar key such as `x\nbind q quit` would otherwise run as commands. TF2's `cfg/valve.rc` runs `stuffcmds` after
-`exec autoexec.cfg`, and `stuffcmds` runs every `+command` with all the arguments up to the next `+` or `-` (*interpolated*
-from the SDK's Quake heritage; the closed `engine.dll` `stuffcmds` is not read). So `+bind F8 screenshot`, `+exec x` or
-`+alias` run in TF2 and are dropped here, and the `screenshot` after `+bind F8` is taken as a demo path. Fix shape:
-read the engine's `stuffcmds` and command-line tokenizer, then run each `+` command whole, keeping the sidecar refusal
-for the `--like` route only. *Not fixed*.
+`exec autoexec.cfg`. So `+exec x` or `+alias` run in TF2 and were dropped here.
+
+**The entry's first guess was wrong, and the binary killed it.** It said `stuffcmds` runs a `+command` "with all the
+arguments up to the next `+` or `-`" (*interpolated* from the Quake heritage). Read on 2026-11-24 in `engine.dll` x64
+build 1007, `stuffcmds` is FUN_1801683d0 (*disassembly via the Ghidra MCP*): for each argument `i` from 1, a `-flag` skips
+the next argument when `ParmValueByIndex(i)` gives one; a `+name` pastes `Q_snprintf("%s %s\n", name, value)` with
+`value = ParmValueByIndex(i, NULL)`, or the name alone when that is null, and skips the value's index; a bare argument whose
+extension is `.dem`, `.sav` or `.bsp` (the table at 0x18047bb80) pastes `playdemo`, `load` or `map` with the path unless
+the line already holds that `+command`. tier0's `CCommandLine::ParmValueByIndex` (x64 0x180003230, vtable slot +0x68)
+returns its default when the index is 0 or the last, or when the next argument starts with `+` or `-`. So the value is ONE
+argument, pasted unquoted: `+bind F8 screenshot` runs `bind F8` alone, and `+mat_picmip -1` runs `mat_picmip` alone.
+
+**Fixed:** a `+name` takes the next argument as its value only when one exists and does not start with `+` or `-`, and
+every such command goes to the console after the configs, unquoted, in the line's order. A declared ConVar is still
+stored for early readers (B816) and a replicated cheat is still gated on the line (B811). `+demo_timescale` stays the
+playback speed. **The sidecar moved off `+`** (above Valve): a `--like` sidecar is a file the viewer reads, so its keys
+and values are untrusted, and `+` now pastes a value unquoted and drops a negative one. `ShotSidecar.Expand` emits
+`--set name value` instead, which keeps B811/B816's guard: a declared ConVar only, its value quoted whole, refused if it
+would close its quotes or start another line. Tests: `Read_APlusCommandWithAValue_IsHandedOnWithTheOneArgumentAfterIt`,
+`Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue`, `Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValue`,
+`Read_ASetValueThatBreaksItsQuotes_IsRefused`, `Read_ASetOfAnUndeclaredName_IsRefused`, the sidecar `Expand_*` tests,
+and the output-level `ViewerSessionTests.Build_ALaunchCommandThatIsNoConVar_RunsAfterTheConfigs` (`+toggle cl_showfps`
+turns the readout on). Handing on only declared ConVars again reddened four, the session test among them; taking a value
+that starts with `-` reddened the no-value test. The `-flag` value skip and the bare-path table are not this entry's:
+B828.
+
+## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
+
+Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
+next argument when it gets one (not starting with `+` or `-`), so that argument is neither run nor opened. The viewer
+warns about an unknown `-flag` and takes the next argument as a demo path: `-threads 4 a.dem` opens a demo named `4`
+(`docs/findings/98-the-queued-material-system.md` noted the stray `1` after `-threads`). Parity is to skip it. **Owner-visible,
+so ask before changing:** `-novid a.dem` would then not open `a.dem`, as TF2 would not play it either. The bare-path table
+(`.dem` to `playdemo` unless `+playdemo` is on the line) is the viewer's demo list already; only the `+playdemo`
+interplay differs. *Not fixed*.
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — FIXED (2026-11-23)
 

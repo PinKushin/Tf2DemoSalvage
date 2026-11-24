@@ -1016,6 +1016,24 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A launch `+command` that is no ConVar runs, as `stuffcmds` runs it** (B824): `+toggle cl_showfps` reaches the
+    /// console as `toggle cl_showfps` after the configs, where before only a declared ConVar's set was handed on. The
+    /// control: without it, the readout stays off.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCommandThatIsNoConVar_RunsAfterTheConfigs()
+    {
+        using (Rig control = BuildWithAutoexec("cl_showfps 0\n"))
+        {
+            control.Settings.ConVar("cl_showfps").ShouldBe("0", "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec("cl_showfps 0\n", "+toggle", "cl_showfps");
+
+        rig.Settings.ConVar("cl_showfps").ShouldBe("1");
+    }
+
+    /// <remarks>
     /// **The launch line's ConVar wins over the configs', as `stuffcmds` running after `exec` gives** (B816; B811 review 3):
     /// an autoexec's `fps_max 123` and a launch `+fps_max 60` end at 60. The control: without the launch option, 123.
     /// </remarks>

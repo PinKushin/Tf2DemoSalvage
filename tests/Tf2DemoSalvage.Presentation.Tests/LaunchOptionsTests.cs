@@ -144,11 +144,62 @@ public sealed class LaunchOptionsTests
     {
         // **Ignoring what it does not implement is the primary feature, not an afterthought**
         // (D69). A real config is hundreds of mat_*/cl_* lines this viewer has never heard of, and
-        // the command line speaks the same vocabulary.
-        LaunchOptions read = Read("+mat_picmip", "-1", "a.dem");
+        // the command line speaks the same vocabulary. It is handed to the console, which ignores it.
+        LaunchOptions read = Read("+mat_picmip", "2", "a.dem");
 
         read.Paths.ShouldBe(["a.dem"], "the value must not be left behind as a demo to open");
+        read.AfterConfigs.ShouldBe(["mat_picmip 2"]);
     }
+
+    /// <remarks>
+    /// **`stuffcmds` runs every `+command`, with the one argument after it as its value, unquoted** (B824; `engine.dll` x64
+    /// build 1007 FUN_1801683d0: `Q_snprintf("%s %s\n", name, ParmValueByIndex(i))`, then the value's index is skipped). So
+    /// `+exec x` runs `exec x`, and `+bind F8 screenshot` runs `bind F8` alone: the value is one argument, and `screenshot`
+    /// is a bare argument of its own. Before, only a declared ConVar was handed on, quoted, and `+exec` ran nothing.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandWithAValue_IsHandedOnWithTheOneArgumentAfterIt()
+    {
+        Read("+exec", "x", "a.dem").AfterConfigs.ShouldBe(["exec x"]);
+
+        LaunchOptions bind = Read("+bind", "F8", "screenshot");
+        bind.AfterConfigs.ShouldBe(["bind F8"]);
+        bind.Paths.ShouldBe(["screenshot"], "the second word is an argument of its own, as the engine's loop leaves it");
+
+        Read("+cl_showfps", "1;bind q quit").AfterConfigs
+            .ShouldBe(["cl_showfps 1;bind q quit"], "pasted as the engine pastes it; the console splits it as TF2's does");
+    }
+
+    /// <remarks>
+    /// **A `+command` takes no value when the next argument is missing or starts with `+` or `-`** (B824; tier0
+    /// `CCommandLine::ParmValueByIndex`, x64 0x180003230, returns its default there): `+quit` at the end runs `quit`, and
+    /// `+mat_picmip -1` runs `mat_picmip` alone, as in TF2, with `-1` read as an option of its own. The control: a plain
+    /// value is taken.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandBeforeAnOptionOrAtTheEnd_RunsWithNoValue()
+    {
+        Read("+cl_showfps", "1").AfterConfigs.ShouldBe(["cl_showfps 1"], "the control: a plain value is taken");
+
+        Read("a.dem", "+quit").AfterConfigs.ShouldBe(["quit"]);
+        Read("+toggleconsole", "+cl_showfps", "1").AfterConfigs.ShouldBe(["toggleconsole", "cl_showfps 1"]);
+
+        LaunchOptions minus = Read("+mat_picmip", "-1", "a.dem");
+        minus.AfterConfigs.ShouldBe(["mat_picmip"]);
+        minus.Paths.ShouldBe(["a.dem"]);
+
+        LaunchOptions option = Read("+jpeg", "--tick", "5");
+        option.AfterConfigs.ShouldBe(["jpeg"]);
+        option.ShotTick.ShouldBe(5, "the option after it is read as an option");
+    }
+
+    /// <remarks>
+    /// **An empty argument is a value** (B824): `ParmValueByIndex` tests the next argument's first character, so an empty
+    /// one is returned and pasted as `name ` with nothing after the space, as the engine's `"%s %s\n"` does.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandWithAnEmptyArgument_TakesItAsTheValue() =>
+        Read("+cl_voice_filter", string.Empty, "a.dem").AfterConfigs.ShouldBe(["cl_voice_filter "]);
 
     [Test]
     public void Read_TheFlags_AreOffUnlessGiven()
@@ -340,20 +391,18 @@ public sealed class LaunchOptionsTests
     {
         LaunchOptions mixed = Read("+mat_fullbright", "1", "+sv_cheats", "1", "+mat_fullbright", "0", "+r_screenfademinsize", "12", "a.dem");
 
-        mixed.AfterConfigs.ShouldBe(
-            ["mat_fullbright \"1\"", "sv_cheats \"1\"", "mat_fullbright \"0\"", "r_screenfademinsize \"12\""]);
+        mixed.AfterConfigs.ShouldBe(["mat_fullbright 1", "sv_cheats 1", "mat_fullbright 0", "r_screenfademinsize 12"]);
         mixed.Settings.ConVarText("mat_fullbright").ShouldBe(Read("a.dem").Settings.ConVarText("mat_fullbright"), "not stored");
         mixed.Settings.ScreenFadeMinSize.ShouldBe(0f, "not stored");
         Read("a.dem").AfterConfigs.ShouldBeNull("the control: no console option, nothing handed");
 
         // B816: a non-cheat is stored for early readers and handed on too, so it runs after the configs as well.
         LaunchOptions plain = Read("+cl_showfps", "1", "a.dem");
-        plain.AfterConfigs.ShouldBe(["cl_showfps \"1\""]);
+        plain.AfterConfigs.ShouldBe(["cl_showfps 1"]);
         plain.Settings.ConVarText("cl_showfps").ShouldBe("1");
 
-        // B816 review 5: an undeclared name is not handed on, so a sidecar key cannot write a console line of its own.
-        Read("+x\nbind q quit", "1", "a.dem").AfterConfigs.ShouldBeNull();
-        Read("+alias", "a", "a.dem").AfterConfigs.ShouldBeNull();
+        // B824: any command is handed on, as `stuffcmds` runs it; the sidecar's keys go through `--set` instead.
+        Read("+alias", "a", "a.dem").AfterConfigs.ShouldBe(["alias a"]);
     }
 
     /// <remarks>
@@ -371,41 +420,49 @@ public sealed class LaunchOptionsTests
         LaunchOptionsReader.Read(["+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), refusedLog)
             .AfterConfigs.ShouldBeNull();
         LaunchOptionsReader.Read(["+sv_cheats", "1", "+cl_forwardspeed", "500", "a.dem"], ViewerSettings.Load(), admittedLog)
-            .AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+            .AfterConfigs.ShouldBe(["sv_cheats 1"]);
 
         refusedLog.Count(Refusal).ShouldBe(1);
         admittedLog.Count(Refusal).ShouldBe(0, "the control: the line's own sv_cheats admits it");
     }
 
     /// <remarks>
-    /// **A value that would close its own quotes or start another line is refused** (B811 review 10, Sonnet): handed to
-    /// the console as `name "value"`, it would run as further console lines. The control: a plain value is handed on.
+    /// **`--set` is the sidecar's route: one declared ConVar, its value whole and quoted** (B824; above Valve). A `--like`
+    /// sidecar is a file the viewer reads, so its keys and values are untrusted text, and `+` now pastes a value unquoted
+    /// and drops one starting with `-`. `--set` keeps B811/B816's guard: a declared ConVar only, and a value that would
+    /// close its quotes or start another line is refused (B811 reviews 10, 11). The control: a plain value, negative
+    /// included, is handed on quoted.
     /// </remarks>
     /// <param name="value">The value given.</param>
     [TestCase("1\"; bind q quit; \"")]
     [TestCase("1\nbind q quit")]
     [TestCase("1\rbind q quit")]
     [TestCase("1\0bind q quit")]
-    public void Read_ACheatValueThatBreaksItsQuotes_IsRefused(string value)
+    public void Read_ASetValueThatBreaksItsQuotes_IsRefused(string value)
     {
-        Read("+sv_cheats", "1", "+mat_wireframe", "1", "a.dem").AfterConfigs
-            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""], "the control: a plain value");
+        Read("--set", "sv_cheats", "1", "--set", "mat_wireframe", "1", "--set", "fps_max", "-1", "a.dem").AfterConfigs
+            .ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\"", "fps_max \"-1\""], "the control: plain values");
 
-        Read("+sv_cheats", "1", "+mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+        Read("--set", "sv_cheats", "1", "--set", "mat_wireframe", value, "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""]);
+        Read("--set", "sv_cheats", value, "a.dem").AfterConfigs.ShouldBeNull();
+        Read("--set", "cl_showfps", value, "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe(value);
     }
 
     /// <remarks>
-    /// **The guard holds on every branch, not only the cheat one** (B811 review 11, Fable, Sonnet): `+sv_cheats` and a
-    /// non-cheat value with a line break are refused too. The controls: their plain values pass.
+    /// **`--set` takes a declared ConVar only** (B816 review 5, Fable, kept for the sidecar route): an undeclared key is a
+    /// console line of the sidecar's own making. Its value and both arguments are consumed either way, so nothing is left
+    /// as a demo. The control: a declared non-cheat is stored for early readers and handed on.
     /// </remarks>
     [Test]
-    public void Read_AnSvCheatsOrNonCheatValueThatBreaksItsQuotes_IsRefused()
+    public void Read_ASetOfAnUndeclaredName_IsRefused()
     {
-        Read("+sv_cheats", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\""], "the control: sv_cheats passes");
-        Read("+sv_cheats", "1\nbind q quit", "a.dem").AfterConfigs.ShouldBeNull();
+        LaunchOptions plain = Read("--set", "cl_showfps", "1", "a.dem");
+        plain.AfterConfigs.ShouldBe(["cl_showfps \"1\""], "the control");
+        plain.Settings.ConVarText("cl_showfps").ShouldBe("1");
 
-        Read("+cl_showfps", "1", "a.dem").Settings.ConVarText("cl_showfps").ShouldBe("1", "the control: a non-cheat is stored");
-        Read("+cl_showfps", "1\nbind q quit", "a.dem").Settings.ConVarText("cl_showfps").ShouldNotBe("1\nbind q quit");
+        LaunchOptions undeclared = Read("--set", "x\nbind q quit", "1", "--set", "alias", "a", "a.dem");
+        undeclared.AfterConfigs.ShouldBeNull();
+        undeclared.Paths.ShouldBe(["a.dem"]);
     }
 
     /// <remarks>
@@ -415,7 +472,7 @@ public sealed class LaunchOptionsTests
     [Test]
     public void Read_ACheatConVarInUpperCase_IsHandedOnUnderItsOwnName()
     {
-        Read("+SV_CHEATS", "1", "+MAT_WIREFRAME", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats \"1\"", "mat_wireframe \"1\""]);
+        Read("+SV_CHEATS", "1", "+MAT_WIREFRAME", "1", "a.dem").AfterConfigs.ShouldBe(["sv_cheats 1", "mat_wireframe 1"]);
     }
 
     /// <remarks>

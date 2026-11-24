@@ -243,7 +243,9 @@ public sealed class ShotSidecarTests
         string[] expanded = ShotSidecar.Expand(
             ["x.dem", "--like", sidecar, "--shot", "out.png"], _ => Tf2Sidecar, (name, value) => set[name] = value);
 
-        expanded.ShouldBe(["--tick", "6520", "+mat_hdr_level", "2", "+mat_phong", "0", "x.dem", "--like", sidecar, "--shot", "out.png"]);
+        // B824: each ConVar through `--set`, the sidecar's guarded route, not `+`, which pastes a value unquoted.
+        expanded.ShouldBe(
+            ["--tick", "6520", "--set", "mat_hdr_level", "2", "--set", "mat_phong", "0", "x.dem", "--like", sidecar, "--shot", "out.png"]);
         set.ShouldBe(new Dictionary<string, string>
         {
             ["TF2VIEW_CAMERA"] = "-2240.5 -3180 790 5 90",
@@ -268,7 +270,7 @@ public sealed class ShotSidecarTests
 
         string[] expanded = ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => cheats, (_, _) => { });
 
-        expanded[2..8].ShouldBe([$"+{spelled}", "1", "+mat_fullbright", "1", "+mat_phong", "0"]);
+        expanded[2..11].ShouldBe(["--set", spelled, "1", "--set", "mat_fullbright", "1", "--set", "mat_phong", "0"]);
     }
 
     /// <remarks>
@@ -285,11 +287,11 @@ public sealed class ShotSidecarTests
             StringComparison.Ordinal);
 
         ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => Tf2Sidecar, (_, _) => { })
-            .ShouldNotContain("+sv_cheats", "the control: no cheat, no sv_cheats");
+            .ShouldNotContain("sv_cheats", "the control: no cheat, no sv_cheats");
 
         string[] expanded = ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => cheat, (_, _) => { });
 
-        expanded[2..8].ShouldBe(["+sv_cheats", "1", "+cl_drawhud", "0", "+mat_phong", "0"]);
+        expanded[2..11].ShouldBe(["--set", "sv_cheats", "1", "--set", "cl_drawhud", "0", "--set", "mat_phong", "0"]);
     }
 
     /// <remarks>
@@ -298,7 +300,7 @@ public sealed class ShotSidecarTests
     /// saved settings, and the sidecar's default must replace it. The control: `cl_drawhud 0` admits.
     /// </remarks>
     /// <param name="convars">The sidecar's ConVars.</param>
-    /// <param name="admits">Whether `+sv_cheats 1` is prepended.</param>
+    /// <param name="admits">Whether `--set sv_cheats 1` is prepended.</param>
     [TestCase("\"cl_drawhud\": \"0\"", true)]
     [TestCase("\"cl_drawhud\": \"1\"", true)]
     [TestCase("\"cl_forwardspeed\": \"500\"", false)]
@@ -311,7 +313,7 @@ public sealed class ShotSidecarTests
 
         sidecar.ShouldNotBe(Tf2Sidecar, "the fixture was rewritten");
 
-        ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => sidecar, (_, _) => { }).Contains("+sv_cheats").ShouldBe(admits);
+        ShotSidecar.Expand(["x.dem", "--like", "s.json"], _ => sidecar, (_, _) => { }).Contains("sv_cheats").ShouldBe(admits);
     }
 
     [Test]
