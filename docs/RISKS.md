@@ -43479,7 +43479,7 @@ gate.
    triangle that does not start a face must follow its own predecessor in the corners, or there are no planes. Source
    T0 (A, edge), T1 (A, no edge) | T2 (B, edge), T3 (A, no edge) packs T0 T1 T3 | T2. Every triple is whole and in
    order, but T3 joins face 0 and would be culled on its plane while both counts agree at 2. Test:
-   `PackedFacePlanes_OfAFaceThePackingSplitsAtATriangle_AreNone`, with a control that the packing put T3 third. Red
+   `PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone` (renamed in review 12), with a control that the packing put T3 third. Red
    with the predecessor check removed: two planes. The doc's "a group keeps its corners' order, so a face stays whole"
    now says this holds only when a face's corners share one material.
 2. **Closures for every model, uploaded or not** (Fable). *Fixed*: the body after the two skips is its own method,
@@ -43517,10 +43517,25 @@ On `fix/b803-wireframe-3-r1` at `7ba3d024a`. All four reviewers called round 10 
    registration's last write, so when it fails there is nothing left in that dictionary to remove; that `Remove` only
    guards a future registration that writes more after it. The comparer throws `ArgumentException`, standing in for
    an out-of-memory insert (CA1065 allows only that type from a hash).
-3. **The studio-model test did not pin what it claimed** (Grok, Sonnet). *Replaced*: `Dispose_ADefaultComPtr_DoesNothing`
-   calls `Dispose` on a default `ComPtr<ID3D11Buffer>` directly. Its remark says only a Silk update can turn it red.
+3. **The studio-model test did not pin what it claimed** (Grok, Sonnet). *Replaced*: `Dispose_ADefaultComPtr_DoesNotThrow`
+   (named so in review 12) calls `Dispose` on a default `ComPtr<ID3D11Buffer>` directly. Its remark says only a Silk
+   update can turn it red.
 4. **The undo comes before the releases** (Fable). *Asserted*: the registration-throws test records its steps,
    `["undone", "vertices released", "outline released"]`. Red, with the undo moved after the releases.
+
+### Review 12 (2026-11-23)
+
+On `fix/b803-wireframe-3-r1` at `6847123c8`. All four reviewers called round 11 mergeable; the lead fixed these.
+
+1. **The accept case had no test** (Fable). *Tested*: `PackedFacePlanes_OfAFaceSplitAcrossGroupsInOrder_KeepItsPlane`,
+   T0 (7, edge) then T1 (5, no edge), one stored plane kept, with a control that the packing kept the order. Red, the
+   only test in the class to redden (1 of 8), with the check made to refuse a continuation across material groups.
+2. **The refusal test's name and remark said any split** (Fable). *Renamed*:
+   `PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone`, its remark narrowed to that case.
+3. **"Its own predecessor" was ambiguous** (Sonnet). The packing comment now says the triangle before it in the
+   source corners. `Dispose_ADefaultComPtr_DoesNothing` is now `…_DoesNotThrow`, which is what it asserts (Sonnet).
+4. *Not changed*: the step-order test also fixes vertices-before-outline release order, which no rule needs (Fable,
+   nit). It is the production order, so a reorder is a change worth seeing.
 
 *As found (2026-11-21):*
 

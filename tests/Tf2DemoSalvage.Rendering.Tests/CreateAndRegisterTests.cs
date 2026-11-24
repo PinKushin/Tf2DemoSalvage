@@ -100,7 +100,7 @@ public sealed class CreateAndRegisterTests
     /// <c>Dispose</c>, not code of this project's: only a Silk update can turn it red.
     /// </remarks>
     [Test]
-    public void Dispose_ADefaultComPtr_DoesNothing()
+    public void Dispose_ADefaultComPtr_DoesNotThrow()
     {
         ComPtr<ID3D11Buffer> none = default;
 

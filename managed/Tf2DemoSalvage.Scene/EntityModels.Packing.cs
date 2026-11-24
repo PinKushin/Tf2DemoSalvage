@@ -656,10 +656,11 @@ public sealed partial class EntityModelSet
     /// The packing groups a model's corners by material, so its faces reach the buffer in another order than the one
     /// <see cref="PropModels.ModelFrames.FacePlanes"/> lists them in. A group keeps its corners' order, so a face stays
     /// whole when all its corners share one material, as a real brush face's do. A packed triangle that does not start a
-    /// face but no longer follows its own predecessor is refused (review 10); a face split across groups whose triangles
-    /// still each follow their predecessor, as T0 (B, edge) then T1 (A, no edge) packs, passes, and is counted as one face
-    /// in the buffer as in the corners (review 11). Each corner's face is counted in corner order by the rule <see cref="FaceFan.Faces"/> applies to the
-    /// buffer: a face starts at each triangle whose first corner's edge is the polygon's. Then each face the buffer starts
+    /// face but no longer follows the triangle before it in the source corners is refused (review 10); a face split across
+    /// groups whose triangles still each follow that one, as T0 (B, edge) then T1 (A, no edge) packs, passes, and is
+    /// counted as one face in the buffer as in the corners (review 11). Each corner's face is counted in corner order by
+    /// the rule <see cref="FaceFan.Faces"/> applies to the buffer: a face starts at each triangle whose first corner's
+    /// edge is the polygon's. Then each face the buffer starts
     /// takes the plane of the face its first corner belongs to.
     /// </remarks>
     public IReadOnlyList<StoredPlane>? PackedFacePlanes(string modelPath)

@@ -161,13 +161,14 @@ public sealed class PackedFacePlanesTests
     }
 
     /// <remarks>
-    /// **A face split across material groups at a triangle boundary has no planes** (review 10, Fable): T0 (material 5,
-    /// edge), T1 (5, no edge) | T2 (7, edge), T3 (5, no edge), two faces. It packs T0 T1 T3 | T2, every triple whole and in
-    /// order, but T3, which does not start a face, now follows T1, so it would join face 0 and be culled on its plane
-    /// while both counts agree at two. None instead. The control: the packing did put T3 third.
+    /// **A triangle the packing moves away from its source predecessor has no planes** (review 10, Fable): T0 (material
+    /// 5, edge), T1 (5, no edge) | T2 (7, edge), T3 (5, no edge), two faces. It packs T0 T1 T3 | T2, every triple whole
+    /// and in order, but T3, which does not start a face, now follows T1 instead of T2, so it would join face 0 and be
+    /// culled on its plane while both counts agree at two. None instead. A split that keeps each triangle after its
+    /// predecessor is accepted (the next test). The control: the packing did put T3 third.
     /// </remarks>
     [Test]
-    public void PackedFacePlanes_OfAFaceThePackingSplitsAtATriangle_AreNone()
+    public void PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone()
     {
         PropVertex Corner(float x, int material, bool faceEdge = true) => new(x, 0f, 0f, 0f, 0f, material, FaceEdge: faceEdge);
 
@@ -194,6 +195,41 @@ public sealed class PackedFacePlanesTests
         models.Vertices.Select(vertex => vertex.X).ShouldBe(
             [0f, 1f, 2f, 0f, 2f, 3f, 10f, 12f, 13f, 10f, 11f, 12f], "the control: T3 packed third");
         models.PackedFacePlanes(Path).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A face split across material groups keeps its plane when each triangle still follows its predecessor** (review
+    /// 11, Fable): T0 (material 7, edge) and T1 (5, no edge), one face. The groups pack in first-appearance order, so it
+    /// packs T0 then T1, the buffer counts one face, and the one stored plane fits it. The control: the packing kept the
+    /// order.
+    /// </remarks>
+    [Test]
+    public void PackedFacePlanes_OfAFaceSplitAcrossGroupsInOrder_KeepItsPlane()
+    {
+        StoredPlane plane = new(1f, 0f, 0f, 1f, false);
+
+        PropVertex Corner(float x, int material, bool faceEdge = true) => new(x, 0f, 0f, 0f, 0f, material, FaceEdge: faceEdge);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [
+                    new PropVertex[]
+                    {
+                        Corner(0f, 7), Corner(1f, 7), Corner(2f, 7, false),
+                        Corner(0f, 5, false), Corner(2f, 5), Corner(3f, 5),
+                    },
+                ],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true],
+                FacePlanes: [plane]),
+        };
+
+        models.Precache([Path]);
+
+        models.Vertices.Select(vertex => vertex.X).ShouldBe([0f, 1f, 2f, 0f, 2f, 3f], "the control: T0 then T1");
+        models.PackedFacePlanes(Path).ShouldBe([plane]);
     }
 
     /// <remarks>A studio model has no faces' planes: none, and the outline derives nothing for it, since it draws none.</remarks>
