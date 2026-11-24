@@ -1147,9 +1147,9 @@ public sealed record ViewerSettings
         {
             ReadOnlySpan<char> content = line.AsSpan();
 
-            // **A `//` is a comment only outside quotes** (B824 review 3, Sonnet, Fable): TF2's tokenizer eats one between
-            // tokens, and a quoted string runs to its closing quote (`utlbuffer.cpp:1242-1326`), so
-            // `cl_screenshot_folder "//nas/shots"` is that folder, not an empty one.
+            // **A `//` is a comment only outside quotes** (B824 review 3, Sonnet, Fable): the command buffer toggles on every
+            // `"` and counts `//` only outside quotes (`commandbuffer.cpp:174-189`), and a quoted string runs to its closing
+            // quote (`utlbuffer.cpp:1242-1326`), so `cl_screenshot_folder "//nas/shots"` is that folder, not an empty one.
             bool quoted = false;
 
             for (int at = 0; at + 1 < content.Length; at++)

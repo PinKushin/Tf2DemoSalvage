@@ -45980,6 +45980,30 @@ test failed before it or under a sabotage.
    - Fable: a quoted `+` name holding a space (`+"sv_cheats 1" x`) skips the line's cheat tracking; the console still
      decides, only the reader's own refusal line can be wrong. Present since before this entry.
 
+**Review 4 (2026-11-24): Sonnet, Fable, Grok.** No blockers.
+
+1. *Test gaps (Fable, Sonnet).* No case had a comment after a closing quote, so a `Parse` that never closed a quote
+   survived; `cl_screenshot_folder "shots" // note` now reads `shots`, and that mutant reddens. No case pinned that `\r`
+   is no line break; `+sv_cheats "\r1"` now sets cheats on, as the console's whitespace reads it. Sonnet: the
+   `http://x` → `http:` assertion can fail again now that `Parse` keeps a quoted `//`, so it is back beside `café`.
+2. *Citation (Fable).* The quote and comment rule is `commandbuffer.cpp:174-189` (read: each `"` toggles, `//` counts
+   only outside quotes, `\n` always breaks), cited beside `utlbuffer.cpp`.
+3. *Misplaced remark (Sonnet, Fable).* Moved back onto `Parse_AClientConVarInUpperCase_IsKept`.
+4. *Not changed:*
+   - Grok: `\r` as a line end. `commandbuffer.cpp:196-198` breaks on `\n` alone, as `BufferCommands` does.
+   - Grok: an unclosed quote now keeps a later `//`. The engine does the same (a quoted run goes to the end of the line,
+     `utlbuffer.cpp:1274-1292`); only hand-malformed lines change.
+   - Fable, Sonnet: `ViewerSettings.Set` re-quotes a value through text, so a value holding a `"` is cut, as before this
+     entry: B831.
+
+## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — OPEN
+
+Found in B824 reviews 3 and 4 (Fable, Sonnet). `ViewerSettings.Set` builds `name "value"` and parses it back
+(`ViewerSettings.cs` ~1663), and config text has no escapes, so a `"` inside the value closes the quote early:
+`+cl_voice_filter x"//y"` holds `x"//y"` at the console (`ArgS`) and `x` in the settings. Both the launch line's early
+store and the console's announced set (`SettingsPresenter.cs` ~357) go through it. Fix shape: store a set's value
+directly rather than through a re-parsed line. *Not fixed*.
+
 ## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is

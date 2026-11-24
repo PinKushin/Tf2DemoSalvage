@@ -265,6 +265,9 @@ public sealed class LaunchOptionsTests
         // B824 review 3, Fable: a case the settings parser cannot produce on its own, so only the console's parse gives
         // it: `ArgS` drops a trailing byte of 0x80 or more (B823), so `café` sets `caf`.
         Read("+cl_voice_filter", "café").Settings.ConVarText("cl_voice_filter").ShouldBe("caf");
+
+        // B824 review 4, Sonnet: since the settings parser keeps a quoted `//`, only the console's cut makes this `http:`.
+        Read("+cl_voice_filter", "http://x").Settings.ConVarText("cl_voice_filter").ShouldBe("http:");
     }
 
     /// <remarks>
@@ -285,6 +288,11 @@ public sealed class LaunchOptionsTests
 
         on.Count(Refusal).ShouldBe(0, "the control");
         split.Count(Refusal).ShouldBe(1);
+
+        // B824 review 4, Fable: a carriage return is no line break to the console, only whitespace, so `sv_cheats \r1` sets 1.
+        RecordingLogger carriage = new();
+        LaunchOptionsReader.Read(["+sv_cheats", "0", "+sv_cheats", "\r1", "+cl_forwardspeed", "5"], ViewerSettings.Load(), carriage);
+        carriage.Count(Refusal).ShouldBe(0);
     }
 
     /// <remarks>
@@ -635,10 +643,6 @@ public sealed class LaunchOptionsTests
         Read("+DEMO_TIMESCALE", "8", "a.dem").PlaybackSpeed.ShouldBe(8d);
 
     /// <remarks>
-    /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
-    /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
-    /// </remarks>
-    /// <remarks>
     /// **A `//` inside quotes is part of the value, not a comment** (B824 review 3, Sonnet): TF2's tokenizer eats a `//`
     /// comment only between tokens, and a quoted string runs to its closing quote (`utlbuffer.cpp:1242-1326`), so
     /// `cl_screenshot_folder "//nas/shots"` is that folder. The settings parser cut at any `//`, so a launch
@@ -650,9 +654,15 @@ public sealed class LaunchOptionsTests
         ViewerSettings.Parse("cl_screenshot_folder shots // where they go", null).ScreenshotFolder.ShouldBe("shots", "the control");
 
         ViewerSettings.Parse("cl_screenshot_folder \"//nas/shots\"", null).ScreenshotFolder.ShouldBe("//nas/shots");
+        ViewerSettings.Parse("cl_screenshot_folder \"shots\" // note", null).ScreenshotFolder
+            .ShouldBe("shots", "the closing quote ends the string, so the comment after it is one (review 4, Fable)");
         Read("+" + ViewerSettings.ScreenshotFolderCommand, "//nas/shots").Settings.ScreenshotFolder.ShouldBe("//nas/shots");
     }
 
+    /// <remarks>
+    /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
+    /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
+    /// </remarks>
     [Test]
     public void Parse_AClientConVarInUpperCase_IsKept() =>
         ViewerSettings.Parse("TF_HUD_TARGET_ID_ALPHA 50", null).ConVarText("tf_hud_target_id_alpha").ShouldBe("50");
