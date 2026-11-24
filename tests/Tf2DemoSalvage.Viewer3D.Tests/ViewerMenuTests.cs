@@ -260,8 +260,8 @@ public sealed class ViewerMenuTests
     /// <remarks>
     /// **A bare key on a menu action is printed, not registered** (B821 review 4, Fable): WinForms refuses a shortcut with no
     /// modifier unless it is a function key, Insert or Delete, and threw from a key press when a config's toggle bound
-    /// `p`. The session takes the key through the console, so the item only names it. The control: another item keeps
-    /// its own key in the owner's table.
+    /// `p`. The item only names the key: a held action or a ConVar set reaches the console, a menu one-shot does not
+    /// (B825). The control: another item keeps its own key in the owner's table.
     /// </remarks>
     [Test]
     public void ShowBindings_ABareLetterOnAMenuAction_PrintsItAndKeepsTheOtherShortcuts()

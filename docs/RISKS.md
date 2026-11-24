@@ -45344,8 +45344,10 @@ registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSess
 (`ViewerSession.Input.cs:165`) handles only the two target cycles. WinForms registers a shortcut only for a key with a
 modifier or a function key, Insert or Delete (`ToolStripManager.IsValidShortcut`), so `bind p opendemo` names `p` beside
 Open (B821 review 4 prints it rather than throwing) and pressing `p` does nothing. A ConVar set with a value
-(`bind p "mat_fullbright 1"`) works, since the console sets it itself. In TF2 every bound key runs its command through
-the console. Fix shape: `OnConsoleAction` performs every one-shot action, so a key runs it whatever the menu can
+(`bind p "mat_fullbright 1"`) works, since the console sets it itself. TF2 dispatches every bound key through the
+console; these names are the viewer's own one-shots (TF2 has no `opendemo` or `togglefullscreen`, and a bare `cl_showfps`
+prints its value there), so the rule is TF2's while the commands are ours. The `mat_*` cheat toggles stay refused without
+`sv_cheats` by design (B791), which a fix must keep. Fix shape: `OnConsoleAction` performs every one-shot action, so a key runs it whatever the menu can
 register — the half of B145 its remark left. *Not fixed*.
 
 ## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
