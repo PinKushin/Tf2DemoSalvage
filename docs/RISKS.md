@@ -46088,10 +46088,19 @@ the inner line's refusal too. `AddedAsOne` now saves, clears and restores its de
 `Load_ALoadFromAHandlerWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: leaking the inner count to the
 outer reddens it alone. Not taken (Fable, low): the launch text runs as it is parsed, so an `exec`'s output comes
 before a later command's refusal, where TF2 refuses at add time; this predates B830 and is how the console runs every
-text. Not taken (Gemini, latent): a key pressed by a handler inside a launch or config line would leak a refusal to
-that line. It cannot happen: a key's own text is its binding, and a binding of 511 bytes or more needs a `bind`
-statement longer still, which the console refuses first; a binding that runs an alias refuses one depth down. The
-paragraph below is the entry as filed, before the fix.
+text. Gemini (latent): a key pressed by a handler inside a launch or config line would leak a refusal to that line.
+A key's own text cannot be refused (a binding of 511 bytes or more needs a longer `bind` statement), but see review 6.
+
+**Review 6** (Fable, Sonnet, Grok; Gemini pending; Sonnet and Grok had no blocking findings). Fixed (Fable): an alias
+body can be refused although its definition fits, since `alias` joins its words with spaces and `(` splits a word with
+no space in the line (a 504-byte definition holds a 557-byte body). Run by a handler, or a key, while an exec'd file's
+line was running, the body's refusal sat at that line's depth and the line said the overflow line for it. An alias body
+now runs with its refusals kept from every adder (`RunAliasBody`), as its adder is not read (B835). Test
+`Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_DoesNotSayTheBufferOverflowed`; sabotage: leaking the body's
+count reddens it alone. The review 5 sentence that called the key case impossible was wrong for this route and is
+corrected. Not taken (Sonnet, low): the review 5 test would also pass with a reset to 0 in place of the restore; telling
+them apart needs a refusal at depth 0 before the nested load, which nothing can make. The paragraph below is the entry
+as filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`

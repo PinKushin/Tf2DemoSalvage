@@ -485,6 +485,29 @@ public sealed class ConfigConsole
         }
     }
 
+    /// <summary>Runs an alias body with its refusals kept from every adder (B830 review 6): see <see cref="AddedAsOne"/>.</summary>
+    /// <param name="body">The alias body.</param>
+    /// <param name="depth">The depth it runs at.</param>
+    private void RunAliasBody(string body, int depth)
+    {
+        if (depth >= MaximumExpansion)
+        {
+            _ = Run(body, key: null, depth);
+            return;
+        }
+
+        int heard = _refusalsAt[depth];
+
+        try
+        {
+            _ = Run(body, key: null, depth);
+        }
+        finally
+        {
+            _refusalsAt[depth] = heard;
+        }
+    }
+
     /// <summary>Commands refused for their length so far, by the depth they ran at (B830): see <see cref="AddedAsOne"/>.</summary>
     private readonly int[] _refusalsAt = new int[MaximumExpansion];
 
@@ -1734,8 +1757,9 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                // No key, deliberately — see the remark above.
-                _ = Run(body, key: null, depth + 1);
+                // No key, deliberately — see the remark above. The body's own refusals are no adder's to report: its adder
+                // is not read (B835), and an exec'd file line at the next depth must not hear them (B830 review 6, Fable).
+                RunAliasBody(body, depth + 1);
                 acted = true;
                 continue;
             }

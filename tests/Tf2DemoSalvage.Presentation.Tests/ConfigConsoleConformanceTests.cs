@@ -1723,6 +1723,43 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **An alias body's refusal is no adder's to report** (B830 review 6, Fable): `alias` joins its words with spaces, and
+    /// `(` splits a word with no space in the line, so a 504-byte definition holds a 557-byte body, refused when `a` runs.
+    /// A handler that runs `a` while an exec'd file's line is running put that refusal at the file line's depth, and the
+    /// line said the overflow line for it. Alias bodies say nothing until their adder is read (B835). The control: the
+    /// body's command is refused.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_DoesNotSayTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new()
+        {
+            Log = log,
+            FindConfig = path => path == "cfg/f.cfg" ? System.Text.Encoding.ASCII.GetBytes($"{Alpha} 1") : null,
+        };
+        console.ReadSettingsFrom(_ => null);
+        string definition = "alias a " + string.Concat(Enumerable.Repeat(new string('w', 15) + "(", 31));
+        definition.Length.ShouldBeLessThan(ConfigConsole.MaximumCommandLength - 1, "the definition itself fits");
+        console.Load(definition);
+        bool ran = false;
+        console.ConVarSet += (_, _) =>
+        {
+            if (!ran)
+            {
+                ran = true;
+                console.Load("a");
+            }
+        };
+
+        console.Load("exec f.cfg");
+
+        ran.ShouldBeTrue("the handler ran");
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1, "the control: the body's command is refused");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
     /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by
     /// depth, the launch line's call does not say it again.
