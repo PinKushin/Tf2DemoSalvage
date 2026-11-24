@@ -102,7 +102,7 @@ public sealed class LaunchOptionsTests
     /// FUN_1801683d0 asks `ParmValueByIndex` for a `-flag`'s value, which tier0's `CCommandLine` gives unless there is no
     /// next argument or it starts with `+` or `-`, and skips it; so `-threads 4` neither runs nor opens `4`. **Above Valve**
     /// (`docs/ABOVE-VALVE.md`, the owner's pick): a `.dem` is never taken as a value, so `-novid a.dem` still opens it, where
-    /// TF2 would not play it.
+    /// TF2 would not play it. Nor is a folder (the next test).
     /// </remarks>
     [TestCase(new[] { "-threads", "4", "a.dem" }, new[] { "a.dem" })]
     [TestCase(new[] { "-threads", "", "a.dem" }, new[] { "a.dem" })]
@@ -110,6 +110,7 @@ public sealed class LaunchOptionsTests
     [TestCase(new[] { "-novid", "B.DEM", "c" }, new[] { "B.DEM", "c" })]
     [TestCase(new[] { "-novid", "-threads", "4" }, new string[0])]
     [TestCase(new[] { "-threads", "4" }, new string[0])]
+    [TestCase(new[] { "a.dem", "-novid" }, new[] { "a.dem" })]
     public void Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo(string[] arguments, string[] paths)
     {
         RecordingLogger log = new();
@@ -117,6 +118,34 @@ public sealed class LaunchOptionsTests
         LaunchOptions read = LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), log);
 
         read.Paths.ShouldBe(paths);
+    }
+
+    /// <remarks>
+    /// **An existing folder is never a flag's value either** (B828 review 1, Fable, Sonnet; the owner's pick, above Valve): a
+    /// folder on the line opens as a playlist, and `-novid C:\demos` did before. A name that is no folder is still dropped.
+    /// </remarks>
+    [Test]
+    public void Read_AnUnknownFlagBeforeAFolder_OpensTheFolder()
+    {
+        RecordingLogger log = new();
+        string folder = TestContext.CurrentContext.WorkDirectory;
+        string missing = System.IO.Path.Combine(folder, "no-such-folder-b828");
+
+        LaunchOptions read = LaunchOptionsReader.Read(["-novid", folder, "-novid", missing], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe([folder]);
+    }
+
+    /// <remarks>The warning names the value it dropped, and none it kept (B828 review 1, Fable, Gemini, Grok).</remarks>
+    [Test]
+    public void Read_AnUnknownFlagWithAValue_NamesTheValueInItsWarning()
+    {
+        RecordingLogger log = new();
+
+        _ = LaunchOptionsReader.Read(["-threads", "4", "-novid", "a.dem"], ViewerSettings.Load(), log);
+
+        log.Count("'-threads' '4' is not an option this viewer knows").ShouldBe(1);
+        log.Count("'-novid' is not an option this viewer knows").ShouldBe(1);
     }
 
     /// <remarks>

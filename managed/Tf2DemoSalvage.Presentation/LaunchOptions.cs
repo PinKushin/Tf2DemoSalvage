@@ -404,12 +404,12 @@ public static class LaunchOptionsReader
             // with a dash is not a case this viewer needs to serve.
             //
             // **Its value goes with it, as `stuffcmds` skips it** (B828; FUN_1801683d0 asks `ParmValueByIndex` for every
-            // `-flag`), so `-threads 4` opens no demo named `4`. Above Valve (`docs/ABOVE-VALVE.md`, the owner's pick): a
-            // `.dem` is never a value, so `-novid a.dem` still opens it.
+            // `-flag`), so `-threads 4` opens no demo named `4`. Above Valve (`docs/ABOVE-VALVE.md`, the owner's picks): a
+            // `.dem` or an existing folder is never a value, so `-novid a.dem` still opens it (B828 review 1, Fable, Sonnet).
             if (argument.StartsWith('-'))
             {
                 string? value = pending.TryPeek(out string? next) && IsParmValue(next)
-                    && !next.EndsWith(".dem", StringComparison.OrdinalIgnoreCase)
+                    && !next.EndsWith(".dem", StringComparison.OrdinalIgnoreCase) && !System.IO.Directory.Exists(next)
                     ? pending.Dequeue()
                     : null;
 

@@ -46267,6 +46267,20 @@ viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+f
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
+## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — OPEN
+
+Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_1801683d0) skips the argument
+`ParmValueByIndex` gives after every `-flag`, known or not. The viewer's own flags that take no value (`--autoplay`,
+`--first-person`, `--third-person`) are matched before that rule, so `--autoplay 4 a.dem` tries to open a demo named
+`4`. These flags are the viewer's own (TF2 has none), so whether they follow TF2's grammar is the owner's to say. *Not
+fixed*.
+
+## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — OPEN
+
+Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so
+a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window
+height and takes `1080` as its value. *Not read*: which TF2 module reads `-h`. *Not fixed*.
+
 ## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
@@ -46291,8 +46305,20 @@ branch uses for `ParmValueByIndex` (`IsParmValue`: a next argument not starting 
 keep opening it; the owner picked "Keep opening it", the recommended option, without words of their own, D183): a
 next argument ending `.dem` (any case) is never a value, so it is still opened (`docs/ABOVE-VALVE.md`). The warning
 names the dropped value. Tests `Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo` (`-threads 4 a.dem`, an empty value,
-`-novid a.dem`, `-novid B.DEM c`, two flags, a flag at the end) and `Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue`;
-four cases red before. Sabotage: the `.dem` exception made to miss reddens the two `.dem` cases and two older tests.
+`-novid a.dem`, `-novid B.DEM c`, two flags, a flag with its value at the end) and
+`Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue`; four cases red before. Sabotage: the `.dem` exception made to miss
+reddens the two `.dem` cases and two older tests.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: a folder after an unknown flag was dropped,
+where it opened as a playlist before (`-novid C:\demos`) (Fable, Sonnet). Asked again, the owner picked "Folders open
+too", the recommended option, without words of their own (D183): an existing folder is never a value either (test
+`Read_AnUnknownFlagBeforeAFolder_OpensTheFolder`, with a missing folder as its control; sabotage: the folder check made
+to miss reddens it). The warning's value is asserted (`Read_AnUnknownFlagWithAValue_NamesTheValueInItsWarning`;
+sabotage: the value left out reddens it) (Fable, Gemini, Grok). A bare flag at the end is tested (`a.dem -novid`), and
+the case list above no longer calls `-threads 4` one (Gemini, Sonnet). `docs/findings/13-settings-parity.md` said the
+skip was not ported (Fable). Filed: B836, `-h` read as help where TF2's is a height; B837, a known viewer flag that
+takes no value keeps the next word as a path (Fable).
+
 The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the

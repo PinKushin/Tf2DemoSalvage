@@ -35,3 +35,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | The same strip on a file `exec` reads, so its first command runs | D265 | `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` |
 | `bind` takes a chord, a modifier and `+` before a TF2 key name (`CTRL+e`), as the viewer's own defaults and menu use (TF2 has no chords and says `isn't a valid key`) | B826 | `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds` |
 | A `.dem` after an unknown `-flag` is opened, not taken as the flag's value (`-novid a.dem`; TF2 skips it) | B828 | `Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo` |
+| An existing folder after an unknown `-flag` is opened, not taken as the flag's value (TF2 skips it) | B828 | `Read_AnUnknownFlagBeforeAFolder_OpensTheFolder` |
