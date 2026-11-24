@@ -45957,7 +45957,7 @@ test failed before it or under a sabotage.
 5. *Not changed:* Grok said USER-GUIDE was missing; it was in the commit, outside the part of the diff Grok was given.
    Fable's per-line 511-byte limit is B830. Sonnet's stale test name in the fixed paragraph is corrected below.
 
-**Review 3 (2026-11-24): Sonnet, Fable, Grok.** Each fix's test failed before it.
+**Review 3 (2026-11-24): Sonnet, Fable, Grok; Gemini found items 1 and 3 too.** Each fix's test failed before it.
 
 1. *The settings parser cut a quoted `//` (Sonnet, Fable).* `ViewerSettings.Parse`, which the early store, the console's
    own announced sets and `settings.cfg` all go through, cut at any `//`, so `+cl_screenshot_folder //nas/shots` stored an
