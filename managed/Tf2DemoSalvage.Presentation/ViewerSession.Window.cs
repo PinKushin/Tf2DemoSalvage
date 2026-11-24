@@ -269,7 +269,11 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // readers look and where it wins over the saved value; a refused one is logged with TF2's line. **Before
         // `OnConVarSet`** (review 2): the window's controls do not exist yet while it is being built, and the switches are
         // applied from the settings when the device opens.
-        RunTheLaunchLine();
+        // Its one-shots are kept until the window is up (B829): `stuffcmds` runs `+screenshot` like any command, and the
+        // window they act on is being built now.
+        _console.Triggered += KeepALaunchOneShot;
+        RunTheLaunchLine(oneShots: true);
+        _console.Triggered -= KeepALaunchOneShot;
 
         // What is read once at startup, read now that the configs and the line have run (B816 review 1).
         _presenter.ApplyTheStartingSettings(_launch);
@@ -343,6 +347,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <summary>The window is up: opens the demo the command line named, or ends a headless run that has none.</summary>
     public void WindowShown()
     {
+        // The launch line's one-shots, in its order, before the demo it names opens (B829): TF2 runs `stuffcmds` at startup.
+        foreach (ViewerAction shot in _launchOneShots)
+        {
+            OnConsoleAction(_console, new ViewerActionEventArgs(shot));
+        }
+
+        _launchOneShots.Clear();
+
         if (_openOnShow is not null)
         {
             Loading = OpenCommandLineDemo();
@@ -442,8 +454,8 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
             // The configs ran again, so the whole line runs after them again, as `stuffcmds` follows `exec` (B811 review 2,
             // B816): a launch option set before the folder was chosen, by the menu too, ends at the line's value, as the
-            // next launch would.
-            RunTheLaunchLine();
+            // next launch would. Its one-shots do not fire again (B829): this is no second launch.
+            RunTheLaunchLine(oneShots: false);
 
             // No map has been read yet (no install was open), so what startup reads once is read again from the new configs
             // (B816 review 2, Grok): the lighting the first map takes, and the spectator's director.
@@ -463,13 +475,19 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// at the first command of 511 bytes or more, so that command and every later one never run.
     /// `stuffcmds`, not `exec`: the launch line is not read through a file's line reader (B820 review 8).
     /// </remarks>
-    private void RunTheLaunchLine()
+    private void RunTheLaunchLine(bool oneShots)
     {
         if (_launch.AfterConfigs is { Count: > 0 } lines)
         {
-            _console.Stuff(string.Join('\n', lines));
+            _console.Stuff(string.Join('\n', lines), oneShots);
         }
     }
+
+    /// <summary>The launch line's one-shots, held until the window is up (B829).</summary>
+    private readonly List<ViewerAction> _launchOneShots = [];
+
+    /// <summary>Holds a one-shot the launch line fired while the window was being built (B829).</summary>
+    private void KeepALaunchOneShot(object? sender, ViewerActionEventArgs e) => _launchOneShots.Add(e.Action);
 
     /// <summary>The export or compile in flight, held rather than <c>async void</c> (see <see cref="Loading"/>).</summary>
     public Task<string> FileWork { get; private set; } = Task.FromResult(string.Empty);

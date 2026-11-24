@@ -1564,22 +1564,30 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **The launch line is startup text** (B820 review 9, Fable): `Stuff` takes `Load`'s startup flags, so a launch one-shot
-    /// is idle, as TF2's `stuffcmds` runs before a demo plays. The control: the same one-shot from a key fires.
+    /// **The launch line runs its one-shots, as `stuffcmds` does** (B829; the owner's pick, "Run them like TF2"): TF2 runs
+    /// every `+command` on the line once the configs are read, `+screenshot` included, where B820 review 9 had made them idle.
+    /// An `exec` on the line runs its file's one-shots too, as everything `stuffcmds` adds runs. The viewer's replay of the
+    /// line after a game folder is chosen (`oneShots: false`) is not a second launch, so it fires none. The control: the
+    /// same text loaded as a config fires none (B820 review 1).
     /// </remarks>
     [Test]
-    public void Stuff_AOneShot_IsIdleAsAtStartup()
+    public void Stuff_AOneShot_FiresUnlessItIsAReplay()
     {
-        ConfigConsole console = new();
+        ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "togglefullscreen"u8.ToArray() : null };
         List<ViewerAction> fired = [];
         console.Triggered += (_, e) => fired.Add(e.Action);
 
-        console.Stuff("screenshot");
+        console.Load("screenshot\nexec shot");
         fired.ShouldBeEmpty();
 
-        console.Load("bind k screenshot");
-        console.KeyDown("k");
-        fired.ShouldBe([ViewerAction.Screenshot]);
+        console.Stuff("screenshot\nexec shot", oneShots: false);
+        fired.ShouldBeEmpty();
+
+        console.Stuff("screenshot\nexec shot", oneShots: true);
+        fired.ShouldBe([ViewerAction.Screenshot, ViewerAction.FullScreen]);
+
+        console.Load("screenshot");
+        fired.Count.ShouldBe(2, "a config loaded after the line is no longer the line's");
     }
 
     /// <remarks>

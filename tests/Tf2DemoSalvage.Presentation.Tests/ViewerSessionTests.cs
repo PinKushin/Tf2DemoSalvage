@@ -2014,6 +2014,22 @@ public sealed class ViewerSessionTests
         rig.Transport.DemoLength.ShouldBe(2000);
     }
 
+    /// <remarks>
+    /// **A one-shot on the launch line runs, as `stuffcmds` runs it** (B829; the owner's pick, "Run them like TF2"): held
+    /// while the window is built, and performed once it is up. The control: nothing was performed before.
+    /// </remarks>
+    [Test]
+    public void WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce()
+    {
+        using Rig rig = Build("+togglefullscreen");
+        const string Performed = "PerformMenuAction FullScreen";
+        rig.Window.Told.ShouldNotContain(Performed, "the control: nothing performed while the window is built");
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
+    }
+
     [Test]
     public void WindowShown_AMissingFileOnACaptureRun_SaysWhichOnStderrExitsOneAndCloses()
     {
@@ -2258,6 +2274,27 @@ public sealed class ViewerSessionTests
         rig.Session.GameFolderChosen(tf);
 
         rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The line's replay after a folder is chosen fires no one-shot again** (B829): it is no second launch, so a
+    /// `+togglefullscreen` that ran once at startup does not toggle back. The control: the replay ran (the test above).
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_AfterALaunchOneShot_DoesNotFireItAgain()
+    {
+        using Rig rig = Build("+togglefullscreen");
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        const string Performed = "PerformMenuAction FullScreen";
+        rig.Session.WindowShown();
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1, "the control: the launch fired it");
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
     }
 
     /// <remarks>
