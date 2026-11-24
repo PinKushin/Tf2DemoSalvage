@@ -1107,6 +1107,30 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **The launch line is one buffer, so a command too long for it drops every later one** (B830): `stuffcmds`
+    /// (`engine.dll` build 1007 FUN_1801683d0) pastes every `+command` into one text and adds it once, and
+    /// `CCommandBuffer::AddText` (`src/tier1/commandbuffer.cpp:209-247`) queues each command in turn and returns at the first
+    /// of 511 bytes or more (`InsertCommand`, `:120-126`). So the `toggle` before the long `alias` runs, and the
+    /// `fps_max 60` after it does not. The control: without the long alias, `fps_max` ends at 60.
+    /// </remarks>
+    [Test]
+    public void Build_ALaunchCommandOf511BytesBeforeAnother_RefusesItAndEveryLaterOne()
+    {
+        string tooLong = "a " + new string('x', 600);
+
+        using (Rig control = BuildWithAutoexec("fps_max 123\ncl_showfps 0\n", "+toggle", "cl_showfps", "+fps_max", "60"))
+        {
+            control.Settings.Current.FrameRateLimit.ShouldBe(60, "the control");
+        }
+
+        using Rig rig = BuildWithAutoexec(
+            "fps_max 123\ncl_showfps 0\n", "+toggle", "cl_showfps", "+alias", tooLong, "+fps_max", "60");
+
+        rig.Settings.ConVar("cl_showfps").ShouldBe("1", "the command before the long one runs");
+        rig.Settings.Current.FrameRateLimit.ShouldBe(123);
+    }
+
+    /// <remarks>
     /// **A bind a key's alias makes at run time reaches the bindings the window shows** (B821): `F7` runs an alias that
     /// binds `F8` to the screenshot. TF2 has one bind table, which its binding menu reads (*not read*; the menu is closed),
     /// so the projection must follow the console. The control: before `F7`, `F8` takes no screenshot.

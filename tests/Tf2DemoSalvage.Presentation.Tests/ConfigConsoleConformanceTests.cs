@@ -1656,6 +1656,133 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A launch line cut for a long command also says `Cbuf_AddText: buffer overflow`** (B830 review 3): `stuffcmds` adds
+    /// through `engine.dll` build 1007 FUN_180166e30 (`engine/cmd.cpp`), which prints it when `AddText` returns false, after
+    /// `InsertCommand`'s `Command too long` (`src/tier1/commandbuffer.cpp:124`). The control: a launch line that fits says
+    /// neither.
+    /// </remarks>
+    [Test]
+    public void Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Stuff("toggle cl_showfps");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "the control");
+
+        console.Stuff("toggle cl_showfps\nalias a " + new string('x', 600) + "\nfps_max 60");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **Each config line is its own `Cbuf_AddText`** (B830 review 4, Fable): `Cmd_Exec_f` (`engine.dll` build 1007
+    /// FUN_1801672f0) adds every line through FUN_180166e30, so a refused line says `Cbuf_AddText: buffer overflow`, and the
+    /// next line, added on its own, still runs. The control: the line after it sets `fps_max`.
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithACommandOf511Bytes_SaysTheBufferOverflowedAndRunsTheNextLine()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("alias a " + new string('x', 600) + "\nfps_max 60");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+        console.ConVar("fps_max").ShouldBe("60", "the control: the next line is added on its own");
+    }
+
+    /// <remarks>
+    /// **A load from a handler reports its own refusal, and the line that raised it reports none** (B830 review 5, Fable,
+    /// Sonnet): both add text at depth 0, so a count compared before and after made the outer line say the overflow line
+    /// for the inner one too. The control: the inner line's own refusal is reported.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerWithACommandOf511Bytes_SaysTheBufferOverflowedOnce()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        bool loaded = false;
+        console.ConVarSet += (_, _) =>
+        {
+            if (!loaded)
+            {
+                loaded = true;
+                console.Load("alias a " + new string('x', 600));
+            }
+        };
+
+        console.Load($"{Alpha} 1");
+
+        loaded.ShouldBeTrue("the handler ran");
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1, "the control: the inner line is refused");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **An alias body's refusal is no adder's to report** (B830 review 6, Fable): `alias` joins its words with spaces, and
+    /// `(` splits a word with no space in the line, so a 504-byte definition holds a 557-byte body, refused when `a` runs.
+    /// A handler that runs `a` while an exec'd file's line is running put that refusal at the file line's depth, and the
+    /// line said the overflow line for it. Alias bodies say nothing until their adder is read (B835). The control: the
+    /// body's command is refused.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_DoesNotSayTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new()
+        {
+            Log = log,
+            FindConfig = path => path == "cfg/f.cfg" ? System.Text.Encoding.ASCII.GetBytes($"{Alpha} 1") : null,
+        };
+        console.ReadSettingsFrom(_ => null);
+        string definition = "alias a " + string.Concat(Enumerable.Repeat(new string('w', 15) + "(", 31));
+        definition.Length.ShouldBeLessThan(ConfigConsole.MaximumCommandLength - 1, "the definition itself fits");
+        console.Load(definition);
+        bool ran = false;
+        console.ConVarSet += (_, _) =>
+        {
+            if (!ran)
+            {
+                ran = true;
+                console.Load("a");
+            }
+        };
+
+        console.Load("exec f.cfg");
+
+        ran.ShouldBeTrue("the handler ran");
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1, "the control: the body's command is refused");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
+    /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by
+    /// depth, the launch line's call does not say it again.
+    /// </remarks>
+    [Test]
+    public void Stuff_AnExecOfAFileWithACommandOf511Bytes_SaysTheBufferOverflowedOnce()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new()
+        {
+            Log = log,
+            FindConfig = path => path == "cfg/long.cfg"
+                ? System.Text.Encoding.ASCII.GetBytes("alias a " + new string('x', 600))
+                : null,
+        };
+
+        console.Stuff("exec long.cfg");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0): `argc - 2 &lt; 2`, else
     /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
     /// the key as it was — not cleared — where the viewer had bound the third token.

@@ -120,6 +120,9 @@ public static class LaunchOptionsReader
         // What runs again after the configs, in order (B811): see `LaunchOptions.AfterConfigs`.
         List<string> afterConfigs = [];
 
+        // Whether the console will refuse a command handed on so far, and so every later one (B830): see `Add`.
+        bool refused = false;
+
         LaunchOptions read = new(settings, paths);
 
         // A queue rather than an indexed loop: an option consumes the value after it, and moving a
@@ -427,6 +430,21 @@ public static class LaunchOptionsReader
 
         return afterConfigs.Count == 0 ? read : read with { AfterConfigs = afterConfigs };
 
+        // Hands a line to the console, noting whether the console will refuse it (B830): the launch line is one `AddText`
+        // buffer, which drops a command of 511 bytes or more and every later one (`commandbuffer.cpp:120-126, 242-243`), so
+        // from there on nothing is stored early or logged as run either. Measuring each line alone measures the joined
+        // buffer, because `GetNextCommandLength` (`:163-203`) ends a command at every line feed and starts each with its
+        // quote and comment state cleared.
+        // Returns whether the line's first command will run, which is the set the early store mirrors: the commands before a
+        // refused one on the same line still run (B830 review 1, Sonnet).
+        bool Add(string line)
+        {
+            bool runs = !refused && ConfigConsole.AddsFirst(line);
+            refused |= !ConfigConsole.AddsWhole(line);
+            afterConfigs.Add(line);
+            return runs;
+        }
+
         // Hands one command to the console after the configs, `quoted` for the sidecar's `--set`, as `stuffcmds` pastes it
         // otherwise; and keeps what the line already did for a ConVar it names.
         void Assign(string command, string? value, bool quoted)
@@ -437,7 +455,7 @@ public static class LaunchOptionsReader
             {
                 if (value is not null)
                 {
-                    afterConfigs.Add($" {value}");
+                    _ = Add($" {value}");
                 }
 
                 return;
@@ -446,8 +464,11 @@ public static class LaunchOptionsReader
             // A name alone, as `stuffcmds` pastes it when no value follows: the console runs it, or prints a ConVar's value.
             if (value is null)
             {
-                afterConfigs.Add(command);
-                log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
+                if (Add(command))
+                {
+                    log.LogInformation("{Message}", $"{command} (from the command line, after the configs)");
+                }
+
                 return;
             }
 
@@ -471,6 +492,13 @@ public static class LaunchOptionsReader
             // the console's gate decides each cheat against `sv_cheats` as the configs and the line so far left it. None is
             // stored here (B811 review 2: storing the ones the line itself admitted let an earlier deferred set of the same
             // ConVar win over a later admitted one).
+            // A line the console refuses at its first command is neither stored nor logged as run (B830 review 1, Fable): TF2
+            // prints only its `Command too long` line, which the console logs.
+            if (!Add(line))
+            {
+                return;
+            }
+
             if (own == CheatsConVar)
             {
                 if (held is not null)
@@ -478,7 +506,6 @@ public static class LaunchOptionsReader
                     cheats = ConfigConsole.CheatsAllowed(held);
                 }
 
-                afterConfigs.Add(line);
                 log.LogInformation("{Message}", $"{CheatsConVar} {value} (from the command line, after the configs)");
                 return;
             }
@@ -497,11 +524,9 @@ public static class LaunchOptionsReader
                             "{Message}", $"Can't use cheat cvar {own} in multiplayer, unless the server has sv_cheats set to 1.");
                     }
 
-                    afterConfigs.Add(line);
                     return;
                 }
 
-                afterConfigs.Add(line);
                 log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
                 return;
             }
@@ -526,7 +551,6 @@ public static class LaunchOptionsReader
                 read = read with { Settings = read.Settings.Set(own, held) };
             }
 
-            afterConfigs.Add(line);
             log.LogInformation("{Message}", $"{own} {value} (from the command line, after the configs)");
         }
     }

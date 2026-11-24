@@ -449,15 +449,108 @@ public sealed class ConfigConsole
     /// <param name="text">The commands.</param>
     /// <remarks>
     /// `Cmd_Exec_f`'s line reader (its 1023-byte cap, its `\"` and `\\` unescape) is a file's (B820 review 8, Sonnet); the
-    /// launch line reaches the buffer whole. *Interpolated*: `stuffcmds` itself is not read; it adds the command line's text.
+    /// launch line reaches the buffer whole: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0, B824) pastes every
+    /// `+command` into one text and adds it once (B830), so the viewer hands its whole launch line here in one call.
     /// </remarks>
-    public void Stuff(string? text) => AtStartup(() => _ = RunCommand(text ?? string.Empty, key: null));
+    public void Stuff(string? text) =>
+        AtStartup(() => AddedAsOne(depth: 0, () => _ = RunCommand(text ?? string.Empty, key: null)));
+
+    /// <summary>
+    /// Runs text the engine adds in one `Cbuf_AddText` call, and says what that call says when `AddText` refuses one of the
+    /// text's own commands: `Cbuf_AddText: buffer overflow`, after the `Command too long` line (B830 review 3; `engine.dll`
+    /// build 1007 FUN_180166e30, `engine/cmd.cpp`). The launch line is one such call (`stuffcmds`), and so is each line of
+    /// an exec'd file (`Cmd_Exec_f`).
+    /// </summary>
+    /// <param name="depth">The depth the text's own commands run at: a refusal deeper is another adder's (B835).</param>
+    /// <param name="run">Runs the text.</param>
+    private void AddedAsOne(int depth, Action run)
+    {
+        // Saved and cleared rather than compared, as the budgets are (B830 review 5, Fable): a handler that loads or
+        // stuffs inside this run adds its own text at the same depth, and its refusal is its own to report.
+        int outer = _refusalsAt[depth];
+        _refusalsAt[depth] = 0;
+
+        try
+        {
+            run();
+
+            if (_refusalsAt[depth] != 0)
+            {
+                Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+            }
+        }
+        finally
+        {
+            _refusalsAt[depth] = outer;
+        }
+    }
+
+    /// <summary>Runs an alias body with its refusals kept from every adder (B830 review 6): see <see cref="AddedAsOne"/>.</summary>
+    /// <param name="body">The alias body.</param>
+    /// <param name="depth">The depth it runs at.</param>
+    private void RunAliasBody(string body, int depth)
+    {
+        if (depth >= MaximumExpansion)
+        {
+            _ = Run(body, key: null, depth);
+            return;
+        }
+
+        int heard = _refusalsAt[depth];
+
+        try
+        {
+            _ = Run(body, key: null, depth);
+        }
+        finally
+        {
+            _refusalsAt[depth] = heard;
+        }
+    }
+
+    /// <summary>Commands refused for their length so far, by the depth they ran at (B830): see <see cref="AddedAsOne"/>.</summary>
+    private readonly int[] _refusalsAt = new int[MaximumExpansion];
+
+    /// <summary>Whether one `AddText` call would queue every command in this text, refusing none for its length (B830).</summary>
+    /// <param name="text">The text, as it would be added.</param>
+    /// <returns>False when a command in it is 511 bytes or more, which `AddText` refuses with every command after it.</returns>
+    /// <remarks>The same split, the same skip of a command with no name, and the same bound as the console's run.</remarks>
+    internal static bool AddsWhole(string text) =>
+        !BufferCommands(text).Any(command => NamesACommand(SourceConfig.Tokens(command.Command)) && IsTooLong(command.Length));
+
+    /// <summary>Whether one `AddText` call would queue the first named command in this text (B830 review 1).</summary>
+    /// <param name="text">The text, as it would be added.</param>
+    /// <returns>False only when that first command is 511 bytes or more; true when the text names none.</returns>
+    /// <remarks>The commands before a refused one are queued and run, so a set first on its line runs even when a later
+    /// command on that line is refused.</remarks>
+    internal static bool AddsFirst(string text)
+    {
+        foreach ((int length, string command, _) in BufferCommands(text))
+        {
+            if (NamesACommand(SourceConfig.Tokens(command)))
+            {
+                return !IsTooLong(length);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a split command is a command at all: `ParseArgV0` finding an empty first token skips it before
+    /// `InsertCommand` measures it (`src/tier1/commandbuffer.cpp:230-232`).
+    /// </summary>
+    private static bool NamesACommand(IReadOnlyList<string> tokens) => tokens.Count > 0 && tokens[0].Length > 0;
+
+    /// <summary>Whether `InsertCommand` refuses a command this long (`src/tier1/commandbuffer.cpp:120-126`).</summary>
+    private static bool IsTooLong(int length) => length >= MaximumCommandLength - 1;
 
     /// <summary>Runs startup text: a config or the launch line.</summary>
     /// <remarks>
     /// A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
     /// Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
-    /// Each line's budgets are its own and the outer command's are put back by `RunCommand` (B820 reviews 3-5).
+    /// Each config line's budgets are its own, the whole launch line shares one set (B830), and the outer command's are put
+    /// back by `RunCommand` (B820 reviews 3-5).
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
     /// </remarks>
     private void AtStartup(Action run)
@@ -626,16 +719,22 @@ public sealed class ConfigConsole
     {
         foreach (string line in ExecLines(text))
         {
-            // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config tree,
-            // whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
-            if (depth == 0)
+            // **Each file line is its own `Cbuf_AddText`** (B830 review 4, Fable): `Cmd_Exec_f` (`engine.dll` build 1007
+            // FUN_1801672f0) adds every line through FUN_180166e30, which says `Cbuf_AddText: buffer overflow` when `AddText`
+            // refuses one of its commands, before the next line is read.
+            AddedAsOne(depth, () =>
             {
-                _ = RunCommand(line, key: null);
-                continue;
-            }
+                // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config
+                // tree, whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+                if (depth == 0)
+                {
+                    _ = RunCommand(line, key: null);
+                    return;
+                }
 
-            _aliasRuns = 0;
-            _ = Run(line, key: null, depth);
+                _aliasRuns = 0;
+                _ = Run(line, key: null, depth);
+            });
         }
     }
 
@@ -679,7 +778,8 @@ public sealed class ConfigConsole
 
     /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
     /// <remarks>
-    /// The one place budgets start (B820 review 5, Fable): a key, and each line of a file <see cref="Load"/> reads. Saved and
+    /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
+    /// launch line, which <see cref="Stuff"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
     /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
     /// </remarks>
     private bool RunCommand(string line, string? key)
@@ -1205,7 +1305,8 @@ public sealed class ConfigConsole
     /// </remarks>
     public const int MaximumAliasRuns = 4096;
 
-    /// <summary>Aliases run since the last line began; see <see cref="MaximumAliasRuns"/>.</summary>
+    /// <summary>Aliases run since the current command began (a key, a config line, or the whole launch line, B830); see
+    /// <see cref="MaximumAliasRuns"/>.</summary>
     private int _aliasRuns;
 
     /// <summary>`COMMAND_MAX_LENGTH`: a command of this many bytes less one or more is skipped (`src/public/tier1/convar.h:207`).</summary>
@@ -1614,14 +1715,18 @@ public sealed class ConfigConsole
             // `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it (`:230-232`):
             // a blank command, or one whose first token is `""`, is no command of any length, not a refused one (B820
             // reviews 6 and 7, Fable). *Not implemented*: `wait`, which `AddText` consumes there too.
-            if (tokens.Count == 0 || tokens[0].Length == 0)
+            if (!NamesACommand(tokens))
             {
                 continue;
             }
 
-            if (length >= MaximumCommandLength - 1)
+            if (IsTooLong(length))
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
+
+                // By depth, so each adder hears only its own text's refusals (B830 review 4, Fable, Sonnet): an exec'd
+                // file's line or an alias body runs deeper, under its own adder.
+                _refusalsAt[depth]++;
                 return acted;
             }
 
@@ -1652,8 +1757,9 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                // No key, deliberately — see the remark above.
-                _ = Run(body, key: null, depth + 1);
+                // No key, deliberately — see the remark above. The body's own refusals are no adder's to report: its adder
+                // is not read (B835), and an exec'd file line at the next depth must not hear them (B830 review 6, Fable).
+                RunAliasBody(body, depth + 1);
                 acted = true;
                 continue;
             }

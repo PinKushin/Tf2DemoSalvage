@@ -46035,14 +46035,79 @@ true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 revie
 command. Fix shape: read why B820 skips a config's one-shot at load, then decide whether the launch line, which runs
 after the configs, shares that reason. *Not fixed*.
 
-## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — OPEN
+## B830 — each launch line is buffered on its own, where TF2's `stuffcmds` adds the whole line at once (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** Read again in `src/tier1/commandbuffer.cpp`: `AddText` (`:209-247`) queues each command in turn and returns
+at the first that `InsertCommand` (`:120-126`) refuses for 511 bytes or more. So the commands before the long one stay
+queued and run, and it and every later one do not; "refuses the whole buffer" below was too wide. `RunTheLaunchLine`
+now joins the launch line's commands with line feeds, as `stuffcmds` pastes them, and stuffs the text once; the console
+already stops at the long command (B820). `LaunchOptions` stops storing early from the first command the console will
+refuse, measured by the console's own split and bound (`ConfigConsole.AddsWhole`, shared with the run). Tests:
+`Build_ALaunchCommandOf511BytesBeforeAnother_RefusesItAndEveryLaterOne` (the `toggle` before the long `alias` runs, the
+`fps_max 60` after it does not) and `Read_AConVarAfterACommandOf511Bytes_IsNotStored`; both red before. Sabotage: the
+store gate disabled reddens the second alone, since the autoexec's `fps_max 123` overrides an early store in the first.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed: the store was gated per launch argument, so a set before a refused
+statement in the same argument (`+fps_max "60;alias a <600 bytes>"`) was not stored, where TF2 runs it (Fable, Sonnet,
+Grok); `ConfigConsole.AddsFirst` now says whether a line's first command is queued, and only that gates the store and
+the `sv_cheats` tracking (test `Read_ASetBeforeARefusedStatementOnItsLine_IsStored`, with the long statement first as
+its control; sabotage: gating on `AddsWhole` again reddens it alone). A command the console refuses is no longer
+logged as run (Fable, Gemini). Two budget comments name the shared launch-line budget (Gemini). The test's long-value
+case now uses a value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the
+launch line shares one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own
+folder settings, which only the early store sets, follow the same rule, so one after a refused command, or one whose
+first command is 511 bytes or more, is not applied.
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: the new test's control could not fail, its
+long statement read as 0, the default (Fable, Gemini, Sonnet); it now reads as 80, and a gate that ignores the first
+command's length reddens it. The wording above (Fable). Recorded elsewhere: `wait` is consumed by
+`AddText` before the length check while `wait` is enabled (`:235-240`), so `+wait <600 bytes>` refuses nothing in
+TF2; the viewer has no `wait` (B832), and counts it as refusable in both the run and the store, so the two agree
+(Fable). Filed: B834, the argument buffer's own refusal (Fable).
+
+**Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings. Fixed (Fable):
+`Cbuf_AddText` (`engine.dll` build 1007 FUN_180166e30, which `stuffcmds` calls; `engine/cmd.cpp`) prints
+`Cbuf_AddText: buffer overflow` when `AddText` refuses, read in the decompile after Fable recalled it, so a cut launch
+line now says it too (test `Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed`, with a line that fits
+as its control; sabotage: a refusal not counted reddens it). The `wait` note now says "while `wait` is enabled"
+(Fable). Filed: B835, the same line on the console's other paths. Not taken: a test remark of 122 columns, in a file
+with others longer.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok). Fixed (all four; Gemini called it a blocker): the refusal count was one
+for the whole launch run, so a refusal in a file the line `exec`s, or in an alias body, made the launch line say the
+overflow line too, once however many there were. Refusals are now counted by depth, and each adder hears only its own
+text's: the launch line (`stuffcmds`) and each line of a config, since `Cmd_Exec_f` adds every line through its own
+FUN_180166e30 call, read in the decompile (Fable). So a config line refused at load now says the line, and the next
+line still runs. Tests `Load_ALineWithACommandOf511Bytes_SaysTheBufferOverflowedAndRunsTheNextLine` and
+`Stuff_AnExecOfAFileWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: counting a nested refusal at the
+top as well reddens the second. B835 narrowed to keys and alias bodies (Fable).
+
+**Review 5** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed (Fable; Sonnet as latent): the count
+was compared before and after a run, so a handler that loads inside a line at the same depth made the outer line report
+the inner line's refusal too. `AddedAsOne` now saves, clears and restores its depth's count, as the budgets are. Test
+`Load_ALoadFromAHandlerWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: leaking the inner count to the
+outer reddens it alone. Not taken (Fable, low): the launch text runs as it is parsed, so an `exec`'s output comes
+before a later command's refusal, where TF2 refuses at add time; this predates B830 and is how the console runs every
+text. Gemini (latent): a key pressed by a handler inside a launch or config line would leak a refusal to that line.
+A key's own text cannot be refused (a binding of 511 bytes or more needs a longer `bind` statement), but see review 6.
+
+**Review 6** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no blocking findings). Fixed (Fable): an alias
+body can be refused although its definition fits, since `alias` joins its words with spaces and `(` splits a word with
+no space in the line (a 504-byte definition holds a 557-byte body). Run by a handler, or a key, while an exec'd file's
+line was running, the body's refusal sat at that line's depth and the line said the overflow line for it. An alias body
+now runs with its refusals kept from every adder (`RunAliasBody`), as its adder is not read (B835). Test
+`Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_DoesNotSayTheBufferOverflowed`; sabotage: leaking the body's
+count reddens it alone. The review 5 sentence that called the key case impossible was wrong for this route and is
+corrected. Not taken (Sonnet, low): the review 5 test would also pass with a reset to 0 in place of the restore; telling
+them apart needs a refusal at depth 0 before the nested load, which nothing can make. The paragraph below is the entry
+as filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
 (`ViewerSession.Window.cs` ~460) stuffs each line alone, so only the long one is refused: `+alias a <600 bytes>
 +fps_max 60` sets `fps_max` here and not in TF2. *Interpolated*: that `Cbuf_AddText` refuses rather than truncates is
 B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
-readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
+readers that run before the console, which then refuses the line (B824 review 3, Fable).
 
 ## B833 — without an install, `mat_wireframe` draws nothing (2026-11-24) — FIXED (2026-11-24)
 
@@ -46106,6 +46171,25 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 **Review 8** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings, and each checked that
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
+
+## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — OPEN
+
+Found in B830 review 2 (Fable). `CCommandBuffer::InsertCommand` refuses a second way: when the argument buffer
+(`m_nMaxArgSBufferLength`, 8192 by `src/public/tier1/commandbuffer.h:92`) cannot take the command even after `Compact`
+(`src/tier1/commandbuffer.cpp:129-134`), it returns false and `AddText` stops (`:242-243`), with no message of its own;
+the engine's `Cbuf_AddText` then prints `Cbuf_AddText: buffer overflow` (B830 review 3). The
+viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+fps_max 60` run whole here, where TF2
+stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
+FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
+
+## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
+
+Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
+FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever
+`CCommandBuffer::AddText` returns false, after `InsertCommand`'s `WARNING: Command too long... ignoring!`. B830 prints
+it for the launch line and for each config line (`Cmd_Exec_f` adds each line through FUN_180166e30, read in review 4).
+A key's bind and an alias body print only the first line. *Not read*: which adder each of those two reaches; the
+engine's strings also hold `Cbuf_AddTextWithMarkers: buffer overflow`, whose callers are not read either. *Not fixed*.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
