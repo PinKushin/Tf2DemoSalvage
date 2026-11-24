@@ -45937,7 +45937,8 @@ B828.
 6. *Not changed:* a `--set` value ending in a backslash cannot close its quotes early (Sonnet asked): the launch line
    runs through `Stuff`, which unescapes nothing (B820 review 8), and a `"` or line break is refused anyway.
 
-**Review 2 (2026-11-24): Fable, Sonnet, Grok.** Each fix's test failed before it or under a sabotage.
+**Review 2 (2026-11-24): Fable, Sonnet, Grok; Gemini found the same seven and read the fix as closing them.** Each fix's
+test failed before it or under a sabotage.
 
 1. *The early state was a guess at the console from the value's text (Sonnet, Grok, Fable).* It missed a quoted `;` and a
    quoted `""` on `--set`, a `//` comment, and `+fps_max 60;quit`, where the console sets `60`. Now the console's own parse
