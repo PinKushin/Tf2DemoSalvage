@@ -46047,38 +46047,42 @@ readers that run before the console, which then refuses the line (B824 review 3,
 ## B833 — without an install, `mat_wireframe` draws nothing (2026-11-24) — FIXED (2026-11-24)
 
 **Found by CI, red on every main push since the B803/B808 merge (`24cd116b9`).**
-`CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink` counted 0 pink pixels at `mat_wireframe` 1
-and at 0. The runner has no TF2. Its viewer log (run 45429168344, `viewer-logs` artifact) said
+`CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink` counted 0 pink pixels at
+`mat_wireframe` 1 and at 0. The runner has no TF2. Its viewer log (run 45429168344, `viewer-logs` artifact) said
 `debug/debugworldwireframe did not load: mat_wireframe draws nothing in its place` for all five materials. B803 reads
 the engine's debug wireframe VMTs from the game's archives (`platform_misc`), so a machine with no install has none of
-them. The local suite cannot see this because this machine has the game (`docs/memory/ci-is-the-machine-without-tf2.md`).
+them. The local suite cannot see this because this machine has the game
+(`docs/memory/ci-is-the-machine-without-tf2.md`).
 
 **Fixed, above Valve** (`docs/ABOVE-VALVE.md`; TF2 cannot run without its archives). `MapAssets` holds the five VMTs as
 `platform_misc` ships them, read with the `game-file` probe on 2026-11-24, without their comment lines. A material read
 uses them only after the map's pakfile and the archives miss. The shader reads no texture, so the base is the standard
-white, which needs no install. Test: `OverrideMaterialLoadingTests.Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay`
-loads the default map with no archives and asserts each material's path, shader, `$ignorez` and `$color`. All five
+white, which needs no install. Test:
+`OverrideMaterialLoadingTests.Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay` loads the
+default map with no archives and asserts each material's path, shader, `$ignorez` and `$color`. All five
 were red before the fix ("did not load; loaded: " with nothing listed). The output-level check is the CI capture test
 itself, run on this branch.
 
-**Review 1** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini had no findings. Fixed: the test loads the map once through
-`MapCache.Bytes` (Fable: five uncached loads, and it missed a downloaded map); the loader's summary no longer says null
-means a missing install (Fable); the warning's comment says it is reached when a found material does not resolve (Grok:
-"fails to parse" was too narrow). Not taken: Grok's case of a map pakfile holding a debug VMT. `LoadWireframeMaterial`
-passes an empty pakfile, so neither of its reads consults one; a map overriding an engine wireframe is the case its
-remark already leaves unhandled, and no map is known to do it. Sabotage: the fallback lookup pointed at a key that
-cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
+**Review 1** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini had no findings. Fixed: the test loads the map once
+through `MapCache.Bytes` (Fable: five uncached loads, and it missed a downloaded map); the loader's summary no longer
+says null means a missing install (Fable); the warning's comment says it is reached when a found material does not
+resolve (Grok: "fails to parse" was too narrow). Not taken: Grok's case of a map pakfile holding a debug VMT.
+`LoadWireframeMaterial` passes an empty pakfile, so neither of its reads consults one; a map overriding an engine
+wireframe is the case its remark already leaves unhandled, and no map is known to do it. Sabotage: the fallback lookup
+pointed at a key that cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
 skips on CI, which has no map; the CI capture test is the no-install guard.
 
-**Review 2** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings, Sonnet only the nit below. Fixed (Fable): the test asks
-`MapCache.Bytes` before its memo, as `MapCache` itself does, so the skip never depends on the memo forgetting a failed
-load; and the "not taken" note above now says why. Not taken (Sonnet, nit): the failure message lists only the engine
-materials' keys, which is uninformative for the studio material; the path itself is in the message.
+**Review 2** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings, Sonnet only the nit below.
+Fixed (Fable): the test asks `MapCache.Bytes` before its memo, as `MapCache` itself does, so the skip never depends on
+the memo forgetting a failed load; and the "not taken" note above now says why. Not taken (Sonnet, nit): the failure
+message lists only the engine materials' keys, which is uninformative for the studio material; the path itself is in
+the message.
 
-**Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the RISKS line above said Sonnet had no findings beside
-Sonnet's nit (Sonnet). Fable said the test's comment that `MapCache.Bytes` finds a downloaded map held only with the
-game installed; review 4 (Fable, Sonnet) read `RequirePath` again and found that wrong: `Find` checks the
-downloaded-maps folder with no game check, and only a miss there skips. The comment now says so.
+**Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the RISKS line above
+said Sonnet had no findings beside Sonnet's nit (Sonnet). Fable said the test's comment that `MapCache.Bytes` finds a
+downloaded map held only with the game installed; review 4 (Fable, Sonnet) read `RequirePath` again and found that
+wrong: `Find` checks the downloaded-maps folder with no game check, and only a miss there skips. The comment now says
+so.
 
 **Review 4** (Fable, Gemini, Sonnet, Grok): no blocker; the one finding is the comment above. **CI on this branch**
 (run 45436086318) then failed the capture test with the outline drawn: 574 pink under 1, against a bound of 1,000 set
@@ -46093,8 +46097,11 @@ taken: Grok read the test comment and the review 4 record as contradicting each 
 found without the game, and `Find` does that (Fable read `MapCache.cs:264-290`).
 
 **Review 6** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the assertion's message
-says far more pink under 1 than under 0, since "not under 0" described the difference, not the frame (Sonnet); this
-paragraph's line breaks (Fable, Sonnet).
+says far more pink under 1 than under 0, since the frame under 0 is not free of pink (164 with the game) (Sonnet);
+review 5's line breaks (Fable, Sonnet).
+
+**Review 7** (Fable, Gemini, Sonnet, Grok): no blocker. Fixed (Fable): the review 6 line above named its own line
+breaks and read awkwardly; reviews 1 to 3's first lines are wrapped.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
