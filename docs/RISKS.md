@@ -46070,10 +46070,14 @@ remark already leaves unhandled, and no map is known to do it. Sabotage: the fal
 cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
 skips on CI, which has no map; the CI capture test is the no-install guard.
 
-**Review 2** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings. Fixed (Fable): the test asks
+**Review 2** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings, Sonnet only the nit below. Fixed (Fable): the test asks
 `MapCache.Bytes` before its memo, as `MapCache` itself does, so the skip never depends on the memo forgetting a failed
 load; and the "not taken" note above now says why. Not taken (Sonnet, nit): the failure message lists only the engine
 materials' keys, which is uninformative for the studio material; the path itself is in the message.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the RISKS line above said Sonnet had no findings beside
+Sonnet's nit (Sonnet); the test's comment claimed `MapCache.Bytes` finds a downloaded map, which holds only with the game
+installed, since `RequirePath` skips when no game is found (Fable).
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
