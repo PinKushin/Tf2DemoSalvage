@@ -1591,6 +1591,30 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A config a handler loads inside the launch line fires none, and the line's later one-shots still fire** (B829
+    /// review 1, Fable): the flag is each load's own and restored after it. The control: the line's own two fire.
+    /// </remarks>
+    [Test]
+    public void Stuff_ALoadFromAHandlerInsideTheLine_FiresNoneAndTheLineGoesOn()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) =>
+        {
+            fired.Add(e.Action);
+
+            if (e.Action == ViewerAction.FullScreen)
+            {
+                console.Load("resetcamera");
+            }
+        };
+
+        console.Stuff("togglefullscreen\nscreenshot", oneShots: true);
+
+        fired.ShouldBe([ViewerAction.FullScreen, ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
     /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` build 1007 FUN_180178310): a trailing non-ASCII character
     /// is stripped as a signed `char` below `' '`, a leading one kept whole, and two words are one value.
     /// </remarks>

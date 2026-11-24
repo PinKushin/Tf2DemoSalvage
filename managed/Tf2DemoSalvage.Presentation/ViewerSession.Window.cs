@@ -272,8 +272,15 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // Its one-shots are kept until the window is up (B829): `stuffcmds` runs `+screenshot` like any command, and the
         // window they act on is being built now.
         _console.Triggered += KeepALaunchOneShot;
-        RunTheLaunchLine(oneShots: true);
-        _console.Triggered -= KeepALaunchOneShot;
+
+        try
+        {
+            RunTheLaunchLine(oneShots: true);
+        }
+        finally
+        {
+            _console.Triggered -= KeepALaunchOneShot;
+        }
 
         // What is read once at startup, read now that the configs and the line have run (B816 review 1).
         _presenter.ApplyTheStartingSettings(_launch);
@@ -350,6 +357,13 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // The launch line's one-shots, in its order, before the demo it names opens (B829): TF2 runs `stuffcmds` at startup.
         foreach (ViewerAction shot in _launchOneShots)
         {
+            // A dialog nobody sees would hang a capture or a measurement (B829 review 1, Sonnet); TF2 has no `opendemo`.
+            if (shot == ViewerAction.OpenDemo && IsHeadless)
+            {
+                _log.LogWarning("{Message}", "+opendemo is not run on a capture or measurement run: its dialog would wait");
+                continue;
+            }
+
             OnConsoleAction(_console, new ViewerActionEventArgs(shot));
         }
 

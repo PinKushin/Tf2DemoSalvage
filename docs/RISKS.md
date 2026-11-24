@@ -46126,7 +46126,27 @@ a game folder is chosen (B811 review 2) is no second launch and fires none. A vi
 is above Valve (`docs/ABOVE-VALVE.md`). Tests `Stuff_AOneShot_FiresUnlessItIsAReplay` (replacing
 `Stuff_AOneShot_IsIdleAsAtStartup`), `WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce` and
 `GameFolderChosen_AfterALaunchOneShot_DoesNotFireItAgain`. Sabotage: the load skip applied to the line again reddens
-the first two; the replay firing one-shots reddens the third alone. The paragraph below is the entry as filed.
+the first two; the replay firing one-shots reddens the third alone.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed:
+- **No demo named** (Fable, Gemini, blockers): the view registered `WindowShown` only when a path was named, so
+  `tf2demoview +togglefullscreen` held the one-shot for ever. It is registered always now; UI test
+  `Startup_ToggleFullScreenOnTheLineWithNoDemo_CoversTheScreen` (sabotage: the old registration reddens it).
+- **`+opendemo` on a capture or measurement** (Sonnet, Gemini): its file dialog would wait for nobody. It is skipped
+  there with a warning (`WindowShown_OpenDemoOnACaptureRun_IsNotRun`; sabotage: the skip removed reddens it).
+- **`--help`** still said one-shots do not run from the line (Fable, Gemini).
+- **Order** (Sonnet, Grok): no test held "in order, before the demo opens"
+  (`WindowShown_OneShotsAndANamedDemo_PerformsThemInOrderBeforeTheOpen`; sabotage: the open moved first reddens it).
+- **A load inside the line** (Fable): nothing held that a config a handler loads fires none and the line goes on
+  (`Stuff_ALoadFromAHandlerInsideTheLine_FiresNoneAndTheLineGoesOn`; sabotage: the flag not restored reddens it).
+- The holder is removed in a `finally` (Sonnet, Gemini); `AtStartup`'s doc comment (Sonnet, Gemini).
+
+Kept, and recorded (Fable, Sonnet): a one-shot that resolves only after a game folder is chosen later (`+exec x.cfg`
+whose file is in that folder, or an alias its autoexec defines) runs in the replay with its one-shots off, so it does
+not fire; the replay is not a launch. Not taken (Grok): `KeepALaunchOneShot` holds whatever `Triggered` raises, which is
+only a one-shot (`Perform` raises it for no held action).
+
+The paragraph below is the entry as filed.
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
 true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 review 1's rule for a config's one-shots):

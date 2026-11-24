@@ -2030,6 +2030,43 @@ public sealed class ViewerSessionTests
         rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The line's one-shots come before the named demo opens, in the line's order** (B829 review 1, Sonnet), as
+    /// `stuffcmds` runs before `playdemo` loads: the first things the window is told after it is shown are the two, in
+    /// order, and the open tells it more after them.
+    /// </remarks>
+    [Test]
+    public async Task WindowShown_OneShotsAndANamedDemo_PerformsThemInOrderBeforeTheOpen()
+    {
+        string demo = WriteDemo("oneshots", ticks: 200);
+        using Rig rig = Build(demo, "+togglefullscreen", "+opendemo");
+        rig.Session.PlanStartup();
+        int before = rig.Window.Told.Count;
+
+        rig.Session.WindowShown();
+        _ = await rig.Session.Loading.ConfigureAwait(false);
+
+        List<string> told = [.. rig.Window.Told.Skip(before)];
+        told.Take(2).ShouldBe(["PerformMenuAction FullScreen", "PerformMenuAction OpenDemo"]);
+        told.Count.ShouldBeGreaterThan(2, "the control: the open told the window something after them");
+    }
+
+    /// <remarks>
+    /// **`+opendemo` is not run on a capture** (B829 review 1, Sonnet): its dialog would wait for nobody, and TF2 has no
+    /// such command. Another one-shot on the same line still runs.
+    /// </remarks>
+    [Test]
+    public void WindowShown_OpenDemoOnACaptureRun_IsNotRun()
+    {
+        using Rig rig = Build("+opendemo", "+togglefullscreen", "--shot", Path.Combine(_folder, "out.png"));
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.ShouldNotContain("PerformMenuAction OpenDemo");
+        rig.Window.Told.ShouldContain("PerformMenuAction FullScreen");
+        rig.Log.Count("+opendemo is not run on a capture or measurement run").ShouldBe(1);
+    }
+
     [Test]
     public void WindowShown_AMissingFileOnACaptureRun_SaysWhichOnStderrExitsOneAndCloses()
     {

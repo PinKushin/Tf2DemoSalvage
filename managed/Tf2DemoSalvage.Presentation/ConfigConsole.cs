@@ -564,8 +564,11 @@ public sealed class ConfigConsole
     /// Each config line's budgets are its own, the whole launch line shares one set (B830), and the outer command's are put
     /// back by `RunCommand` (B820 reviews 3-5).
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
+    /// Each load says whether its one-shots fire, restored after it, so a config a handler loads inside the launch line
+    /// fires none and the rest of the line still does (B829).
     /// </remarks>
-    /// Whether its one-shots fire is its own, so a config a handler loads inside the launch line fires none (B829).
+    /// <param name="stuffing">Whether the text is the launch line run for its one-shots (B829).</param>
+    /// <param name="run">The load.</param>
     private void AtStartup(bool stuffing, Action run)
     {
         (bool loading, bool viewerIssued, bool wasStuffing) = (_loading, _viewerIssued, _stuffing);
