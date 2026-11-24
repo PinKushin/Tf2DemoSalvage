@@ -817,6 +817,33 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("cl_detaildist").ShouldBe("900");
     }
 
+    /// <remarks>
+    /// **A cheat the settings hold at `nan` is reverted too** (B823 review 1, the open item). `sv_cheats`' change callback
+    /// (`engine.dll` x64 build 1007 FUN_18013d920) calls `RevertFlaggedConVars( FCVAR_CHEAT )`, and `ConVar::Revert` sets the
+    /// default (`src/tier1/convar.cpp:1076-1081`), whose callbacks run when the STRING changed: `V_strcmp( pszOldValue,
+    /// m_pszString ) != 0` (`:844`). `nan` is not `0`, so it reverts; a float compare finds no difference with a NaN. The
+    /// control is a value already at its default string, which is not announced.
+    /// </remarks>
+    [Test]
+    public void Load_SvCheatsBackToZeroWithACheatAtNan_AnnouncesItsRevert()
+    {
+        Dictionary<string, string> settings = new(StringComparer.Ordinal)
+        {
+            ["r_screenfademinsize"] = "nan",
+            ["r_screenfademaxsize"] = "0",
+        };
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(name => settings.GetValueOrDefault(name));
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Stuff("sv_cheats 1");
+        console.Stuff("sv_cheats 0");
+
+        set.ShouldContain("r_screenfademinsize 0");
+        set.ShouldNotContain(entry => entry.StartsWith("r_screenfademaxsize", StringComparison.Ordinal));
+    }
+
     [Test]
     public void KeyDown_AnAliasThatSetsACvar_SetsIt()
     {

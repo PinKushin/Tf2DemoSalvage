@@ -1390,9 +1390,11 @@ public sealed class ConfigConsole
             // The value as `CurrentValue` reads it — the settings, then a config's line the console keeps — so a cheat a
             // watcher config set is reverted too (B791 review 15).
             else if ((_settingValue(cheat.Name) ?? _conVars.GetValueOrDefault(cheat.Name)) is { } now &&
-                MathF.Abs(ConVarNumber.GetFloat(now) - ConVarNumber.GetFloat(cheat.Default)) > 1e-6f)
+                !string.Equals(now, cheat.Default, StringComparison.Ordinal))
             {
-                // Only what differs from its default is announced, so the host logs and applies a real change.
+                // Only what differs from its default is announced, as `ConVar::Revert` runs a ConVar's callbacks only when its
+                // STRING changed (`V_strcmp`, `src/tier1/convar.cpp:844`), so `nan` reverts where a float compare saw no
+                // difference (B823 review 1). *Not read:* the filter inside `RevertFlaggedConVars`, which is vstdlib's.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
             }
         }

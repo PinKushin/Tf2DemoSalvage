@@ -45422,8 +45422,16 @@ first or was reddened by sabotage, restored by its inverse edit.
    `DiffersFromDefault` cases; each reddened under its reader put back. Searched and left, not ConVars: material
    parameters (`CloakPass`, `FrameBufferUse`), `.res` keys (`PanelLayout.Atof` and the HUD panels), weapon scripts
    (`HitscanTracers`), game-event data, launch flags (`LaunchOptions`), environment variables, window geometry and
-   capture files. Left, a ConVar: the cheat revert's `MathF.Abs(a - b) > 1e-6f` is false for a NaN, so a cheat held at
-   `nan` is not announced as reverted — not changed, no test written in this round.
+   capture files. The cheat revert, found here, is fixed below (2b).
+2b. *The cheat revert at `nan` (found in item 2; fixed 2026-11-24)* — `sv_cheats`' change callback (`engine.dll` x64 build
+   1007 FUN_18013d920, read through the Ghidra MCP) calls `RevertFlaggedConVars( FCVAR_CHEAT )` (vtable +0xd0) when the
+   value's int is 0, and `ConVar::Revert` sets the default (`src/tier1/convar.cpp:1076-1081`), whose callbacks run when the
+   STRING changed: `V_strcmp( pszOldValue, m_pszString ) != 0` (`:844`). The viewer compared floats,
+   `MathF.Abs(a - b) > 1e-6f`, which is false for a NaN, so a cheat the settings held at `nan` was not announced as
+   reverted. It now compares the strings, ordinally. *Not read:* `RevertFlaggedConVars`' own filter, which lives in
+   `vstdlib.dll`, not in the program the running Ghidra holds; whatever it is, a value whose string is the default's
+   changes nothing and fires no callback. `Load_SvCheatsBackToZeroWithACheatAtNan_AnnouncesItsRevert` was red before the
+   fix; with every cheat announced, its control (a cheat already at its default string) reddened it.
 3. *Hexadecimal `atof` (Fable, Sonnet)* — fixed: `CStdlib.Atof` reads `0x` floats, `p` exponents, and `nan(snan)`,
    `nan(ind)` and `nan(…)`, as UCRT's `parse_floating_point_from_source` does (Windows SDK 10.0.26100.0,
    `ucrt/inc/corecrt_internal_strtox.h:1326-1739`). That TF2 runs this parser: `engine.dll` (x64, build 1007) imports no
