@@ -46073,8 +46073,8 @@ as its control; sabotage: a refusal not counted reddens it). The `wait` note now
 (Fable). Filed: B835, the same line on the console's other paths. Not taken: a test remark of 122 columns, in a file
 with others longer.
 
-**Review 4** (Fable, Gemini, Sonnet, Grok). Fixed (all four; Gemini called it a blocker): the refusal count was one for the whole launch
-run, so a refusal in a file the line `exec`s, or in an alias body, made the launch line say the overflow line too, once
+**Review 4** (Fable, Gemini, Sonnet, Grok). Fixed (all four; Gemini called it a blocker): the refusal count was one
+for the whole launch run, so a refusal in a file the line `exec`s, or in an alias body, made the launch line say the overflow line too, once
 however many there were. Refusals are now counted by depth, and each adder hears only its own text's: the launch line
 (`stuffcmds`) and each line of a config, since `Cmd_Exec_f` adds every line through its own FUN_180166e30 call, read in
 the decompile (Fable). So a config line refused at load now says the line, and the next line still runs. Tests
