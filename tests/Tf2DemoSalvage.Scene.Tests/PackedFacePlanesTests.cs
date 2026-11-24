@@ -199,9 +199,9 @@ public sealed class PackedFacePlanesTests
 
     /// <remarks>
     /// **A face split across material groups keeps its plane when each triangle still follows its predecessor** (rule:
-    /// review 10's check, written down in review 11; test: review 12, Fable): T0 (material 7, edge) and T1 (5, no edge), one face. The groups pack in first-appearance order, so it
-    /// packs T0 then T1, the buffer counts one face, and the one stored plane fits it. The control: the packing kept the
-    /// order.
+    /// review 10's check, written down in review 11; test: review 12, Fable): T0 (material 7, edge) and T1 (5, no edge),
+    /// one face. The groups pack in first-appearance order, so it packs T0 then T1, the buffer counts one face, and the
+    /// one stored plane fits it. The control: the packing kept the order.
     /// </remarks>
     [Test]
     public void PackedFacePlanes_OfAFaceSplitAcrossGroupsInOrder_KeepItsPlane()

@@ -43532,8 +43532,10 @@ On `fix/b803-wireframe-3-r1` at `6847123c8`. All four reviewers called round 11 
    only test in the class to redden (1 of 8), with the check made to refuse a continuation across material groups.
 2. **The refusal test's name and remark said any split** (Fable). *Renamed*:
    `PackedFacePlanes_OfATriangleThePackingMovesFromItsPredecessor_AreNone`, its remark narrowed to that case.
-3. **"Its own predecessor" was ambiguous** (Sonnet). The packing comment now says the triangle before it in the
-   source corners. `Dispose_ADefaultComPtr_DoesNothing` is now `…_DoesNotThrow`, which is what it asserts (Sonnet).
+3. **"Its own predecessor" was ambiguous** (Sonnet). The `PackedFacePlanes` remarks now say the triangle before it in
+   the source corners; the inline comment above the check kept the old words until review 13.
+   `Dispose_ADefaultComPtr_DoesNothing` is now `…_DoesNotThrow`, which is what it asserts (Sonnet); its remark's
+   headline kept "does nothing" until review 13.
 4. *Not changed*: the step-order test also fixes vertices-before-outline release order, which no rule needs (Fable,
    nit). It is the production order, so a reorder is a change worth seeing.
 
@@ -43541,8 +43543,15 @@ On `fix/b803-wireframe-3-r1` at `6847123c8`. All four reviewers called round 11 
 
 On `fix/b803-wireframe-3-r1` at `1ba0b91e4`. All four reviewers called round 12 mergeable. Comments only: the inline
 comment above the predecessor check now says "the triangle before it in the source corners" (Sonnet, Fable); the
-accept test's remark names review 10's check as the rule and review 12 as the test (Fable); the default-ComPtr test's
-headline says "does not throw" (Fable).
+accept test's remark separates the rule from the test (Fable); the default-ComPtr test's headline says "does not throw"
+(Sonnet, Fable). These finish review 12 item 3, which renamed without rewording.
+
+### Review 14 (2026-11-23)
+
+On `9e237cb91`. All four reviewers called round 13 mergeable. Records only: this section and review 13's were added,
+and the accept test's remark now cites review 10's check (`7ba3d024a`) as the rule, where review 13 had cited review 11,
+which only wrote the rule down (Fable). Review 15 corrected review 12 item 3 and review 13 to say which round changed
+what (Sonnet, Fable).
 
 *As found (2026-11-21):*
 
