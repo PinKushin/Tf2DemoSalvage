@@ -45338,7 +45338,7 @@ tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a
 
 ## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
 
-Found implementing B821. `LaunchOptions.Parse` reads a `+name` and the one argument after it, and hands the console only
+Found implementing B821. `LaunchOptionsReader.Read` reads a `+name` and the one argument after it, and hands the console only
 a declared ConVar's set (`LaunchOptions.cs`, B816 review 5): an undeclared name was refused there because a `--like`
 sidecar key such as `x\nbind q quit` would otherwise run as commands. TF2's `cfg/valve.rc` runs `stuffcmds` after
 `exec autoexec.cfg`, and `stuffcmds` runs every `+command` with all the arguments up to the next `+` or `-` (*interpolated*
@@ -45365,6 +45365,18 @@ session tells the window again when the count moved (`ShowBindingsIfChanged`); t
 `alias` did not clear the cached set of actions the config claims, so a default fallback a run-time alias now claimed
 kept answering; *fixed*, test `Bindings_AfterAnAliasClaimsADefaultsAction_NoLongerNameTheDefaultKey`. Each red with its
 own line removed. Sonnet, Grok: two comments said a launch-line bind shows at once, which B824 rules out; corrected.
+
+**Review 2 (2026-11-23).** Fable, Sonnet: the window calls after a key's release and a mouse button's press and release
+had no test; `KeyUp_AButtonWhoseReleaseBinds_TellsTheWindowTheBindings` (a key and `MOUSE4`), red with the release calls
+removed. Grok: a null-cancel script redefines an alias on every press, so the window was told an unchanged table each
+time; the session now keeps its table while `KeyBindings.SameAs` finds the rebuilt one equal, and tells the window only
+of a different one, which also keeps the HUD's text cache. The window test's control is such an alias, red with
+`SameAs` bypassed, and the fake window now keeps the table it was told, so its key is asserted. Fable: WinForms keeps an
+owner's shortcuts in one table and an item's setter removes its old key there, so two items swapping keys one at a time
+left one key firing nothing; `ViewerMenu.ApplyBindings` now clears every changing shortcut before setting any.
+`ShowBindings_TwoItemsSwappingKeys_LeavesEachKeyFiringItsNewItem` reads the owner's internal `Shortcuts`, the table the
+dispatch reads, and was red without the clearing pass (*measured*, confirming the setter's order). Gemini: B824 named
+`LaunchOptions.Parse`, which is `LaunchOptionsReader.Read`; corrected.
 
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`

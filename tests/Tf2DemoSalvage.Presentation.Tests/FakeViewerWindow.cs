@@ -149,7 +149,14 @@ internal sealed class FakeViewerWindow : IViewerWindow
     public void ShowPlaylist(int rows) => Told.Add($"ShowPlaylist {rows}");
 
     /// <inheritdoc/>
-    public void ShowBindings(KeyBindings bindings) => Told.Add(nameof(ShowBindings));
+    public void ShowBindings(KeyBindings bindings)
+    {
+        Told.Add(nameof(ShowBindings));
+        ShownBindings = bindings;
+    }
+
+    /// <summary>The table the window was last told, or null.</summary>
+    public KeyBindings? ShownBindings { get; private set; }
 }
 
 /// <summary>A message queue with a script: what waits at each asking, and what the loop did to the thread.</summary>

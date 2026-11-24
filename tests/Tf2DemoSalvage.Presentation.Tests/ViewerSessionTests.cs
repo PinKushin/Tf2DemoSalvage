@@ -1054,24 +1054,56 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **The window is told the bindings again when a key changed them, and only then** (B821 review 1, Sonnet): its menu
-    /// carries each item's shortcut key, set when it was built. The control: pressing `F6`, bound to nothing that binds,
-    /// tells it nothing.
+    /// carries each item's shortcut key, set when it was built. `F6` redefines an alias no key reaches, as a null-cancel
+    /// script does on every press (review 2, Grok): its table is unchanged, so the window is told nothing.
     /// </remarks>
     [Test]
     public void KeyPressed_AKeyWhoseAliasBinds_TellsTheWindowTheBindingsOnce()
     {
         string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
-        using Rig rig = BuildWithAutoexec($"unbindall\nalias rebind \"bind F8 {screenshot}\"\nbind F7 rebind\nbind F6 none\n");
+        using Rig rig = BuildWithAutoexec(
+            $"unbindall\nalias rebind \"bind F8 {screenshot}\"\nbind F7 rebind\nalias noise \"alias unused echo\"\nbind F6 noise\n");
         int before = rig.Window.Told.Count(told => told == "ShowBindings");
 
         rig.Session.KeyPressed(Key("F6"));
         rig.Session.KeyUp("F6");
-        rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before, "the control: F6 changed no bind");
+        rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before, "the control: F6 changed no key's meaning");
 
         rig.Session.KeyPressed(Key("F7"));
         rig.Session.KeyUp("F7");
 
         rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before + 1);
+        rig.Window.ShownBindings.ShouldNotBeNull().KeyFor(ViewerAction.Screenshot).ShouldBe("F8", "the table it was told");
+    }
+
+    /// <remarks>
+    /// **A key's release and a mouse button's press and release tell the window too** (B821 review 2, Fable, Sonnet): a
+    /// `+` alias whose `-` half binds runs on the release, and a mouse button reaches the console by its own route. Each
+    /// half of `+sw` binds `F8`, so the press and the release each tell the window once.
+    /// </remarks>
+    [TestCase("F7", false)]
+    [TestCase("MOUSE4", true)]
+    public void KeyUp_AButtonWhoseReleaseBinds_TellsTheWindowTheBindings(string button, bool mouse)
+    {
+        string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
+        using Rig rig = BuildWithAutoexec(
+            $"unbindall\nalias +sw \"bind F8 {screenshot}\"\nalias -sw \"bind F8 none\"\nbind {button} +sw\n");
+        int before = rig.Window.Told.Count(told => told == "ShowBindings");
+
+        if (mouse)
+        {
+            rig.Session.PointerDown(button, drags: false, 0, 0);
+            rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before + 1, "the press");
+            rig.Session.PointerUp(button);
+        }
+        else
+        {
+            rig.Session.KeyPressed(Key(button));
+            rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before + 1, "the press");
+            rig.Session.KeyUp(button);
+        }
+
+        rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before + 2, "the release");
     }
 
     /// <remarks>

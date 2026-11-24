@@ -182,6 +182,44 @@ public sealed class ViewerMenuTests
             "the label and the binding are one fact and must have one source");
     }
 
+    /// <remarks>
+    /// **Two items that swap keys both keep a key that fires them** (B821 review 2, Fable): WinForms keeps an owner's
+    /// shortcuts in one table, read here as the dispatch reads it (its internal <c>Shortcuts</c>), and an item's setter
+    /// removes its old key there. Set one at a time, the second removed the first's new entry. The control: before the
+    /// swap, the table holds each item under its own key.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_TwoItemsSwappingKeys_LeavesEachKeyFiringItsNewItem()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        ViewerAction secondAction = ActionOn(second.ShortcutKeys);
+        string firstKey = KeyBindings.Defaults[firstAction];
+        string secondKey = KeyBindings.Defaults[secondAction];
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+        shortcuts[KeyNames.Resolve(firstKey)].ShouldBeSameAs(first, "the control: the table before the swap");
+
+        Dictionary<ViewerAction, string> swapped = new(KeyBindings.Defaults) { [firstAction] = secondKey, [secondAction] = firstKey };
+        ((IViewerWindow)form).ShowBindings(new KeyBindings(swapped));
+
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldBeSameAs(first);
+        shortcuts[KeyNames.Resolve(firstKey)].ShouldBeSameAs(second);
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
         if (strip is null)

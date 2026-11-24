@@ -74,7 +74,15 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         {
             if (_bindingsRevision != _console.BindsRevision)
             {
-                _bindings = _console.Bindings();
+                // The same object while nothing a key reaches changed, so the window and the HUD's text cache see no
+                // change either (B821 review 2, Grok, Fable).
+                KeyBindings fresh = _console.Bindings();
+
+                if (!fresh.SameAs(_bindings))
+                {
+                    _bindings = fresh;
+                }
+
                 _bindingsRevision = _console.BindsRevision;
             }
 
@@ -89,9 +97,17 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// </remarks>
     private void ShowBindingsIfChanged()
     {
-        if (_bindingsRevision != _console.BindsRevision)
+        if (_bindingsRevision == _console.BindsRevision)
         {
-            _window.ShowBindings(Bindings);
+            return;
+        }
+
+        KeyBindings before = _bindings;
+        KeyBindings now = Bindings;
+
+        if (!ReferenceEquals(now, before))
+        {
+            _window.ShowBindings(now);
         }
     }
 

@@ -800,9 +800,22 @@ internal sealed class ViewerMenu : IDisposable
     /// startup reads the player's binds after this menu was built, and a menu built once kept printing
     /// the keys from before.
     /// </remarks>
+    /// <remarks>
+    /// **Every changing shortcut is cleared before any is set** (B821 review 2, Fable): WinForms keeps an owner's shortcuts
+    /// in one table and an item's setter removes its old key there, so two items swapping keys one at a time had the
+    /// second remove the first's new entry, and that key fired nothing. A run-time bind reaches this on a key press.
+    /// </remarks>
     public void ApplyBindings(KeyBindings bindings)
     {
         ArgumentNullException.ThrowIfNull(bindings);
+
+        foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
+        {
+            if (!printedOnly && item.ShortcutKeys != KeyNames.Resolve(bindings.KeyFor(action)))
+            {
+                item.ShortcutKeys = Keys.None;
+            }
+        }
 
         foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
         {
