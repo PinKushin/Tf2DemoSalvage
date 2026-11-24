@@ -452,7 +452,21 @@ public sealed class ConfigConsole
     /// launch line reaches the buffer whole: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0, B824) pastes every
     /// `+command` into one text and adds it once (B830), so the viewer hands its whole launch line here in one call.
     /// </remarks>
-    public void Stuff(string? text) => AtStartup(() => _ = RunCommand(text ?? string.Empty, key: null));
+    public void Stuff(string? text) => AtStartup(() =>
+    {
+        int refusals = _refusals;
+        _ = RunCommand(text ?? string.Empty, key: null);
+
+        // **`stuffcmds` adds through a `Cbuf_AddText` that says so when `AddText` refuses** (B830 review 3; `engine.dll`
+        // build 1007 FUN_180166e30, `engine/cmd.cpp`): `Cbuf_AddText: buffer overflow` follows the `Command too long` line.
+        if (_refusals != refusals)
+        {
+            Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+        }
+    });
+
+    /// <summary>Commands refused for their length so far (B830): how <see cref="Stuff"/> knows its text was cut.</summary>
+    private int _refusals;
 
     /// <summary>Whether one `AddText` call would queue every command in this text, refusing none for its length (B830).</summary>
     /// <param name="text">The text, as it would be added.</param>
@@ -1660,6 +1674,7 @@ public sealed class ConfigConsole
             if (IsTooLong(length))
             {
                 Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
+                _refusals++;
                 return acted;
             }
 

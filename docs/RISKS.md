@@ -46061,9 +46061,18 @@ first command is 511 bytes or more, is not applied.
 **Review 2** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: the new test's control could not fail, its
 long statement read as 0, the default (Fable, Gemini, Sonnet); it now reads as 80, and a gate that ignores the first
 command's length reddens it. The wording above (Fable). Recorded elsewhere: `wait` is consumed by
-`AddText` before the length check (`:235-240`), so `+wait <600 bytes>` refuses nothing in TF2; the viewer has no `wait`
-(B832), and counts it as refusable in both the run and the store, so the two agree (Fable). Filed: B834, the argument
-buffer's own refusal (Fable). The paragraph below is the entry as filed, before the fix.
+`AddText` before the length check while `wait` is enabled (`:235-240`), so `+wait <600 bytes>` refuses nothing in
+TF2; the viewer has no `wait` (B832), and counts it as refusable in both the run and the store, so the two agree
+(Fable). Filed: B834, the argument
+buffer's own refusal (Fable).
+
+**Review 3** (Fable, Sonnet, Grok; Gemini pending): no blocker; Sonnet and Grok had no findings. Fixed (Fable):
+`Cbuf_AddText` (`engine.dll` build 1007 FUN_180166e30, which `stuffcmds` calls; `engine/cmd.cpp`) prints
+`Cbuf_AddText: buffer overflow` when `AddText` refuses, read in the decompile after Fable recalled it, so a cut launch
+line now says it too (test `Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed`, with a line that fits
+as its control; sabotage: a refusal not counted reddens it). The `wait` note now says "while `wait` is enabled"
+(Fable). Filed: B835, the same line on the console's other paths. Not taken: a test remark of 122 columns, in a file
+with others longer. The paragraph below is the entry as filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
@@ -46139,10 +46148,20 @@ lines were wrapped, where the whole entry was.
 
 Found in B830 review 2 (Fable). `CCommandBuffer::InsertCommand` refuses a second way: when the argument buffer
 (`m_nMaxArgSBufferLength`, 8192 by `src/public/tier1/commandbuffer.h:92`) cannot take the command even after `Compact`
-(`src/tier1/commandbuffer.cpp:129-134`), it returns false and `AddText` stops (`:242-243`), with no message. The
+(`src/tier1/commandbuffer.cpp:129-134`), it returns false and `AddText` stops (`:242-243`), with no message of its own;
+the engine's `Cbuf_AddText` then prints `Cbuf_AddText: buffer overflow` (B830 review 3). The
 viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+fps_max 60` run whole here, where TF2
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
+
+## B835 — a config line or a key cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
+
+Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
+FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever
+`CCommandBuffer::AddText` returns false, after `InsertCommand`'s `WARNING: Command too long... ignoring!`. B830 prints
+it for the launch line. The console's other refusals (a config line, a key's bind, an alias body) print only the first
+line. *Not read*: which of those paths reach `Cbuf_AddText` and which reach another adder (`Cbuf_AddTextWithMarkers`
+has its own overflow line); each needs its caller read before the line is added there. *Not fixed*.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 

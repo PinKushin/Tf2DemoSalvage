@@ -1656,6 +1656,27 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A launch line cut for a long command also says `Cbuf_AddText: buffer overflow`** (B830 review 3): `stuffcmds` adds
+    /// through `engine.dll` build 1007 FUN_180166e30 (`engine/cmd.cpp`), which prints it when `AddText` returns false, after
+    /// `InsertCommand`'s `Command too long` (`src/tier1/commandbuffer.cpp:124`). The control: a launch line that fits says
+    /// neither.
+    /// </remarks>
+    [Test]
+    public void Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Stuff("toggle cl_showfps");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "the control");
+
+        console.Stuff("toggle cl_showfps\nalias a " + new string('x', 600) + "\nfps_max 60");
+
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0): `argc - 2 &lt; 2`, else
     /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
     /// the key as it was — not cleared — where the viewer had bound the third token.
