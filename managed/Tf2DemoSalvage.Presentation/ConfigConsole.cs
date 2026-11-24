@@ -465,12 +465,23 @@ public sealed class ConfigConsole
     /// <param name="run">Runs the text.</param>
     private void AddedAsOne(int depth, Action run)
     {
-        int refusals = _refusalsAt[depth];
-        run();
+        // Saved and cleared rather than compared, as the budgets are (B830 review 5, Fable): a handler that loads or
+        // stuffs inside this run adds its own text at the same depth, and its refusal is its own to report.
+        int outer = _refusalsAt[depth];
+        _refusalsAt[depth] = 0;
 
-        if (_refusalsAt[depth] != refusals)
+        try
         {
-            Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+            run();
+
+            if (_refusalsAt[depth] != 0)
+            {
+                Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+            }
+        }
+        finally
+        {
+            _refusalsAt[depth] = outer;
         }
     }
 

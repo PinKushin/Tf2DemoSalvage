@@ -1695,6 +1695,34 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A load from a handler reports its own refusal, and the line that raised it reports none** (B830 review 5, Fable,
+    /// Sonnet): both add text at depth 0, so a count compared before and after made the outer line say the overflow line
+    /// for the inner one too. The control: the inner line's own refusal is reported.
+    /// </remarks>
+    [Test]
+    public void Load_ALoadFromAHandlerWithACommandOf511Bytes_SaysTheBufferOverflowedOnce()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.ReadSettingsFrom(_ => null);
+        bool loaded = false;
+        console.ConVarSet += (_, _) =>
+        {
+            if (!loaded)
+            {
+                loaded = true;
+                console.Load("alias a " + new string('x', 600));
+            }
+        };
+
+        console.Load($"{Alpha} 1");
+
+        loaded.ShouldBeTrue("the handler ran");
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1, "the control: the inner line is refused");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
     /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by
     /// depth, the launch line's call does not say it again.

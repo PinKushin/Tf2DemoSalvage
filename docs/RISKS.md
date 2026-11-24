@@ -46080,8 +46080,15 @@ text's: the launch line (`stuffcmds`) and each line of a config, since `Cmd_Exec
 FUN_180166e30 call, read in the decompile (Fable). So a config line refused at load now says the line, and the next
 line still runs. Tests `Load_ALineWithACommandOf511Bytes_SaysTheBufferOverflowedAndRunsTheNextLine` and
 `Stuff_AnExecOfAFileWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: counting a nested refusal at the
-top as well reddens the second. B835 narrowed to keys and alias bodies (Fable). The paragraph below is the entry as
-filed, before the fix.
+top as well reddens the second. B835 narrowed to keys and alias bodies (Fable).
+
+**Review 5** (Fable, Sonnet, Grok; Gemini pending; Grok had no findings). Fixed (Fable; Sonnet as latent): the count
+was compared before and after a run, so a handler that loads inside a line at the same depth made the outer line report
+the inner line's refusal too. `AddedAsOne` now saves, clears and restores its depth's count, as the budgets are. Test
+`Load_ALoadFromAHandlerWithACommandOf511Bytes_SaysTheBufferOverflowedOnce`; sabotage: leaking the inner count to the
+outer reddens it alone. Not taken (Fable, low): the launch text runs as it is parsed, so an `exec`'s output comes
+before a later command's refusal, where TF2 refuses at add time; this predates B830 and is how the console runs every
+text. The paragraph below is the entry as filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
