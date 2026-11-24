@@ -1945,7 +1945,8 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                     (keyData & (Keys.Control | Keys.Alt)) != Keys.None,
                     FocusKind(),
                     binding => pressed == KeyNames.Resolve(binding),
-                    keyData == Keys.Escape,
+                    // Shift is no chord: Shift+Escape is Escape, which never reaches a bind (B825 review 7, Fable).
+                    (keyData & ~Keys.Shift) == Keys.Escape,
                     $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}",
                     ((long)msg.LParam & PreviousKeyState) != 0))
             || base.ProcessCmdKey(ref msg, keyData);

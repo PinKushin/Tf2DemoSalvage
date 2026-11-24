@@ -1473,6 +1473,7 @@ public sealed class ViewerSessionTests
         // captures (review 6, Fable).
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") });
         rig.Session.Bindings.Bind(action, "ESCAPE");
+        rig.Session.Bindings.KeyFor(action).ShouldBe("ESCAPE", "the control: the bind took (review 7, Fable)");
         rig.Window.IsFullScreen = true;
 
         rig.Session.KeyPressed(Key("ESCAPE", binding => binding == "ESCAPE", escape: true)).ShouldBeTrue();

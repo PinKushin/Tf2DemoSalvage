@@ -45409,7 +45409,15 @@ Escape already skipped the console ("Escape never reaches a bind", the Quake `me
 `chordKey` copy is required, since `key` is an `in` parameter a local function cannot capture (CS1628). Fable: the
 repeat theory's screenshot case ran on the default rig, whose capture folder is the user's own, and left a `.png.json`
 sidecar there per run (eleven found, deleted); both theories now use the test's folder. Grok: B827 had landed inside
-this entry; moved.
+this entry; moved. Gemini (round 5, read after the round-6 edits): no findings.
+
+**Review 7 (2026-11-24).** Sonnet, Grok, Gemini: no findings. Fable: Shift+Escape was not Escape to the view
+(`keyData == Keys.Escape`), so it reached the console as `ESCAPE` and, now that a one-shot runs, ran a config's Escape bind
+and stayed in full screen. Source names the key alone, and Shift is no chord here. *Fixed*: the view masks Shift off the
+Escape test (`ProcessCmdKey_ShiftEscapeInFullScreen_LeavesFullScreen`, red before). Fable: the Escape theory had no
+control that its bind took; it asserts `KeyFor` first. *Not changed* (Fable): `opendemo` opens its modal dialog inside
+the key's press, so a release during it re-adds a released key; the stale entry clears on the next press and release,
+and no failing case was found.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's

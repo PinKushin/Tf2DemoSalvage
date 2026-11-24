@@ -150,6 +150,23 @@ public sealed class FullScreenTests
         form.IsFullScreen.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **Shift with Escape is still Escape** (B825 review 7, Fable): Source names the key alone, and Shift is not a chord
+    /// here, so Shift+Escape reached the console as `ESCAPE` and ran a config's Escape bind, now that a one-shot runs,
+    /// staying in full screen. The control: full screen before the press.
+    /// </remarks>
+    [Test]
+    public void ProcessCmdKey_ShiftEscapeInFullScreen_LeavesFullScreen()
+    {
+        using EscapeProbe form = new();
+        form.SetFullScreen(true);
+        form.IsFullScreen.ShouldBeTrue("the control");
+
+        form.PressEscape(Keys.Shift).ShouldBeTrue();
+
+        form.IsFullScreen.ShouldBeFalse();
+    }
+
     [Test]
     public void EnteringFullScreen_TheWindowHandle_SurvivesTheTransition()
     {
@@ -184,10 +201,10 @@ public sealed class FullScreenTests
     /// <summary>Exposes the protected key handler, which is otherwise unreachable from a test.</summary>
     private sealed class EscapeProbe : MainForm
     {
-        public bool PressEscape()
+        public bool PressEscape(Keys modifiers = Keys.None)
         {
             Message message = default;
-            return ProcessKey(ref message, Keys.Escape);
+            return ProcessKey(ref message, Keys.Escape | modifiers);
         }
     }
 
