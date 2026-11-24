@@ -46101,7 +46101,11 @@ says far more pink under 1 than under 0, since the frame under 0 is not free of 
 review 5's line breaks (Fable, Sonnet).
 
 **Review 7** (Fable, Gemini, Sonnet, Grok): no blocker. Fixed (Fable): the review 6 line above named its own line
-breaks and read awkwardly; reviews 1 to 3's first lines are wrapped.
+breaks and read awkwardly; the entry's over-long lines are wrapped.
+
+**Review 8** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings, and each checked that
+the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
+lines were wrapped, where the whole entry was.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
