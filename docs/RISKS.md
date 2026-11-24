@@ -46357,6 +46357,8 @@ leading `\` is not rooted, so there it survives untested (review 7, Fable, Gemin
 **Review 7** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed (Fable, Gemini, Sonnet, low): review 6 called
 the `> 0` mutant equivalent on both platforms; the sentence above now says equivalent on Windows, untested on Linux.
 
+**Review 8** (Fable, Gemini, Sonnet, Grok). No findings.
+
 The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
