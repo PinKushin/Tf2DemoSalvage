@@ -1269,7 +1269,250 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key(reset)).ShouldBeTrue();
 
-        // ONCE (B547): the key also goes to the console, which raises the one-shot; `OnConsoleAction` must ignore it.
+        // ONCE (B547, B825): the key goes to the console, whose one-shot `OnConsoleAction` performs and the key is taken.
+        rig.Transport.Speeds.ShouldBe([1d]);
+    }
+
+    /// <remarks>
+    /// **A bare key on a menu one-shot performs it, once** (B825): WinForms registers no shortcut for `p`, so the menu item
+    /// never fired, and the console raised the one-shot for nobody. TF2 runs every bound key through the console; here the
+    /// session asks the window to perform the item's action, and the console takes the key, so a registered menu shortcut
+    /// on the same key does not fire it a second time. The control: before the press, nothing was performed.
+    /// </remarks>
+    [TestCase("opendemo", ViewerAction.OpenDemo)]
+    [TestCase("togglefullscreen", ViewerAction.FullScreen)]
+    [TestCase("cl_showfps", ViewerAction.FrameRate)]
+    [TestCase("mat_surfacecolours", ViewerAction.SurfaceColours)]
+    public void KeyPressed_ABareKeyOnAMenuOneShot_PerformsItsMenuActionOnce(string command, ViewerAction action)
+    {
+        using Rig rig = BuildWithAutoexec($"unbindall\nbind p {command}\n");
+        string performed = $"PerformMenuAction {action}";
+        rig.Window.Told.ShouldNotContain(performed, "the control: nothing performed before the press");
+
+        rig.Session.KeyPressed(Key("p")).ShouldBeTrue("the console takes the key");
+
+        rig.Window.Told.Count(told => told == performed).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A `+` bind that also resets the camera still gets its release** (B825 review 1, Sonnet): `resetcamera` releases
+    /// every held key, and it now runs inside the console's `KeyDown`, so the key it was pressed by was forgotten and its
+    /// up never reached the console. Source sends a `+` bind's whole command with the `-` on release, so `-sw` must run.
+    /// The control: the press ran `+sw`.
+    /// </remarks>
+    [Test]
+    public void KeyUp_APlusBindThatResetsTheCamera_RunsItsMinusHalf()
+    {
+        using Rig rig = BuildWithAutoexec(
+            "unbindall\nalias +sw \"fps_max 10\"\nalias -sw \"fps_max 20\"\nbind r \"+sw; resetcamera\"\n");
+
+        rig.Session.KeyPressed(Key("r"));
+        rig.Settings.Current.FrameRateLimit.ShouldBe(10, "the control: the press ran +sw");
+
+        rig.Session.KeyUp("r");
+
+        rig.Settings.Current.FrameRateLimit.ShouldBe(20);
+    }
+
+    /// <remarks>
+    /// **The play/pause key pauses** (B825): `demo_togglepause` on `o` reached the console and nothing performed it, since no
+    /// menu item carries play/pause. The control: playing before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_ThePlayPauseBinding_PausesPlayback()
+    {
+        using Rig rig = Build();
+        rig.Transport.Playing = true;
+        string playPause = rig.Session.Bindings.KeyFor(ViewerAction.PlayPause).ShouldNotBeNull();
+
+        rig.Session.KeyPressed(Key(playPause)).ShouldBeTrue();
+
+        rig.Transport.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A chord bound to play/pause pauses** (B825 review 1, Gemini): a CTRL chord never reaches the console, and no menu
+    /// item carries play/pause, so `KeyPressed`'s chord checks are its only route. The control: playing before.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AChordBoundToPlayPause_PausesPlayback()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "CTRL+o");
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true)).ShouldBeTrue();
+
+        rig.Transport.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A held play/pause chord toggles once** (B825 review 3, Fable): a chord never enters the bound-key set the repeat
+    /// guard reads, and a toggle is not idempotent as the resets are, so each repeat paused and played. The view is set
+    /// playing again before the repeat, so a toggling repeat would pause it. The control: the press paused.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldPlayPauseChordRepeating_TogglesOnce()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "CTRL+o");
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true));
+        rig.Transport.Playing.ShouldBeFalse("the control: the press paused");
+
+        rig.Transport.Playing = true;
+        rig.Session.KeyPressed(Key("o", binding => binding == "CTRL+o", controlOrAlt: true, repeat: true))
+            .ShouldBeTrue("the repeat is taken, so the toolkit does not read it as a mnemonic (review 4, Fable)");
+
+        rig.Transport.Playing.ShouldBeTrue("a repeat does not toggle");
+    }
+
+    /// <remarks>
+    /// **A held screenshot chord writes one file** (B825 review 4, Fable): a matched chord's repeat is taken and runs
+    /// nothing, so a held chord is one press, as Source binds it. The control: the press wrote one.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldScreenshotChordRepeating_CapturesOnce()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }).WithDevice();
+        rig.Session.Bindings.Bind(ViewerAction.Screenshot, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true)).ShouldBeTrue();
+        rig.Device.Captured.Count.ShouldBe(1, "the control: the press wrote one");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        rig.Device.Captured.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **Escape bound to play/pause still leaves full screen** (B825 review 4, Sonnet): Escape never reaches the console,
+    /// so the play/pause chord check was its one route to the toggle, ahead of the full-screen exit. The control: full
+    /// screen and playing before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_EscapeBoundToPlayPauseInFullScreen_LeavesFullScreenAndKeepsPlaying()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.PlayPause, "ESCAPE");
+        rig.Window.IsFullScreen = true;
+        rig.Transport.Playing = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", binding => binding == "ESCAPE", escape: true)).ShouldBeTrue();
+
+        rig.Window.IsFullScreen.ShouldBeFalse();
+        rig.Transport.Playing.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **Every chord check takes its repeat and runs nothing** (B825 review 5, Sonnet, Fable): a repeat the toolkit saw
+    /// again would be a menu mnemonic or shortcut. Every case asserts the repeat is taken. The camera calls always answer
+    /// true, so the return cannot tell a guarded repeat from one that cycled again; the log can, since each camera call
+    /// writes a line. Reset speed, screenshot and play/pause log nothing, so their run-nothing half is held by their own
+    /// tests (`…ResetSpeedChordRepeating_ResetsOnce`, `…ScreenshotChordRepeating_CapturesOnce`,
+    /// `…PlayPauseChordRepeating_TogglesOnce`). The control: an unbound chord's repeat is left.
+    /// </remarks>
+    [TestCase(ViewerAction.SwitchCameraMode)]
+    [TestCase(ViewerAction.FirstPersonView)]
+    [TestCase(ViewerAction.ThirdPersonView)]
+    [TestCase(ViewerAction.ResetSpeed)]
+    [TestCase(ViewerAction.ResetCamera)]
+    [TestCase(ViewerAction.Screenshot)]
+    [TestCase(ViewerAction.PlayPause)]
+    public void KeyPressed_AHeldChordRepeating_IsTaken(ViewerAction action)
+    {
+        // The test's own folder, so the screenshot case writes nothing into the user's captures (review 6, Fable).
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") });
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true))
+            .ShouldBeFalse("the control: an unbound chord's repeat is left");
+        rig.Session.Bindings.Bind(action, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true));
+        int logged = rig.Log.Lines.Count;
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        rig.Log.Lines.Skip(logged).Where(static line => !line.StartsWith("[render] key ", StringComparison.Ordinal))
+            .ShouldBeEmpty("a repeat runs nothing; every key logs its own arrival");
+    }
+
+    /// <remarks>
+    /// **A held reset-speed chord resets once** (B825 review 5, Fable): the bare-key test's repeat is taken by the bound-key
+    /// guard ahead of the chord checks, so only a chord reaches this one. The control: the press reset.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldResetSpeedChordRepeating_ResetsOnce()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.ResetSpeed, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true));
+        rig.Transport.Speeds.ShouldBe([1d], "the control: the press reset");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true));
+
+        rig.Transport.Speeds.ShouldBe([1d]);
+    }
+
+    /// <remarks>
+    /// **Escape bound to any chord action still leaves full screen** (B825 review 5, Sonnet, Fable): every chord check
+    /// takes its key whatever it does, so without the guard each stranded the user. The control: full screen before the
+    /// press.
+    /// </remarks>
+    [TestCase(ViewerAction.SwitchCameraMode)]
+    [TestCase(ViewerAction.FirstPersonView)]
+    [TestCase(ViewerAction.ThirdPersonView)]
+    [TestCase(ViewerAction.ResetSpeed)]
+    [TestCase(ViewerAction.ResetCamera)]
+    [TestCase(ViewerAction.Screenshot)]
+    [TestCase(ViewerAction.PlayPause)]
+    public void KeyPressed_EscapeBoundToAnActionInFullScreen_LeavesFullScreen(ViewerAction action)
+    {
+        // The test's own folder, so a screenshot case reached under sabotage or mutation writes nothing into the user's
+        // captures (review 6, Fable).
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") });
+        rig.Session.Bindings.Bind(action, "ESCAPE");
+        rig.Session.Bindings.KeyFor(action).ShouldBe("ESCAPE", "the control: the bind took (review 7, Fable)");
+        rig.Window.IsFullScreen = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", binding => binding == "ESCAPE", escape: true)).ShouldBeTrue();
+
+        rig.Window.IsFullScreen.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A held one-shot key does not re-fire on auto-repeat** (B825 review 1, Gemini, Fable): the console took the press,
+    /// and Source binds the press, not its repeats. Reset speed, since every call is recorded. The control: the press
+    /// itself reset once.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldResetSpeedKeyRepeating_ResetsOnce()
+    {
+        using Rig rig = Build();
+        string reset = rig.Session.Bindings.KeyFor(ViewerAction.ResetSpeed).ShouldNotBeNull();
+
+        rig.Session.KeyPressed(Key(reset));
+        rig.Transport.Speeds.ShouldBe([1d], "the control: the press reset");
+
+        rig.Session.KeyPressed(Key(reset, repeat: true)).ShouldBeTrue();
+        rig.Session.KeyPressed(Key(reset, repeat: true));
+
+        rig.Transport.Speeds.ShouldBe([1d], "a repeat does not reset again");
+    }
+
+    /// <remarks>
+    /// **An alias reaches a session one-shot** (B825): the reset was matched by key in `KeyPressed`, so `alias go resetspeed`
+    /// on `p` raised it through the console for nobody. The control: no speed set before the press.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AnAliasNamingResetSpeed_ResetsTheSpeedOnce()
+    {
+        using Rig rig = BuildWithAutoexec("unbindall\nalias go resetspeed\nbind p go\n");
+        rig.Transport.Speeds.ShouldBeEmpty("the control");
+
+        rig.Session.KeyPressed(Key("p")).ShouldBeTrue();
+
         rig.Transport.Speeds.ShouldBe([1d]);
     }
 

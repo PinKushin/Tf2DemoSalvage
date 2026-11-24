@@ -85,6 +85,10 @@ public interface IViewerWindow
     /// <summary>Shows the keys the menu's items answer to.</summary>
     /// <param name="bindings">The bindings in force.</param>
     public void ShowBindings(KeyBindings bindings);
+
+    /// <summary>Performs a menu item's action as its click does, for a key the console ran it from (B825).</summary>
+    /// <param name="action">The action whose item to click; nothing when no item has it.</param>
+    public void PerformMenuAction(ViewerAction action);
 }
 
 /// <summary>What the idle loop asks of the message queue and the thread it runs on.</summary>

@@ -45336,7 +45336,97 @@ word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argum
 measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
-## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — OPEN
+## B825 — a key a menu shortcut cannot register does nothing for a menu one-shot (2026-11-23) — FIXED (2026-11-23)
+
+**Fixed.** `ViewerSession.OnConsoleAction` performs every one-shot the console raises, whatever key, alias or button
+ran it, as TF2 runs every bound key's command through the console: the session's own (camera mode, first and third
+person, the resets, screenshot, and play/pause through a new `PlaybackPresenter.TogglePause`) act there, and the rest
+are the menu item's, asked of the window (`IViewerWindow.PerformMenuAction`, a click on the item, so its tick moves as a
+click's does). `ConfigConsole.Perform` now counts a one-shot, so the console takes the key and a registered menu
+shortcut on it does not fire the action again; this reverses B547's rule that a one-shot left the key to the window,
+and `KeyDown_WhatTheBindDid_IsReportedSoTheHostCanTakeTheKey("resetspeed")` now expects it taken. A CTRL or ALT chord
+never reaches the console and keeps its route through `KeyPressed` and the menu shortcut. Found doing it: `demo_togglepause`
+on `o`, the default play/pause key, was performed by nothing. Tests: `KeyPressed_ABareKeyOnAMenuOneShot_PerformsItsMenuActionOnce`
+(four commands), `KeyPressed_ThePlayPauseBinding_PausesPlayback`, `KeyPressed_AnAliasNamingResetSpeed_ResetsTheSpeedOnce`,
+`PerformMenuAction_TheFrameRateAction_TicksItsItem`; red with the dispatch removed, with the one-shot not counted (the
+reset then ran twice), and with the menu clicking nothing.
+
+**Seen by a user**, all the engine's way: SHIFT with a bare one-shot key fires it (SHIFT is not a chord); a held one-shot
+key no longer re-fires on auto-repeat, where the chord check and the menu shortcut ran on every repeat; a bare key
+bound to a one-shot is always taken.
+
+**Review 1 (2026-11-24).** Sonnet: `resetcamera` releases every held key and now runs inside the console's `KeyDown`,
+so a `+` bind that also resets the camera lost its release, and `-` never ran; `PressIntoConsole` adds the key back
+after the console ran (`KeyUp_APlusBindThatResetsTheCamera_RunsItsMinusHalf`, red before). Fable: `TogglePause`'s
+resume half had no test with a demo loaded (`TogglePause_PlayingThenPaused_PausesThenPlaysAgain`, red with its `return`
+removed). Sonnet, Fable: three comments still said a one-shot is not taken; corrected. *Not tested* (Fable): the CTRL
+chord checks in `KeyPressed` are now reached only by a chord (Ctrl+E, Ctrl+B, Ctrl+R by default), and their camera
+results need a loaded demo to observe. *Not changed* (Fable): a mouse button bound to `opendemo` that is also the drag
+button leaves the drag on, since the dialog takes the button's release, as Ctrl+O's dialog always took its keys'.
+
+**Review 2 (2026-11-24).** Gemini: no menu item carries play/pause, so a CTRL chord bound to it had no route at all; a
+chord check in `KeyPressed` (`KeyPressed_AChordBoundToPlayPause_PausesPlayback`, red without it). Gemini, Fable: a held
+one-shot key's auto-repeat had no test (`KeyPressed_AHeldResetSpeedKeyRepeating_ResetsOnce`, red with the repeat
+guard bypassed; a play/pause version could not fail, since play does nothing without a demo, so reset speed is used).
+Sonnet: the key re-added after the console ran can stay in the set when a modal dialog swallows its release; the next
+press and release clear it, and nothing reads it between. Fable adds: a `+` bind whose other half opens the dialog
+(`bind p "+sw; opendemo"`) then owes its `-` half to the key's next release that reaches the console. Fable: the re-add
+fixes the pressed key only; another held key that `resetcamera` releases (`w` on `+mfwd`, say) still loses its `-`
+half, as a Ctrl+R reset did before this branch. *Not changed*. The first `Add` before `KeyDown` is kept: a release
+re-entering during a dialog must find the key. Fable: a config's bare one-shot is not performed at load, startup or a
+folder pick alike, since `ConfigConsole`'s load guard (B820) skips it while `_loading`.
+
+**Review 3 (2026-11-24).** Fable, Sonnet: a held play/pause chord re-fired on every auto-repeat, since a chord never
+enters the bound-key set and a toggle is not idempotent as the resets are; the chord check now skips a repeat, and
+Escape too, which must still leave full screen (`KeyPressed_AHeldPlayPauseChordRepeating_TogglesOnce`, red before).
+*Not changed* (Fable): the chord route performs the first matching action only, and `KeyFor` holds one key per action,
+so a config binding both `o` and a chord to play/pause leaves the chord unnamed; the reset and screenshot chord checks
+already take Escape ahead of leaving full screen, as on main.
+
+**Review 4 (2026-11-24).** Fable: skipping a play/pause chord's repeat returned false, so WinForms read a held ALT
+chord's repeat as a menu mnemonic; and camera mode and screenshot chords already re-fired per repeat on main. One rule
+now: a matched chord's repeat is taken and runs nothing, as Source binds the press
+(`KeyPressed_AHeldScreenshotChordRepeating_CapturesOnce`, and the play/pause repeat test now asserts the repeat is
+taken; both red under their sabotage). Sonnet, Fable: the Escape half had no test
+(`KeyPressed_EscapeBoundToPlayPauseInFullScreen_LeavesFullScreenAndKeepsPlaying`, red without it).
+
+**Review 5 (2026-11-24).** Sonnet, Fable: five of the seven repeat guards had no test, since the bare reset-speed key's
+repeat is taken by the bound-key guard before the chord checks; and only play/pause skipped Escape, so `bind ESCAPE
+screenshot` (or any chord action) in full screen took the key and never left. *Fixed*: one `Chord` check skips Escape for
+every action. Tests: `KeyPressed_AHeldChordRepeating_IsTaken` over all seven actions (the camera calls always answer
+true, so it asserts the repeat logs nothing beyond the key's own arrival line; the control is an unbound chord's repeat,
+left), `KeyPressed_AHeldResetSpeedChordRepeating_ResetsOnce`, and `KeyPressed_EscapeBoundToAnActionInFullScreen_LeavesFullScreen`
+over all seven. Each guard removed alone reddens its own case. *Not changed* (Grok): a camera check whose call answers
+false would take a repeat after leaving the press; all four calls answer true on every path (`CameraPresenter.cs:345`,
+`:733`), so the case cannot arise. Fable: "one rule" holds for the checks in `KeyPressed` only; a chord the menu routes
+re-fires per repeat, as on main (B827).
+
+**Review 6 (2026-11-24).** Sonnet: the repeat theory's log instrument sees only the camera calls, since reset speed,
+screenshot and play/pause log nothing; its remark now says so and names the three tests that hold their run-nothing
+half. Sonnet: `bind ESCAPE screenshot` (or any chord action) fired outside full screen on main and now never does. Kept:
+Escape already skipped the console ("Escape never reaches a bind", the Quake `menubound[K_ESCAPE]` heritage, at
+`KeyPressed`), so the chord checks were the one route left where a config's Escape bind ran. *Not changed* (Sonnet): the
+`chordKey` copy is required, since `key` is an `in` parameter a local function cannot capture (CS1628). Fable: the
+repeat theory's screenshot case ran on the default rig, whose capture folder is the user's own, and left a `.png.json`
+sidecar there per run (eleven found, deleted); both theories now use the test's folder. Grok: B827 had landed inside
+this entry; moved. Gemini (round 5, read after the round-6 edits): no findings.
+
+**Review 7 (2026-11-24).** Sonnet, Grok, Gemini: no findings. Fable: Shift+Escape was not Escape to the view
+(`keyData == Keys.Escape`), so it reached the console as `ESCAPE` and, now that a one-shot runs, ran a config's Escape bind
+and stayed in full screen. Source names the key alone (*interpolated*: `keys.cpp` is engine code, not in the SDK), and
+Shift is no chord here. *Fixed*: the view masks Shift off the
+Escape test (`ProcessCmdKey_ShiftEscapeInFullScreen_LeavesFullScreen`, red before). Fable: the Escape theory had no
+control that its bind took; it asserts `KeyFor` first. *Not changed* (Fable): `opendemo` opens its modal dialog inside
+the key's press, so a release during it re-adds a released key; the stale entry clears on the next press and release,
+and no failing case was found.
+
+**Review 8 (2026-11-24).** Sonnet, Grok, Gemini: no findings. Fable, nits only: nothing pinned CTRL or ALT with Escape as
+a chord, so a key-code-only mask went uncaught; `ProcessCmdKey_AChordedEscapeInFullScreen_StaysInFullScreen` now catches
+it, both cases red under that mask (Windows takes these presses first in practice). The Shift+Escape test's remark claimed
+more than it proves, now narrowed, and the `keys.cpp` citation is marked interpolated.
+
+**Review 9 (2026-11-24)**, on the round-8 nits only. Sonnet, Fable, Grok, Gemini: no findings; each noted that the review-8 record
+left out Gemini, and Grok that its sentence about the mask read backwards. Both corrected above.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
@@ -45349,6 +45439,16 @@ console; these names are the viewer's own one-shots (TF2 has no `opendemo` or `t
 prints its value there), so the rule is TF2's while the commands are ours. The `mat_*` cheat toggles stay refused without
 `sv_cheats` by design (B791), which a fix must keep. Fix shape: `OnConsoleAction` performs every one-shot action, so a key runs it whatever the menu can
 register — the half of B145 its remark left. *Not fixed*.
+
+## B827 — a held chord on a menu shortcut re-fires on every auto-repeat (2026-11-24) — OPEN
+
+Found in B825 review 5 (Fable). A chord that `KeyPressed` does not match falls to `base.ProcessCmdKey`
+(`MainForm.cs:1951`), and WinForms runs a menu item's shortcut on every `WM_KEYDOWN`, auto-repeats included. Holding
+`CTRL+w` toggles wireframe at the repeat rate, so it flickers and lands on whichever state the release caught. Source
+binds the press: `Key_Event` runs a key's bind on the down transition, and an auto-repeat runs nothing (the rule B547
+and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a blanket repeat filter: a menu item meant
+to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
+repeats.
 
 ## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
 

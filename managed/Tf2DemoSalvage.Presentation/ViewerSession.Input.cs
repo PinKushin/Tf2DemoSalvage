@@ -121,6 +121,10 @@ public sealed partial class ViewerSession
         _consoleKeysDown.Add(name);
 
         bool took = _console.KeyDown(name);
+
+        // Again after the console ran: a `resetcamera` in the bind releases every held key, this one included, and its
+        // up must still reach the console for a `+` bind's `-` half (B825 review 1, Sonnet).
+        _consoleKeysDown.Add(name);
         ShowBindingsIfChanged();
 
         if (!took)
@@ -158,9 +162,12 @@ public sealed partial class ViewerSession
     /// <see cref="ConfigConsole.HeldActions"/> rather than by the command's spelling, because TF2
     /// writes the camera switch as `+jump` even though nothing about it is continuous.
     ///
-    /// **Camera mode and reset are still handled in <see cref="KeyPressed"/> by comparing keys.** Every key is pressed
-    /// into the console since B547, so these one-shots arrive here too and are ignored; moving their handling here is
-    /// the remaining half of B145, and would let an alias reach them.
+    /// **Every one-shot is performed here, whatever key, alias or button ran it** (B825, the remaining half of B145): TF2
+    /// runs every bound key's command through the console. Before, camera mode and the resets were matched by key in
+    /// <see cref="KeyPressed"/>, the menu's actions only by the item's registered shortcut — which WinForms refuses for a
+    /// bare letter — and play/pause by nothing at all. The session's own one-shots act here; the rest are the menu
+    /// item's, asked of the window so its tick moves as a click's does. A CTRL or ALT chord does not reach the console
+    /// and keeps its route through <see cref="KeyPressed"/> and the menu shortcut.
     /// </remarks>
     private void OnConsoleAction(object? sender, ViewerActionEventArgs e)
     {
@@ -174,7 +181,36 @@ public sealed partial class ViewerSession
                 _camera.CycleTarget(reverse: true);
                 break;
 
+            case ViewerAction.SwitchCameraMode:
+                _ = _camera.CycleCameraMode();
+                break;
+
+            case ViewerAction.FirstPersonView:
+                _ = _camera.EnterFirstPerson();
+                break;
+
+            case ViewerAction.ThirdPersonView:
+                _ = _camera.EnterThirdPerson();
+                break;
+
+            case ViewerAction.ResetSpeed:
+                _transport.ResetSpeed();
+                break;
+
+            case ViewerAction.ResetCamera:
+                _ = _camera.ResetCamera();
+                break;
+
+            case ViewerAction.Screenshot:
+                CaptureViewportToFile();
+                break;
+
+            case ViewerAction.PlayPause:
+                _playback.TogglePause();
+                break;
+
             default:
+                _window.PerformMenuAction(e.Action);
                 break;
         }
     }
@@ -273,9 +309,9 @@ public sealed partial class ViewerSession
         // - an auto-repeat runs nothing, since Source binds the press; but the key stays the bind's while it is held;
         // - CTRL or ALT with a key is not that key, because Source's `bind` has no modifier syntax - the viewer's own
         //   chords live there; the modifier keys themselves are plain keys (`bind CTRL +duck`);
-        // - a bind that did something of the console's own takes the key, so a menu shortcut on the same key does not
-        //   also fire: the user's config wins a collision (D101). A one-shot of the viewer's own does not, and goes on
-        //   to its route below.
+        // - a bind that did something takes the key, so a menu shortcut on the same key does not also fire: the user's
+        //   config wins a collision (D101). A one-shot of the viewer's own counts too since B825: `OnConsoleAction`
+        //   performs it. The chord checks below are for CTRL and ALT chords, which never reach the console.
         // A repeat is asked about first: a bound key held while CTRL is tapped repeats as a chord, and must not turn into
         // the viewer's CTRL shortcut on every repeat (hold W, tap CTRL: CTRL+W would toggle wireframe each time).
         if (key.IsRepeat && _boundKeysDown.Contains(key.Name))
@@ -303,37 +339,62 @@ public sealed partial class ViewerSession
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
         KeyBindings bindings = Bindings;
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.SwitchCameraMode)))
+        // **A matched chord's repeat is taken and runs nothing** (B825 review 4, Fable): Source binds the press, a chord
+        // never enters the bound-key set the repeat guard above reads, and neither a toggle nor a camera cycle nor a
+        // screenshot is idempotent. Taken rather than left, so a held ALT chord's repeat is not a menu mnemonic.
+        bool press = !key.IsRepeat;
+
+        // **No chord check matches Escape**, which must still leave full screen below whatever it is bound to (B825
+        // review 3, Fable, Sonnet; widened from play/pause to every check in review 5, Sonnet).
+        KeyPress chordKey = key;
+        bool Chord(ViewerAction action) => !chordKey.IsEscape && chordKey.IsChord(bindings.KeyFor(action));
+
+        if (Chord(ViewerAction.SwitchCameraMode))
         {
-            return _camera.CycleCameraMode();
+            return !press || _camera.CycleCameraMode();
         }
 
         // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They
         // ask for a mode outright where `SwitchCameraMode` cycles, which is the same pair of routes
         // the engine offers: the spectator HUD cycles with `+jump`, and the commands exist for
         // anyone who wants to land on one directly.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.FirstPersonView)))
+        if (Chord(ViewerAction.FirstPersonView))
         {
-            return _camera.EnterFirstPerson();
+            return !press || _camera.EnterFirstPerson();
         }
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ThirdPersonView)))
+        if (Chord(ViewerAction.ThirdPersonView))
         {
-            return _camera.EnterThirdPerson();
+            return !press || _camera.EnterThirdPerson();
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
         // was agreed weeks ago and deliberately not built — *"do not hard code home, no new hard
         // codes"* — because there was nothing to add it to.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetSpeed)))
+        if (Chord(ViewerAction.ResetSpeed))
         {
-            _transport.ResetSpeed();
+            if (press)
+            {
+                _transport.ResetSpeed();
+            }
+
             return true;
         }
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetCamera)))
+        if (Chord(ViewerAction.ResetCamera))
         {
-            return _camera.ResetCamera();
+            return !press || _camera.ResetCamera();
+        }
+
+        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini).
+        if (Chord(ViewerAction.PlayPause))
+        {
+            if (press)
+            {
+                _playback.TogglePause();
+            }
+
+            return true;
         }
 
         // **Through the binding table, and its default key MOVED** (B214, D101). This was
@@ -341,9 +402,13 @@ public sealed partial class ViewerSession
         // its own capture — while our F5 was a debug view. TF2's screenshot key is F5, so the two
         // were swapped against the game. `ViewerAction.Screenshot` speaks Valve's `screenshot`
         // command, so a config that rebinds screenshots moves this with it.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.Screenshot)))
+        if (Chord(ViewerAction.Screenshot))
         {
-            CaptureViewportToFile();
+            if (press)
+            {
+                CaptureViewportToFile();
+            }
+
             return true;
         }
 
