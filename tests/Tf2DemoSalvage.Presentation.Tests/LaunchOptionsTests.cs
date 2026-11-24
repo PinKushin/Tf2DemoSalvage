@@ -151,17 +151,16 @@ public sealed class LaunchOptionsTests
     /// <remarks>
     /// **A set first on its line is stored though a later statement on that line is refused** (B830 review 1, Sonnet):
     /// `AddText` queues the commands before the one it refuses (`commandbuffer.cpp:242-243`), so `demo_fov_override 75`
-    /// runs in TF2 and the early store must hold it. The control: the same long statement first refuses the set.
+    /// runs in TF2 and the early store must hold it. The control: a first statement that is itself too long, and reads as
+    /// 80, is not stored (B830 review 2, Fable, Sonnet: one that reads as 0, the default, could not fail).
     /// </remarks>
     [Test]
     public void Read_ASetBeforeARefusedStatementOnItsLine_IsStored()
     {
-        string tooLong = "alias a " + new string('x', 600);
-
-        Read("+demo_fov_override", tooLong + ";demo_fov_override 75").Settings.DemoFovOverride
+        Read("+demo_fov_override", "80 " + new string('x', 600) + ";demo_fov_override 75").Settings.DemoFovOverride
             .ShouldBe(ViewerSettings.Load().DemoFovOverride, "the control: the long statement first");
 
-        Read("+demo_fov_override", "75;" + tooLong).Settings.DemoFovOverride.ShouldBe(75f);
+        Read("+demo_fov_override", "75;alias a " + new string('x', 600)).Settings.DemoFovOverride.ShouldBe(75f);
     }
 
     [Test]

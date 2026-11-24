@@ -46052,11 +46052,18 @@ statement in the same argument (`+fps_max "60;alias a <600 bytes>"`) was not sto
 Grok); `ConfigConsole.AddsFirst` now says whether a line's first command is queued, and only that gates the store and
 the `sv_cheats` tracking (test `Read_ASetBeforeARefusedStatementOnItsLine_IsStored`, with the long statement first as
 its control; sabotage: gating on `AddsWhole` again reddens it alone). A command the console refuses is no longer
-logged as run (Fable, Gemini). Two budget comments name the shared launch-line budget (Gemini). The test's long-value case now uses a
-value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the launch line shares
+logged as run (Fable, Gemini). Two budget comments name the shared launch-line budget (Gemini). The test's long-value
+case now uses a value that still reads as 75, so only the gate keeps it out (Fable). The `RunCommand` remark says the launch line shares
 one set of budgets (Fable). Kept, and named in the release notes (Fable, Grok): the viewer's own folder settings, which
-only the early store sets, follow the same rule, so one after a refused command, or one of 511 bytes or more, is not
-applied. The paragraph below is the entry as filed, before the fix.
+only the early store sets, follow the same rule, so one after a refused command, or one whose first command is 511
+bytes or more, is not applied.
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: the new test's control could not fail, its
+long statement read as 0, the default (Fable, Gemini, Sonnet); it now reads as 80, and a gate that ignores the first
+command's length reddens it. The wording above (Fable). Recorded elsewhere: `wait` is consumed by
+`AddText` before the length check (`:235-240`), so `+wait <600 bytes>` refuses nothing in TF2; the viewer has no `wait`
+(B832), and counts it as refusable in both the run and the store, so the two agree (Fable). Filed: B834, the argument
+buffer's own refusal (Fable). The paragraph below is the entry as filed, before the fix.
 
 Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+command` and adds it once, so a command of
 511 bytes or more makes `Cbuf_AddText` refuse the whole buffer and every later `+command` with it. `RunTheLaunchLine`
@@ -46127,6 +46134,15 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 **Review 8** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings, and each checked that
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
+
+## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — OPEN
+
+Found in B830 review 2 (Fable). `CCommandBuffer::InsertCommand` refuses a second way: when the argument buffer
+(`m_nMaxArgSBufferLength`, 8192 by `src/public/tier1/commandbuffer.h:92`) cannot take the command even after `Compact`
+(`src/tier1/commandbuffer.cpp:129-134`), it returns false and `AddText` stops (`:242-243`), with no message. The
+viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+fps_max 60` run whole here, where TF2
+stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
+FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
