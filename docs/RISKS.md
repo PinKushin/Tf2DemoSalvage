@@ -45390,6 +45390,27 @@ now: a matched chord's repeat is taken and runs nothing, as Source binds the pre
 taken; both red under their sabotage). Sonnet, Fable: the Escape half had no test
 (`KeyPressed_EscapeBoundToPlayPauseInFullScreen_LeavesFullScreenAndKeepsPlaying`, red without it).
 
+**Review 5 (2026-11-24).** Sonnet, Fable: five of the seven repeat guards had no test, since the bare reset-speed key's
+repeat is taken by the bound-key guard before the chord checks; and only play/pause skipped Escape, so `bind ESCAPE
+screenshot` (or any chord action) in full screen took the key and never left. *Fixed*: one `Chord` check skips Escape for
+every action. Tests: `KeyPressed_AHeldChordRepeating_IsTaken` over all seven actions (the camera calls always answer
+true, so it asserts the repeat logs nothing beyond the key's own arrival line; the control is an unbound chord's repeat,
+left), `KeyPressed_AHeldResetSpeedChordRepeating_ResetsOnce`, and `KeyPressed_EscapeBoundToAnActionInFullScreen_LeavesFullScreen`
+over all seven. Each guard removed alone reddens its own case. *Not changed* (Grok): a camera check whose call answers
+false would take a repeat after leaving the press; all four calls answer true on every path (`CameraPresenter.cs:345`,
+`:733`), so the case cannot arise. Fable: "one rule" holds for the checks in `KeyPressed` only; a chord the menu routes
+re-fires per repeat, as on main (B827).
+
+## B827 — a held chord on a menu shortcut re-fires on every auto-repeat (2026-11-24) — OPEN
+
+Found in B825 review 5 (Fable). A chord that `KeyPressed` does not match falls to `base.ProcessCmdKey`
+(`MainForm.cs:1951`), and WinForms runs a menu item's shortcut on every `WM_KEYDOWN`, auto-repeats included. Holding
+`CTRL+w` toggles wireframe at the repeat rate, so it flickers and lands on whichever state the release caught. Source
+binds the press: `Key_Event` runs a key's bind on the down transition, and an auto-repeat runs nothing (the rule B547
+and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a blanket repeat filter: a menu item meant
+to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
+repeats.
+
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
 registered shortcut: `ConfigConsole.Perform` raises `Triggered`, and `ViewerSession.OnConsoleAction`

@@ -1406,6 +1406,76 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **Every chord check takes its repeat and runs nothing** (B825 review 5, Sonnet, Fable): a repeat the toolkit saw
+    /// again would be a menu mnemonic or shortcut. The camera calls always answer true, so the return cannot tell a
+    /// guarded repeat from one that cycled again; the log can, since each camera call writes a line. The control: an
+    /// unbound chord's repeat is left.
+    /// </remarks>
+    [TestCase(ViewerAction.SwitchCameraMode)]
+    [TestCase(ViewerAction.FirstPersonView)]
+    [TestCase(ViewerAction.ThirdPersonView)]
+    [TestCase(ViewerAction.ResetSpeed)]
+    [TestCase(ViewerAction.ResetCamera)]
+    [TestCase(ViewerAction.Screenshot)]
+    [TestCase(ViewerAction.PlayPause)]
+    public void KeyPressed_AHeldChordRepeating_IsTaken(ViewerAction action)
+    {
+        using Rig rig = Build();
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true))
+            .ShouldBeFalse("the control: an unbound chord's repeat is left");
+        rig.Session.Bindings.Bind(action, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true));
+        int logged = rig.Log.Lines.Count;
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        rig.Log.Lines.Skip(logged).Where(static line => !line.StartsWith("[render] key ", StringComparison.Ordinal))
+            .ShouldBeEmpty("a repeat runs nothing; every key logs its own arrival");
+    }
+
+    /// <remarks>
+    /// **A held reset-speed chord resets once** (B825 review 5, Fable): the bare-key test's repeat is taken by the bound-key
+    /// guard ahead of the chord checks, so only a chord reaches this one. The control: the press reset.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldResetSpeedChordRepeating_ResetsOnce()
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(ViewerAction.ResetSpeed, "CTRL+k");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true));
+        rig.Transport.Speeds.ShouldBe([1d], "the control: the press reset");
+
+        rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true));
+
+        rig.Transport.Speeds.ShouldBe([1d]);
+    }
+
+    /// <remarks>
+    /// **Escape bound to any chord action still leaves full screen** (B825 review 5, Sonnet, Fable): every chord check
+    /// takes its key whatever it does, so without the guard each stranded the user. The control: full screen before the
+    /// press.
+    /// </remarks>
+    [TestCase(ViewerAction.SwitchCameraMode)]
+    [TestCase(ViewerAction.FirstPersonView)]
+    [TestCase(ViewerAction.ThirdPersonView)]
+    [TestCase(ViewerAction.ResetSpeed)]
+    [TestCase(ViewerAction.ResetCamera)]
+    [TestCase(ViewerAction.Screenshot)]
+    [TestCase(ViewerAction.PlayPause)]
+    public void KeyPressed_EscapeBoundToAnActionInFullScreen_LeavesFullScreen(ViewerAction action)
+    {
+        using Rig rig = Build();
+        rig.Session.Bindings.Bind(action, "ESCAPE");
+        rig.Window.IsFullScreen = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", binding => binding == "ESCAPE", escape: true)).ShouldBeTrue();
+
+        rig.Window.IsFullScreen.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **A held one-shot key does not re-fire on auto-repeat** (B825 review 1, Gemini, Fable): the console took the press,
     /// and Source binds the press, not its repeats. Reset speed, since every call is recorded. The control: the press
     /// itself reset once.

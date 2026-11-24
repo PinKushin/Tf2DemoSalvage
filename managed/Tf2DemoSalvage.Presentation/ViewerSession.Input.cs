@@ -344,7 +344,12 @@ public sealed partial class ViewerSession
         // screenshot is idempotent. Taken rather than left, so a held ALT chord's repeat is not a menu mnemonic.
         bool press = !key.IsRepeat;
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.SwitchCameraMode)))
+        // **No chord check matches Escape**, which must still leave full screen below whatever it is bound to (B825
+        // review 3, Fable, Sonnet; widened from play/pause to every check in review 5, Sonnet).
+        KeyPress chordKey = key;
+        bool Chord(ViewerAction action) => !chordKey.IsEscape && chordKey.IsChord(bindings.KeyFor(action));
+
+        if (Chord(ViewerAction.SwitchCameraMode))
         {
             return !press || _camera.CycleCameraMode();
         }
@@ -353,12 +358,12 @@ public sealed partial class ViewerSession
         // ask for a mode outright where `SwitchCameraMode` cycles, which is the same pair of routes
         // the engine offers: the spectator HUD cycles with `+jump`, and the commands exist for
         // anyone who wants to land on one directly.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.FirstPersonView)))
+        if (Chord(ViewerAction.FirstPersonView))
         {
             return !press || _camera.EnterFirstPerson();
         }
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ThirdPersonView)))
+        if (Chord(ViewerAction.ThirdPersonView))
         {
             return !press || _camera.EnterThirdPerson();
         }
@@ -366,7 +371,7 @@ public sealed partial class ViewerSession
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
         // was agreed weeks ago and deliberately not built — *"do not hard code home, no new hard
         // codes"* — because there was nothing to add it to.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetSpeed)))
+        if (Chord(ViewerAction.ResetSpeed))
         {
             if (press)
             {
@@ -376,14 +381,13 @@ public sealed partial class ViewerSession
             return true;
         }
 
-        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetCamera)))
+        if (Chord(ViewerAction.ResetCamera))
         {
             return !press || _camera.ResetCamera();
         }
 
-        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini). Not on
-        // Escape, which must still leave full screen below (review 3, Fable, Sonnet).
-        if (!key.IsEscape && key.IsChord(bindings.KeyFor(ViewerAction.PlayPause)))
+        // No menu item carries play/pause, so a chord bound to it has only this route (B825 review 1, Gemini).
+        if (Chord(ViewerAction.PlayPause))
         {
             if (press)
             {
@@ -398,7 +402,7 @@ public sealed partial class ViewerSession
         // its own capture — while our F5 was a debug view. TF2's screenshot key is F5, so the two
         // were swapped against the game. `ViewerAction.Screenshot` speaks Valve's `screenshot`
         // command, so a config that rebinds screenshots moves this with it.
-        if (key.IsChord(bindings.KeyFor(ViewerAction.Screenshot)))
+        if (Chord(ViewerAction.Screenshot))
         {
             if (press)
             {
