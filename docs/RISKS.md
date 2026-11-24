@@ -45717,6 +45717,30 @@ edit.
    so the test now also runs `bind F5 nonsense` then `bind F5` and expects `"F5" = "nonsense"`, where `CommandFor`'s
    fallback is the screenshot. A show that printed `CommandFor(key)` failed it.
 
+**Review 9 (2026-11-24): Fable, Gemini; Sonnet and Grok found nothing blocking.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *`toggle sv_cheats` on a key did nothing and fell back to the default (Fable; Gemini found it independently, with
+   the `incrementvar` case)* — fixed, a parity bug of this
+   branch's: `SetsState`'s `toggle`/`incrementvar`/`multvar` branch asked `IsClientConVar` of the target, false for the
+   replicated `sv_cheats`, while `Run` performs it (`CvarCommand`, then `SetConVar`, which takes `sv_cheats`, B718). So
+   `bind F5 "toggle sv_cheats"` over the defaults took the screenshot and left cheats off, where TF2's F5 toggles them.
+   `ConfigConsole.TakesSet` (a client ConVar, or `sv_cheats`) is now the one test `SetConVar` and `SetsState` both ask.
+   `KeyDown_AToggleOfSvCheatsOnAKey_TogglesCheatsAndCounts` (F5 sets `sv_cheats` to `1`, no screenshot; with F6 on
+   `toggle sv_gravity`, replicated and refused, as the control, 1 of 2) and
+   `KeyDown_AnIncrementvarOfSvCheatsOnAKey_SetsCheatsAndCounts` (`1.000000`, 1 of 1) failed before the fix on the count.
+   The old target check failed both; a `TakesSet` that took any declared ConVar failed the control.
+2. *Summary wording (Fable, Sonnet; Gemini: "declared ConVar" over-promised for a replicated one such as `sv_gravity
+   800`)* — `Applied`, `DoesSomething` and `SetsState` now say a set of a client (non-replicated) ConVar or `sv_cheats`
+   (`BoundAndApplied_ASetOfAReplicatedConVar_IsNotApplied`: `bind F6 "sv_gravity 800"` beside `bind F5 "sv_cheats 1"`
+   is 1 of 2; a `TakesSet` that took any declared ConVar failed it), an alias the dispatcher consults (`ConsultsAlias`; one a command name shadows
+   does not count), and name the counted-but-inert `incrementvar`/`multvar` as the one with the wrong token count, which
+   `CvarCommand` drops — not one "the ConVar refuses".
+3. *`Bindings` rested on a dictionary's order (Fable, nit)* — made deterministic by design: `_binds` is an
+   `OrderedDictionary`, so keys enumerate in the order first bound (nothing removes a key; a rebind keeps its place).
+   `Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` (`a`, `b`, `a` again: `a` has `FlyForward`) pins it, and the
+   deep-then-shallow test's remark names it as that test's footing. Enumerating keys in reverse failed it.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

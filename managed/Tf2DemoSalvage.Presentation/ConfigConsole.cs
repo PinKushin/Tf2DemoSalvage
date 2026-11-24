@@ -69,7 +69,10 @@ public sealed class ConfigConsole
     private const string AliasIssued = "-1";
 
     private readonly Dictionary<string, string> _aliases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Each key's binding, in the order keys were first bound: nothing removes a key (`unbind` and `unbindall`
+    /// store `""`), and a rebind keeps its place, so <see cref="Bindings"/> gives an action to the first key bound to it by
+    /// design rather than by a <see cref="Dictionary{TKey, TValue}"/>'s unspecified order (B823 review 9, Fable).</summary>
+    private readonly OrderedDictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Every key a <c>bind</c> line has set; it only grows. <see cref="Bound"/> and <see cref="Applied"/> count those whose
@@ -117,12 +120,13 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that names something the
-    /// console runs: a viewer action, a declared ConVar set, an alias, or a console definer (B823 reviews 6 to 8).
+    /// console runs: a viewer action, a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
+    /// consults, or a console definer (B823 reviews 6 to 9).
     /// </summary>
     /// <remarks>
     /// **What it names, not what it changes.** An alias counts whatever its body, `alias none ""` included, because TF2 runs
-    /// the alias and the bind owns the key; a definer counts whatever its arguments, and a refused cheat set still counts
-    /// (B823 review 8). This is the project's own diagnostic, so its rule is this one; the engine has no such count.
+    /// the alias and the bind owns the key; a definer counts whatever its arguments; an `incrementvar` or `multvar` with the
+    /// wrong token count, which `CvarCommand` drops, and a refused cheat set still count (B823 reviews 8 and 9). This is the project's own diagnostic, so its rule is this one; the engine has no such count.
     /// </remarks>
     /// <remarks>
     /// **Computed on demand rather than counted as binds arrive, because the count depends on
@@ -341,17 +345,18 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// Whether a bound command names something the console runs: a viewer action, a declared ConVar set, an alias, or a
-    /// console definer (B823 reviews 7 and 8).
+    /// Whether a bound command names something the console runs: a viewer action, a set of a client (non-replicated)
+    /// ConVar or `sv_cheats`, an alias the dispatcher consults, or a console definer (B823 reviews 7 to 9).
     /// </summary>
     /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
     /// <see cref="Applied"/>, which counts it.</remarks>
     private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
 
     /// <summary>
-    /// Whether a command line names a declared ConVar set, an existing alias, or a console definer — what it names, not
-    /// what it changes: any alias whatever its body, any definer whatever its arguments, an `incrementvar` the ConVar
-    /// refuses and a refused cheat set all count (B823 review 8).
+    /// Whether a command line names a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
+    /// consults, or a console definer — what it names, not what it changes: any alias whatever its body, any definer
+    /// whatever its arguments, an `incrementvar` or `multvar` with the wrong token count (which `CvarCommand` drops) and
+    /// a refused cheat set all count (B823 reviews 8 and 9).
     /// </summary>
     /// <remarks>
     /// **An alias bind is the config's, whatever its body.** TF2 runs the alias; the bind owns the key and no viewer
@@ -377,12 +382,13 @@ public sealed class ConfigConsole
                 || verb.Equals("multvar", StringComparison.OrdinalIgnoreCase);
 
             // The same tests `Run` acts on: the console's own ConCommands (`exec` and `bind` included, B820 review 1, Fable),
-            // an alias the dispatcher would consult, and a ConVar `SetConVar` would accept - which is how the console treats
-            // a typed line; a name the game does not declare is no ConVar in the engine either.
+            // an alias the dispatcher would consult, and a name `SetConVar` takes (`TakesSet`, the one test both ask: a client
+            // ConVar or `sv_cheats`, B823 review 9) - which is how the console treats a typed line; a name the game does not
+            // declare is no ConVar in the engine either.
             if (Definers.Contains(verb)
                 || (ConsultsAlias(verb) && _aliases.ContainsKey(verb))
-                || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
-                || (tokens.Count >= 2 && (IsClientConVar(verb) || verb.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))))
+                || (cvarCommand && tokens.Count >= 2 && TakesSet(tokens[1]))
+                || (tokens.Count >= 2 && TakesSet(verb)))
             {
                 return true;
             }
@@ -1309,12 +1315,20 @@ public sealed class ConfigConsole
     private static bool IsClientConVar(string name) =>
         EngineConVars.TryByConsoleName(name, out EngineConVar? declared) && !declared.Replicated;
 
+    /// <summary>
+    /// Whether the console takes a set of this name: a client ConVar, or `sv_cheats` though replicated (B718). The one
+    /// test <see cref="SetConVar"/> and <see cref="SetsState"/> share, so what a key counts as running cannot drift from
+    /// what it runs (B823 review 9, Fable).
+    /// </summary>
+    private static bool TakesSet(string name) =>
+        name.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase) || IsClientConVar(name);
+
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
     {
         _refusedNow = false;
 
-        if (tokens.Count < 2)
+        if (tokens.Count < 2 || !TakesSet(tokens[0]))
         {
             return false;
         }
@@ -1336,7 +1350,7 @@ public sealed class ConfigConsole
             return true;
         }
 
-        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
+        if (!EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
         {
             return false;
         }

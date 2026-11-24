@@ -1921,6 +1921,65 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A key that toggles `sv_cheats` is the config's** (B823 review 9, Fable): the console takes `sv_cheats` though it is
+    /// replicated (B718), so `toggle`, `incrementvar` and `multvar` on it run, as TF2 runs them, and the key must not fall
+    /// back to the viewer's screenshot. `sv_gravity`, replicated and no `sv_cheats`, is refused by the console and is the
+    /// control: it names nothing the console runs, so F6 keeps its default.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AToggleOfSvCheatsOnAKey_TogglesCheatsAndCounts()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.StartCheatsOff();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"toggle sv_cheats\"\nbind F6 \"toggle sv_gravity\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: F6's sv_gravity is the server's");
+
+        console.KeyDown("F5");
+        fired.ShouldNotContain(ViewerAction.Screenshot);
+        console.ConVar("sv_cheats").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A plain set of a replicated ConVar is not applied** (B823 review 9, Gemini): `sv_gravity` is declared but the
+    /// server's, so the console refuses `sv_gravity 800` and F6 keeps the viewer's default. `sv_cheats 1` on F5 is the
+    /// control: replicated too, but the one the console takes (B718).
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_ASetOfAReplicatedConVar_IsNotApplied()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind F6 \"sv_gravity 800\"\nbind F5 \"sv_cheats 1\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: F5's sv_cheats is taken");
+    }
+
+    /// <remarks>
+    /// **`incrementvar sv_cheats` on a key, the same** (B823 review 9, Fable): five tokens, so `CvarCommand` assigns it
+    /// and the console takes `sv_cheats 1.000000`.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnIncrementvarOfSvCheatsOnAKey_SetsCheatsAndCounts()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.StartCheatsOff();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"incrementvar sv_cheats 0 1 1\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 1));
+
+        console.KeyDown("F5");
+        fired.ShouldNotContain(ViewerAction.Screenshot);
+        console.ConVar("sv_cheats").ShouldBe("1.000000");
+    }
+
+    /// <remarks>
     /// **An alias with an empty body is applied, deliberately** (B823 review 8, Fable, Sonnet): `Applied` counts what a
     /// binding names, not what it changes. TF2 runs `none` when `k` is pressed; the bind owns the key and no viewer default
     /// stands behind it, so <c>CommandFor</c> taking it is parity, and `Applied` asks <c>CommandFor</c>'s question.
@@ -2085,12 +2144,27 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **Two keys on one action: the first bound has it, and a rebind keeps its place** (B823 review 9, Fable): the order
+    /// is the console's by design, not a dictionary's. `b` is bound after `a`, then `a` is rebound, and `a` keeps it.
+    /// </remarks>
+    [Test]
+    public void Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind a +forward\nbind b +forward\nbind a +forward");
+
+        console.Bindings().KeyFor(ViewerAction.FlyForward).ShouldBe("a");
+    }
+
+    /// <remarks>
     /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
     /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
     /// Read through <see cref="ConfigConsole.Bindings"/>' actions per key: `Applied` counts any bind that runs an alias
     /// since B823 review 7 (`CommandFor`'s own question), so it no longer tells the two routes apart.
     /// **`y` is bound first** (B823 review 8, Fable): `Bindings` gives an action to the first key that reaches it, so with
-    /// `x` first a depth cut that let `y` through stayed green; with `y` first, that fault takes the action from `x`.
+    /// `x` first a depth cut that let `y` through stayed green; with `y` first, that fault takes the action from `x`. That
+    /// power rests on the first-bound order, which `Bindings_TwoKeysOnOneAction_GiveItToTheFirstBound` pins (B823 review 9).
     /// </remarks>
     [Test]
     public void Bindings_AnAliasReachedDeepThenShallow_StillReachesItsAction()
