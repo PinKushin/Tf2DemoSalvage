@@ -46069,8 +46069,8 @@ says null means a missing install (Fable); the warning's comment says it is reac
 resolve (Grok: "fails to parse" was too narrow). Not taken: Grok's case of a map pakfile holding a debug VMT.
 `LoadWireframeMaterial` passes an empty pakfile, so neither of its reads consults one; a map overriding an engine
 wireframe is the case its remark already leaves unhandled, and no map is known to do it. Sabotage: the fallback lookup
-pointed at a key that cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer noted the new test
-skips on CI, which has no map; the CI capture test is the no-install guard.
+pointed at a key that cannot exist turned all five cases red (5 failed, 8 passed); restored, 13 passed. Every reviewer
+noted the new test skips on CI, which has no map; the CI capture test is the no-install guard.
 
 **Review 2** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings, Sonnet only the nit below.
 Fixed (Fable): the test asks `MapCache.Bytes` before its memo, as `MapCache` itself does, so the skip never depends on
