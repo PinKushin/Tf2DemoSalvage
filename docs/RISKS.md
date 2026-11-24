@@ -45358,6 +45358,14 @@ and `BindsRevision_AfterACommand_CountsOnlyWhatChangesBindsOrAliases`; each red 
 still counts every run-time `bind`; it is reported only at load, so the growth is never read. A bind on the launch line
 cannot arise here: the line runs only ConVar sets (B824).
 
+**Review 1 (2026-11-23).** Sonnet, Fable, Grok: the window's menu took the bindings once, so its items kept their old
+shortcut keys and a stale registered shortcut still fired. *Fixed*: after a key or a mouse button the console ran, the
+session tells the window again when the count moved (`ShowBindingsIfChanged`); test
+`KeyPressed_AKeyWhoseAliasBinds_TellsTheWindowTheBindingsOnce`, with a key that binds nothing as the control. Fable: an
+`alias` did not clear the cached set of actions the config claims, so a default fallback a run-time alias now claimed
+kept answering; *fixed*, test `Bindings_AfterAnAliasClaimsADefaultsAction_NoLongerNameTheDefaultKey`. Each red with its
+own line removed. Sonnet, Grok: two comments said a launch-line bind shows at once, which B824 rules out; corrected.
+
 Found in B820 review 1 (Sonnet). `ConfigConsole.LoadFrom` returns `KeyBindings`, a projection the host keeps for the
 settings screen and key labels; a `bind` run later by a key's alias changes `ConfigConsole._binds`, which `KeyDown`
 reads live, and not the projection. So the key works and its label is stale. TF2's own binding menu reads the live

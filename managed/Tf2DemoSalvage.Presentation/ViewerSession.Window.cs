@@ -65,7 +65,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <summary>The bindings in force, for the window's menu.</summary>
     /// <remarks>
     /// **Taken again whenever the console's binds or aliases changed since** (B821): a bind a key's alias makes at run
-    /// time, or one on the launch line after the configs, is the key the menu and the shortcuts must name, as TF2's one
+    /// time is the key the menu and the shortcuts must name, as TF2's one
     /// bind table is. Taken lazily, on the window thread that reads it.
     /// </remarks>
     public KeyBindings Bindings
@@ -79,6 +79,19 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             }
 
             return _bindings;
+        }
+    }
+
+    /// <summary>Tells the window the bindings again when a key or button the console ran changed them (B821 review 1).</summary>
+    /// <remarks>
+    /// The menu carries its items' shortcut keys from <see cref="IViewerWindow.ShowBindings"/>, set when it is built and
+    /// after a game folder is chosen; a bind a key's alias made would otherwise leave the old key on its item.
+    /// </remarks>
+    private void ShowBindingsIfChanged()
+    {
+        if (_bindingsRevision != _console.BindsRevision)
+        {
+            _window.ShowBindings(Bindings);
         }
     }
 
@@ -651,6 +664,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         }
 
         _ = _console.KeyDown(button);
+        ShowBindingsIfChanged();
     }
 
     /// <summary>The pointer moved over the viewport: turns the camera by how far, while a drag is on.</summary>
@@ -674,6 +688,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     {
         _dragFrom = null;
         _console.KeyUp(button);
+        ShowBindingsIfChanged();
     }
 
     /// <summary>The wheel turned over the viewport.</summary>

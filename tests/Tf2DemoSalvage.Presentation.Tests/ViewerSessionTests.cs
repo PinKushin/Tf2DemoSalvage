@@ -1034,6 +1034,47 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **An alias defined at run time retires the default it now claims** (B821 review 1, Fable): after `unbindall`, the
+    /// screenshot's default key answers only as this viewer's fallback; `F8` is bound to `shot`, which `F7` defines as the
+    /// screenshot. Before, nothing claims the screenshot, so the fallback keeps it; after, the claim is `F8`'s and the
+    /// fallback retires. The control: before `F7`, the default's key.
+    /// </remarks>
+    [Test]
+    public void Bindings_AfterAnAliasClaimsADefaultsAction_NoLongerNameTheDefaultKey()
+    {
+        string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
+        using Rig rig = BuildWithAutoexec($"unbindall\nbind F8 shot\nalias define \"alias shot {screenshot}\"\nbind F7 define\n");
+        string defaultKey = rig.Session.Bindings.KeyForCommand(screenshot).ShouldNotBeNull("the control: the default holds it");
+
+        rig.Session.KeyPressed(Key("F7")).ShouldBeTrue();
+        rig.Session.KeyUp("F7");
+
+        rig.Session.Bindings.KeyForCommand(screenshot).ShouldNotBe(defaultKey);
+    }
+
+    /// <remarks>
+    /// **The window is told the bindings again when a key changed them, and only then** (B821 review 1, Sonnet): its menu
+    /// carries each item's shortcut key, set when it was built. The control: pressing `F6`, bound to nothing that binds,
+    /// tells it nothing.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AKeyWhoseAliasBinds_TellsTheWindowTheBindingsOnce()
+    {
+        string screenshot = KeyBindings.Commands[ViewerAction.Screenshot];
+        using Rig rig = BuildWithAutoexec($"unbindall\nalias rebind \"bind F8 {screenshot}\"\nbind F7 rebind\nbind F6 none\n");
+        int before = rig.Window.Told.Count(told => told == "ShowBindings");
+
+        rig.Session.KeyPressed(Key("F6"));
+        rig.Session.KeyUp("F6");
+        rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before, "the control: F6 changed no bind");
+
+        rig.Session.KeyPressed(Key("F7"));
+        rig.Session.KeyUp("F7");
+
+        rig.Window.Told.Count(told => told == "ShowBindings").ShouldBe(before + 1);
+    }
+
+    /// <remarks>
     /// **An alias a key defines at run time reaches the bindings too** (B821): `F8` is bound to `shot`, which nothing defines
     /// until `F7` runs `alias shot` with the screenshot command. The projection expands aliases, so it changes with no `bind` at all. The
     /// control: before `F7`, `F8` reaches nothing.

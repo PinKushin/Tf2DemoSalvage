@@ -120,7 +120,10 @@ public sealed partial class ViewerSession
     {
         _consoleKeysDown.Add(name);
 
-        if (!_console.KeyDown(name))
+        bool took = _console.KeyDown(name);
+        ShowBindingsIfChanged();
+
+        if (!took)
         {
             return false;
         }
@@ -142,6 +145,7 @@ public sealed partial class ViewerSession
         if (_consoleKeysDown.Remove(key))
         {
             _console.KeyUp(key);
+            ShowBindingsIfChanged();
         }
 
         return bound;
