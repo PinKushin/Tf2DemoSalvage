@@ -1911,6 +1911,28 @@ public sealed class ConfigConsoleConformanceTests
 
         log.Count("\"F5\" = \"toggle cl_showpos\"").ShouldBe(1);
         log.Count("\"F5\" = \"screenshot\"").ShouldBe(1, "printed once, before the rebind");
+
+        // And a binding that does nothing here (B823 review 8, Fable): `CommandFor` falls back to the screenshot for
+        // `nonsense`, so only a show that reads the table prints `nonsense`.
+        console.Load("bind F5 nonsense\nbind F5");
+
+        log.Count("\"F5\" = \"nonsense\"").ShouldBe(1);
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1, "still only the first show, before any rebind");
+    }
+
+    /// <remarks>
+    /// **An alias with an empty body is applied, deliberately** (B823 review 8, Fable, Sonnet): `Applied` counts what a
+    /// binding names, not what it changes. TF2 runs `none` when `k` is pressed; the bind owns the key and no viewer default
+    /// stands behind it, so <c>CommandFor</c> taking it is parity, and `Applied` asks <c>CommandFor</c>'s question.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_ABindToAnAliasWithAnEmptyBody_IsApplied()
+    {
+        ConfigConsole console = new();
+
+        console.Load("alias none \"\"\nbind k none\nbind j nothing");
+
+        (console.Applied, console.Bound).ShouldBe((1, 2), "the control: j names nothing the console runs");
     }
 
     /// <remarks>
@@ -2067,15 +2089,17 @@ public sealed class ConfigConsoleConformanceTests
     /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
     /// Read through <see cref="ConfigConsole.Bindings"/>' actions per key: `Applied` counts any bind that runs an alias
     /// since B823 review 7 (`CommandFor`'s own question), so it no longer tells the two routes apart.
+    /// **`y` is bound first** (B823 review 8, Fable): `Bindings` gives an action to the first key that reaches it, so with
+    /// `x` first a depth cut that let `y` through stayed green; with `y` first, that fault takes the action from `x`.
     /// </remarks>
     [Test]
-    public void Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction()
+    public void Bindings_AnAliasReachedDeepThenShallow_StillReachesItsAction()
     {
         ConfigConsole console = new();
         IEnumerable<string> chain = Enumerable.Range(1, 19)
             .Select(at => $"alias c{at} {(at < 19 ? $"c{at + 1}" : "s")}");
 
-        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
+        console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind y c1\nbind x \"c1;s\"");
 
         KeyBindings bindings = console.Bindings();
         bindings.ActionsFor("x").ShouldContain(ViewerAction.FlyForward, "x reaches s at the top (B820 review 5, Fable)");

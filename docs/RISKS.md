@@ -45698,6 +45698,25 @@ its inverse edit.
    `bind F5 "toggle cl_showpos"` then `bind F5`, and expects `"F5" = "toggle cl_showpos"` once beside the earlier
    `"F5" = "screenshot"` once. A rebind that kept the first value (`TryAdd`) failed it.
 
+**Review 8 (2026-11-24): Fable, Sonnet; Gemini found nothing; no blockers.** Each fix's test failed under a sabotage, restored by its inverse
+edit.
+
+1. *`Applied` and `SetsState` said less than the code does (Fable, Sonnet)* — the summaries now state the rule the code
+   has: a binding counts when it names something the console runs (a viewer action, a declared ConVar set, an alias, or
+   a console definer), whatever an alias's body, a definer's arguments, an `incrementvar` the ConVar refuses or a refused
+   cheat set. `SetsState` is not narrowed: in TF2 a key bound to an alias runs it whatever its body, the bind owns the
+   key and no viewer default stands behind it, so `CommandFor` taking it is parity; `Applied` is this project's own
+   diagnostic and asks `CommandFor`'s question. `BoundAndApplied_ABindToAnAliasWithAnEmptyBody_IsApplied` pins it:
+   `alias none ""`, `bind k none`, `bind j nothing` is 1 of 2 (`j` the control). An alias clause narrowed to aliases that
+   reach an action failed it.
+2. *The deep-then-shallow alias test had no power (Fable)* — `Bindings` gives an action to the first key that reaches
+   it, so with `x` bound first a depth cut that let `y` through stayed green. `y` is now bound first, and the test is
+   renamed `Bindings_AnAliasReachedDeepThenShallow_StillReachesItsAction`. A depth cut five levels deeper failed it
+   (`x` lost `FlyForward`).
+3. *The print test did not prove "the table, not the default" (Fable)* — `toggle cl_showpos` passes `CommandFor` too,
+   so the test now also runs `bind F5 nonsense` then `bind F5` and expects `"F5" = "nonsense"`, where `CommandFor`'s
+   fallback is the screenshot. A show that printed `CommandFor(key)` failed it.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

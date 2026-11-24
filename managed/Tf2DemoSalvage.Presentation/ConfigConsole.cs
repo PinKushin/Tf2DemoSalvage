@@ -116,9 +116,14 @@ public sealed class ConfigConsole
     private bool _loading;
 
     /// <summary>
-    /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that does something here:
-    /// reaches a viewer action or sets state (B823 reviews 6 and 7).
+    /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that names something the
+    /// console runs: a viewer action, a declared ConVar set, an alias, or a console definer (B823 reviews 6 to 8).
     /// </summary>
+    /// <remarks>
+    /// **What it names, not what it changes.** An alias counts whatever its body, `alias none ""` included, because TF2 runs
+    /// the alias and the bind owns the key; a definer counts whatever its arguments, and a refused cheat set still counts
+    /// (B823 review 8). This is the project's own diagnostic, so its rule is this one; the engine has no such count.
+    /// </remarks>
     /// <remarks>
     /// **Computed on demand rather than counted as binds arrive, because the count depends on
     /// aliases that may not exist yet.** TF2 execs `config.cfg` before `autoexec.cfg`, and the binds
@@ -335,13 +340,23 @@ public sealed class ConfigConsole
         return fallback;
     }
 
-    /// <summary>Whether a bound command does something here: reaches a viewer action or sets state (B823 review 7).</summary>
+    /// <summary>
+    /// Whether a bound command names something the console runs: a viewer action, a declared ConVar set, an alias, or a
+    /// console definer (B823 reviews 7 and 8).
+    /// </summary>
     /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
     /// <see cref="Applied"/>, which counts it.</remarks>
     private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
 
-    /// <summary>Whether a command line defines an alias or sets a declared ConVar, through its aliases.</summary>
+    /// <summary>
+    /// Whether a command line names a declared ConVar set, an existing alias, or a console definer — what it names, not
+    /// what it changes: any alias whatever its body, any definer whatever its arguments, an `incrementvar` the ConVar
+    /// refuses and a refused cheat set all count (B823 review 8).
+    /// </summary>
     /// <remarks>
+    /// **An alias bind is the config's, whatever its body.** TF2 runs the alias; the bind owns the key and no viewer
+    /// default stands behind it, so <see cref="CommandFor"/> taking it is parity and this is not narrowed.
+    ///
     /// **A `toggle` is not a no-op because it names no action** (B547). The fallback above was written for binds that
     /// mean nothing here; `bind HOME "toggle cl_showpos"` means something, and fell back to `resetspeed`.
     /// </remarks>
