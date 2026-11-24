@@ -46340,7 +46340,12 @@ a Windows-only test keeps it and drops the bare name; sabotage: that half made f
 tests name their folder per run, since Stryker's test hosts may share a working directory and one host's delete could
 fall between another's create and read; the drive-relative test is skipped when the working directory has no drive
 letter (a UNC path). Recorded (Fable): the mutation job runs Presentation on Linux, where the drive-relative test is
-skipped, so the `IsPathRooted` mutant survives there every run; that is expected, not a gap.
+skipped, so a mutant that made the `IsPathRooted` half false alone would survive there.
+
+**Review 5** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): review 4 said
+the `IsPathRooted` mutant survives on Linux every run, but the mutants Stryker.NET makes there (`||` to `&&`, `||` to
+`^`, the call negated) each redden the folder test, which runs on Linux; only a hand sabotage that makes that half false
+would survive, and the record above now says so.
 
 The paragraph below is the entry as filed.
 
