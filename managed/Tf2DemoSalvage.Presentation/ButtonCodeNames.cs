@@ -74,7 +74,8 @@ public static class ButtonCodeNames
     /// </returns>
     /// <remarks>
     /// **A chord is above Valve** (`docs/ABOVE-VALVE.md`): TF2 has none, so no TF2 config holds one, and the viewer's own
-    /// defaults and menu use them. One or more modifiers, each followed by `+`, then a name the table knows.
+    /// defaults and menu use them. One or more modifiers, each followed by `+`, then a name the table knows that is not
+    /// itself a modifier: `CTRL`, `SHIFT`, `ALT`, `RCTRL`, `RSHIFT` or `RALT`.
     /// </remarks>
     public static string? KeyOf(string? name)
     {
@@ -103,7 +104,8 @@ public static class ButtonCodeNames
 
             // A key that is itself a modifier is no chord (review 4, Fable): the view reads `CTRL+SHIFT` as Shift held with
             // Control, a press WinForms reports with the Shift modifier too, so it could never fire.
-            if (TableKey(name[at..]) is { } chordKey && ModifierOf(chordKey) < 0)
+            // So is one on a right-hand modifier (review 5, Gemini), which the view cannot name (`KeyNames`).
+            if (TableKey(name[at..]) is { } chordKey && ModifierOf(chordKey) < 0 && !SidedModifiers.Contains(chordKey))
             {
                 return string.Concat(CanonicalModifiers.Where((_, i) => held[i]).Select(m => m + "+")) + chordKey;
             }
@@ -114,6 +116,9 @@ public static class ButtonCodeNames
 
     /// <summary>The modifiers a chord may name (above Valve), as a chord is stored and in that order; `CONTROL` is read as `CTRL`.</summary>
     private static readonly string[] CanonicalModifiers = ["CTRL", "SHIFT", "ALT"];
+
+    /// <summary>The table's right-hand modifiers, in its spelling; never a chord's key.</summary>
+    private static readonly string[] SidedModifiers = ["RCTRL", "RSHIFT", "RALT"];
 
     /// <summary>The input system's own lookup, without the chord extension.</summary>
     private static string? TableKey(string name)

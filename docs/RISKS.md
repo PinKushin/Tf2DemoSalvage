@@ -45819,6 +45819,12 @@ Gemini, Sonnet). Tested with `ALT+SHIFT+CTRL+e` (order) and `CTRL+CTRL+e` (a rep
 test now requires each default in the console's own spelling; the stale `<returns>` text (Fable, Sonnet). Sabotage: the
 guard removed reddens the two `CTRL+SHIFT` cases.
 
+**Review 5** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: a chord on `RSHIFT`, `RCTRL` or `RALT` (`CTRL+RSHIFT`)
+was kept and could never fire, since the view names none of the three (review 2) (Fable, Gemini, Sonnet, Grok); it is
+now refused like one on `SHIFT` (Gemini), tested with `CTRL+RSHIFT`, `SHIFT+rctrl` and `ALT+RALT`. A bare `bind RSHIFT`
+stays, a TF2 key. The `KeyOf` remarks name the six modifiers a chord's key may not be (Sonnet). The brief said all four
+found review 4's defect; the record above is right, Grok had none (Fable, Sonnet).
+
 The paragraph below is the entry as filed.
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at
