@@ -800,9 +800,32 @@ internal sealed class ViewerMenu : IDisposable
     /// startup reads the player's binds after this menu was built, and a menu built once kept printing
     /// the keys from before.
     /// </remarks>
+    /// <remarks>
+    /// **Every registered shortcut is cleared before any is set, once one changes** (B821 reviews 2 and 3, Fable): WinForms keeps an owner's shortcuts
+    /// in one table and an item's setter removes its old key there, so two items swapping keys one at a time had the
+    /// second remove the first's new entry, and that key fired nothing. A run-time bind reaches this on a key press.
+    /// </remarks>
     public void ApplyBindings(KeyBindings bindings)
     {
         ArgumentNullException.ThrowIfNull(bindings);
+
+        // Every registered item, the unchanged ones too, once any changes (review 3, Fable): an unchanged item sharing a key
+        // with one that gives it up would otherwise lose the table entry, as its own setter does nothing on an equal value.
+        // A loop, not a lambda: a closure over the table would be a view type holding a Presentation object (D214).
+        bool anyChanges = false;
+
+        foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
+        {
+            anyChanges |= !printedOnly && item.ShortcutKeys != Registered(bindings.KeyFor(action));
+        }
+
+        foreach ((ToolStripMenuItem item, _, bool printedOnly) in _shortcuts)
+        {
+            if (anyChanges && !printedOnly)
+            {
+                item.ShortcutKeys = Keys.None;
+            }
+        }
 
         foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
         {
@@ -825,14 +848,27 @@ internal sealed class ViewerMenu : IDisposable
 
     private static void SetKey(ToolStripMenuItem item, ViewerAction action, bool printedOnly, KeyBindings bindings)
     {
+        string key = bindings.KeyFor(action);
+
         if (printedOnly)
         {
-            item.ShortcutKeyDisplayString = bindings.KeyFor(action);
+            item.ShortcutKeyDisplayString = key;
+            return;
         }
-        else
-        {
-            item.ShortcutKeys = KeyNames.Resolve(bindings.KeyFor(action));
-        }
+
+        // **A key WinForms will not register is printed instead** (B821 review 4, Fable): its setter throws on a shortcut
+        // with no modifier unless it is a function key, Insert or Delete, and a config may bind `p` to a menu action. The
+        // item names the key; a held action or a ConVar set works through the console, a menu one-shot does not (B825).
+        Keys keys = Registered(key);
+        item.ShortcutKeys = keys;
+        item.ShortcutKeyDisplayString = keys == Keys.None && key.Length > 0 ? key : null;
+    }
+
+    /// <summary>The key a menu item can register for a bind, or none when WinForms would refuse it.</summary>
+    private static Keys Registered(string key)
+    {
+        Keys keys = KeyNames.Resolve(key);
+        return ToolStripManager.IsValidShortcut(keys) ? keys : Keys.None;
     }
 
     /// <summary>

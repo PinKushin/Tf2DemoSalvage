@@ -145,6 +145,14 @@ public sealed class ConfigConsole
     /// </remarks>
     public int Bound { get; private set; }
 
+    /// <summary>Counts every <c>bind</c>, <c>unbind</c>, <c>unbindall</c> and <c>alias</c> run, so a host can tell its projection is stale.</summary>
+    /// <remarks>
+    /// **TF2 has one bind table, and its binding menu reads it** (*not read*; the menu is closed): a bind an alias makes at
+    /// run time shows at once (B821). <see cref="Bindings"/> expands aliases, so an alias
+    /// change moves it too. The defaults <see cref="WithDefaults"/> writes are not counted: they are the starting table.
+    /// </remarks>
+    public int BindsRevision { get; private set; }
+
     /// <summary>The actions that are held down rather than triggered once.</summary>
     /// <remarks>
     /// **This is also the set a host must SWALLOW**, and since 2026-08-26 it is the only copy of it
@@ -1047,6 +1055,7 @@ public sealed class ConfigConsole
             _binds.Clear();
             Bound = 0;
             _claimed = null;
+            BindsRevision++;
             return true;
         }
 
@@ -1056,6 +1065,7 @@ public sealed class ConfigConsole
             {
                 _binds.Remove(tokens[1]);
                 _claimed = null;
+                BindsRevision++;
             }
 
             return true;
@@ -1070,6 +1080,10 @@ public sealed class ConfigConsole
             if (tokens.Count >= 2)
             {
                 _aliases[tokens[1]] = string.Join(' ', tokens.Skip(2));
+
+                // What a bind claims is found through the aliases, so a new body can retire a default (B821 review 1, Fable).
+                _claimed = null;
+                BindsRevision++;
             }
 
             return true;
@@ -1082,6 +1096,7 @@ public sealed class ConfigConsole
                 _binds[tokens[1]] = tokens[2];
                 Bound++;
                 _claimed = null;
+                BindsRevision++;
             }
 
             return true;

@@ -182,6 +182,125 @@ public sealed class ViewerMenuTests
             "the label and the binding are one fact and must have one source");
     }
 
+    /// <remarks>
+    /// **Two items that swap keys both keep a key that fires them** (B821 review 2, Fable): WinForms keeps an owner's
+    /// shortcuts in one table, read here as the dispatch reads it (its internal <c>Shortcuts</c>), and an item's setter
+    /// removes its old key there. Set one at a time, the second removed the first's new entry. The control: before the
+    /// swap, the table holds each item under its own key.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_TwoItemsSwappingKeys_LeavesEachKeyFiringItsNewItem()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        ViewerAction secondAction = ActionOn(second.ShortcutKeys);
+        string firstKey = KeyBindings.Defaults[firstAction];
+        string secondKey = KeyBindings.Defaults[secondAction];
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+        shortcuts[KeyNames.Resolve(firstKey)].ShouldBeSameAs(first, "the control: the table before the swap");
+
+        Dictionary<ViewerAction, string> swapped = new(KeyBindings.Defaults) { [firstAction] = secondKey, [secondAction] = firstKey };
+        ((IViewerWindow)form).ShowBindings(new KeyBindings(swapped));
+
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldBeSameAs(first);
+        shortcuts[KeyNames.Resolve(firstKey)].ShouldBeSameAs(second);
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
+    /// <remarks>
+    /// **An unchanged item keeps its key when another item gives up the same key** (B821 review 3, Fable): the first item
+    /// takes the second's key, which the defaults still give the second too, and then returns to its own. Its setter
+    /// removes the shared entry, and the second's setter does nothing on an unchanged value, so the key fired nothing. The
+    /// control: while both hold the key, the entry is the last one set.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_AnItemGivingUpAKeyItShared_LeavesTheKeyFiringTheOther()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        string secondKey = KeyBindings.Defaults[ActionOn(second.ShortcutKeys)];
+        IViewerWindow window = form;
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+
+        window.ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = secondKey }));
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldNotBeNull("the control: the shared key is in the table");
+
+        window.ShowBindings(new KeyBindings());
+
+        shortcuts[KeyNames.Resolve(secondKey)].ShouldBeSameAs(second);
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
+    /// <remarks>
+    /// **A bare key on a menu action is printed, not registered** (B821 review 4, Fable): WinForms refuses a shortcut with no
+    /// modifier unless it is a function key, Insert or Delete, and threw from a key press when a config's toggle bound
+    /// `p`. The item only names the key: a held action or a ConVar set reaches the console, a menu one-shot does not
+    /// (B825). The control: another item keeps its own key in the owner's table.
+    /// </remarks>
+    [Test]
+    public void ShowBindings_ABareLetterOnAMenuAction_PrintsItAndKeepsTheOtherShortcuts()
+    {
+        using MainForm form = new();
+
+        (ToolStripMenuItem first, ToolStripMenuItem second) = Descendants(form.MainMenuStrip)
+            .Where(item => item.ShortcutKeys != Keys.None)
+            .GroupBy(item => item.Owner)
+            .Where(group => group.Count() >= 2)
+            .Select(group => (group.First(), group.Skip(1).First()))
+            .First();
+
+        ViewerAction firstAction = ActionOn(first.ShortcutKeys);
+        Keys secondKeys = second.ShortcutKeys;
+
+        System.Collections.IDictionary shortcuts = (System.Collections.IDictionary)typeof(ToolStrip)
+            .GetProperty("Shortcuts", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(first.Owner)!;
+
+        Should.NotThrow(() =>
+            ((IViewerWindow)form).ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = "p" })));
+
+        first.ShortcutKeys.ShouldBe(Keys.None);
+        first.ShortcutKeyDisplayString.ShouldBe("p");
+        shortcuts[secondKeys].ShouldBeSameAs(second, "the control: the other item keeps its key");
+
+        // Another bare key prints its own name (review 5, Sonnet), and back to a registered key the printed text goes.
+        ((IViewerWindow)form).ShowBindings(new KeyBindings(new Dictionary<ViewerAction, string> { [firstAction] = "o" }));
+        first.ShortcutKeyDisplayString.ShouldBe("o");
+
+        ((IViewerWindow)form).ShowBindings(new KeyBindings());
+        first.ShortcutKeys.ShouldBe(KeyNames.Resolve(KeyBindings.Defaults[firstAction]));
+        first.ShortcutKeyDisplayString.ShouldBeNull();
+
+        static ViewerAction ActionOn(Keys keys) =>
+            KeyBindings.Defaults.Single(pair => KeyNames.Resolve(pair.Value) == keys).Key;
+    }
+
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
         if (strip is null)

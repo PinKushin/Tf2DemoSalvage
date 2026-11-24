@@ -683,6 +683,47 @@ public sealed class KeyBindings
         _bound[action] = key;
     }
 
+    /// <summary>Whether another table answers every question this one does, the same way and in the same order.</summary>
+    /// <param name="other">The other table.</param>
+    /// <returns>True when every action's key and every key's command, in order, are equal.</returns>
+    /// <remarks>
+    /// **So a run-time alias that changes nothing a key reaches changes nothing the window shows** (B821 review 2, Grok):
+    /// a null-cancel script redefines an alias on every press, and each rebuilt table is equal to the last. The order of
+    /// the commands is compared because <see cref="KeyForCommand"/> answers with the first match.
+    /// </remarks>
+    public bool SameAs(KeyBindings other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        if (_bound.Count != other._bound.Count || _commandBinds.Count != other._commandBinds.Count)
+        {
+            return false;
+        }
+
+        foreach ((ViewerAction action, string key) in _bound)
+        {
+            if (!other._bound.TryGetValue(action, out string? theirs) || !string.Equals(key, theirs, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        // Pair by pair in order, with no boxing (review 3, Fable): a null-cancel script compares on every press.
+        using Dictionary<string, string>.Enumerator mine = _commandBinds.GetEnumerator();
+        using Dictionary<string, string>.Enumerator theirsInOrder = other._commandBinds.GetEnumerator();
+
+        while (mine.MoveNext() && theirsInOrder.MoveNext())
+        {
+            if (!string.Equals(mine.Current.Key, theirsInOrder.Current.Key, StringComparison.Ordinal) ||
+                !string.Equals(mine.Current.Value, theirsInOrder.Current.Value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Every binding, for writing to a settings file.</summary>
     /// <remarks>
     /// Ordered by action so a written file has a stable shape — a settings file that reorders

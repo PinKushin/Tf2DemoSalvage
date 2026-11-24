@@ -235,4 +235,30 @@ public sealed class KeyBindingsTests
         // successful setting.
         Should.Throw<ArgumentException>(() => new KeyBindings().Bind(ViewerAction.PlayPause, key));
     }
+
+    /// <remarks>
+    /// **Every key's command counts, in order, the viewer's own or not** (B821 review 4, Fable): a run-time `bind F8 "say hi"`
+    /// reaches no viewer action but is a HUD `%command%` key, and <see cref="KeyBindings.KeyForCommand"/> answers with the
+    /// first match. The control: the same commands in the same order are the same table.
+    /// </remarks>
+    [TestCase("same", true)]
+    [TestCase("another command", false)]
+    [TestCase("one more key", false)]
+    [TestCase("the other order", false)]
+    [TestCase("another key", false)]
+    public void SameAs_TwoTablesDifferingOnlyInTheirCommands_AreSameOnlyWhenEqualInOrder(string other, bool expected)
+    {
+        KeyBindings table = new(commandBinds: new Dictionary<string, string> { ["F7"] = "say hi", ["F8"] = "say bye" });
+
+        Dictionary<string, string> theirs = other switch
+        {
+            "same" => new() { ["F7"] = "say hi", ["F8"] = "say bye" },
+            "another command" => new() { ["F7"] = "say hi", ["F8"] = "say later" },
+            "one more key" => new() { ["F7"] = "say hi", ["F8"] = "say bye", ["F9"] = "say hi" },
+            "another key" => new() { ["F7"] = "say hi", ["F9"] = "say bye" },
+            _ => new() { ["F8"] = "say bye", ["F7"] = "say hi" },
+        };
+
+        table.SameAs(new KeyBindings(commandBinds: theirs)).ShouldBe(expected);
+    }
 }

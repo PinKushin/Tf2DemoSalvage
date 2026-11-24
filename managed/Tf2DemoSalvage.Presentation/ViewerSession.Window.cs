@@ -63,7 +63,53 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     public SettingsPresenter Settings => _settingsOwner;
 
     /// <summary>The bindings in force, for the window's menu.</summary>
-    public KeyBindings Bindings => _bindings;
+    /// <remarks>
+    /// **Taken again whenever the console's binds or aliases changed since** (B821): a bind a key's alias makes at run
+    /// time is the key the menu and the shortcuts must name, as TF2's one
+    /// bind table is. Taken lazily, on the window thread that reads it.
+    /// </remarks>
+    public KeyBindings Bindings
+    {
+        get
+        {
+            if (_bindingsRevision != _console.BindsRevision)
+            {
+                // The same object while nothing a key reaches changed, so the window and the HUD's text cache see no
+                // change either (B821 review 2, Grok, Fable).
+                KeyBindings fresh = _console.Bindings();
+
+                if (!fresh.SameAs(_bindings))
+                {
+                    _bindings = fresh;
+                }
+
+                _bindingsRevision = _console.BindsRevision;
+            }
+
+            return _bindings;
+        }
+    }
+
+    /// <summary>Tells the window the bindings again when a key or button the console ran changed them (B821 review 1).</summary>
+    /// <remarks>
+    /// The menu carries its items' shortcut keys from <see cref="IViewerWindow.ShowBindings"/>, set when it is built and
+    /// after a game folder is chosen; a bind a key's alias made would otherwise leave the old key on its item.
+    /// </remarks>
+    private void ShowBindingsIfChanged()
+    {
+        if (_bindingsRevision == _console.BindsRevision)
+        {
+            return;
+        }
+
+        KeyBindings before = _bindings;
+        KeyBindings now = Bindings;
+
+        if (!ReferenceEquals(now, before))
+        {
+            _window.ShowBindings(now);
+        }
+    }
 
     /// <summary>What the menu shows as chosen when it is built.</summary>
     public MenuState Menu => _settingsOwner.Menu(ProgramCustomFolder);
@@ -180,7 +226,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             new ViewerWindow(
                 () => WindowFrameNow,
                 ShowOnly,
-                () => _bindings,
+                () => Bindings,
                 ClientConVar,
                 () => _vguiClock.Elapsed.TotalSeconds,
                 () => _console.IsHeld(ViewerAction.ShowScores),
@@ -402,7 +448,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // No map has been read yet (no install was open), so what startup reads once is read again from the new configs
             // (B816 review 2, Grok): the lighting the first map takes, and the spectator's director.
             _presenter.ApplyTheConfiguredSettings();
-            _window.ShowBindings(_bindings);
+            _window.ShowBindings(Bindings);
         }
     }
 
@@ -634,6 +680,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         }
 
         _ = _console.KeyDown(button);
+        ShowBindingsIfChanged();
     }
 
     /// <summary>The pointer moved over the viewport: turns the camera by how far, while a drag is on.</summary>
@@ -657,6 +704,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     {
         _dragFrom = null;
         _console.KeyUp(button);
+        ShowBindingsIfChanged();
     }
 
     /// <summary>The wheel turned over the viewport.</summary>

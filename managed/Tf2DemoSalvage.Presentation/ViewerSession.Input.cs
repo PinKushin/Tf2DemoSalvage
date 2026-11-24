@@ -24,6 +24,9 @@ public sealed partial class ViewerSession
     /// </remarks>
     private KeyBindings _bindings = new();
 
+    /// <summary>The console's <see cref="ConfigConsole.BindsRevision"/> that <see cref="_bindings"/> was taken at (B821).</summary>
+    private int _bindingsRevision;
+
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private (int X, int Y)? _dragFrom;
 
@@ -63,6 +66,7 @@ public sealed partial class ViewerSession
         if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder) is { } loaded)
         {
             _bindings = loaded;
+            _bindingsRevision = _console.BindsRevision;
         }
     }
 
@@ -116,7 +120,10 @@ public sealed partial class ViewerSession
     {
         _consoleKeysDown.Add(name);
 
-        if (!_console.KeyDown(name))
+        bool took = _console.KeyDown(name);
+        ShowBindingsIfChanged();
+
+        if (!took)
         {
             return false;
         }
@@ -138,6 +145,7 @@ public sealed partial class ViewerSession
         if (_consoleKeysDown.Remove(key))
         {
             _console.KeyUp(key);
+            ShowBindingsIfChanged();
         }
 
         return bound;
@@ -290,10 +298,12 @@ public sealed partial class ViewerSession
         // **Bound actions rather than hardcoded keys (D68).** TF2 does the same: its spectator HUD
         // prints `[%jump%]` beside "Switch Camera Mode" and substitutes whatever the player bound,
         // so nothing in the game hardcodes Space — it hardcodes the action. These resolve through
-        // `_bindings`, which a settings file can override.
+        // `Bindings`, which a settings file can override and the console's run-time binds keep current (B821).
         //
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
+        KeyBindings bindings = Bindings;
+
+        if (key.IsChord(bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
             return _camera.CycleCameraMode();
         }
@@ -302,12 +312,12 @@ public sealed partial class ViewerSession
         // ask for a mode outright where `SwitchCameraMode` cycles, which is the same pair of routes
         // the engine offers: the spectator HUD cycles with `+jump`, and the commands exist for
         // anyone who wants to land on one directly.
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.FirstPersonView)))
+        if (key.IsChord(bindings.KeyFor(ViewerAction.FirstPersonView)))
         {
             return _camera.EnterFirstPerson();
         }
 
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.ThirdPersonView)))
+        if (key.IsChord(bindings.KeyFor(ViewerAction.ThirdPersonView)))
         {
             return _camera.EnterThirdPerson();
         }
@@ -315,13 +325,13 @@ public sealed partial class ViewerSession
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
         // was agreed weeks ago and deliberately not built — *"do not hard code home, no new hard
         // codes"* — because there was nothing to add it to.
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.ResetSpeed)))
+        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetSpeed)))
         {
             _transport.ResetSpeed();
             return true;
         }
 
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.ResetCamera)))
+        if (key.IsChord(bindings.KeyFor(ViewerAction.ResetCamera)))
         {
             return _camera.ResetCamera();
         }
@@ -331,7 +341,7 @@ public sealed partial class ViewerSession
         // its own capture — while our F5 was a debug view. TF2's screenshot key is F5, so the two
         // were swapped against the game. `ViewerAction.Screenshot` speaks Valve's `screenshot`
         // command, so a config that rebinds screenshots moves this with it.
-        if (key.IsChord(_bindings.KeyFor(ViewerAction.Screenshot)))
+        if (key.IsChord(bindings.KeyFor(ViewerAction.Screenshot)))
         {
             CaptureViewportToFile();
             return true;
@@ -341,7 +351,7 @@ public sealed partial class ViewerSession
         // did.** Full screen has twice been reported as impossible to leave, and the two states
         // look identical from outside: the key reaching this method and being ignored, and the key
         // going to whichever window took the foreground. Only a line written here separates them.
-        if (key.IsEscape || key.IsChord(_bindings.KeyFor(ViewerAction.FullScreen)))
+        if (key.IsEscape || key.IsChord(bindings.KeyFor(ViewerAction.FullScreen)))
         {
             // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
