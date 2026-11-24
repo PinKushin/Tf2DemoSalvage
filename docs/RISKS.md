@@ -46004,13 +46004,28 @@ console's cut yields `http:` (Fable and Sonnet traced it).
 
 **Review 6 (2026-11-24): Sonnet, Fable, Grok, Gemini** — no findings, on the test split and the citation.
 
-## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — OPEN
+## B831 — a setting whose value holds a quote is cut when stored, where the console keeps it whole (2026-11-24) — FIXED (2026-11-24)
 
 Found in B824 reviews 3 and 4 (Fable, Sonnet). `ViewerSettings.Set` builds `name "value"` and parses it back
 (`ViewerSettings.cs` ~1663), and config text has no escapes, so a `"` inside the value closes the quote early:
 `+cl_voice_filter x"//y"` holds `x"//y"` at the console (`ArgS`) and `x` in the settings. Both the launch line's early
 store and the console's announced set (`SettingsPresenter.cs` ~357) go through it. Fix shape: store a set's value
-directly rather than through a re-parsed line. *Not fixed*.
+directly rather than through a re-parsed line.
+
+**Fixed:** `Parse` now reads its lines into a name-to-value table and applies it through `Apply`; `Set` builds that table
+with its one value and applies it, so the value arrives whole, already read by its caller (the console's `ArgS`, a
+launch argument). `Set_AValueHoldingAQuoteAndADoubleSlash_StoresItWhole` (`x"//y"` set and stored whole, on its own and
+through `+cl_voice_filter`; the control, a plain value) failed before. **The save is not affected:** `Write` saves only
+the typed settings, never the free ConVar table, and the ones it quotes are folders, which cannot hold a `"` on Windows.
+
+**Review 1 (2026-11-24): Fable, Sonnet, Grok.** Fable: the one caller that leaned on the old re-parse was the launch
+line's store of a viewer setting (`LaunchOptions.cs`), whose quotes the re-parse stripped. With the argument stored
+whole, `+cl_screenshot_folder "\"D:\shots\""` kept its quotes, an invalid path, where TF2's paste and `ArgS` drop them.
+It now drops one leading `"` and then one trailing `"`, as a console set does to its `ArgS` (`ArgS` keeps the opening
+quote, `convar.cpp:432-451`; the set drops it, `engine.dll` build 1007 FUN_180178310);
+`Read_AViewerSettingInQuotes_DropsItsQuotesAsArgSDoes`, red before. `Set`'s summary no longer says "read exactly as a
+config line is". Sonnet, Grok: no other caller depended on the cut; a value with a line break, which once injected a
+second parsed line, is now kept whole.
 
 ## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
 

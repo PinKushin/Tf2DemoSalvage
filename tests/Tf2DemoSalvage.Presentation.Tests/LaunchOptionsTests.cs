@@ -673,6 +673,40 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **A set stores its value whole, quotes and `//` included** (B831): the console sets `cl_voice_filter` to its
+    /// `ArgS`, `x"//y"`, and `Set` re-quoted that into a line and parsed it back, where the second `"` closed the quote and
+    /// the `//` cut it to `x`. Config text has no escapes, so no quoting could carry it; the value is stored directly. The
+    /// control: a plain value.
+    /// </remarks>
+    [Test]
+    public void Set_AValueHoldingAQuoteAndADoubleSlash_StoresItWhole()
+    {
+        new ViewerSettings().Set("cl_voice_filter", "ab").ConVarText("cl_voice_filter").ShouldBe("ab", "the control");
+
+        new ViewerSettings().Set("cl_voice_filter", "x\"//y\"").ConVarText("cl_voice_filter").ShouldBe("x\"//y\"");
+        Read("+cl_voice_filter", "x\"//y\"").Settings.ConVarText("cl_voice_filter").ShouldBe("x\"//y\"");
+    }
+
+    /// <remarks>
+    /// **A viewer setting given in quotes on the launch line loses them, as a console set does to its `ArgS`** (B831
+    /// review 1, Fable): `stuffcmds` pastes `cl_screenshot_folder "D:\shots"`; `ArgS` keeps the opening quote
+    /// (`convar.cpp:432-451`) and the set drops one leading `"` and, then, one trailing `"` (`engine.dll` build 1007
+    /// FUN_180178310, B823). Before B831 the re-parse stripped them; storing the argument whole
+    /// kept them, an invalid path. The control: an unquoted folder.
+    /// </remarks>
+    [Test]
+    public void Read_AViewerSettingInQuotes_DropsItsQuotesAsArgSDoes()
+    {
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, @"D:\shots").Settings.ScreenshotFolder.ShouldBe(@"D:\shots", "the control");
+
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "\"D:\\shots\"").Settings.ScreenshotFolder.ShouldBe(@"D:\shots");
+
+        // B831 review 2, Fable: the leading quote goes alone, and a trailing one stays unless one led.
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "\"D:\\shots").Settings.ScreenshotFolder.ShouldBe(@"D:\shots");
+        Read("+" + ViewerSettings.ScreenshotFolderCommand, "D:\\shots\"").Settings.ScreenshotFolder.ShouldBe("D:\\shots\"");
+    }
+
+    /// <remarks>
     /// **A settings line in another case is kept under the ConVar's own name** (B791 review 10, Sonnet): the parser finds a
     /// typed name as the console does, so `TF_HUD_TARGET_ID_ALPHA 50` sets `tf_hud_target_id_alpha`.
     /// </remarks>
