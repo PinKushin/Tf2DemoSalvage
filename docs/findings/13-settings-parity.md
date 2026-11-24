@@ -281,8 +281,8 @@ two `echo` lines printed `Unknown command "�"` and then only the second line, 
 without the mark printed its line. The command name is the mark's first byte alone (*published source*, SDK 2013):
 `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`) stores a word's first `char` unchecked and ends the word
 at any `char <= ' '`, signed, so `0xBB` ends it; `EatWhiteSpace` (`:404-415`) tests `isspace` on the unsigned byte, so
-`0xBB` then starts the next token. `EF BB BF echo x` tokenizes as `EF`, `BB`, `BFecho`, `x`. The live message agrees: a
-lone `0xEF` prints as one replacement character, where the whole mark would print as nothing. The viewer's tokenizer does
+`0xBB` then starts the next token. The bytes `EF BB BF` followed directly by `echo x`, with no space, tokenize as `EF`,
+`BB`, `BFecho`, `x`. The live message agrees: one glyph as the command name, and no `echo`. The viewer's tokenizer does
 not split a word at a byte of 0x80 or more (B823). The viewer strips the mark
 anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it to
 `Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
