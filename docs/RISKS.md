@@ -46350,8 +46350,12 @@ survive, and the record above now says so.
 **Review 6** (Fable, Gemini, Sonnet, Grok; Gemini had no findings). Fixed: review 5 named three Stryker.NET mutants on
 that half; the pinned `dotnet-stryker` 4.16.0 makes only `||` to `&&` there (`BinaryExpressionMutator` maps `||` to
 `&&` alone; `NegateConditionMutator` negates only an `if` or `while` condition), read from its published source (Fable;
-Sonnet and Grok doubted the other two). Recorded (Fable): `>= 0` to `> 0` on the separator half is an equivalent
-mutant, since a separator at index 0 makes the path rooted, so it survives every run.
+Sonnet and Grok doubted the other two). Recorded (Fable): `>= 0` to `> 0` on the separator half survives every run. It
+is equivalent on Windows, where a separator at index 0 makes the path rooted; on Linux, where the mutation job runs, a
+leading `\` is not rooted, so there it survives untested (review 7, Fable, Gemini, Sonnet).
+
+**Review 7** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed (Fable, Gemini, Sonnet, low): review 6 called
+the `> 0` mutant equivalent on both platforms; the sentence above now says equivalent on Windows, untested on Linux.
 
 The paragraph below is the entry as filed.
 
