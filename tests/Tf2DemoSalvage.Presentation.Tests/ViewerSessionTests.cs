@@ -1422,7 +1422,8 @@ public sealed class ViewerSessionTests
     [TestCase(ViewerAction.PlayPause)]
     public void KeyPressed_AHeldChordRepeating_IsTaken(ViewerAction action)
     {
-        using Rig rig = Build();
+        // The test's own folder, so the screenshot case writes nothing into the user's captures (review 6, Fable).
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") });
         rig.Session.KeyPressed(Key("k", binding => binding == "CTRL+k", controlOrAlt: true, repeat: true))
             .ShouldBeFalse("the control: an unbound chord's repeat is left");
         rig.Session.Bindings.Bind(action, "CTRL+k");
@@ -1468,7 +1469,9 @@ public sealed class ViewerSessionTests
     [TestCase(ViewerAction.PlayPause)]
     public void KeyPressed_EscapeBoundToAnActionInFullScreen_LeavesFullScreen(ViewerAction action)
     {
-        using Rig rig = Build();
+        // The test's own folder, so a screenshot case reached under sabotage or mutation writes nothing into the user's
+        // captures (review 6, Fable).
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") });
         rig.Session.Bindings.Bind(action, "ESCAPE");
         rig.Window.IsFullScreen = true;
 

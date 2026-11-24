@@ -45406,17 +45406,10 @@ screenshot and play/pause log nothing; its remark now says so and names the thre
 half. Sonnet: `bind ESCAPE screenshot` (or any chord action) fired outside full screen on main and now never does. Kept:
 Escape already skipped the console ("Escape never reaches a bind", the Quake `menubound[K_ESCAPE]` heritage, at
 `KeyPressed`), so the chord checks were the one route left where a config's Escape bind ran. *Not changed* (Sonnet): the
-`chordKey` copy is required, since `key` is an `in` parameter a local function cannot capture (CS1628).
-
-## B827 — a held chord on a menu shortcut re-fires on every auto-repeat (2026-11-24) — OPEN
-
-Found in B825 review 5 (Fable). A chord that `KeyPressed` does not match falls to `base.ProcessCmdKey`
-(`MainForm.cs:1951`), and WinForms runs a menu item's shortcut on every `WM_KEYDOWN`, auto-repeats included. Holding
-`CTRL+w` toggles wireframe at the repeat rate, so it flickers and lands on whichever state the release caught. Source
-binds the press: `Key_Event` runs a key's bind on the down transition, and an auto-repeat runs nothing (the rule B547
-and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a blanket repeat filter: a menu item meant
-to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
-repeats.
+`chordKey` copy is required, since `key` is an `in` parameter a local function cannot capture (CS1628). Fable: the
+repeat theory's screenshot case ran on the default rig, whose capture folder is the user's own, and left a `.png.json`
+sidecar there per run (eleven found, deleted); both theories now use the test's folder. Grok: B827 had landed inside
+this entry; moved.
 
 Found in B821 review 5 (Fable). The viewer's one-shot menu actions — `opendemo`, `togglefullscreen`, the bare debug
 toggles such as `cl_showfps`, `cl_showpos`, `mat_surfacecolours`, `mat_drawflat` — are performed only by the menu item's
@@ -45429,6 +45422,16 @@ console; these names are the viewer's own one-shots (TF2 has no `opendemo` or `t
 prints its value there), so the rule is TF2's while the commands are ours. The `mat_*` cheat toggles stay refused without
 `sv_cheats` by design (B791), which a fix must keep. Fix shape: `OnConsoleAction` performs every one-shot action, so a key runs it whatever the menu can
 register — the half of B145 its remark left. *Not fixed*.
+
+## B827 — a held chord on a menu shortcut re-fires on every auto-repeat (2026-11-24) — OPEN
+
+Found in B825 review 5 (Fable). A chord that `KeyPressed` does not match falls to `base.ProcessCmdKey`
+(`MainForm.cs:1951`), and WinForms runs a menu item's shortcut on every `WM_KEYDOWN`, auto-repeats included. Holding
+`CTRL+w` toggles wireframe at the repeat rate, so it flickers and lands on whichever state the release caught. Source
+binds the press: `Key_Event` runs a key's bind on the down transition, and an auto-repeat runs nothing (the rule B547
+and B825 already apply to binds and to `KeyPressed`'s chords). The fix is not a blanket repeat filter: a menu item meant
+to repeat while held (a frame step, if one is a menu shortcut) must be checked first, so each item says whether it
+repeats.
 
 ## B824 — the launch line runs only `+ConVar value` pairs, where TF2's `stuffcmds` runs every `+` command (2026-11-23) — OPEN
 
