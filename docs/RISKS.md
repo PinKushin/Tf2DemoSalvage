@@ -44692,10 +44692,10 @@ Found in B822 review 4 (Fable). `CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.c
 calls for every argument, stores a word's first `char` unchecked and ends the word at `c <= ' '` with `c` a signed `char`,
 so every byte of 0x80 or more ends a word; `EatWhiteSpace` (`:404-415`) tests `isspace` on the unsigned byte, so that byte
 then starts the next token (*published source*, SDK 2013). That holds in the "C" locale, where no byte of 0x80 or more is a
-space; the closed engine's locale is not read, and in a Windows-1252 locale MSVC's `isspace(0xA0)` is true. An unquoted non-ASCII word is therefore several arguments in
+space; the closed engine's locale is not read, and in a Windows-1252 locale MSVC's `isspace(0xA0)` would be true (*interpolated*, CRT not read). An unquoted non-ASCII word is therefore several arguments in
 TF2: `alias café x` is `alias`, `caf`, `C3`, `A9`, `x` by bytes. `SourceConfig.Tokenise` (`SourceConfig.cs:252`) continues a
 word while the UTF-16 `char` is above `' '`, so the viewer reads it as one argument. *Not measured* on live TF2; the B822
-measurement (`Unknown command "�"`, one glyph, for a line starting `EF BB BF echo`) agrees with the source. The viewer
+measurement (`Unknown command "�"`, one glyph, for a line of `EF BB BF` running straight into `echo`) agrees with the source. The viewer
 tokenizes decoded text, not bytes, so the fix has to decide how a lone byte of a character is spelled as a token.
 
 ## B821 — a bind an alias makes at run time does not reach the host's binding projection (2026-11-23) — OPEN
