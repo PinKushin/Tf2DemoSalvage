@@ -96,7 +96,8 @@ public static class ViewerHelp
                                      when that starts with + or -, so +mat_picmip -1 sets
                                      nothing. The viewer's one-shot actions (+screenshot,
                                      +togglefullscreen and the like) run once the window is
-                                     up, before the demo opens.
+                                     up, before the demo opens; +opendemo is skipped on a
+                                     --shot or --measure run.
           --set <cvar> <value>       Set one declared cvar to a value taken whole, negative
                                      ones included. --like uses it for a sidecar's cvars.
 

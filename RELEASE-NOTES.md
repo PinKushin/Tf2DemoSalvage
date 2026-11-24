@@ -6,7 +6,7 @@
 
 - **The launch line is one command buffer, as TF2's (B830).** TF2 adds every `+command` on the command line to its console in one go, and a command of 511 bytes or more is refused together with every `+command` after it; the ones before it still run. The viewer now does the same, where before it refused only the long command. A setting in the refused command or after it is not applied either, the viewer's own folder settings (`cl_game_folder`, `cl_screenshot_folder`) included. Statements on one `+command`'s value before a refused statement still run, as in TF2.
 
-- **A one-shot on the command line runs, as in TF2 (B829).** `+screenshot`, `+togglefullscreen`, `+resetcamera` and the viewer's other one-shot commands on the command line now run once the window is up and before the named demo opens, as TF2 runs every `+command`; before, they did nothing. The same commands in a config still do nothing at startup. The viewer's own command names, such as `+togglefullscreen`, are not TF2's, so running them is above Valve.
+- **A one-shot on the command line runs, as in TF2 (B829).** `+screenshot`, `+togglefullscreen`, `+resetcamera` and the viewer's other one-shot commands on the command line now run once the window is up and before the named demo opens, as TF2 runs every `+command`, with or without a demo named; before, they did nothing. `+opendemo` is skipped on a `--shot` or `--measure` run, where its dialog would wait for nobody. The same commands in a config still do nothing at startup. The viewer's own command names, such as `+togglefullscreen`, are not TF2's, so running them is above Valve.
 
 ## Changes in 0.1.0-beta.71
 

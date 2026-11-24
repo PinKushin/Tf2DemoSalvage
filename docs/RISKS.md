@@ -46146,6 +46146,16 @@ whose file is in that folder, or an alias its autoexec defines) runs in the repl
 not fire; the replay is not a launch. Not taken (Grok): `KeepALaunchOneShot` holds whatever `Triggered` raises, which is
 only a one-shot (`Perform` raises it for no held action).
 
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini had no findings). Fixed: the `+opendemo` skip on a
+capture or measurement is now in `--help`, the guide, the release notes and `docs/ABOVE-VALVE.md` (Fable, Sonnet); the
+`WindowShown` summary says it runs the one-shots, with or without a path (Fable); the order test also asserts the named
+demo is what opened (Grok). Checked, no change: `+demo_togglepause` before a demo is open does nothing (`Play` returns
+with no demo), so a `--measure` run cannot stall on it (Fable); `+screenshot` on a `--shot` run also writes a picture of
+the empty view before the demo, as TF2's would (Sonnet). Not taken: the UI test compares the window with the primary
+screen's bounds, as `ShellUiTests` and `MapFullScreenUiTests` do, so a scaled or second display would fail it there
+too (Grok); its full-screen viewer is closed by its `using` before the next test, and the UI assembly runs serially
+(Fable asked whether the shared viewer gets the foreground back; not measured).
+
 The paragraph below is the entry as filed.
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is

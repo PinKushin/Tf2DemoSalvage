@@ -351,7 +351,10 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         }
     }
 
-    /// <summary>The window is up: opens the demo the command line named, or ends a headless run that has none.</summary>
+    /// <summary>
+    /// The window is up, with or without a path named: runs the launch line's one-shots (B829), then opens the demo the
+    /// command line named, or ends a headless run that has none.
+    /// </summary>
     public void WindowShown()
     {
         // The launch line's one-shots, in its order, before the demo it names opens (B829): TF2 runs `stuffcmds` at startup.

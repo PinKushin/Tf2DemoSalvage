@@ -2044,11 +2044,13 @@ public sealed class ViewerSessionTests
         int before = rig.Window.Told.Count;
 
         rig.Session.WindowShown();
-        _ = await rig.Session.Loading.ConfigureAwait(false);
+        DemoLoadResult result = await rig.Session.Loading.ConfigureAwait(false);
 
         List<string> told = [.. rig.Window.Told.Skip(before)];
         told.Take(2).ShouldBe(["PerformMenuAction FullScreen", "PerformMenuAction OpenDemo"]);
         told.Count.ShouldBeGreaterThan(2, "the control: the open told the window something after them");
+        result.Loaded.ShouldBeTrue(result.Message);
+        rig.Session.Presenter.DemoPath.ShouldBe(demo, "the named demo is what opened after them (review 2, Grok)");
     }
 
     /// <remarks>
