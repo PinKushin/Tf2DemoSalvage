@@ -257,8 +257,8 @@ configs at startup including from a VPK (D71)** — `Tf2ConfigFiles` goes throug
 which already mounts `tf/custom/*`, so a mastercomfig pack is read without anything knowing a VPK is
 involved.
 
-**Measured on the owner's install:** three configs, 12 of 95 binds applied, no control left
-unreachable. Pressing W flies forward through his null-cancel script; holding S overrides it;
+**Measured on the owner's install (2026-11-24, counts as B823 review 7 defines them, command in D71):** three
+configs, 12 of 79 binds applied, no control left unreachable. Pressing W flies forward through his null-cancel script; holding S overrides it;
 releasing S resumes forward.
 
 **Wanted:** viewer resolution, export format, mouse sensitivity, and a settings screen that shows

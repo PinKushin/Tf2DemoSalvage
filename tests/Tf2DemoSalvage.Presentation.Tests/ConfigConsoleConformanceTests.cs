@@ -1848,8 +1848,9 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A bind counts however it ran** (B823 review 6, Sonnet): a key's command binding another key at run time, an alias
-    /// whose body binds, and a key bound again after `unbindall` each leave one key standing that does something here.
+    /// **A bind counts however it ran** (B823 reviews 6 and 7, Sonnet, Fable): a key's command binding another key at run
+    /// time, an alias whose body binds, and a key bound again after `unbindall` each leave one key standing that does
+    /// something here. A key whose command is itself a `bind` does something — the console runs it — so it is applied.
     /// </remarks>
     [Test]
     public void BoundAndApplied_BindsAtRunTimeThroughAnAliasAndAfterUnbindall_CountEachStandingKey()
@@ -1857,16 +1858,37 @@ public sealed class ConfigConsoleConformanceTests
         ConfigConsole console = new();
 
         console.Load("bind k \"bind j screenshot\"");
-        (console.Applied, console.Bound).ShouldBe((0, 1), "k's command binds nothing this viewer runs");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "k's command is a bind the console runs");
 
         console.KeyDown("k");
-        (console.Applied, console.Bound).ShouldBe((1, 2), "a run-time bind: j now takes the screenshot");
+        (console.Applied, console.Bound).ShouldBe((2, 2), "a run-time bind: j now takes the screenshot");
 
         console.Load("alias b \"bind h screenshot\"\nb");
-        (console.Applied, console.Bound).ShouldBe((2, 3), "a bind an alias ran");
+        (console.Applied, console.Bound).ShouldBe((3, 3), "a bind an alias ran");
 
         console.Load("unbindall\nbind j screenshot");
         (console.Applied, console.Bound).ShouldBe((1, 1), "unbindall emptied k, j and h; j bound again");
+    }
+
+    /// <remarks>
+    /// **A bind that sets state is applied** (B823 review 7, Fable): `bind F5 "toggle cl_showpos"` over the defaults runs the
+    /// toggle and takes F5 from the screenshot, as `CommandFor` already reads it (a command that expands to an action OR sets
+    /// state does something), so `Applied` asks the same question.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_AStateSettingBindOverADefault_IsApplied()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind F5 \"toggle cl_showpos\"");
+
+        (console.Applied, console.Bound).ShouldBe((1, 1));
+
+        console.KeyDown("F5");
+        fired.ShouldBeEmpty("the control: F5 runs the toggle, not the screenshot");
+        console.ConVar("cl_showpos").ShouldBe("1");
     }
 
     /// <remarks>
@@ -1883,6 +1905,12 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("bind F5");
 
         log.Count("\"F5\" = \"screenshot\"").ShouldBe(1);
+
+        // The table, not the viewer's default (B823 review 7, Grok): rebound, F5 prints its new binding.
+        console.Load("bind F5 \"toggle cl_showpos\"\nbind F5");
+
+        log.Count("\"F5\" = \"toggle cl_showpos\"").ShouldBe(1);
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1, "printed once, before the rebind");
     }
 
     /// <remarks>
@@ -2037,6 +2065,8 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **An alias first reached at the depth bound is walked again from a shallower depth** (B820 review 4, Sonnet): reached at
     /// depth 19 through a chain, its body is cut; reached again at the top of the same bind, it must still count.
+    /// Read through <see cref="ConfigConsole.Bindings"/>' actions per key: `Applied` counts any bind that runs an alias
+    /// since B823 review 7 (`CommandFor`'s own question), so it no longer tells the two routes apart.
     /// </remarks>
     [Test]
     public void Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction()
@@ -2047,7 +2077,9 @@ public sealed class ConfigConsoleConformanceTests
 
         console.Load(string.Join('\n', chain) + "\nalias s +forward\nbind x \"c1;s\"\nbind y c1");
 
-        console.Applied.ShouldBe(1, "x counts; y, whose only route to s is the cut one, does not (B820 review 5, Fable)");
+        KeyBindings bindings = console.Bindings();
+        bindings.ActionsFor("x").ShouldContain(ViewerAction.FlyForward, "x reaches s at the top (B820 review 5, Fable)");
+        bindings.ActionsFor("y").ShouldNotContain(ViewerAction.FlyForward, "y's only route to s is the cut one");
     }
 
     /// <remarks>

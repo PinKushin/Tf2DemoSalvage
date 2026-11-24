@@ -45677,6 +45677,26 @@ sabotage, restored by its inverse edit.
    after a `.` or an exponent; no declared default spells these) and the four are pinned as accepted, `1ff` as a string.
 6. *Review 4 item 5's long line (Sonnet)* — wrapped.
 
+**Review 7 (2026-11-24): Fable, Sonnet, Grok.** Each fix's test failed under a sabotage, restored by its inverse edit.
+
+1. *`Applied` missed a state-setting bind (Fable)* — fixed: one predicate, `ConfigConsole.DoesSomething` (expands to an
+   action or `SetsState`), decides both `CommandFor` and `Applied`, so a key `CommandFor` runs is a key `Applied` counts.
+   `BoundAndApplied_AStateSettingBindOverADefault_IsApplied`: `bind F5 "toggle cl_showpos"` over the defaults is 1 of 1,
+   F5 fires no action and `cl_showpos` reads `1`. The run-time walk test now expects (1,1), (2,2), (3,3), (1,1), a key
+   whose command is a `bind` being one the console runs. With `Applied` asking only for an action, both failed.
+   `Applied_AnAliasReachedDeepThenShallow_StillCountsItsAction` now asserts on the action table (`x` reaches
+   `FlyForward`, `y` not), since every alias-running bind now counts; a re-walk only at 100 levels shallower failed it.
+2. *Stale summaries (Sonnet, Fable)* — `Bound` reads "keys a bind line set that still hold a command"; `Applied` states
+   the review 7 rule.
+3. *The real-install number (Fable)* — measured once, 2026-11-24, on the owner's install with item 1 in place:
+   `3 configs found`, **`12 of 79 binds applied`**, nothing unreachable, by `dotnet test tests/Tf2DemoSalvage.Rendering.Tests
+   --filter "FullyQualifiedName~Read_TheInstalledGame_FindsTheConfigsAndTheyBind" --logger "console;verbosity=detailed"`
+   (*measured*). D71 and `ROADMAP.md` carried 12 of 95, a count from before reviews 5 to 7 redefined `Bound`; both now
+   carry this line.
+4. *Rebind then print (Grok, optional)* — `Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault` goes on to
+   `bind F5 "toggle cl_showpos"` then `bind F5`, and expects `"F5" = "toggle cl_showpos"` once beside the earlier
+   `"F5" = "screenshot"` once. A rebind that kept the first value (`TryAdd`) failed it.
+
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 
 Found in B823 part 2. `engine.dll` x64 build 1007 FUN_1801b5ea0 looks the key name up through the input system (a vtable call at

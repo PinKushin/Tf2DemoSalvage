@@ -115,7 +115,10 @@ public sealed class ConfigConsole
     /// <summary>Whether <see cref="Load"/> is running a config, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
     private bool _loading;
 
-    /// <summary>How many binds name something this viewer implements.</summary>
+    /// <summary>
+    /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that does something here:
+    /// reaches a viewer action or sets state (B823 reviews 6 and 7).
+    /// </summary>
     /// <remarks>
     /// **Computed on demand rather than counted as binds arrive, because the count depends on
     /// aliases that may not exist yet.** TF2 execs `config.cfg` before `autoexec.cfg`, and the binds
@@ -136,9 +139,9 @@ public sealed class ConfigConsole
             // (`unbind`, `unbindall`), whatever default it falls back to.
             foreach (string key in _configBound)
             {
-                // The config's own command, not `CommandFor`'s fallback to the viewer's default (B823 review 6): a bind that
-                // does nothing here is bound and not applied, whatever answers for the key.
-                if (Expand(_binds[key], depth: 0).Count > 0)
+                // The config's own command, not `CommandFor`'s fallback to the viewer's default (B823 review 6), asked
+                // `CommandFor`'s own question (review 7): a bind that does nothing here is bound and not applied.
+                if (DoesSomething(_binds[key]))
                 {
                     applied++;
                 }
@@ -148,7 +151,7 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>How many keys the configs leave bound to a command, whether or not it means anything here.</summary>
+    /// <summary>How many keys a <c>bind</c> line set that still hold a command, whether or not it means anything here.</summary>
     /// <remarks>
     /// **The pair of numbers is what lets a caller say something true.** A config full of `mat_*`
     /// and one that failed to load are both "loaded"; only `0 applied of 206 binds` versus
@@ -309,8 +312,7 @@ public sealed class ConfigConsole
     /// </remarks>
     private string? CommandFor(string key)
     {
-        if (_binds.TryGetValue(key, out string? command) &&
-            (Expand(command, depth: 0).Count > 0 || SetsState(command)))
+        if (_binds.TryGetValue(key, out string? command) && DoesSomething(command))
         {
             return command;
         }
@@ -332,6 +334,11 @@ public sealed class ConfigConsole
 
         return fallback;
     }
+
+    /// <summary>Whether a bound command does something here: reaches a viewer action or sets state (B823 review 7).</summary>
+    /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
+    /// <see cref="Applied"/>, which counts it.</remarks>
+    private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
 
     /// <summary>Whether a command line defines an alias or sets a declared ConVar, through its aliases.</summary>
     /// <remarks>

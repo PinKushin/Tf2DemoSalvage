@@ -3782,7 +3782,11 @@ The instrument that caught it was a diagnostic added for a different purpose —
 controls — pointed at real data. `docs/memory/output-level-assertion-or-it-is-not-done.md` again,
 and the assertion now lives in `Tf2ConfigFilesTests`.
 
-**Measured after:** the same install goes from 9 of 95 binds applied to 12, and nothing unreachable.
+**Measured after:** the same install went from 9 of 95 binds applied to 12, and nothing unreachable. B823 reviews 5 to
+7 redefined both counts: `Bound` is the keys a bind line set that still hold a command, and `Applied` those whose own
+command reaches a viewer action or sets state. Remeasured 2026-11-24 on the same install: three configs, **12 of 79 binds
+applied**, by `dotnet test tests/Tf2DemoSalvage.Rendering.Tests --filter
+"FullyQualifiedName~Read_TheInstalledGame_FindsTheConfigsAndTheyBind" --logger "console;verbosity=detailed"`.
 
 ## D72 — spectator target cycling, and the test shape that was missing
 
