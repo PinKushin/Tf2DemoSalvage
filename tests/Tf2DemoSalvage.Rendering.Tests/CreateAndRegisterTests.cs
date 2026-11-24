@@ -95,7 +95,7 @@ public sealed class CreateAndRegisterTests
     }
 
     /// <remarks>
-    /// **Releasing a default ComPtr does nothing** (reviews 10-11, Fable, Grok, Sonnet): a studio model has no outline, so
+    /// **Releasing a default ComPtr does not throw** (reviews 10-12, Fable, Grok, Sonnet): a studio model has no outline, so
     /// when its vertex buffer fails, <c>CreateAndRegister</c> releases a default one. This pins Silk's null-handle
     /// <c>Dispose</c>, not code of this project's: only a Silk update can turn it red.
     /// </remarks>

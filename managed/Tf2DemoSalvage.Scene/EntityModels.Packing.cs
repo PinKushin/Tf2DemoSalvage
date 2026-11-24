@@ -710,8 +710,8 @@ public sealed partial class EntityModelSet
                 return null;
             }
 
-            // A triangle that does not start a face joins the one before it in the buffer, so it must follow its own
-            // predecessor in the corners (review 10): T0 T1 | T2 | T3, T3 continuing T2's face but packed with T0 and T1,
+            // A triangle that does not start a face joins the one before it in the buffer, so it must follow the
+            // triangle before it in the source corners (review 10): T0 T1 | T2 | T3, T3 continuing T2's face but packed with T0 and T1,
             // would join T0's face and be culled on its plane while both counts agree.
             bool starts = at == 0 || corners[order[at]].FaceEdge;
 
