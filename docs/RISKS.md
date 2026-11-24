@@ -46159,6 +46159,10 @@ too (Grok); its full-screen viewer is closed by its `using` before the next test
 **Review 3** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): the
 `docs/ABOVE-VALVE.md` row named only the test of the feature, not the one that holds its `+opendemo` exception.
 
+**Review 4** (Fable, Gemini, Sonnet, Grok; no findings). Fable noted that the skip was tested on `--shot` only, where
+the docs say `--shot` or `--measure`: `WindowShown_OpenDemoOnAMeasurementRun_IsNotRun` holds the other (sabotage: the
+skip keyed on `--shot` alone reddens it alone).
+
 The paragraph below is the entry as filed.
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is

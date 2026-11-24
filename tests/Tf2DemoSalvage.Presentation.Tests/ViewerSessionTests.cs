@@ -2069,6 +2069,18 @@ public sealed class ViewerSessionTests
         rig.Log.Count("+opendemo is not run on a capture or measurement run").ShouldBe(1);
     }
 
+    /// <remarks>The same on a measurement (B829 review 4, Fable): `--measure` is headless too.</remarks>
+    [Test]
+    public void WindowShown_OpenDemoOnAMeasurementRun_IsNotRun()
+    {
+        using Rig rig = Build("+opendemo", "+togglefullscreen", "--measure", "20");
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.ShouldNotContain("PerformMenuAction OpenDemo");
+        rig.Window.Told.ShouldContain("PerformMenuAction FullScreen");
+    }
+
     [Test]
     public void WindowShown_AMissingFileOnACaptureRun_SaysWhichOnStderrExitsOneAndCloses()
     {
