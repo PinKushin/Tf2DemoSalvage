@@ -1828,6 +1828,61 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("sensitivity 3");
 
         (console.Applied, console.Bound).ShouldBe((0, 0));
+        console.Bindings().KeyFor(ViewerAction.Screenshot).ShouldBe("F5", "the control: the defaults were seeded");
+    }
+
+    /// <remarks>
+    /// **`Applied` is the config's own command, not the default behind it** (B823 review 6, Fable, Sonnet): `bind F5
+    /// nonsense` leaves F5 taking a screenshot by the viewer's fallback, but the config's bind did nothing here, so it is
+    /// one bound and none applied. The control binds F5 to the screenshot itself.
+    /// </remarks>
+    [TestCase("bind F5 nonsense", 0, 1)]
+    [TestCase("bind F5 screenshot", 1, 1)]
+    public void BoundAndApplied_AConfigBindOverADefault_CountTheConfigsCommand(string line, int applied, int bound)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load(line);
+
+        (console.Applied, console.Bound).ShouldBe((applied, bound));
+    }
+
+    /// <remarks>
+    /// **A bind counts however it ran** (B823 review 6, Sonnet): a key's command binding another key at run time, an alias
+    /// whose body binds, and a key bound again after `unbindall` each leave one key standing that does something here.
+    /// </remarks>
+    [Test]
+    public void BoundAndApplied_BindsAtRunTimeThroughAnAliasAndAfterUnbindall_CountEachStandingKey()
+    {
+        ConfigConsole console = new();
+
+        console.Load("bind k \"bind j screenshot\"");
+        (console.Applied, console.Bound).ShouldBe((0, 1), "k's command binds nothing this viewer runs");
+
+        console.KeyDown("k");
+        (console.Applied, console.Bound).ShouldBe((1, 2), "a run-time bind: j now takes the screenshot");
+
+        console.Load("alias b \"bind h screenshot\"\nb");
+        (console.Applied, console.Bound).ShouldBe((2, 3), "a bind an alias ran");
+
+        console.Load("unbindall\nbind j screenshot");
+        (console.Applied, console.Bound).ShouldBe((1, 1), "unbindall emptied k, j and h; j bound again");
+    }
+
+    /// <remarks>
+    /// **`bind F5` prints the seeded default** (B823 review 6, Fable): TF2's default binds come from `config_default.cfg`
+    /// into the same table, so its `bind F5` prints them; <see cref="ConfigConsole.WithDefaults"/> plays that file's part.
+    /// </remarks>
+    [Test]
+    public void Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Log = log;
+
+        console.Load("bind F5");
+
+        log.Count("\"F5\" = \"screenshot\"").ShouldBe(1);
     }
 
     /// <remarks>

@@ -45609,8 +45609,9 @@ restored by its inverse edit.
    `BoundAndApplied_AKeyBoundTwiceAndOneUnbound_CountStandingKeys` (2 and 1) failed before;
    `Applied_AKeyUnboundOverAViewerDefault_IsNotCounted` failed with the empty check removed from `Applied`; `Bound` as
    the table's count failed it and the `unbindall` test.
-5. *Output-level assertions (Fable)* — done, both halves (the prediction half in a second commit). **The frame:** `SyntheticPlayer.DemoOfANemesis` writes a recorder
-   dominated by a connected blu player with the tournament ConVars at signon, and
+5. *Output-level assertions (Fable)* — done, both halves (the prediction half in a second commit). **The frame:**
+   `SyntheticPlayer.DemoOfANemesis` writes a recorder dominated by a connected blu player with the tournament ConVars at
+   signon, and
    `Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads` reads `particle_nemesis_blue` off the decoded frame:
    shown at `mp_tournament 1` with `0.5`, gone at `1`, shown with no tournament. With the frame builder's line
    (`DemoTimeline.cs`, the `OverheadFrame` construction) put back to `Number != 0`, the `0.5` case failed. **The
@@ -45654,6 +45655,27 @@ restored by its inverse edit.
 5. *`ShouldShowNemesisIcon`'s file (Fable)* — fixed: `c_tf_player.cpp:9376-9395`, read there, in `DemoTimeline` and the
    two test remarks.
 6. *The sidecar remark's width (Sonnet)* — rewrapped.
+
+**Review 6 (2026-11-24): Fable, Sonnet; Grok found nothing; no blockers.** Each fix's test failed before it or under a
+sabotage, restored by its inverse edit.
+
+1. *`bind F5` prints a seeded default (Fable)* — the code stays and the remark is corrected: TF2's defaults come from
+   `config_default.cfg` into the same table, so its `bind F5` prints them, and `WithDefaults` plays that file's part.
+   `Bind_TwoArgumentsOnASeededDefault_PrintsTheDefault` (`"F5" = "screenshot"`); a show that skipped keys no config bound
+   failed it.
+2. *`Applied` counted the default behind a config's no-op (Fable, Sonnet)* — fixed: it expands the config's own binding,
+   not `CommandFor`'s fallback. `BoundAndApplied_AConfigBindOverADefault_CountTheConfigsCommand`: `bind F5 nonsense` over
+   the defaults is 0 of 1, failed before (1 of 1); `bind F5 screenshot` 1 of 1 is the control.
+3. *`_configBound`'s remark (Fable)* — corrected: the set only grows; `Bound` and `Applied` count its keys whose binding
+   is still a command.
+4. *Test gaps (Fable, Sonnet)* — the test is renamed `HoldsOneNumber_ANumberThenASuffixThenWhiteSpace_IsOneNumber`, with
+   `2F`, `2.5l`, tab and newline cases (a suffix set of `f` alone and white space of a space alone failed six);
+   `BoundAndApplied_AConfigWithNoBindOverTheDefaults_AreZero` gains the seeded control (`KeyFor(Screenshot)` is `F5`);
+   `BoundAndApplied_BindsAtRunTimeThroughAnAliasAndAfterUnbindall_CountEachStandingKey` walks a key's run-time bind (1 of
+   2), an alias's (2 of 3) and `unbindall` then a rebind (1 of 1); with a bind counted only while loading, it failed.
+5. *`inff`, `nanf`, `infl`, `1f` (Fable, Sonnet)* — not restricted; the remark states the limit (C takes a suffix only
+   after a `.` or an exponent; no declared default spells these) and the four are pinned as accepted, `1ff` as a string.
+6. *Review 4 item 5's long line (Sonnet)* — wrapped.
 
 ## B826 — `bind` keeps a key name TF2 does not know, where TF2 prints `"%s" isn't a valid key` and binds nothing (2026-11-24) — OPEN
 

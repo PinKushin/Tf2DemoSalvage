@@ -72,8 +72,9 @@ public sealed class ConfigConsole
     private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The keys a <c>bind</c> line set and nothing has emptied since: what <see cref="Bound"/> and <see cref="Applied"/>
-    /// count, so the defaults <see cref="WithDefaults"/> seeds into <see cref="_binds"/> are never a config's (B823 review 5).
+    /// Every key a <c>bind</c> line has set; it only grows. <see cref="Bound"/> and <see cref="Applied"/> count those whose
+    /// binding is still a command — `unbind` and `unbindall` empty the binding, not this set — so the defaults
+    /// <see cref="WithDefaults"/> seeds into <see cref="_binds"/> are never a config's (B823 reviews 5 and 6).
     /// </summary>
     private readonly HashSet<string> _configBound = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _conVars = new(StringComparer.OrdinalIgnoreCase);
@@ -135,7 +136,9 @@ public sealed class ConfigConsole
             // (`unbind`, `unbindall`), whatever default it falls back to.
             foreach (string key in _configBound)
             {
-                if (_binds[key].Length > 0 && Expand(CommandFor(key) ?? string.Empty, depth: 0).Count > 0)
+                // The config's own command, not `CommandFor`'s fallback to the viewer's default (B823 review 6): a bind that
+                // does nothing here is bound and not applied, whatever answers for the key.
+                if (Expand(_binds[key], depth: 0).Count > 0)
                 {
                     applied++;
                 }
@@ -1126,8 +1129,9 @@ public sealed class ConfigConsole
     /// `"%s" is not bound`); three bind `Arg(2)`, except that key 0x46, `KEY_ESCAPE`, is bound to `cancelselect` whatever
     /// the line says (*interpolated*: the name matched without case, since the engine's key-name lookup, the vtable call at
     /// +0xe8, is not read). *Not ported (B826):* `"%s" isn't a valid key` — the key names are the view's (`KeyNames`, D214), so a name
-    /// TF2 does not know is kept here and no key ever reaches it. The binding printed is the config's, not this viewer's
-    /// own defaults, which TF2 does not have.
+    /// TF2 does not know is kept here and no key ever reaches it. The binding printed is the table's, seeded defaults
+    /// included: TF2's own defaults come from `config_default.cfg` into the same table, so its `bind F5` prints them, and
+    /// <see cref="WithDefaults"/> plays that file's part (B823 review 6, Fable).
     /// </remarks>
     private void Bind(IReadOnlyList<string> tokens)
     {

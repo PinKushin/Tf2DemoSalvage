@@ -50,6 +50,9 @@ public sealed class ConVarNumberConformanceTests
     /// **One number to `atof`, then at most a C float suffix and C white space** (B823 reviews 4 and 5, Fable): `0.1f` is
     /// the number 0.1, as `EngineConVar.Number` reads it; `255 255 255`, `2fort`, `infantry` and `nano` are words that
     /// start with a number and stay strings; `1 x` too, since `x` is no suffix — a value with a word after it is text.
+    /// **Wider than C, on purpose** (review 6, Fable, Sonnet): `inff`, `nanf`, `infl` and `1f` are no C literals, which
+    /// takes a suffix only after a `.` or an exponent, but they are accepted, pinned here, since the question is whether a
+    /// declared default is a number and none of those is one a default spells; one suffix only (`1ff` is a string).
     /// </remarks>
     [TestCase("16", true)]
     [TestCase("0x10", true)]
@@ -66,6 +69,16 @@ public sealed class ConVarNumberConformanceTests
     [TestCase("infantry", false)]
     [TestCase("nano", false)]
     [TestCase("0.1 f", false)]
-    public void HoldsOneNumber_AText_IsANumberWithNoSecondAfterIt(string value, bool expected) =>
+    [TestCase("2F", true)]
+    [TestCase("2.5l", true)]
+    [TestCase("1\t", true)]
+    [TestCase("1f\n", true)]
+    [TestCase("1\tx", false)]
+    [TestCase("inff", true)]
+    [TestCase("nanf", true)]
+    [TestCase("infl", true)]
+    [TestCase("1f", true)]
+    [TestCase("1ff", false)]
+    public void HoldsOneNumber_ANumberThenASuffixThenWhiteSpace_IsOneNumber(string value, bool expected) =>
         ConVarNumber.HoldsOneNumber(value).ShouldBe(expected);
 }

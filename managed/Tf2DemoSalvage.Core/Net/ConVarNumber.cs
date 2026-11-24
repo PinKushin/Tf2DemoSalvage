@@ -55,6 +55,8 @@ public static class ConVarNumber
     /// B823 reviews 4 and 5 (Fable): `0.1f` is the number <see cref="EngineConVar.Number"/> reads, 0.1, so a caller asking
     /// whether a default is numeric must agree; a suffix is the one C allows a float literal (`f`, `F`, `l`, `L`), directly
     /// after the number. Anything else after it — a second number, a word, a suffix after a space — makes the text a string.
+    /// **Wider than C** (review 6, Fable, Sonnet): C takes a suffix only after a `.` or an exponent, and `inff`, `nanf`,
+    /// `infl` and `1f` are no literals, but they are accepted here, since no declared default spells them; the test pins it.
     /// </remarks>
     public static bool HoldsOneNumber(string value)
     {
