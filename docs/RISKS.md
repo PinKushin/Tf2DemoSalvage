@@ -46076,8 +46076,15 @@ load; and the "not taken" note above now says why. Not taken (Sonnet, nit): the 
 materials' keys, which is uninformative for the studio material; the path itself is in the message.
 
 **Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini and Grok had no findings. Fixed: the RISKS line above said Sonnet had no findings beside
-Sonnet's nit (Sonnet); the test's comment claimed `MapCache.Bytes` finds a downloaded map, which holds only with the game
-installed, since `RequirePath` skips when no game is found (Fable).
+Sonnet's nit (Sonnet). Fable said the test's comment that `MapCache.Bytes` finds a downloaded map held only with the
+game installed; review 4 (Fable, Sonnet) read `RequirePath` again and found that wrong: `Find` checks the
+downloaded-maps folder with no game check, and only a miss there skips. The comment now says so.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok): no blocker; the one finding is the comment above. **CI on this branch**
+(run 45436086318) then failed the capture test with the outline drawn: 574 pink under 1, against a bound of 1,000 set
+on a larger window. CI's view is 458x343. Measured locally at that size: with the game 164 under 0 and 575 under 1,
+with an empty game folder 0 and 575. The test now pins the view at 458x343 and bounds the difference at 200, half the
+smaller measured difference.
 
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
