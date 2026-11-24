@@ -10,7 +10,10 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <remarks>
 /// **`tf_always_loser.GetBool()` is `!!GetInt()`** (`convar.h:520`, `convar.cpp:791-802`): `nan` is MSVC's `0x80000000`, so
 /// a loser, where C#'s `(int)` of a NaN is 0; `0.5` is 0. The round is running, so without the ConVar nobody is a loser —
-/// the control. Through `RecorderPrediction.IsLoser`, the call site Fable and Sonnet asked to see fail.
+/// the control. Through `RecorderPrediction.IsLoserAt`, the step the packet path calls to set
+/// <see cref="PredictedPlayer.IsLoser"/> — the value `TfGameMovement` reads for the loser's duck crop
+/// (`TfGameMovement.cs`, `_speedCropped &amp;&amp; _player.IsLoser`) — from the timeline, the packet's tick and the command
+/// tick whose ConVars it reads (B823 review 4, Fable).
 /// </remarks>
 public sealed class RecorderPredictionLoserTests
 {
@@ -37,6 +40,6 @@ public sealed class RecorderPredictionLoserTests
             client: new Core.Net.ClientInterp(0f, 0f, 66f));
         ScenePlayer recorder = timeline.Frames.Single(frame => frame.Tick == 101).Players.Single();
 
-        RecorderPrediction.IsLoser(timeline, recorder, 101, timeline.ServerConVarsAt(101)).ShouldBe(expected);
+        RecorderPrediction.IsLoserAt(timeline, recorder, packetTick: 101, commandTick: 101).ShouldBe(expected);
     }
 }

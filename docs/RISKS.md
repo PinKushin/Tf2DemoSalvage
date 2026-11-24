@@ -45614,10 +45614,14 @@ restored by its inverse edit.
    `Build_ANemesisUnderATournamentSwitch_ShowsTheIconAsGetBoolReads` reads `particle_nemesis_blue` off the decoded frame:
    shown at `mp_tournament 1` with `0.5`, gone at `1`, shown with no tournament. With the frame builder's line
    (`DemoTimeline.cs`, the `OverheadFrame` construction) put back to `Number != 0`, the `0.5` case failed. **The
-   prediction: not done.** `RecorderPrediction.MotionAt` has no test caller anywhere (`find_references`: only
-   `IMomentSource`), and a run of it needs a `MapLevel` the movement traces against, the recorder's user commands and its
-   `MaxSpeed`; no synthetic fixture builds those. `IsLoser` is covered as the static function the packet path calls,
-   which a bypass of the packet path's own line would not turn red. Left open: a synthetic prediction fixture.
+   prediction:** what the loser flag feeds is `PredictedPlayer.IsLoser`, which `TfGameMovement` reads for the loser's
+   duck crop (`_speedCropped && _player.IsLoser`). The packet path's step from timeline and ticks to that value is now one
+   method, `RecorderPrediction.IsLoserAt(timeline, recorder, packetTick, commandTick)` — the game rules at the packet, the
+   server's ConVars at the command tick, as `PredictFrom` reads them — and the packet path's line is that call.
+   `RecorderPredictionLoserTests.IsLoser_UnderTfAlwaysLoserText_ReadsItAsGetBool` drives it from the synthetic demo:
+   `nan` a loser, `0.5` not, no ConVar not (the control). With the step bypassing the demo's ConVars (a fresh
+   `ServerConVars`), `nan` failed. A full `MotionAt` run is not needed for this: it would add a map and user commands, and
+   neither touches the loser flag.
 6. *Callers of `EngineConVar.Number` and `FormatException` (Sonnet)* — checked with the C# LSP's `find_references`:
    `ServerSoundClock`, `AudioOutput`, `VoiceOverdrive`, `SpeechDucker`, `SoundGain`, `VoiceAutoGain`, `VoicePlan`,
    `VoicePresenter`, `ServerConVars.Number`, `DemoViewConVars`, `ViewerSettings`' defaults, and the tests
