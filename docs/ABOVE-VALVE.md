@@ -34,4 +34,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | A config's UTF-8 byte order mark is stripped, so its first command runs (TF2 keeps the mark, and that command fails: `Unknown command`) | D265 | `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole` |
 | The same strip on a file `exec` reads, so its first command runs | D265 | `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` |
 | `bind` takes a chord, a modifier and `+` before a TF2 key name (`CTRL+e`), as the viewer's own defaults and menu use (TF2 has no chords and says `isn't a valid key`) | B826 | `Bind_AChordOfAModifierAndAKeyTf2Knows_Binds` |
-| The launch line runs the viewer's own one-shot commands (`+togglefullscreen`; `+opendemo` except on a `--shot` or `--measure` run), which TF2 does not know | B829 | `WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce` |
+| The launch line runs the viewer's own one-shot commands (`+togglefullscreen`; `+opendemo` except on a `--shot` or `--measure` run), which TF2 does not know | B829 | `WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce`, `WindowShown_OpenDemoOnACaptureRun_IsNotRun` |

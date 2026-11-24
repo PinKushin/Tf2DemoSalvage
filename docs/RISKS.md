@@ -46156,6 +46156,9 @@ screen's bounds, as `ShellUiTests` and `MapFullScreenUiTests` do, so a scaled or
 too (Grok); its full-screen viewer is closed by its `using` before the next test, and the UI assembly runs serially
 (Fable asked whether the shared viewer gets the foreground back; not measured).
 
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): the
+`docs/ABOVE-VALVE.md` row named only the test of the feature, not the one that holds its `+opendemo` exception.
+
 The paragraph below is the entry as filed.
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
