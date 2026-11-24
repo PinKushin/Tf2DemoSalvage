@@ -45796,7 +45796,7 @@ Num Lock off arrives as its navigation key (`INS` for `KP_INS`), and keypad 5 as
 `bind RSHIFT x` is accepted and never fires (review 2, Fable). Telling them apart needs the scan code's extended bit,
 which the view does not read.
 
-**Review 2** (Fable, Sonnet, Grok; Gemini pending). No blocker. Fixed: `docs/USER-GUIDE.md` still said a name TF2
+**Review 2** (Fable, Gemini, Sonnet, Grok). No blocker; Gemini had no findings. Fixed: `docs/USER-GUIDE.md` still said a name TF2
 refuses is kept, and now gives TF2's names (Fable); the record above names the keys the view cannot tell apart, and
 the test's own summary no longer claims every key (Fable); a chord's modifiers are taken from the left, so
 `CTRL+aux+1` is the chord on `JOY2` (Fable); the ASCII-only modifier match is tested with `ſHIFT` (U+017F), and the
