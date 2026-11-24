@@ -46330,6 +46330,12 @@ bare word reddens it alone. A full path a TF2 flag takes is still opened (`-base
 `DemoLibrary.Open` would open, is dropped, with the warning naming it (Fable). B837 lists `--colours` and `--windows`
 too (Sonnet, Gemini).
 
+**Review 3** (Fable, Gemini, Sonnet, Grok). Fixed (Fable, Gemini, a blocker): the folder test's `.\b828-folder` holds
+a `\`, a file name character on Linux, where CI runs this suite, so it would have been dropped and the test red; it is
+`./b828-folder` now. The test deletes its folder (Fable, Gemini, Sonnet, Grok). A drive-relative folder
+(`C:b828-drive`, rooted with no separator) had no test of its own, so the `IsPathRooted` half could go (Fable, Gemini):
+a Windows-only test keeps it and drops the bare name; sabotage: that half made false reddens it alone.
+
 The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the

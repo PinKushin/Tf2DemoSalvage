@@ -124,7 +124,7 @@ public sealed class LaunchOptionsTests
     /// **An existing folder is never a flag's value either** (B828 review 1, Fable, Sonnet; the owner's pick, above Valve): a
     /// folder on the line opens as a playlist, and `-novid C:\demos` did before. A name that is no folder is still dropped,
     /// and so is a bare word that names one beside the viewer (review 2, Sonnet, Fable, Grok): `-game tf`, run from TF2's
-    /// folder, drops `tf` as TF2 does. `.\` before the same name keeps it.
+    /// folder, drops `tf` as TF2 does. `./` before the same name keeps it (`/` is a separator on every platform CI runs).
     /// </remarks>
     [Test]
     public void Read_AnUnknownFlagBeforeAFolder_OpensTheFolder()
@@ -134,10 +134,43 @@ public sealed class LaunchOptionsTests
         string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(Bare)).FullName;
         string missing = System.IO.Path.GetFullPath("no-such-folder-b828");
 
-        LaunchOptions read = LaunchOptionsReader.Read(
-            ["-novid", folder, "-novid", missing, "-game", Bare, "-novid", $".\\{Bare}"], ViewerSettings.Load(), log);
+        try
+        {
+            LaunchOptions read = LaunchOptionsReader.Read(
+                ["-novid", folder, "-novid", missing, "-game", Bare, "-novid", $"./{Bare}"], ViewerSettings.Load(), log);
 
-        read.Paths.ShouldBe([folder, $".\\{Bare}"]);
+            read.Paths.ShouldBe([folder, $"./{Bare}"]);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder);
+        }
+    }
+
+    /// <remarks>
+    /// **A drive-relative folder is a path too** (B828 review 3, Fable): `C:b828-drive` has no separator, but it is rooted
+    /// at a drive, so it is kept, where the bare `b828-drive` is a value.
+    /// </remarks>
+    [Test]
+    [Platform("Win")]
+    public void Read_AnUnknownFlagBeforeADriveRelativeFolder_OpensTheFolder()
+    {
+        RecordingLogger log = new();
+        const string Bare = "b828-drive";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(Bare)).FullName;
+        string driveRelative = folder[..2] + Bare;
+
+        try
+        {
+            LaunchOptions read = LaunchOptionsReader.Read(
+                ["-game", Bare, "-novid", driveRelative], ViewerSettings.Load(), log);
+
+            read.Paths.ShouldBe([driveRelative]);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder);
+        }
     }
 
     /// <remarks>The warning names the value it dropped, and none it kept (B828 review 1, Fable, Gemini, Grok).</remarks>
