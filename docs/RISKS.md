@@ -46029,6 +46029,13 @@ Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+comma
 B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
 readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
 
+## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
+
+Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's
+`Cbuf_AddText` consumes, is not implemented here, and B820 is closed, so it had no open entry. A script that relies on
+`wait` to space its commands runs them all at once here (*inferred* from the console having no `wait`; not measured).
+Fix shape: read how TF2's command buffer defers the rest of a buffer at a `wait`, then port it. *Not fixed*.
+
 ## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
