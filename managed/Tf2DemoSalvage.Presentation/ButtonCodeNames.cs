@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Primitives;
@@ -65,9 +66,6 @@ public static class ButtonCodeNames
         "SC_F1", "SC_F2", "SC_F3", "SC_F4", "SC_F5", "SC_F6", "SC_F7", "SC_F8", "SC_F9", "SC_F10", "SC_F11", "SC_F12",
     ];
 
-    /// <summary>The modifiers a chord may name, as the view's `KeyNames` reads them (above Valve).</summary>
-    private static readonly string[] Modifiers = ["CTRL", "CONTROL", "SHIFT", "ALT"];
-
     /// <summary>The key a name names, in the table's own spelling, or null where TF2 says `"%s" isn't a valid key`.</summary>
     /// <param name="name">The name as a config or console line wrote it.</param>
     /// <returns>The table's name; or, for a chord, its modifiers as written and its key in the table's spelling.</returns>
@@ -90,20 +88,27 @@ public static class ButtonCodeNames
 
         // Modifiers taken from the left, the rest tried as a name after each (B826 review 2, Fable), so `CTRL+aux+1` is the
         // chord on `aux+1`; the key in the table's spelling (review 1), so `CTRL+aux1` and `CTRL+JOY2` are one chord.
+        // The modifiers in one spelling and order, `CTRL+SHIFT+ALT` (review 3, Fable): `CTRL+e` and `CONTROL+e`, or
+        // `CTRL+SHIFT+e` and `SHIFT+CTRL+e`, are one press and so one entry.
         int at = 0;
+        bool[] held = new bool[CanonicalModifiers.Length];
 
-        while (name.IndexOf('+', at) is var plus and >= 0 && IsModifier(name.AsSpan(at, plus - at)))
+        while (name.IndexOf('+', at) is var plus and >= 0 && ModifierOf(name.AsSpan(at, plus - at)) is var modifier and >= 0)
         {
+            held[modifier] = true;
             at = plus + 1;
 
             if (TableKey(name[at..]) is { } chordKey)
             {
-                return name[..at] + chordKey;
+                return string.Concat(CanonicalModifiers.Where((_, i) => held[i]).Select(m => m + "+")) + chordKey;
             }
         }
 
         return null;
     }
+
+    /// <summary>The modifiers a chord may name (above Valve), as a chord is stored and in that order; `CONTROL` is read as `CTRL`.</summary>
+    private static readonly string[] CanonicalModifiers = ["CTRL", "SHIFT", "ALT"];
 
     /// <summary>The input system's own lookup, without the chord extension.</summary>
     private static string? TableKey(string name)
@@ -148,17 +153,25 @@ public static class ButtonCodeNames
         return null;
     }
 
-    /// <summary>Whether text is one chord modifier, matched ignoring ASCII case only (B826 review 1, Fable).</summary>
-    private static bool IsModifier(ReadOnlySpan<char> text)
+    /// <summary>
+    /// Which of <see cref="CanonicalModifiers"/> text names, matched ignoring ASCII case only (B826 review 1, Fable), or -1;
+    /// `CONTROL` is `CTRL`, as the view's `KeyNames` reads it.
+    /// </summary>
+    private static int ModifierOf(ReadOnlySpan<char> text)
     {
-        foreach (string modifier in Modifiers)
+        if (Ascii.EqualsIgnoreCase(text, "CONTROL"))
         {
-            if (Ascii.EqualsIgnoreCase(text, modifier))
+            return 0;
+        }
+
+        for (int i = 0; i < CanonicalModifiers.Length; i++)
+        {
+            if (Ascii.EqualsIgnoreCase(text, CanonicalModifiers[i]))
             {
-                return true;
+                return i;
             }
         }
 
-        return false;
+        return -1;
     }
 }
