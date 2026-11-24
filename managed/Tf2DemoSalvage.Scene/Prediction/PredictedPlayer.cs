@@ -265,7 +265,7 @@ public sealed record MovementConVars(
             server.Number("cl_backspeed"),
             server.Number("cl_sidespeed"),
 
-            // GetBool() reads m_nValue, the value truncated: m_nValue = ( int )m_fValue (convar.cpp:937).
-            (int)server.Number("tf_clamp_airducks") != 0);
+            // GetBool() reads m_nValue, the value truncated: m_nValue = ( int )m_fValue (convar.cpp:937), as MSVC truncates (B823).
+            server.GetBool("tf_clamp_airducks"));
     }
 }

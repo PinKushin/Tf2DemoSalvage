@@ -1582,7 +1582,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` FUN_180176c50): a trailing non-ASCII character
+    /// **A ConVar line sets `ArgS` with the engine's trim** (B823, `engine.dll` build 1007 FUN_180178310): a trailing non-ASCII character
     /// is stripped as a signed `char` below `' '`, a leading one kept whole, and two words are one value.
     /// </remarks>
     [TestCase("cl_voice_filter café", "caf")]
@@ -1617,11 +1617,10 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **`ArgS` is a ConVar's alone** (B823 review 1, Grok): the engine gives `ArgS` only to a ConVar set (FUN_180176c50); a
-    /// ConCommand reads its argv. `bind k screenshot` is three arguments to `Define`, which runs before any ConVar set, and a
-    /// bound viewer command that carries arguments still runs its command. *Not able to fail:* no reader after the ConVar
-    /// set looks past `tokens[0]` for a command that is not a ConVar, so collapsing such a command was not observable; the
-    /// guard keeps the engine's shape, and this test holds the two paths Grok named.
+    /// **`Define` runs before the ConVar set's `ArgS`** (B823 review 1, Grok): `bind k screenshot` is three arguments to
+    /// `Define`, not a value collapsed for a ConVar, and a bound viewer command that carries arguments still runs its
+    /// command. With `bind` no longer taken by `Define`, this fails. The guard that once kept the collapse to ConVars was
+    /// removed in review 2 (Sonnet, Grok): nothing past the set reads a non-ConVar's arguments, so no test could fail for it.
     /// </remarks>
     [Test]
     public void Load_ABindAndAMultiArgumentViewerCommand_RunTheirCommands()
@@ -1638,7 +1637,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **An alias body keeps a lone byte as its byte** (B823): `Cmd_Alias_f` (`engine.dll` FUN_180166a00) joins arguments 2 on
+    /// **An alias body keeps a lone byte as its byte** (B823): `Cmd_Alias_f` (`engine.dll` build 1007 FUN_180168060) joins arguments 2 on
     /// with spaces, so `alias x cl_voice_filter éa b` stores the bytes `C3 20 A9 61 20 62` after the name, and running
     /// it sets those bytes — a space now inside the character — where the same line typed directly sets `éa b`. A
     /// spelling that re-encoded a lone byte (Latin-1's `Ã` is `C3 83`) would set different bytes.
@@ -1656,7 +1655,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 FUN_1801b4e60): `argc - 2 &lt; 2`, else
+    /// **`bind` acts only at three arguments** (B823; `Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0): `argc - 2 &lt; 2`, else
     /// the usage line and nothing else. So `bind k screenshot extra`, or `bind k café` (five arguments by bytes), leaves
     /// the key as it was — not cleared — where the viewer had bound the third token.
     /// </remarks>
@@ -1679,7 +1678,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **Two arguments print the key's binding and change nothing** (FUN_1801b4e60 passes `argc == 2` to FUN_1801b4560 as
+    /// **Two arguments print the key's binding and change nothing** (build 1007 FUN_1801b67a0 passes `argc == 2` to build 1007 FUN_1801b5ea0 as
     /// "show"): `"%s" = "%s"` for a bound key, `"%s" is not bound` for one that is not.
     /// </remarks>
     [Test]
@@ -1700,7 +1699,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **`ESCAPE` is bound to `cancelselect` whatever the line says** (FUN_1801b4560: key 0x46, `KEY_ESCAPE`, takes
+    /// **`ESCAPE` is bound to `cancelselect` whatever the line says** (build 1007 FUN_1801b5ea0: key 0x46, `KEY_ESCAPE`, takes
     /// "cancelselect" in place of the command). The control is another key given the same command.
     /// </remarks>
     [Test]
@@ -1738,6 +1737,43 @@ public sealed class ConfigConsoleConformanceTests
 
         log.Count("unbind <key> : remove commands from a key").ShouldBe(1);
         fired.ShouldBe([ViewerAction.Screenshot]);
+    }
+
+    /// <remarks>
+    /// **`unbindall` spares ESCAPE and the console key** (B823 review 2, Sonnet; `Key_Unbindall_f`, `engine.dll` x64 build
+    /// 1007 FUN_1801b6b10): every key from 0 to 0x27a whose binding is set and not empty becomes "", except 0x46
+    /// (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`, the `` ` `` that opens the console). So `bind k` then shows `"k" = ""`.
+    /// </remarks>
+    /// <remarks>
+    /// **A key name is matched without case** (B823 review 2, Grok): the bind table's comparer is `OrdinalIgnoreCase`
+    /// (`ConfigConsole._binds`), so `bind K …` is pressed as `k`, and `bind escape …` is the key a press of `ESCAPE` or
+    /// `escape` finds. *Interpolated* for the engine: its key-name lookup (an input-system call, vtable +0xe8) is not read.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundInAnotherCase_RunsTheBinding()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> fired = [];
+        console.Triggered += (_, e) => fired.Add(e.Action);
+
+        console.Load("bind K screenshot\nbind escape screenshot");
+        console.KeyDown("k");
+        console.KeyDown("escape");
+
+        fired.ShouldBe([ViewerAction.Screenshot], "k finds K; escape finds escape, which holds cancelselect");
+    }
+
+    [Test]
+    public void Unbindall_ABindingTable_EmptiesAllButEscapeAndTheConsoleKey()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+
+        console.Load("bind ` toggleconsole\nbind escape x\nbind k screenshot\nunbindall\nbind k\nbind `\nbind escape");
+
+        log.Count("\"k\" = \"\"").ShouldBe(1);
+        log.Count("\"`\" = \"toggleconsole\"").ShouldBe(1);
+        log.Count("\"escape\" = \"cancelselect\"").ShouldBe(1);
     }
 
     [Test]

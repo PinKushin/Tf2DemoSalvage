@@ -124,6 +124,12 @@ public sealed class ShotSidecarTests
     [TestCase("0x10", "16", false)]
     [TestCase("nan", "0", true)]
     [TestCase("abc", "0", false)]
+    [TestCase("1e39", "1e39", false)]
+    [TestCase("Infinity", "Infinity", false)]
+    [TestCase("inf", "Infinity", false)]
+    [TestCase("16", "0x10", false)]
+    [TestCase("nan", "nan", false)]
+    [TestCase("-inf", "inf", true)]
     public void DiffersFromDefault_AValueAndItsDeclaredDefault_ComparesNumbersAsNumbers(string value, string declared, bool differs)
     {
         ShotSidecar.DiffersFromDefault(value, declared).ShouldBe(differs);

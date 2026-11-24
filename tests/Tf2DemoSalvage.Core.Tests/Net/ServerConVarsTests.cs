@@ -331,6 +331,20 @@ public sealed class ServerConVarsTests
         server.GetInt("tf_use_fixed_weaponspreads").ShouldBe(expected);
     }
 
+    /// <remarks>`GetBool() { return !!GetInt(); }` (convar.h:520; B823 review 2, Sonnet): 0.5 false, nan true.</remarks>
+    [TestCase("0.5", false)]
+    [TestCase("nan", true)]
+    [TestCase("2", true)]
+    [TestCase("0", false)]
+    public void GetBool_AfterTheServerSentText_IsGetIntNotZero(string sent, bool expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("tf_tournament_hide_domination_icons", sent)));
+
+        server.GetBool("tf_tournament_hide_domination_icons").ShouldBe(expected);
+    }
+
     private static SetConVarMessage Message(params (string Name, string Value)[] pairs)
     {
         List<KeyValuePair<string, string>> variables = [];

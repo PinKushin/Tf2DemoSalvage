@@ -1114,7 +1114,7 @@ public sealed record ViewerSettings
         try
         {
             // Every byte kept (B823 review 1, Fable): a ConVar value can hold a lone byte, saved below as itself.
-            return File.Exists(file) ? Parse(Tf2ConfigFiles.Decode(File.ReadAllBytes(file))) : new ViewerSettings();
+            return File.Exists(file) ? Parse(Text(File.ReadAllBytes(file))) : new ViewerSettings();
         }
         catch (Exception failure) when (
             failure is IOException or UnauthorizedAccessException or ArgumentException)
@@ -1688,7 +1688,47 @@ public sealed record ViewerSettings
             }
         }
 
-        return written is not null && Set(name, written).Typed(name) == typed ? written : typed;
+        if (written is not null)
+        {
+            return Set(name, written).Typed(name) == typed ? written : typed;
+        }
+
+        // **An untouched ConVar's string is its declared default** (B823 review 2, Sonnet, Fable): the engine keeps the
+        // string it was registered with until something sets it, so a setting still at the declared default's value reads
+        // that string — `0`, not `0.000000` — and `sv_cheats 0`'s revert changes no string and runs no callback
+        // (`src/tier1/convar.cpp:844`). `toggle name 0 12` then matches the `0` too, as the engine's byte compare does.
+        return EngineConVars.TryByName(name, out EngineConVar? registered) && Set(name, registered.Default).Typed(name) == typed
+            ? registered.Default
+            : typed;
+    }
+
+    /// <summary>A settings file's text: UTF-16 or UTF-32 by its mark, else UTF-8 with every byte kept.</summary>
+    /// <remarks>
+    /// **The UTF-16 and UTF-32 marks are read as `File.ReadAllText` read them** (B823 review 2, Fable): a file saved that
+    /// way by an editor was otherwise nothing the parser knew, so the viewer started on defaults and its next save
+    /// destroyed the file. UTF-32's little-endian mark begins with UTF-16's, so it is asked first.
+    /// </remarks>
+    private static string Text(byte[] bytes)
+    {
+        Encoding[] marked =
+        [
+            new UTF32Encoding(bigEndian: false, byteOrderMark: true),
+            new UTF32Encoding(bigEndian: true, byteOrderMark: true),
+            new UnicodeEncoding(bigEndian: false, byteOrderMark: true),
+            new UnicodeEncoding(bigEndian: true, byteOrderMark: true),
+        ];
+
+        foreach (Encoding encoding in marked)
+        {
+            ReadOnlySpan<byte> mark = encoding.Preamble;
+
+            if (bytes.AsSpan().StartsWith(mark))
+            {
+                return encoding.GetString(bytes, mark.Length, bytes.Length - mark.Length);
+            }
+        }
+
+        return Tf2ConfigFiles.Decode(bytes);
     }
 
     /// <summary>A float as `"%f"` prints it: promoted to double, six places — 179.9f is "179.899994".</summary>

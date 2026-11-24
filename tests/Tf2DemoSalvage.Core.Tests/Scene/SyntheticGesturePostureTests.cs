@@ -313,6 +313,27 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <remarks>
+    /// **`GetBool()` is `!!GetInt()`, and `GetInt` the float truncated as MSVC's `cvttss2si`** (B823 review 2, Sonnet;
+    /// `convar.cpp:791-802`): `0.5` is 0, so no loser; `nan` is `0x80000000`, so a loser; `0x1` is 1.
+    /// </remarks>
+    [TestCase("0.5", "ACT_MP_DOUBLEJUMP")]
+    [TestCase("nan", "ACT_MP_DOUBLEJUMP_LOSERSTATE")]
+    [TestCase("0x1", "ACT_MP_DOUBLEJUMP_LOSERSTATE")]
+    public void Build_ADoubleJumpUnderTfAlwaysLoserText_ReadsItAsGetBool(string sent, string expected)
+    {
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGesturesSendingAlwaysLoser(
+            Interval,
+            SceneTeams.Red,
+            Scout,
+            (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
+            sent,
+            At(100, 0f, OnGround),
+            At(101, 4f, InAir) with { Events = [PlayerAnimEvent.DoubleJump] }));
+
+        Gesture(timeline, 101, GestureSlot.Jump).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **The player's activity table is chosen every tick from the same `IsLoser` the gestures ask** (B437) —
     /// `CTFPlayerAnimState::ActivityOverride` (`tf_playeranimstate.cpp:223-269`) — so the losing team's body runs
     /// and stands as the loser during humiliation, and the winning team's does not.

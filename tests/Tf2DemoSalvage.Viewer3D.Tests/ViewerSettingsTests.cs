@@ -727,6 +727,26 @@ public sealed class ViewerSettingsTests
     }
 
     /// <remarks>
+    /// **A UTF-16 or UTF-32 settings file is read, not taken for defaults and saved over** (B823 review 2, Fable).
+    /// `File.ReadAllText` honoured those marks; reading the bytes as UTF-8 made the file nothing the parser knew, so the
+    /// viewer started on defaults and its next save destroyed the file. Each mark is read, and the save is UTF-8.
+    /// </remarks>
+    [TestCase("utf-16")]
+    [TestCase("utf-16BE")]
+    [TestCase("utf-32")]
+    [TestCase("utf-32BE")]
+    public void Load_ASettingsFileWithAUnicodeMark_ReadsItsSettings(string encoding)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        System.Text.Encoding writer = encoding == "utf-32BE"
+            ? new System.Text.UTF32Encoding(bigEndian: true, byteOrderMark: true)
+            : System.Text.Encoding.GetEncoding(encoding);
+        File.WriteAllBytes(file, [.. writer.GetPreamble(), .. writer.GetBytes("r_decals 77\n")]);
+
+        ViewerSettings.Load(file).Decals.ShouldBe(77);
+    }
+
+    /// <remarks>
     /// **An int setting is `GetInt`** (B823 review 1, Sonnet): the float truncated as MSVC's `cvttss2si`, so `nan` and
     /// `1e10` are `0x80000000`, where C#'s `(int)` gives 0 and int.MaxValue.
     /// </remarks>

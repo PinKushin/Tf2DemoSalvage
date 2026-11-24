@@ -4890,7 +4890,7 @@ public sealed class DemoTimeline
             OverheadFrame overheadFrame = new(
                 recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer) ? DominatingMe(localPlayer) : null,
                 entities.Resolve(rulesNow?.Integer(ItHandleProperty)),
-                serverConVars.Number(TournamentConVar) != 0 && serverConVars.Number(HideDominationIconsConVar) != 0);
+                serverConVars.GetBool(TournamentConVar) && serverConVars.GetBool(HideDominationIconsConVar));
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
@@ -6236,7 +6236,7 @@ public sealed class DemoTimeline
     }
 
     /// <summary>`tf_always_loser.GetBool()`: the int of the float, as `ConVar::GetBool` reads it.</summary>
-    private static bool AlwaysLoser(ServerConVars server) => (int)server.Number(LoserState.AlwaysLoserConVar) != 0;
+    private static bool AlwaysLoser(ServerConVars server) => server.GetBool(LoserState.AlwaysLoserConVar);
 
     /// <summary>`CL_FireEvents` for the gesture events: every one due by a tick, in the order they arrived (B437).</summary>
     /// <param name="queued">The waiting events and their fire ticks; the fired ones are removed.</param>

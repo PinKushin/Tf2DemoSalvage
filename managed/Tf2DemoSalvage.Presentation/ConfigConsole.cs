@@ -1042,7 +1042,13 @@ public sealed class ConfigConsole
     {
         if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
         {
-            _binds.Clear();
+            // Every key bound to something becomes "", but ESCAPE and the console key (`Key_Unbindall_f`, build 1007
+            // FUN_1801b6b10; `SourceConfig.SurvivesUnbindAll`, B823 review 2).
+            foreach (string key in _binds.Keys.Where(key => !SourceConfig.SurvivesUnbindAll(key) && _binds[key].Length > 0).ToList())
+            {
+                _binds[key] = string.Empty;
+            }
+
             Bound = 0;
             _claimed = null;
             BindsRevision++;
@@ -1101,7 +1107,7 @@ public sealed class ConfigConsole
         return false;
     }
 
-    /// <summary>`bind`, as `Key_Bind_f` (`engine.dll` x64 FUN_1801b4e60, with FUN_1801b4560) runs it (B823).</summary>
+    /// <summary>`bind`, as `Key_Bind_f` (`engine.dll` x64 build 1007 FUN_1801b67a0, with build 1007 FUN_1801b5ea0) runs it (B823).</summary>
     /// <remarks>
     /// Read in the decompile and disassembly: only `argc - 2 &lt; 2` acts, so one argument or four and more print the usage
     /// line and change nothing — `bind k café` is five arguments by bytes. Two print the key's binding (`"%s" = "%s"`, or
@@ -1117,7 +1123,7 @@ public sealed class ConfigConsole
         {
             Log.LogInformation(
                 "{Message}",
-                // A key bound to "" holds a string (FUN_1801b4c90 copies it; `unbind` sets one), so it prints `= ""`.
+                // A key bound to "" holds a string (build 1007 FUN_1801b65d0 copies it; `unbind` sets one), so it prints `= ""`.
                 _binds.TryGetValue(tokens[1], out string? bound)
                     ? $"\"{tokens[1]}\" = \"{bound}\""
                     : $"\"{tokens[1]}\" is not bound");
@@ -1612,11 +1618,13 @@ public sealed class ConfigConsole
                 // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
                 tokens = assignment;
             }
-            else if (tokens.Count >= 2 && (EngineConVars.TryByConsoleName(command, out _) || command.Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase)))
+            else if (tokens.Count >= 2)
             {
                 // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
-                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. Only a ConVar: a ConCommand
-                // gets its argv (B823 review 1, Grok), and `bind`, `alias`, `exec` were taken by `Define` above.
+                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. `bind`, `alias` and `exec`
+                // were taken by `Define` above. A command that is no ConVar reaches only `SetConVar`, which refuses it, and
+                // then `tokens[0]` and the count: its arguments are read by nothing past here (B823 review 2, Sonnet, Grok —
+                // a guard to collapse only for a ConVar had no test that could fail, and was removed).
                 tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
             }
 

@@ -285,10 +285,10 @@ at any `char <= ' '`, signed, so `0xBB` ends it; `EatWhiteSpace` (`:404-415`) te
 `BB`, `BFecho`, `x`. The live message agrees: one glyph as the command name, and no `echo`. The viewer's tokenizer did
 not split a word at a byte of 0x80 or more until B823, which made it tokenize each clause's UTF-8 bytes, spelling a lone
 byte as the lone surrogate U+DC00 + byte so an alias body joined from such tokens runs as the same bytes again. B823 also
-found that a console ConVar set takes `ArgS`, not `Arg(1)`: `engine.dll` FUN_180176c50 (x64) copies the text from
+found that a console ConVar set takes `ArgS`, not `Arg(1)`: `engine.dll` build 1007 FUN_180178310 (x64) copies the text from
 argument 1 on, drops a leading quote, and strips trailing bytes `<= ' '` by a SIGNED compare (`CMP byte ptr [RCX],0x20;
 JG`), so `name a b` sets `a b`, and `name café` sets `caf` because the bytes of a trailing `é` are stripped like spaces
-(*disassembly*). Two consumers followed: `Key_Bind_f` (FUN_1801b4e60) acts only at two or three arguments, printing its
+(*disassembly*). Two consumers followed: `Key_Bind_f` (build 1007 FUN_1801b67a0) acts only at two or three arguments, printing its
 usage line otherwise, so the viewer stopped binding a third token out of four or more; and a ConVar's number is `atof` of
 its string (`convar.cpp:792`), which the viewer's settings had read with a strict parse that set nothing for `1 2` — now
 one helper, `ConVarNumber`, for every reader. The viewer strips the mark

@@ -221,22 +221,37 @@ public static class ShotSidecar
     /// <param name="declared">The declaration's default string.</param>
     /// <returns>True when the sidecar should record it.</returns>
     /// <remarks>
-    /// **A numeric ConVar's number is `GetFloat`'s** (B823 review 1, Sonnet): `ConVarNumber`, so `1200 x` is 1200 and a
-    /// word is 0, as the engine holds them. A ConVar is numeric when its declared default is a number; any other is
-    /// compared as the string it is. A NaN differs from everything, its own default included.
+    /// **The question is what the picture used, so a numeric ConVar compares as `GetFloat` reads it** (B823 reviews 1 and 2,
+    /// Sonnet, Grok): `1200.000000`, `1200` and `1200 x` drew the same, which a string compare — the revert's question, which
+    /// is whether the engine's callbacks run — would record as three settings. The same string never differs. A ConVar
+    /// is numeric when its declared default reads as a number, to .NET or to `atof` (`0x10`, `inf`); any other compares
+    /// as the string it is. The floats compare equal first, so two infinities match (their difference is a NaN), then
+    /// within the six places a value is written to; a NaN matches nothing.
     /// </remarks>
     public static bool DiffersFromDefault(string value, string declared)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(declared);
 
-        if (double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        if (string.Equals(value, declared, StringComparison.Ordinal))
         {
-            // A tolerance rather than `!=` (S1244); a ConVar's value is written to six places at most.
-            return !(Math.Abs(Core.Net.ConVarNumber.GetFloat(value) - Core.Net.ConVarNumber.GetFloat(declared)) <= 1e-6f);
+            return false;
         }
 
-        return !string.Equals(value, declared, StringComparison.Ordinal);
+        float fallback = Core.Net.ConVarNumber.GetFloat(declared);
+
+        // `atof` read a number when it gave anything but zero (a NaN included): the sign bit aside, any bit set.
+        bool atofReadOne = (BitConverter.SingleToInt32Bits(fallback) & int.MaxValue) != 0;
+
+        if (double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out _) || atofReadOne)
+        {
+            float held = Core.Net.ConVarNumber.GetFloat(value);
+
+            // The same float first, by its bits: inf - inf is a NaN. Then a tolerance rather than `!=` alone (S1244).
+            return !(BitConverter.SingleToInt32Bits(held) == BitConverter.SingleToInt32Bits(fallback) || MathF.Abs(held - fallback) <= 1e-6f);
+        }
+
+        return true;
     }
 
     /// <summary>Whether the git working tree holding a folder has uncommitted changes: <c>git status --porcelain</c> says anything.</summary>

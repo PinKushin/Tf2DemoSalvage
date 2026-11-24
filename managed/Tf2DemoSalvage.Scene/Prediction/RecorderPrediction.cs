@@ -401,7 +401,7 @@ public sealed class RecorderPrediction
     /// <summary><c>m_Shared.IsLoser()</c> off the game rules and ConVars at the packet; the rule is <see cref="LoserState.IsLoser"/>.</summary>
     private bool IsLoser(ScenePlayer recorder, int packetTick, ServerConVars serverConVars) =>
         LoserState.IsLoser(
-            alwaysLoser: (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0,
+            alwaysLoser: serverConVars.GetBool(LoserState.AlwaysLoserConVar),
             matchTypeCompetitive: _timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
             roundState: _timeline.RoundStateAt(packetTick),
             winningTeam: _timeline.RulesAt(packetTick).WinningTeam,

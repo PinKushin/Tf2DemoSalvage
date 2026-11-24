@@ -318,7 +318,7 @@ public sealed class SourceConfigTests
         SourceConfig.Tokens(string.Join(' ', lone)).ShouldBe(lone);
     }
 
-    /// <remarks>`bind` binds only at three arguments (B823, `engine.dll` FUN_1801b4e60); four is the usage line.</remarks>
+    /// <remarks>`bind` binds only at three arguments (B823, `engine.dll` build 1007 FUN_1801b67a0); four is the usage line.</remarks>
     [Test]
     public void ReadBinds_FourArguments_BindsNothing()
     {
@@ -347,6 +347,14 @@ public sealed class SourceConfigTests
         SourceConfig.ReadBinds("\tbind k +jump").ShouldBe([("k", "+jump")], "the control");
         SourceConfig.ReadBinds(" bind k +jump").ShouldBeEmpty();
         SourceConfig.Clauses(" ; a ").ShouldBe([" ", "a "]);
+    }
+
+    /// <remarks>`unbindall` spares ESCAPE and `` ` `` (B823 review 2, Sonnet; build 1007 FUN_1801b6b10).</remarks>
+    [Test]
+    public void ReadBinds_Unbindall_KeepsEscapeAndTheConsoleKey()
+    {
+        SourceConfig.ReadBinds("bind ` toggleconsole\nbind ESCAPE x\nbind k +jump\nunbindall")
+            .ShouldBe([("`", "toggleconsole"), ("ESCAPE", "cancelselect")]);
     }
 
     /// <remarks>A character the text could hold whole is not confused with a lone byte (B823): U+00C3 is `C3 83`.</remarks>

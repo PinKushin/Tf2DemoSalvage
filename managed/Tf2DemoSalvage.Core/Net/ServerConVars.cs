@@ -186,6 +186,11 @@ public sealed class ServerConVars
     /// <returns>The float of <see cref="Number"/>, truncated as MSVC's <c>cvttss2si</c> does (<see cref="ConVarNumber"/>).</returns>
     public int GetInt(string name) => ConVarNumber.Truncate(Number(name));
 
+    /// <summary>`GetBool() { return !!GetInt(); }` (`convar.h:520`): so `0.5` is false and `nan` true (B823 review 2).</summary>
+    /// <param name="name">The ConVar's engine name.</param>
+    /// <returns>Whether <see cref="GetInt"/> is not zero.</returns>
+    public bool GetBool(string name) => GetInt(name) != 0;
+
     /// <summary>Which declared ConVars this server actually moved off Valve's default.</summary>
     /// <remarks>
     /// **Only the declared ones, and only genuine changes.** A competitive server sends forty values

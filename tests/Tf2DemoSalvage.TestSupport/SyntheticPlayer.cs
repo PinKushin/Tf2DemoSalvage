@@ -501,6 +501,23 @@ internal static class SyntheticPlayer
         int playerClass,
         (int RoundState, int WinningTeam, int MatchGroup)? rules,
         bool alwaysLoser,
+        params GestureSnapshot[] snapshots) =>
+        DemoOfGesturesSendingAlwaysLoser(intervalPerTick, team, playerClass, rules, alwaysLoser ? "1" : null, snapshots);
+
+    /// <summary>As <c>DemoOfGestures</c>, with the text the server sends for <c>tf_always_loser</c>, or null for none.</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <param name="team">The player's <c>m_iTeamNum</c>.</param>
+    /// <param name="playerClass">The player's <c>m_iClass</c>.</param>
+    /// <param name="rules">The game rules, or null.</param>
+    /// <param name="alwaysLoser">The <c>tf_always_loser</c> value sent at signon, or null to send none.</param>
+    /// <param name="snapshots">The snapshots, in tick order.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoOfGesturesSendingAlwaysLoser(
+        float intervalPerTick,
+        int team,
+        int playerClass,
+        (int RoundState, int WinningTeam, int MatchGroup)? rules,
+        string? alwaysLoser,
         params GestureSnapshot[] snapshots)
     {
         ArgumentNullException.ThrowIfNull(snapshots);
@@ -520,9 +537,9 @@ internal static class SyntheticPlayer
             new SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "-1")]),
         ];
 
-        if (alwaysLoser)
+        if (alwaysLoser is not null)
         {
-            signon.Add(new SetConVarMessage([new KeyValuePair<string, string>("tf_always_loser", "1")]));
+            signon.Add(new SetConVarMessage([new KeyValuePair<string, string>("tf_always_loser", alwaysLoser)]));
         }
 
         List<DemoCommand> commands =

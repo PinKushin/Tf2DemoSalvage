@@ -553,6 +553,38 @@ public sealed class SettingsPresenterTests
         console.KeyUp("k");
     }
 
+    /// <remarks>
+    /// **A fresh viewer's `sv_cheats 1` then `0` announces no revert** (B823 review 2, Sonnet, Fable). An untouched ConVar's
+    /// string is its default, so `ConVar::Revert` changes no string and runs no callback (`src/tier1/convar.cpp:844`). The
+    /// settings once rendered an untouched float as `%f` — `0.000000` against the default `0` — and every typed cheat was
+    /// announced. The control: a cheat the settings moved is announced.
+    /// </remarks>
+    [Test]
+    public void SvCheatsOffAgain_OnAFreshViewer_AnnouncesNoRevertButAMovedCheat()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = new();
+        settings.Attach(console);
+        List<string> set = [];
+        // `sv_cheats` itself is announced as any set is; the question is the cheats it reverts.
+        console.ConVarSet += (_, e) =>
+        {
+            if (e.Name != "sv_cheats")
+            {
+                set.Add($"{e.Name} {e.Value}");
+            }
+        };
+
+        console.Stuff("sv_cheats 1");
+        console.Stuff("sv_cheats 0");
+        set.ShouldBeEmpty();
+
+        settings.SetConVar("r_screenfademinsize", "12");
+        console.Stuff("sv_cheats 1");
+        console.Stuff("sv_cheats 0");
+        set.ShouldBe(["r_screenfademinsize 0"]);
+    }
+
     [Test]
     public void Toggle_AfterTheMenuTurnedThePositionReadoutOn_TurnsItOffOnTheFirstPress()
     {

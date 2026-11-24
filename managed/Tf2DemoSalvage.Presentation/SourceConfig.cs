@@ -51,8 +51,8 @@ public static class SourceConfig
 
             if (tokens[0].Equals("unbindall", StringComparison.OrdinalIgnoreCase))
             {
-                // Everything before this is discarded, exactly as the engine would.
-                binds.Clear();
+                // Everything before this is discarded but ESCAPE and the console key, as the engine does (`SurvivesUnbindAll`).
+                binds.RemoveAll(bind => !SurvivesUnbindAll(bind.Key));
                 continue;
             }
 
@@ -77,7 +77,7 @@ public static class SourceConfig
         return binds;
     }
 
-    /// <summary>Whether a <c>bind</c> sets its key: exactly three arguments (`Key_Bind_f`, `engine.dll` x64 FUN_1801b4e60).</summary>
+    /// <summary>Whether a <c>bind</c> sets its key: exactly three arguments (`Key_Bind_f`, `engine.dll` x64 build 1007 FUN_1801b67a0).</summary>
     /// <param name="tokens">The command's arguments, `bind` first.</param>
     /// <returns>True at three; two show the binding, and anything else prints the usage line.</returns>
     internal static bool Binds(IReadOnlyList<string> tokens) => tokens.Count == 3;
@@ -89,7 +89,7 @@ public static class SourceConfig
     /// ESCAPE key`; otherwise the binding is set to "" — not null, so `bind k` then prints `"k" = ""` (B823 review 1).</remarks>
     internal static bool Unbinds(IReadOnlyList<string> tokens) => tokens.Count == 2 && !IsEscape(tokens[1]);
 
-    /// <summary>What <c>bind key command</c> stores: `cancelselect` for `ESCAPE`, whatever the line says (FUN_1801b4560).</summary>
+    /// <summary>What <c>bind key command</c> stores: `cancelselect` for `ESCAPE`, whatever the line says (build 1007 FUN_1801b5ea0).</summary>
     /// <param name="key">The key's name.</param>
     /// <param name="command">The command the line gives.</param>
     /// <returns>The binding.</returns>
@@ -99,6 +99,19 @@ public static class SourceConfig
     /// <remarks>*Interpolated:* matched without case — the engine's key-name lookup (an input system call, vtable +0xe8) is
     /// not read. `KeyNames` in the view also takes `ESC` for this key, which TF2's name table may not (B826).</remarks>
     internal static bool IsEscape(string key) => key.Equals(EscapeKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether <c>unbindall</c> leaves a key's binding alone: `ESCAPE` and `` ` ``, the console key.</summary>
+    /// <param name="key">The key's name.</param>
+    /// <returns>True for the two keys `Key_Unbindall_f` skips.</returns>
+    /// <remarks>
+    /// `engine.dll` x64 build 1007 FUN_1801b6b10 (B823 review 2): for every key 0 to 0x27a whose binding is set and not
+    /// empty, except 0x46 (`KEY_ESCAPE`) and 0x39 (`KEY_BACKQUOTE`), the binding becomes "". The names are TF2's
+    /// `ButtonCodeToString` spellings, *interpolated* (the table is the input system's, not read).
+    /// </remarks>
+    internal static bool SurvivesUnbindAll(string key) => IsEscape(key) || key == ConsoleKey;
+
+    /// <summary>`KEY_BACKQUOTE`'s name, the key that opens TF2's console.</summary>
+    private const string ConsoleKey = "`";
 
     /// <summary>`KEY_ESCAPE`'s name.</summary>
     private const string EscapeKey = "ESCAPE";
@@ -237,7 +250,7 @@ public static class SourceConfig
     ///
     /// **A lone byte is spelled as the lone surrogate U+DC00 + byte** — Python's `surrogateescape` (PEP 383). Chosen because
     /// it is the one spelling that round-trips: an alias body is its arguments joined by spaces (`Cmd_Alias_f`, `engine.dll`
-    /// FUN_180166a00) and runs through this tokenizer again, so `C3` must come back as the byte `C3`. UTF-8 decoding with
+    /// build 1007 FUN_180168060) and runs through this tokenizer again, so `C3` must come back as the byte `C3`. UTF-8 decoding with
     /// replacement makes every lone byte U+FFFD, losing which byte it was; Latin-1 keeps them distinct but re-encodes `C3`
     /// as `C3 83` on the second pass. A surrogate cannot come out of valid UTF-8, so a spelled byte never collides with a
     /// character, and a quoted string, valid UTF-8 between two ASCII quotes, decodes as its text.
@@ -248,7 +261,7 @@ public static class SourceConfig
     /// <param name="clause">The command, its ConVar name first.</param>
     /// <returns>The value; empty when the command has no argument.</returns>
     /// <remarks>
-    /// `engine.dll` FUN_180176c50 (x64, the function holding "Can't use cheat cvar %s in multiplayer"), read in the
+    /// `engine.dll` build 1007 FUN_180178310 (x64, the function holding "Can't use cheat cvar %s in multiplayer"), read in the
     /// disassembly: it copies `ArgS()` — the command's text from argument 1 on, its opening quote included
     /// (`CCommand::Tokenize`'s `m_nArgv0Size`, tier1/convar.cpp:432-451; convar.h:232-235) — drops a leading `"`, clears
     /// trailing bytes while `CMP byte ptr [RCX],0x20; JG` does not jump (a SIGNED compare, so every byte of 0x80 or more is

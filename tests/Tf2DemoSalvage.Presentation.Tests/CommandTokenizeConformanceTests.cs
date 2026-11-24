@@ -79,7 +79,7 @@ public sealed class CommandTokenizeConformanceTests
         SourceConfig.Tokens(command).ShouldBe(expected);
 
     /// <remarks>
-    /// **A ConVar's value is `ArgS`, not `Arg(1)`** (B823): `engine.dll` FUN_180176c50 (x64), the console's ConVar set — the
+    /// **A ConVar's value is `ArgS`, not `Arg(1)`** (B823): `engine.dll` build 1007 FUN_180178310 (x64), the console's ConVar set — the
     /// function holding "Can't use cheat cvar %s in multiplayer" — copies `ArgS()` (convar.h:232-235, the text from argument
     /// 1 on), drops a leading `"`, strips trailing bytes `&lt;= ' '` by a SIGNED compare (`CMP byte ptr [RCX],0x20; JG`), and
     /// then one trailing `"` if it began with one. So the bytes of a trailing non-ASCII character are stripped as if they were
