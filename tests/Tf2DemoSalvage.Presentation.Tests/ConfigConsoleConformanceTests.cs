@@ -2155,6 +2155,20 @@ public sealed class ConfigConsoleConformanceTests
         ButtonCodeNames.KeyOf("CTRL+aux1").ShouldBe("CTRL+JOY2");
 
     /// <remarks>
+    /// **A chord's shapes** (B826 reviews 1 and 2, Fable): modifiers are taken from the left, so two modifiers and an
+    /// `aux` name with a `+` of its own are chords; a modifier matches ignoring ASCII case only, so `ſHIFT` (U+017F, which
+    /// .NET's `OrdinalIgnoreCase` folds to `S`) is none, as TF2's `V_stricmp` would refuse it.
+    /// </remarks>
+    [TestCase("CTRL+SHIFT+e", "CTRL+SHIFT+e")]
+    [TestCase("ctrl+aux+1", "ctrl+JOY2")]
+    [TestCase("ALT+KP_ins", "ALT+KP_INS")]
+    [TestCase("ſHIFT+e", null)]
+    [TestCase("CTRL+", null)]
+    [TestCase("+e", null)]
+    public void KeyOf_AChord_IsItsModifiersAndItsKeyInTheTablesSpelling(string name, string? expected) =>
+        ButtonCodeNames.KeyOf(name).ShouldBe(expected);
+
+    /// <remarks>
     /// **Every key the viewer binds by default is one TF2 names, or a chord on one** (B826): a default on a name the
     /// console refuses could never be rebound or shown.
     /// </remarks>

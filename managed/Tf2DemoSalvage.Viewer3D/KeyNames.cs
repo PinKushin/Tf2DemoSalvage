@@ -18,7 +18,9 @@ namespace Tf2DemoSalvage.Viewer3D;
 ///
 /// **Every key TF2 names is spelled as TF2 spells it** (B826): its console refuses any other name (`"%s" isn't a valid
 /// key`, `ButtonCodeNames`), so a key named here in WinForms spelling could never be bound. Keys whose WinForms name
-/// already matches TF2's ignoring case (`F7`, `Tab`, `Home`, `NumLock`) fall through to <see cref="Keys"/>'s own names.
+/// already matches TF2's ignoring case (`F1` to `F12`, `Tab`, `Home`, `End`, `Pause`, `NumLock`, `LWin`, `RWin`) fall
+/// through to <see cref="Keys"/>'s own names. *Not named*: TF2's `RSHIFT`, `RALT`, `RCTRL` and `KP_ENTER`, which
+/// WinForms reports as the left key or as `Enter` (B826 review 2).
 /// </remarks>
 internal static class KeyNames
 {

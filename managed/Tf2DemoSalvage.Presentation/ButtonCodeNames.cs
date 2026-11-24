@@ -70,11 +70,10 @@ public static class ButtonCodeNames
 
     /// <summary>The key a name names, in the table's own spelling, or null where TF2 says `"%s" isn't a valid key`.</summary>
     /// <param name="name">The name as a config or console line wrote it.</param>
-    /// <returns>The table's name; or, for a chord, the chord as written.</returns>
+    /// <returns>The table's name; or, for a chord, its modifiers as written and its key in the table's spelling.</returns>
     /// <remarks>
     /// **A chord is above Valve** (`docs/ABOVE-VALVE.md`): TF2 has none, so no TF2 config holds one, and the viewer's own
-    /// defaults and menu use them. One or more modifiers and `+` before a name the table knows; kept as written, since the
-    /// view resolves it.
+    /// defaults and menu use them. One or more modifiers, each followed by `+`, then a name the table knows.
     /// </remarks>
     public static string? KeyOf(string? name)
     {
@@ -89,12 +88,21 @@ public static class ButtonCodeNames
             return key;
         }
 
-        // The chord's key in the table's spelling (B826 review 1, Fable), so `CTRL+aux1` is `CTRL+JOY2` and the view can
-        // resolve it; its modifiers as written.
-        return name.LastIndexOf('+') is var plus and > 0 &&
-               IsModifiers(name.AsSpan(0, plus)) && TableKey(name[(plus + 1)..]) is { } chordKey
-            ? name[..(plus + 1)] + chordKey
-            : null;
+        // Modifiers taken from the left, the rest tried as a name after each (B826 review 2, Fable), so `CTRL+aux+1` is the
+        // chord on `aux+1`; the key in the table's spelling (review 1), so `CTRL+aux1` and `CTRL+JOY2` are one chord.
+        int at = 0;
+
+        while (name.IndexOf('+', at) is var plus and >= 0 && IsModifier(name.AsSpan(at, plus - at)))
+        {
+            at = plus + 1;
+
+            if (TableKey(name[at..]) is { } chordKey)
+            {
+                return name[..at] + chordKey;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The input system's own lookup, without the chord extension.</summary>
@@ -140,24 +148,17 @@ public static class ButtonCodeNames
         return null;
     }
 
-    /// <summary>Whether text is one or more chord modifiers joined by `+`.</summary>
-    private static bool IsModifiers(ReadOnlySpan<char> text)
+    /// <summary>Whether text is one chord modifier, matched ignoring ASCII case only (B826 review 1, Fable).</summary>
+    private static bool IsModifier(ReadOnlySpan<char> text)
     {
-        foreach (Range part in text.Split('+'))
+        foreach (string modifier in Modifiers)
         {
-            bool known = false;
-
-            foreach (string modifier in Modifiers)
+            if (Ascii.EqualsIgnoreCase(text, modifier))
             {
-                known |= Ascii.EqualsIgnoreCase(text[part], modifier);
-            }
-
-            if (!known)
-            {
-                return false;
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 }

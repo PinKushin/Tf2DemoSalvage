@@ -45781,17 +45781,30 @@ tests.
 view named the keypad, the punctuation keys, Scroll Lock and the Application key in WinForms spelling (`NumPad3`,
 `Oemcomma`), which TF2's names refuse, so those keys could no longer be bound at all. `KeyNames` (Viewer3D) now names
 and resolves them as TF2's table does (`KP_PGDN`, `,`, `SCROLLLOCK`, `APP` …), one table both ways. Test
-`KeyNamesConformanceTests.NameOf_EveryKeyTf2Names_IsATf2NameThatResolvesBack`, over every keyboard key TF2's table
-names; sabotage: `NumPad3` named in WinForms spelling reddens it. A config that used the viewer's old Windows spelling
-(`bind NumPad3 x`) now needs TF2's (`KP_PGDN`), as TF2 itself does; named in the release notes. Fixed (Fable, Grok): the
+`KeyNamesConformanceTests.NameOf_EveryKeyTf2Names_IsATf2NameThatResolvesBack`, over the keyboard keys of TF2's table
+the view can tell apart; sabotage: `NumPad3` named in WinForms spelling reddens it. A config that used the viewer's old
+Windows spelling (`bind NumPad3 x`) now needs TF2's (`KP_PGDN`), as TF2 itself does; named in the release notes. Fixed
+(Fable, Grok): the
 chord rule ran before TF2's own lookup, so `aux+1` (`atoi("+1")`, `JOY2` in TF2) was refused; the lookup now runs
 first. Tests: `aux+1`, bare `aux` (`JOY1`) and `aux28` (`JOY29`) added to `Bind_ANameTheTableKnows_BindsTheKeyItNames`.
 Fixed (Fable, low): a chord's key is stored in the table's spelling (`CTRL+aux1` is `CTRL+JOY2`, test
 `KeyOf_AChordOnAnAuxName_IsTheChordOnItsJoystickButton`), its modifiers match ASCII case only, and a bad modifier
 (`x+e`) is tested as refused. Confirmed (Sonnet asked): the `aux` compare is signed in the decompile
-(`(int)uVar2 < 0x1d`), as implemented. *Not handled*: the keypad's Enter is WinForms' `Enter` too, and a keypad key with
-Num Lock off arrives as its navigation key (`INS` for `KP_INS`); telling them apart needs the scan code's extended bit,
+(`(int)uVar2 < 0x1d`), as implemented. *Not handled*: the keypad's Enter is WinForms' `Enter` too; a keypad key with
+Num Lock off arrives as its navigation key (`INS` for `KP_INS`), and keypad 5 as `Clear`, which no bind names; and TF2's
+`RSHIFT`, `RALT` and `RCTRL` are their own keys, where the view names both sides `SHIFT`, `ALT` and `CTRL`, so
+`bind RSHIFT x` is accepted and never fires (review 2, Fable). Telling them apart needs the scan code's extended bit,
 which the view does not read.
+
+**Review 2** (Fable, Sonnet, Grok; Gemini pending). No blocker. Fixed: `docs/USER-GUIDE.md` still said a name TF2
+refuses is kept, and now gives TF2's names (Fable); the record above names the keys the view cannot tell apart, and
+the test's own summary no longer claims every key (Fable); a chord's modifiers are taken from the left, so
+`CTRL+aux+1` is the chord on `JOY2` (Fable); the ASCII-only modifier match is tested with `ſHIFT` (U+017F), and the
+chord shapes in `KeyOf_AChord_IsItsModifiersAndItsKeyInTheTablesSpelling` (Fable); the view's pairs are pinned one by
+one in `NameOf_AKeyWhoseTf2NameIsNotItsWinFormsName_IsTf2sName`, since the round trip passes a swapped pair (Sonnet);
+the `KeyNames` summary lists every key that falls through to its WinForms name (Sonnet). Not taken (Grok): `CTRL+e`
+stored as `CTRL+E`, since TF2's table spells letters `a` to `z`; and `[ ] SEMICOLON ' /` missing from `Tf2Names`,
+since `KeyNames` already names them as TF2 does and the round trip covers them.
 
 The paragraph below is the entry as filed.
 
