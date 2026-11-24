@@ -46044,6 +46044,23 @@ Found in B824 review 2 (Fable). FUN_1801683d0 builds one buffer of every `+comma
 B820's reading of the console limit, not re-read for this path. The launch line also stores a 511-byte value early for
 readers that run before the console, which then refuses the line (B824 review 3, Fable). *Not fixed*.
 
+## B833 — without an install, `mat_wireframe` draws nothing (2026-11-24) — FIXED (2026-11-24)
+
+**Found by CI, red on every main push since the B803/B808 merge (`24cd116b9`).**
+`CaptureUiTests.Capture_UnderMatWireframeOneAgainstZero_OutlinesTheWorldInPink` counted 0 pink pixels at `mat_wireframe` 1
+and at 0. The runner has no TF2. Its viewer log (run 45429168344, `viewer-logs` artifact) said
+`debug/debugworldwireframe did not load: mat_wireframe draws nothing in its place` for all five materials. B803 reads
+the engine's debug wireframe VMTs from the game's archives (`platform_misc`), so a machine with no install has none of
+them. The local suite cannot see this because this machine has the game (`docs/memory/ci-is-the-machine-without-tf2.md`).
+
+**Fixed, above Valve** (`docs/ABOVE-VALVE.md`; TF2 cannot run without its archives). `MapAssets` holds the five VMTs as
+`platform_misc` ships them, read with the `game-file` probe on 2026-11-24, without their comment lines. A material read
+uses them only after the map's pakfile and the archives miss. The shader reads no texture, so the base is the standard
+white, which needs no install. Test: `OverrideMaterialLoadingTests.Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay`
+loads the default map with no archives and asserts each material's path, shader, `$ignorez` and `$color`. All five
+were red before the fix ("did not load; loaded: " with nothing listed). The output-level check is the CI capture test
+itself, run on this branch.
+
 ## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
 
 Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's

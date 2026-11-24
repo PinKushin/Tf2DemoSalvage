@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -148,6 +150,45 @@ public sealed class OverrideMaterialLoadingTests
         texture.IsErrorTexture.ShouldBeFalse();
 
         // An identity `$color` is stored as none, and draws as white.
+        (texture.Modulation ?? (1f, 1f, 1f, 1f)).ShouldBe((red, green, blue, 1f));
+    }
+
+    /// <remarks>
+    /// **Without the game, the same five materials, from the viewer's own copies of the shipped VMTs** (B833). Without them
+    /// `mat_wireframe` drew nothing on a machine with no install, which CI is (`CaptureUiTests` red from B803's merge on).
+    /// Above Valve: TF2 cannot run without its archives at all. Same map, no archives, same answers as the tests above.
+    /// </remarks>
+    [TestCase(MapAssets.WorldWireframePath, 0.9f, 0.5f, 0.5f, true)]
+    [TestCase(MapAssets.WorldWireframeZBufferPath, 0f, 1f, 0.5f, false)]
+    [TestCase(MapAssets.DisplacementWireframePath, 1f, 1f, 1f, false)]
+    [TestCase(MapAssets.DecalWireframePath, 1f, 1f, 0f, true)]
+    [TestCase(MapAssets.WireframeMaterialPath, 0f, 1f, 1f, true)]
+    public void Wireframes_AfterALoadWithoutTheGame_AreTheEnginesMaterialsAsTheirVmtsSay(
+        string path, float red, float green, float blue, bool ignoresZ)
+    {
+        string map = Path.Combine(GameInstall.Root ?? string.Empty, "maps", MapCache.DefaultMap + ".bsp");
+
+        if (!File.Exists(map))
+        {
+            Assert.Ignore($"{MapCache.DefaultMap} is not installed.");
+            return;
+        }
+
+        MapAssets assets = MapAssets.Load(File.ReadAllBytes(map), GameArchives.Open(null), MapCache.DefaultTextureSize);
+        WireframeMaterial? loaded = assets.Wireframe;
+
+        if (path != MapAssets.WireframeMaterialPath)
+        {
+            loaded = assets.EngineWireframes.TryGetValue(path, out WireframeMaterial engine) ? engine : null;
+        }
+
+        WireframeMaterial wireframe =
+            loaded.ShouldNotBeNull($"{path} did not load; loaded: {string.Join(", ", assets.EngineWireframes.Keys)}");
+        MapTexture texture = assets.Textures[wireframe.Material].ShouldNotBeNull();
+
+        (assets.Materials[wireframe.Material].Name, assets.Shaders[wireframe.Material], wireframe.IgnoresZ)
+            .ShouldBe((path, "Wireframe", ignoresZ));
+        texture.IsErrorTexture.ShouldBeFalse();
         (texture.Modulation ?? (1f, 1f, 1f, 1f)).ShouldBe((red, green, blue, 1f));
     }
 }
