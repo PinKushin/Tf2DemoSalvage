@@ -46066,7 +46066,7 @@ TF2; the viewer has no `wait` (B832), and counts it as refusable in both the run
 (Fable). Filed: B834, the argument
 buffer's own refusal (Fable).
 
-**Review 3** (Fable, Sonnet, Grok; Gemini pending): no blocker; Sonnet and Grok had no findings. Fixed (Fable):
+**Review 3** (Fable, Gemini, Sonnet, Grok): no blocker; Gemini, Sonnet and Grok had no findings. Fixed (Fable):
 `Cbuf_AddText` (`engine.dll` build 1007 FUN_180166e30, which `stuffcmds` calls; `engine/cmd.cpp`) prints
 `Cbuf_AddText: buffer overflow` when `AddText` refuses, read in the decompile after Fable recalled it, so a cut launch
 line now says it too (test `Stuff_ALaunchLineWithACommandOf511Bytes_SaysTheBufferOverflowed`, with a line that fits
