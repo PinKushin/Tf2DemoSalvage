@@ -1137,6 +1137,23 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// Above Valve (D265): with a leading UTF-8 byte order mark, TF2's first command does not run (`Unknown command`,
+    /// measured live, B822); the viewer strips it on `exec` too, not only on the startup configs. The control has no mark.
+    /// </remarks>
+    [Test]
+    public void Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand()
+    {
+        List<string> asked = [];
+        ConfigConsole console = WithFiles(asked, ("cfg/marked.cfg", char.ConvertFromUtf32(0xFEFF) + $"{Alpha} 3"), ("cfg/plain.cfg", $"{Alpha} 5"));
+
+        console.Load("exec plain");
+        console.ConVar(Alpha).ShouldBe("5", "the control has no mark");
+
+        console.Load("exec marked");
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
     /// *Interpolated* budget (B820 review 1, Fable, Sonnet): two `exec self` lines would read 2^20 files under the depth bound
     /// alone; one command reads at most <see cref="ConfigConsole.MaximumExecs"/>, says so once, and the next command starts
     /// a fresh budget.

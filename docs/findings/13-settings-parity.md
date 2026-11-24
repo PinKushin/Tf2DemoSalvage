@@ -275,7 +275,16 @@ leading tabs and non-ASCII bytes there go), unescapes `\"` and `\\` on every lin
 to `Cbuf_AddText` alone. So a refused command drops the rest of its own line, not of the file. Reviews 8 and 9 read the
 rest: the copy compares the sign-extended byte UNSIGNED (`JA`), so a non-ASCII byte continues a line, while the skip
 compares it SIGNED (`JGE`); a NUL ends the file, after the line it stopped runs, and a file beginning with one runs nothing
-(`Cmd_Exec_f` loops while the line's `strlen` is above 0). The launch line is not a file: `stuffcmds` hands it to
+(`Cmd_Exec_f` loops while the line's `strlen` is above 0). Because the first byte is copied whatever it is, a UTF-8 byte
+order mark stays on the first line (*disassembly*). What was *measured* (live TF2, 2026-11-23, B822): a file `EF BB BF` +
+two `echo` lines printed `Unknown command "�"` and then only the second line, so the first line did not run; a control
+without the mark printed its line. The command name is the mark's first byte alone (*published source*, SDK 2013):
+`CUtlBuffer::ParseToken` (`src/tier1/utlbuffer.cpp:1303-1320`) stores a word's first `char` unchecked and ends the word
+at any `char <= ' '`, signed, so `0xBB` ends it; `EatWhiteSpace` (`:404-415`) tests `isspace` on the unsigned byte, so
+`0xBB` then starts the next token. The bytes `EF BB BF` followed directly by `echo x`, with no space, tokenize as `EF`,
+`BB`, `BFecho`, `x`. The live message agrees: one glyph as the command name, and no `echo`. The viewer's tokenizer does
+not split a word at a byte of 0x80 or more (B823). The viewer strips the mark
+anyway, above Valve (D265). The launch line is not a file: `stuffcmds` hands it to
 `Cbuf_AddText` whole (*interpolated*, not read), so its `\\` stays two backslashes.
 
 **What it changed.** One dispatcher in `ConfigConsole.Run`, in the engine's order, used by `Load`, keys and alias bodies;

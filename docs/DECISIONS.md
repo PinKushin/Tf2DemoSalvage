@@ -11729,3 +11729,20 @@ TF2 too.
 
 **How to apply.** `Tf2ConfigFiles.IsSaved` names the saved layer; `ConfigConsole.LoadFrom` runs it with `_savedLayer`,
 which keeps its ConVar sets (and an `sv_cheats` revert) in the console's own list.
+
+## D265 — a config's UTF-8 byte order mark is stripped, above Valve (2026-11-23)
+
+**What was decided.** `Tf2ConfigFiles.Decode` keeps stripping a leading `EF BB BF` from every config it reads, so the
+file's first command runs. TF2 does not: measured on live TF2 the same day, `exec` of a file `EF BB BF` + `echo
+bom_first_line_ran` + `echo bom_second_line_ran` printed `Unknown command "�"` and then only `bom_second_line_ran`, with
+a control file without the mark printing its line (B822). The strip is listed in `docs/ABOVE-VALVE.md` with its test.
+
+**Provenance: voiced.** Asked whether to remove the strip for parity or keep it above Valve, the owner: *"keep it as a above
+valve, we dont want the configs to break the viewer"*. Before that, the owner doubted the claim that TF2 breaks
+(*"test it i think you are wrong"*); the live test above settled it.
+
+**Why it follows.** The owner's reason is the quote: a config must not break the viewer. The measurement above is why a
+mark would: the file's first command does not run.
+
+**How to apply.** Keep the strip in `Tf2ConfigFiles.Decode`; `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole`
+and `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` hold it. A parity pass on the config reader must not remove it (D246).
