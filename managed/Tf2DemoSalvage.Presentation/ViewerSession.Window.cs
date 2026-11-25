@@ -468,9 +468,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // settings or the menu held, which a fresh start keeps.
             _console.StartCheatsOff();
 
-            // Its one-shots never fire, waited or not: this is no second launch, as the line's replay below is not (B829,
-            // B841 review 3, Fable). A waited one the first read queued fires once, from that read.
-            LoadUserConfig(replaying: true);
+            // A file the first read read, unchanged, is a replay whose one-shots never fire: no second launch, as the line's
+            // replay below is not (B829, B841 reviews 3 and 4). A file first read now is read as new (`LoadFrom`).
+            LoadUserConfig();
 
             // The configs ran again, so the whole line runs after them again, as `stuffcmds` follows `exec` (B811 review 2,
             // B816): a launch option set before the folder was chosen, by the menu too, ends at the line's value, as the

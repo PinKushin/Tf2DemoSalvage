@@ -46344,21 +46344,27 @@ Found in B841 review 3 (Fable). When a game folder is chosen with no install ope
 and replays the launch line (`ViewerSession.GameFolderChosen`, B811, B816), and both queue their waited commands again
 beside the first copies still queued. One-shots are guarded (B829, B841: the replay and the reread fire none), but a
 state command runs twice: a launch line `+wait +"toggle cl_showfps"` with the folder picked before the first frame
-toggles twice and ends where it began; `incrementvar` steps twice. *Read*, not measured. TF2 has no reread, so the
+toggles twice and ends where it began; `incrementvar` steps twice. A waited loop (`alias lp "incrementvar x; wait; lp"`)
+restarts on the reread, and both copies run every tick for the rest of the session. The copies hold bytes in the
+8192-byte argument buffer beside the first ones, so a config heavy with waited commands can overflow on the reread and
+lose its sets. A first read's waited `exec`, still queued, resolves through the new folder's files (B841 review 4,
+Fable). *Read*, not measured. TF2 has no reread, so the
 engine has no answer here; the viewer's own rule (one launch) decides it. Fix shape: the replay's and the reread's
 copies replace the first copies still queued, or run only where no first copy remains. *Not fixed*.
 
 ## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — FIXED (2026-11-25)
 
 **Fixed.** `CCommandBuffer` runs a command a `wait` put off at its tick, whatever text added it, so the one-shot rule
-now rides the queued command. Each entry carries `PutOff`: set when its own `wait` put it past the tick it was added at,
+now rides the queued command. Each entry carries `PutOff`: set when its own `wait` put it past the run it was added in,
 or inherited from the command that added it (an alias body, an `exec`'s lines). A config's one-shot that is put off acts
-at its tick, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the
-spectator's `+jump`, `+attack` and `+attack2`. The same one-shot at the load itself still does nothing (B820 review 1).
-The viewer's own names (`togglefullscreen`, `resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown
-to TF2, so they do nothing at any tick. A load is put off by nothing, even one a handler runs inside a put-off command.
-The viewer's replay of the launch line (`Stuff(text, oneShots: false)`) carries `Replaying` and fires no one-shot,
-waited or not, as it is no second launch (B829).
+at its tick, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson` (with
+`sv_cheats` on, as it is `FCVAR_CHEAT`), and the spectator's `+jump`, `+attack` and `+attack2`. The same one-shot at
+the load itself still does nothing (B820 review 1). The viewer's own names (`togglefullscreen`, `resetcamera`,
+`opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown to TF2, so they do nothing at any tick. A load is put off
+by nothing, even one a handler runs inside a put-off command. The viewer's replay of the launch line
+(`Stuff(text, oneShots: false)`) and its reread of a config file it already read, unchanged, when a game folder is
+chosen carry `Replaying` and fire no one-shot, waited or not, as neither is a second launch (B829). A config file first
+read at the folder choice is read as new.
 
 Review 1 (Fable, Gemini, Sonnet, Grok) found the first version decided the rule by the
 CALLER, a flag set only inside a frame's `Execute`. Fable and Gemini: a key pressed between two frames pumps the queue
@@ -46389,10 +46395,10 @@ loads a config, so the path has no caller to test.
 
 Tests added in review 2: `Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTick`,
 `Load_AOneShotRunInsideTheLoadAfterAWait_DoesNothing` (`wait 0`, `wait -1`, the negative-`wait` alias),
-`DropQueuedConfigs_BeforeAReload_RunsAWaitedOneShotOnce`,
-`DropQueuedConfigs_WithTheLaunchLinesWaitedOneShotQueued_KeepsIt`, the `thirdperson` cases with and without
-`sv_cheats 1`, and the session's `RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemoOnce`: a config's
-`wait; demo_togglepause` plays the paused demo, with and without a folder reload. Sabotage, each restored: the reload
+two tests of the drop (removed in review 3), the `thirdperson` cases with and without `sv_cheats 1`, and the session's
+`RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemo` (named `..._PlaysTheDemoOnce` then, with folder cases that moved
+to the screenshot test in review 3): a config's `wait; demo_togglepause` plays the paused demo. Sabotage, each
+restored: the reload
 not dropping reddens its session case alone; `PutOff` not inherited reddens the alias and `exec` cases; `PutOff`
 measured against the added tick reddens the negative-`wait` alias case alone; the cheat gate removed reddens the
 `thirdperson` case alone. 2,205 of 2,205 pass.
@@ -46401,12 +46407,10 @@ Review 3 (Fable, Gemini, Sonnet; Grok to follow on the result):
 - **The drop could not stop a second fire** (Fable, Gemini). A folder chosen late in a session, with no install open,
   rereads the configs after the waited one-shot already ran; nothing is queued to drop, and the reread queues it again
   to act a second time. The drop also discarded a queued non-one-shot set the new folder's configs might not repeat
-  (Gemini). Replaced, as Gemini recommended: the reread is a replay, `Load(text, replaying: true)` through
-  `LoadFrom(..., replaying)`, so its one-shots never fire, waited or not, as the launch line's replay fires none (B829:
-  no second launch). The first read's waited one-shot, still queued or already run, is the one that acts, once. *The
-  trade:* a waited one-shot in a config that only the chosen folder holds never fires, as a one-shot on the launch line
-  never fires from the replay. *The reading picked* is B829's; a reread as a true fresh start would fire it, and fire
-  the first read's again.
+  (Gemini). Replaced, as Gemini recommended: the reread is a replay, `Load(text, replaying: true)`, so its one-shots
+  never fire, waited or not, as the launch line's replay fires none (B829: no second launch). The first read's waited
+  one-shot, still queued or already run, is the one that acts, once. The round-3 trade, a config only the chosen
+  folder holds never firing, was taken back in review 4 (below).
 - **Coverage** (Sonnet, Gemini): no test showed `AtStartup` putting back the waited command's flags, nor a cheat check
   made at the tick rather than the load. `Load_FromAHandlerInsideAWaitedExecsFirstLine_LeavesTheSecondLinePutOff` and
   `Execute_AWaitedThirdPersonAfterCheatsTurnedOff_IsRefused` added. The `AtStartup` restore of `_putOff` stays an
@@ -46423,6 +46427,21 @@ Tests after review 3: `Load_ARereadOfAWaitedOneShot_FiresOnlyTheFirstReads`,
 `RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce` (no folder, a folder before the first frame, a
 folder after the screenshot: one capture each), replacing the drop's tests. Sabotage: the reread not marked a replay
 reddens both folder cases (two captures) and leaves the control at one. 2,209 of 2,209 pass.
+
+Review 4 (Fable, Gemini, Sonnet, Grok):
+- **The reread is the FIRST read on the prompt's path** (Sonnet, Fable). With no TF2 found at startup, the first read
+  sees only the program's own `custom/`, which is the case that opens the folder prompt; the chosen folder's
+  `autoexec.cfg` is first read at the choice, and marking the whole reread a replay dropped its waited one-shots for the
+  session. No first copy of that file ever ran, so B829's rule does not reach it, and the engine's answer is plain: a
+  config's first `exec` runs its waited commands. Now `LoadFrom` keeps every file it reads, by path and text, and only a
+  file read before, unchanged, is a replay. `RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce` gains
+  the cases with no folder found at startup (one capture each). Sabotage: every read a replay reddens all six folder and
+  toggle cases; no read a replay reddens the two duplicate-reread cases alone. 2,212 of 2,212 pass.
+- **Stale text** (Fable): this entry's summary and the `Replaying` and `AtStartup` documentation now name the reread and
+  the run-based `PutOff`; the handler test is renamed for what it holds, as it reddens only with both restores removed.
+- **B842 widened** (Fable): a waited loop restarts on the reread and both copies run every tick; the copies' bytes can
+  overflow the 8192-byte buffer; a first-read waited `exec` resolves through the new folder.
+- `thirdperson` refused with cheats turned off before its tick now carries its control in the same test (Sonnet).
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text

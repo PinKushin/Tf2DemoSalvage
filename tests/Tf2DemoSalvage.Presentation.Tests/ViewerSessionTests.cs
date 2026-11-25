@@ -2481,18 +2481,23 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **A chosen folder's reread of the configs is no second launch** (B841 reviews 2 and 3, Fable, Sonnet, Gemini; B829):
-    /// a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or after the
-    /// screenshot was taken. The control: no folder chosen, it captures once.
+    /// **A chosen folder's reread of a config already read is no second launch** (B841 reviews 2 to 4, Fable, Sonnet,
+    /// Gemini; B829): a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or
+    /// after the screenshot was taken. **A config the folder holds that no read saw is read as new** (review 4, Sonnet):
+    /// with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read at the choice, and its screenshot is
+    /// taken. The control: no folder chosen, it captures once.
     /// </remarks>
-    [TestCase(null)]
-    [TestCase(0)]
-    [TestCase(3)]
-    public async Task RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce(int? folderChosenBeforeFrame)
+    [TestCase(true, null)]
+    [TestCase(true, 0)]
+    [TestCase(true, 3)]
+    [TestCase(false, 0)]
+    [TestCase(false, 3)]
+    public async Task RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce(bool foundAtStartup, int? folderChosenBeforeFrame)
     {
-        _gameFolder = Path.Combine(_folder, "tf");
-        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
-        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
+        string tf = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(tf, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
+        _gameFolder = foundAtStartup ? tf : null;
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }).WithDevice();
         rig.Session.WindowShown();
 
@@ -2500,8 +2505,9 @@ public sealed class ViewerSessionTests
         {
             if (frame == folderChosenBeforeFrame)
             {
-                await File.WriteAllTextAsync(Path.Combine(_gameFolder, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
-                rig.Session.GameFolderChosen(_gameFolder);
+                await File.WriteAllTextAsync(Path.Combine(tf, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
+                _gameFolder = tf;
+                rig.Session.GameFolderChosen(tf);
             }
 
             rig.Session.RenderFrame();

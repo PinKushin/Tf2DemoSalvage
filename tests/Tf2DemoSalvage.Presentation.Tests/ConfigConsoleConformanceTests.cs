@@ -2612,11 +2612,12 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A load from a handler puts the waited command's flags back after it** (B841 review 3, Sonnet): the waited `exec`'s
-    /// second line is still put off, so both of its `screenshot`s act, though a handler loaded a config at the first.
+    /// **A load from a handler leaves the waited command's later lines put off** (B841 review 3, Sonnet): the waited
+    /// `exec`'s second line still acts, though a handler loaded a config at the first. Two restores hold it, `AtStartup`'s
+    /// and `RunEntry`'s, so it reddens only with both removed (review 4, Fable).
     /// </remarks>
     [Test]
-    public void Load_FromAHandlerInsideAWaitedExecsFirstLine_LeavesTheSecondLinePutOff()
+    public void Load_FromAHandlerInsideAWaitedExecsFirstLine_TheSecondLineStillActs()
     {
         ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "screenshot\nscreenshot"u8.ToArray() : null };
         int triggered = 0;
@@ -2637,10 +2638,12 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **`thirdperson`'s cheat check is made when it runs** (B841 review 3, Sonnet), as `Cmd_ExecuteCommand` (`engine.dll`
-    /// build 1007 FUN_1801678a0) makes it: cheats on at the load and off by its tick refuse it.
+    /// build 1007 FUN_1801678a0) makes it: cheats on at the load and off by its tick refuse it. The control: left on, it
+    /// acts.
     /// </remarks>
-    [Test]
-    public void Execute_AWaitedThirdPersonAfterCheatsTurnedOff_IsRefused()
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Execute_AWaitedThirdPersonWithCheatsTurnedOffBeforeItsTick_IsRefused(bool turnedOff, int raised)
     {
         ConfigConsole console = new();
         int triggered = 0;
@@ -2648,11 +2651,16 @@ public sealed class ConfigConsoleConformanceTests
 
         console.Load("sv_cheats 1; wait 2; thirdperson");
         console.Execute(waitAllowed: true);
-        console.Load("sv_cheats 0");
+
+        if (turnedOff)
+        {
+            console.Load("sv_cheats 0");
+        }
+
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
 
-        triggered.ShouldBe(0);
+        triggered.ShouldBe(raised);
     }
 
     /// <remarks>

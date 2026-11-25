@@ -450,9 +450,9 @@ public sealed class ConfigConsole
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
     /// <param name="replaying">
-    /// Whether this is the viewer's reread of a config after a game folder is chosen, whose one-shots never fire, waited or
-    /// not: like the launch line's replay it is no second launch (B829, B841 review 3, Fable). The first read's waited
-    /// one-shots still queued fire once, from the first read.
+    /// Whether this is the viewer's reread of a config it already read, unchanged, after a game folder is chosen, whose
+    /// one-shots never fire, waited or not: like the launch line's replay it is no second launch (B829, B841 review 3,
+    /// Fable). The first read's waited one-shots fire once, from the first read.
     /// </param>
     public void Load(string? text, bool replaying = false) =>
         AtStartup(stuffing: false, replaying, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
@@ -720,10 +720,16 @@ public sealed class ConfigConsole
         }
     }
 
+    /// <summary>Every config file <see cref="LoadFrom"/> has read, by path and text: one read again unchanged is a replay (B841).</summary>
+    private readonly HashSet<(string Path, string Text)> _configsRead = [];
+
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;
 
-    /// <summary>Whether the command running now came from the viewer's replay of the launch line, which is no second launch (B829, B841).</summary>
+    /// <summary>
+    /// Whether the command running now came from the viewer's replay of the launch line or its reread of a config it already
+    /// read, neither of which is a second launch (B829, B841).
+    /// </summary>
     private bool _replaying;
 
     /// <summary>
@@ -965,7 +971,10 @@ public sealed class ConfigConsole
     /// A load is put off by nothing yet, even run from a handler inside a command a `wait` put off (B841 review 1, Fable).
     /// </remarks>
     /// <param name="stuffing">Whether the text is the launch line run for its one-shots (B829).</param>
-    /// <param name="replaying">Whether the text is the viewer's replay of the launch line, whose one-shots never fire.</param>
+    /// <param name="replaying">
+    /// Whether the text is the viewer's replay of the launch line or its reread of a config it already read, whose one-shots
+    /// never fire.
+    /// </param>
     /// <param name="run">The load.</param>
     private void AtStartup(bool stuffing, bool replaying, Action run)
     {
@@ -1430,7 +1439,6 @@ public sealed class ConfigConsole
     /// <param name="loggers">For the config reader's own diagnostics.</param>
     /// <param name="config">The config log.</param>
     /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null (D193).</param>
-    /// <param name="replaying">Whether this is the reread after a game folder is chosen (<see cref="Load"/>).</param>
     /// <returns>The bindings, or null when nothing was loaded and the caller should keep its own.</returns>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
@@ -1449,7 +1457,7 @@ public sealed class ConfigConsole
     /// unbound list exists for the same reason from the other side.
     /// </remarks>
     public KeyBindings? LoadFrom(
-        string? installedGameFolder, ILoggerFactory loggers, ILogger config, string? ownCustomRoot = null, bool replaying = false)
+        string? installedGameFolder, ILoggerFactory loggers, ILogger config, string? ownCustomRoot = null)
     {
         ArgumentNullException.ThrowIfNull(loggers);
         ArgumentNullException.ThrowIfNull(config);
@@ -1489,9 +1497,12 @@ public sealed class ConfigConsole
             {
                 _savedLayer = Tf2ConfigFiles.IsSaved(path);
 
+                // **A file read before, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or are queued,
+                // from the first read, so the reread is no second launch (B829). A file read for the first time here is
+                // not: with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read now (Sonnet).
                 try
                 {
-                    Load(text, replaying);
+                    Load(text, replaying: !_configsRead.Add((path, text)));
                 }
                 finally
                 {
