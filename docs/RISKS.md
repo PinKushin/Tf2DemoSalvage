@@ -46392,7 +46392,21 @@ Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`,
 a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window
 height and takes `1080` as its value. *Not read*: which TF2 module reads `-h`. *Not fixed*.
 
-## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
+## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** Read in `engine.dll` build 1007 (Ghidra): `Key_Event` (FUN_1801b6090) adds a key's bind through
+FUN_180166500, either the bind itself and then `"\n"`, or a `+` bind as `"%s %i\n"` with the key number, formatted into
+a 1024-byte buffer; `Cmd_ExecuteCommand` (FUN_1801678a0) adds an alias's body through FUN_180166e30 when no command or
+ConVar takes the name. Both adders print `Cbuf_AddText: buffer overflow` when `CCommandBuffer::AddText` (FUN_1802952a0)
+refuses. So `ConfigConsole.KeyDown` runs the bind as one `AddedAsOne` call at depth 0, and `RunAliasBody` runs the body
+as one at its own depth, where it had kept the body's refusals from every adder (B830 review 6): each says the line
+for its own text's refusals, and the line that ran it does not hear them. `Cbuf_AddTextWithMarkers` (FUN_1801666f0)
+is called only from the client's network code, not by a config, a key or an alias. Tests
+`KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits as its control) and
+`Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_SaysTheBufferOverflowedOnce`
+(was `…DoesNotSay…`, expecting none); both red before. *Not modelled*: a `+` bind of 511 bytes or more with its key
+number appended, which the console's own line limits make unreachable from a `bind` statement. The paragraph below is
+the entry as filed.
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
 FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever

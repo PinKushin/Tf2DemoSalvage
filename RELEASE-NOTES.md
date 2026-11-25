@@ -14,6 +14,8 @@
 
 - **A held menu shortcut fires once (B827).** Holding a menu shortcut such as `CTRL+w` (wireframe) repeated the menu action at the keyboard's repeat rate, so the view flickered and landed on whichever state the release caught. The press runs it once, as TF2 runs a bind on the press; the repeats do nothing.
 
+- **A key or an alias whose command is too long says so, as in TF2 (B835).** When a key's bind or an alias's body holds a command of 511 bytes or more, the console now prints `Cbuf_AddText: buffer overflow` after the `Command too long` warning, as TF2 does; before, only the warning was printed.
+
 ## Changes in 0.1.0-beta.71
 
 None of these changes was verified by looking against a TF2 frame. Each follows TF2's published source or its binaries, read by disassembly, and is held by tests. Each merge in this release passed the merge gate: all twelve test assemblies at or above their floors with no failures, then the UI suite with none failed on its final run (see *What has been verified*). Most of this release is how your config and the command line are read, which now follows TF2's own code.
