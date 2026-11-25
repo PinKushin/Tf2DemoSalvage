@@ -46348,7 +46348,67 @@ at 0, one at 1), whichever key or command runs it; the viewer's F5 captures duri
 stand, and parity never removes a feature (D246): **the owner decides** whether each becomes a row in
 `docs/ABOVE-VALVE.md` with its test, or follows TF2. The launch line is the same (B841 review 10, Fable): its
 `+wait +screenshot` captures during playback and its `+thirdperson` acts on a SourceTV demo, exempt through the line's
-own one-shot rule (B829). *Not fixed*.
+own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder is alive (observer mode at or below
+`OBS_MODE_DEATHCAM`), TF2 never hands a key to the spectator, so SPACE runs its `+jump` binding or alias and MOUSE1 its
+`+attack`; the viewer's camera still switches and cycles there. The launch line's `spec_next`, `spec_prev`, `spec_mode`
+(B844 review 1, Fable) act too, where TF2's `stuffcmds` runs them with no local player and they return
+(`SpectatorGUI.cpp:790`). On every point-of-view demo TF2's camera never moves from `spec_next`, `spec_prev` and
+`spec_mode`: with a live recorder they return at `!pPlayer->IsObserver()` (`SpectatorGUI.cpp:790, 811, 832`), and with a
+dead one they reach `ForwardSpecCmdToServer`, which returns while a demo plays (`:766-769`; only `engine->IsHLTV()`
+handles them client-side); the viewer's cycles and switches (B844 reviews 2 and 3, Fable). And from B844 review 3: an
+alias or compound bind that runs `+attack`, `+attack2` or `+jump` moved the camera on every demo before B844 and now only
+sets the button, as TF2's does; **decided by the owner: TF2's way (D266)**. *Not fixed* (the rest of this entry).
+
+## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
+
+Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling
+(`SpectatorGUI.cpp:847-851`), when SourceTV is not PVS-locked (locked, it only swaps in eye and chase: B853); a recorded
+TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
+three modes (free, first person, third person), so the mapping from the engine's seven is a design question: in eye and
+chase map directly, roaming to free, fixed and point of interest have no counterpart. Until it is decided the command
+with an argument does nothing, as it did before B844. Exactly one argument (`ArgC() == 2`); with more it cycles, which the
+viewer does. Every `spec_mode` on SourceTV ends with `SetAutoDirector( false )` (`:868`), bare or not: whether the
+viewer's own mode switch (`CameraPresenter.CycleCameraMode`) turns the director off is not read. *Read*, not measured.
+*Not fixed*.
+
+## B850 — a key bound to `+duck` opens no spectator menu while spectating (2026-11-25) — OPEN
+
+Found in B844 review 1 (all three). `HandleSpectatorKeyInput` answers a key whose binding is exactly `+duck` by
+`m_pViewport->ShowPanel( PANEL_SPECMENU, true )` and swallows it (`clientmode_shared.cpp:742-746`). The viewer has no
+spectator menu, and `+duck` is no command it implements, so a key bound to it falls back to the viewer's default for that
+key (SHIFT's fly-walk, by `CommandFor`'s rule, D69) or does nothing. With `alias +duck …` the viewer runs the alias's
+body and credits the key with it, where TF2 swallows the key before any alias (B844 review 12, Fable). *Read*, not
+measured. Fix shape: the spectator menu panel, then the key, answered exactly before any alias as the three buttons are.
+*Not fixed*.
+
+## B859 — a spectator key acts while the console is open, where TF2 lets the key through untouched (2026-11-25) — OPEN
+
+Found in B844 review 15 (Fable). `ClientModeShared::KeyInput` returns 1 before asking `HandleSpectatorKeyInput` when the
+console is visible (`clientmode_shared.cpp:664-665`), so a spectator key typed into the open console runs nothing of the
+spectator's. The viewer's `ConfigConsole.KeyDown` asks only `Spectating`. *Read*; not checked whether the viewer's own
+console window passes keys to `KeyDown` while it has focus. Fix shape: answer that, then gate the spectator keys on the
+console being closed. *Not fixed*.
+
+## B858 — the settings projection names a default key for an action that key no longer fires (2026-11-25) — OPEN
+
+Found in B844 review 13 (Fable). `ConfigConsole.Bindings()` credits each key with what it fires, then hands the result
+to `KeyBindings`, whose constructor starts from `Defaults` (`ViewerAction.cs:217`). An action no key fires therefore
+keeps its default key in the projection even when the config rebound that key to something else: `bind SHIFT "toggle
+cl_showpos"` leaves fly-walk shown on SHIFT (B844 review 14, Fable: `+duck` was the wrong example, since it does nothing
+here and SHIFT falls back to fly-walk), `alias +m1 +attack; bind MOUSE1 +m1` leaves cycling on MOUSE1 though pressing it only
+sets the button, and `bind SPACE +strafe` leaves the camera switch on SPACE. `Unbound()` reports each correctly; only
+the projection disagrees. Not a parity question (TF2 has no such screen); the viewer's own settings screen is above
+Valve, so a change is shown to the owner first. Fix shape: the projection leaves an action whose default key no longer
+fires it without a key (`KeyFor` nullable, and its readers), or marks it unbound. *Not fixed*.
+
+## B857 — a coach's POV demo answers every spectator key as a spectator's, where TF2 takes only `+jump` (2026-11-25) — OPEN
+
+Found in B844 review 12 (Fable). TF2 overrides `HandleSpectatorKeyInput`: `ClientModeTFNormal::HandleSpectatorKeyInput`
+(`clientmode_tf.cpp:1589-1618`) asks the local player's `m_bIsCoaching` first, and while it is set takes only a key bound
+exactly to `+jump` (running `spec_mode`) and passes every other key on; otherwise it calls `ClientModeShared`'s. The
+viewer answers `+attack`, `+attack2` and `+strafe` as the base does whoever recorded. A SourceTV demo has no coaching
+local player, so only a coach's own POV demo differs. *Read*, not measured: whether `m_bIsCoaching` reaches a POV demo.
+Fix shape: read `m_bIsCoaching` off the recorder's player and pass the other keys on while it is set. *Not fixed*.
 
 ## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
 
@@ -46359,15 +46419,320 @@ Fix shape: read the load path in `engine.dll`, then run no `Execute` while `Load
 holds it. One consequence (B841 review 12, Fable): a config's `wait; demo_togglepause` comes due while the demo still
 loads, finds no clock to play (`PlaybackPresenter.Play`), and is spent, so the demo stays paused. *Not fixed*.
 
-## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
+## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — FIXED (2026-11-25)
 
-Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
-`+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
-`spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch
-line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack` inside a longer binding) only sets the
-button, which the HLTV camera does not read. The viewer performs the camera action for every `+attack` that reaches
-`Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix shape: act on the spectator's three
-only for a key whose whole binding is that command; anything else sets the button. *Not fixed*.
+**Fixed.** `ConfigConsole.KeyDown` answers a key whose whole binding is exactly `+attack`, `+attack2` or `+jump`
+(`Q_strcmp`, so in that case only) with the spectator's command and swallows it: the bind's text never runs, so the
+button is not set, as `return 0` leaves it. Every other route to those three is the button command, which `Perform` now
+answers by pressing the button and raising nothing: an alias, a longer binding, a binding in another case, the launch
+line, a config. `spec_next`, `spec_prev` and `spec_mode` are commands of their own (`SpectatorGUI.cpp:786, 807, 828`; called at `clientmode_shared.cpp:749-759`), so a
+key or alias naming one moves the camera, and a config's waited one acts at its tick with B841's other TF2 one-shots.
+The key's gate, `pPlayer && GetObserverMode() > OBS_MODE_DEATHCAM` (`clientmode_shared.cpp:714-716`), is taken as "a
+demo is open" (`ConfigConsole.Spectating`, wired to `_presenter.HasDemo`): with none there is no local player. **Not
+followed, and the owner's under B845:** on a point-of-view demo whose recorder is alive TF2 hands the key on (the alias
+or the button), where the viewer's camera keys still answer; gating there would take SPACE's camera switch and MOUSE1's
+cycling away on POV demos. Tests: `KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding` (four
+routes, plus nobody spectating as the control: five rows), `Stuff_PlusAttack_SetsTheButtonAndMovesNoCamera`,
+`KeyDown_AKeyBoundToASpectatorCommand_RaisesItsAction`, `Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff`.
+Sabotage, each restored: the button branch dropped reddens the three non-exact routes and the not-spectating row (review 16, Fable, corrected "four non-exact routes"), the launch line and B841's three
+waited-button cases; the exact-key branch dropped reddens the exact case alone. (Run together the two masked the exact
+case: a grouped sabotage can redden for the wrong reason.) Presentation 2,271 of 2,271.
+
+Review 1 (Fable, Gemini, Sonnet). No engine divergence in the three branches; the release of a swallowed key runs
+`-attack <code>`, whose `KeyUp` finds no key holding the button and returns, as `in_main.cpp:417-418` does (Gemini read
+it; Fable's question whether `Key_Event` sends that text at all is not read). Fixed:
+
+- a `spec_*` bind on a key with a viewer default counted as doing nothing and fell back to the default, so
+  `bind MOUSE1 spec_prev` cycled forward (Fable, Sonnet): `Expand` asks `OneShotOf`;
+- `spec_mode 5` would cycle, where TF2 sets mode 5 (`SpectatorGUI.cpp:847-851`, Fable): with an argument it does
+  nothing, as before this branch, and setting a mode is filed as **B851**;
+- `+strafe`, in the same engine function, swallows the key and sets `spec_autodirector 1` (`clientmode_shared.cpp:762-769`,
+  `hltvcamera.cpp:868-871`; all three): done, with a test that a second press leaves it on. `+duck`'s spectator menu is
+  not implemented: filed as **B850**;
+- tests that could not fail (all three): `+attack2` and `+jump` exact, the key's answer, the unwired console, an
+  unwaited config `+attack` holding its button, and waited `spec_prev` and `spec_mode`.
+
+Not taken: the session's wiring of `Spectating` (`_presenter.HasDemo`, one line) has no session test (Fable, Gemini);
+the bindings projection still credits an alias that runs `+attack` to cycling (Fable, low): the alias does hold that
+action's button; the launch line's `spec_*` act with no local player where TF2's do nothing (Fable): recorded under B845
+with the line's other one-shots. Sabotage, each restored: no `+strafe` branch reddens its spectating case; `Expand`
+without the spectator commands reddens `bind MOUSE1 spec_prev`; the argument guard dropped reddens `spec_mode 5`.
+Presentation 376 of 376 in `ConfigConsoleConformanceTests`.
+
+Review 2 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: `+strafe` on a key with a viewer
+default fell back to the default (all three): an exact `+strafe` now counts as doing something, so `bind SPACE +strafe`
+sets the auto-director and SPACE's `+jump` does not run; an alias named `spec_next` shadowed the command (Fable, Gemini):
+`IsCommand` knows the three, as `Cmd_ExecuteCommand` finds a ConCommand before an alias; `spec_mode 5 6` did nothing where
+TF2 cycles (Fable, Gemini, Sonnet): the guard reads `ArgC() == 2` before a set's arguments are joined; tests for the
+key's answer, `+STRAFE`, and `spec_next x` still cycling (all three). Recorded: on every point-of-view demo TF2's
+`spec_*` reach `ForwardSpecCmdToServer`, which returns while a demo plays (`SpectatorGUI.cpp:766-769`, Fable), so its
+camera never moves from them there, dead recorder included: added to B845. `spec_mode` turns the auto-director off,
+with or without an argument (`:868`): added to B851, whether the viewer's own mode switch does is unread. Not taken: the
+bindings projection credits `spec_mode 5` to the camera switch (Gemini) — taking it out would make the key fall back to
+its default and cycle, which is worse than nothing until B851; the session's one-line wiring of `Spectating` (Fable,
+Gemini). Sabotage, each restored: no `+strafe` in `DoesSomething` reddens the SPACE row; `IsCommand` without the three
+reddens the alias test; `ArgC() > 1` reddens `spec_mode 5 6`; the strafe branch answering false reddens both spectating
+rows. Presentation 381 of 381 in `ConfigConsoleConformanceTests`.
+
+Review 3 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: the claim, the settings projection and
+the unbound report credited a bind with an action it does not fire (Fable, Sonnet) — `spec_mode 5` claimed the camera
+switch, so after `unbindall` SPACE lost its `+jump` default and no key switched; an alias that runs `+attack` claimed
+cycling and named its key on the settings screen while it only sets the button. `Expand` takes a `credit` mode for those
+three readers, counting a spectator button only as a key's whole exact binding and `spec_mode` only without exactly one
+argument (`Load_BindsThatNameASpectatorActionWithoutFiringIt_LeaveTheDefaultsTheirKeys`); whether a key is the config's
+still asks what the bind names. The `+strafe` test asserts the key's answer on every row and has SPACE with `+STRAFE`
+falling back to its `+jump` (all three); two stale comments that called `+strafe` unimplemented (Fable). **For the owner
+(D246, recorded under B845):** an alias or compound bind that runs `+attack`, `+attack2` or `+jump` cycled or switched
+the camera before this branch on every demo and now only sets the button, which is TF2's behaviour; a config that wraps
+`+attack` in an alias for a crosshair script loses cycling on that key (Sonnet). Not taken: the record of
+`ForwardSpecCmdToServer`'s path for a live recorder (Fable) is corrected in B845; `Applied` counting `+strafe` with no
+demo open (Fable, Sonnet) matches the key being the config's; the user docs (Sonnet) are the release's pass. Sabotage,
+restored: the credit check dropped reddens the claim test. Presentation 383 of 383 in `ConfigConsoleConformanceTests`.
+
+Review 4 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: an alias NAMED `+attack` made the
+credit disagree with the key (Fable) — `alias +attack spec_prev` with `bind k +attack` cycles forward, as `KeyDown` tests
+the exact binding before any alias runs, but the claim credited cycling backward: `Expand` in credit mode now answers an
+exact spectator binding first; the credit had tests only for the alias route and `spec_mode 5` (all three):
+`Unbound_AfterUnbindallAndOneBind_CreditsOnlyWhatTheBindFires` covers a compound bind, another case, `spec_mode 5 6`,
+`spec_next x`, an alias that runs `+attack` and an alias named `+attack`, and the claim test now presses MOUSE1 too. The
+session's `Spectating` wiring (Fable, Sonnet) is held by the UI suite, which presses SPACE on a demo and asserts it
+spectates a player (`FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer`): without the wiring SPACE only sets its
+button. **D266 corrected** (Fable): before B844 a config's own `+attack` did not move the camera (B841 had stopped it);
+the key routes (alias, compound, other case) and the launch line did. Not taken: `+strafe` runs `spec_autodirector 1`
+through the command buffer where the engine sets the ConVar directly, so a full buffer (B834) would swallow the key with
+nothing set (Fable, low); a launch-line or config `+attack` holds its button until released, as the engine's does, which
+the idle log reads as flying in free look (Fable, diagnostic only); `Applied` counts `spec_mode 5` (Sonnet), as it counts
+the key the config owns; `spec_mode`'s `SetAutoDirector( false )` is in B851 and already cited by `SpectatorViewTests`
+(Sonnet, Fable). Sabotage, each restored: the exact-first step dropped reddens the alias-named row alone; the unbound
+report without credit reddens the compound, other-case and alias rows. Presentation 389 of 389 in
+`ConfigConsoleConformanceTests`.
+
+Review 5 (Fable, Gemini, Sonnet). No divergence in the branch's own rules. Fixed: `Fires`'s exact-binding test could
+no longer be reached once the exact-first step answered first (Fable, Sonnet): it answers false for a spectator button
+and its remark points to the step; dropping the step's early return credited cycling both ways and survived (Fable,
+Gemini): `KeyDown_AKeyBoundExactlyToAnAliasNamedPlusAttack_CyclesForwardAndIsCreditedSo` presses the key while
+spectating and asserts backward cycling stays unbound; a bare `spec_mode` row (Gemini). **Filed: B853** (Fable), the
+spectator commands ignoring `IsPVSLocked()`. Not taken: the two swallow branches' timing is the reverse of the engine's,
+`spec_next` raised at once where `ClientCmd` queues it and `spec_autodirector` queued where the engine sets it (Fable,
+low): they differ only for a key pressed inside a running command or a full buffer. Presentation 391 of 391 in
+`ConfigConsoleConformanceTests`.
+
+Review 6 (Fable, Gemini, Sonnet). Fixed: the credit counted `bind k "+use; spec_mode"` as switching the camera, but the
+key runs `spec_mode 21` with its key number appended (`KeyText`, `"%s %i"`), which does nothing, and missed
+`"+use; spec_mode 5"`, which runs `spec_mode 5 21` and cycles (Fable): a `+` bind's last clause is credited with the
+argument the key adds; `CommandFor`'s fallback read its default without the credit and compared it with the credited
+claim, so `alias +attack spec_prev` with `bind k spec_prev` took MOUSE1's key away though its `+attack` still cycles
+forward (Fable): the fallback is credited too, which corrects review 5's "not taken" claim that the non-credit readers
+answer the same; B853 states how `IsPVSLocked` is decided, `!tv_transmitall` if the ConVar exists and `!IsPlayingDemo()`
+otherwise (Sonnet); B851's citation moved back to its claim (Sonnet). Filed: **B854** and **B855** (Fable). Not taken: the
+`credit &&` guard on the exact-first step (Sonnet) is equivalent for the non-credit readers, which name the same action.
+Sabotage, each restored: the appended argument dropped reddens both `+use; spec_mode` rows; the fallback without credit
+reddens `KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires`. Presentation 394 of 394 in
+`ConfigConsoleConformanceTests`. (`spec_mode 21` does nothing in the viewer; in TF2 it calls `SetMode( 21 )`, which
+stores a mode `CalcView` has no case for, and turns the director off: B851.)
+
+Review 7 (Fable, Gemini, Sonnet). Review 6's key-number rule counted arguments and was wrong both ways (Fable, Sonnet): a
+chord gets no number (`KeyText`, `ButtonCodeNames.CodeOf` null), and a trailing `;` or `//` comment puts the number in a
+clause of its own or in the comment, since it is appended to the raw text. Replaced: one `Credited(command, key)` answers
+a key's exact spectator binding first and otherwise expands the text the key really runs, `KeyText(command, key)`, for
+the fallback and the unbound report (the claim and the settings projection followed in review 8, Fable, review 9);
+`Expand` counts the clause as written again.
+The two surviving mutants of the counting (`index` and `depth`) went with it. Tests:
+`Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns` (a trailing `;`, a chord either way, `spec_mode`
+first, an alias body). **B854 corrected** (Sonnet): every branch of `HandleSpectatorKeyInput` tests `down`, so a release
+is not swallowed and the viewer's `-attack` on release matches the client; what is left is whether `Key_Event` filters it
+engine-side. Review 6's line about review 5 points at a sentence this round's review-6 edit rewrote (Sonnet): review 5's
+"not taken" on the non-credit readers was withdrawn there. Not taken: `DoesSomething` stays the "names" reading, deciding
+whether a key is the config's, where `Credited` is the "fires" reading (Sonnet, Fable); a `mat_fullbright` last in a `+`
+bind runs `mat_fullbright 1 20`, older than B844 (review 8 corrects this: that text was not credited until review 8).
+Sabotage, restored: the credit reading the written bind reddens both `+use; spec_mode` rows. Presentation 399 of 399 in
+`ConfigConsoleConformanceTests`.
+
+Review 8 (Fable, Sonnet, Codex; Gemini's quota was spent, so Codex took its place). Fixed: the claim and the settings
+projection read the key's real text too (Sonnet), so `bind k "+use; spec_mode"`, which runs `spec_mode 21` and switches
+nothing, no longer takes SPACE's camera switch; and an alias running `+attack` only sets the button, so it is not the
+key for cycling (Fable). A set's value is read up to the first space, so `mat_fullbright 1 20`, the text of a `+` bind
+ending in `mat_fullbright 1`, is credited as `mat_fullbright 1` (Fable); review 7 said it already was, which was wrong.
+The key-number test now presses the key too and asserts the press agrees with the credit (Codex). Rows added: a
+`spec_mode` between two clauses, a `+` alias whose body ends in `spec_mode`, and a `//` comment after `spec_mode`.
+Not taken (Codex): the default `+strafe` key does reach the auto-director, since `builtIn` only marks the command
+the viewer's own and returns nothing; and a default bound to a spectator button is credited and pressed alike,
+since the defaults are binds as TF2's `config_default.cfg` binds are. A bare `mat_wireframe` toggle being credited
+is older than B844 and unchanged here. Tests: `Load_APlusBindEndingInSpecMode_LeavesSpaceItsCameraSwitch`,
+`Bindings_KeysWhoseTextGainsANumberOrRunsAnAlias_NameWhatTheyFire`. Sabotage, each run alone and restored: the runtime
+`spec_mode` one-argument guard reddens the `CTRL+e`, `spec_mode 5` row; removing the set's first-value fallback reddens
+`Bindings_KeysWhose…`; `Expand` in place of `Credited` in `Bindings` reddens the same; in `Claimed`, it reddens
+`Load_APlusBindEndingInSpecMode…` and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. Presentation 402 of 402 in
+`ConfigConsoleConformanceTests`.
+
+Review 9 (Fable, Sonnet, Codex). Fixed: a key bound exactly to `+strafe` is credited with nothing (Fable): while
+spectating it turns the auto-director on and is swallowed, so an `alias +strafe` body never runs, which the credit had
+expanded as review 4 found for the three buttons. A client ConVar's name with any argument is a set, never its bare
+one-shot (Fable, Sonnet): `bind j "+use; mat_wireframe"` runs `mat_wireframe 20`, which `RunClause` sets, so the credit no
+longer falls back to the verb's Wireframe toggle; this was older than B844 for a written argument, and the key number
+made it reach a bare `+` bind ending in the toggle. Review 8's "a bare `mat_wireframe` toggle being credited is older"
+is narrowed by this: only a clause with no argument is the toggle. The fullbright row is pressed too (Fable): `j` sets
+`mat_fullbright` to `1`. `Fires`'s summary pointed at `Expand` for the exact-first step, which moved to `Credited` in
+review 7 (Fable); review 7's list of `Credited`'s readers named two that came in review 8 (Fable). Not taken: the credit
+is the spectator's reading with no demo open as well (Sonnet, Fable), now said in `Credited`'s remarks: the bindings are
+a settings screen's static answer, and the spectator's keys act only while a demo plays. The credit ignores a cheat
+refusal (`mat_fullbright 1` with `sv_cheats 0`, Fable), older than B844 and unchanged. Codex's two findings did not
+hold: `ActionOf`'s only names with an argument are `mat_fullbright 0`, `1` and `2` (`ViewerAction.cs:453-455`), so the
+first-value fallback can only credit a set, never `spec_mode 5`. The `tokens.Count > 2` bound surviving as `> 1` is an
+equivalent mutant (Sonnet): with two tokens the fallback string is the joined one already tried. Tests, red before the
+fix and green after: `Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody`,
+`Unbound_APlusBindEndingInABareToggle_LeavesTheToggleUnbound`; `KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue`
+(renamed `…AnnouncesTheSetWithTheKeysNumber` in review 11) held before. Presentation 2310 of 2310.
+
+Review 10 (Fable, Sonnet, Codex). Fixed: `spec_mode` with one argument counted as doing something in the "names" reading,
+so `bind SPACE "spec_mode 5"` dropped SPACE's `+jump` default while the key did nothing, which the fallback exists to
+prevent (Sonnet, D246). It now does nothing for every reader (`SetsASpectatorMode`), so the default stands, as before
+B844; review 1's row that pinned MOUSE1 doing nothing for `spec_mode 5` is reversed to MOUSE1 cycling forward. The
+`Spectating` wiring in `ViewerSession` had no test (Sonnet): a session test presses a key bound exactly to `+strafe`
+with a demo open and without. A console nobody wired is a row of the `+strafe` test (Sonnet). `+STRAFE` with
+`alias +strafe` is a row: not exact, so the alias runs and is credited (Fable). The `credit &&` term on the client
+ConVar fallback was equivalent and is dropped (Fable, Sonnet). The fullbright press asserts the exact text announced,
+`mat_fullbright 1 20` (Fable). Corrected (Fable): the key numbers in reviews 6, 8 and 9 and in comments, which were
+`MOUSE1`'s 107 and `SCROLLLOCKTOGGLE`'s 106 where the keys were `k` (21) and `j` (20); `CvarCommand` named as the set,
+which is `RunClause`'s `SetConVar`; "five routes" is four plus the control. Not taken: a key with no default bound to
+`spec_mode 5` answers false (Fable), as every command this viewer does not implement does (`KeyDown`'s contract), so a
+menu shortcut on it still fires, as before B844; B854 stays open as filed (Codex), since its entry already says the
+release path is not read. Surviving mutant left: `RunKey(AutoDirectorOn…); return true` as `return RunKey(…)` differs
+only on a full buffer (Fable; review 4's not-taken). Sabotage, each restored: `Spectating` wired `() => true` reddens the
+no-demo row and `() => false` the demo row; the `spec_mode` skip removed reddens the SPACE and MOUSE1 rows. Presentation
+2315 of 2315.
+
+Review 11 (Fable, Sonnet, Codex). **A reversal, both positions** (Fable): review 2 kept `spec_mode 5` in the "names"
+reading because taking it out "would make the key fall back to its default and cycle, which is worse than nothing until
+B851"; review 10 took it out. What changed: Sonnet's review 10 showed what "nothing" cost, a key's default dropped
+(SPACE losing its camera switch) for a bind this viewer cannot carry out, which is the case `CommandFor`'s fallback
+exists for and how the key behaved before B844; review 2 weighed a wrong mode against no mode and missed the lost
+default. So review 4's "`Applied` counts `spec_mode 5`" no longer holds either: `DoesSomething` is false for it, and
+`Applied` reads `DoesSomething` (Sonnet, Fable). Fixed: `Fires`'s `spec_mode` term was dead once `Expand` skipped the
+clause for every reader, so `Fires` is gone and the credit skips a spectator button as a clause (Fable, Sonnet); the
+runtime's `spec_mode` guard calls the one predicate, `SetsASpectatorMode`, on the clause as typed (Fable); `Expand`'s
+`credit` doc said the skip was credit-only (Fable). A spectator button pressed by a non-exact binding had no release
+test (Fable): `KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt`. The fullbright test is renamed to what it
+holds, the announced text; the value's read as 1 is B823's and not held here (Fable). The MOUSE1 `spec_mode 5` row
+duplicated the SPACE test under a name that said the command ran, and is removed (Fable). Not taken: Codex's credit with
+no demo open (review 9's not-taken), and an `Unbound` assertion on the SPACE test (Codex): the skip is one predicate for
+every reader, which the SPACE test's projection already reads. Sabotage, restored: the spectator button pressed under
+`AliasIssued` rather than its key reddens `KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt`. Presentation 2315
+of 2315.
+
+Review 12 (Fable, Sonnet, Codex: no findings). Fixed (tests): every route of `KeyDown_ASpectatorButtonByEveryRoute…`
+asserts the key is taken, which a button-only branch returning false survived (Sonnet); the session test's no-demo row
+proves its config loaded and its keys reach the console, a `j` that sets `spec_autodirector 2` (Sonnet); `bind w +attack`
+under the defaults cycles and does not fly, which the "names" reading skipping a spectator button survived (Fable):
+`KeyDown_AKeyWithAnotherDefaultBoundExactlyToASpectatorButton_CyclesAndDoesNotFly`. Filed: **B857**, TF2's
+`ClientModeTFNormal` override for a coaching local player (Fable). Corrected: B850 names the `alias +duck` case (Fable);
+B854 no longer leans either way, since the two recollections of `FilterKey` disagree and neither is read (Fable); the
+commands are cited where they are defined, `SpectatorGUI.cpp:786, 807, 828` (Fable); review 9's renamed test (Sonnet);
+the memory's claim that reviewers build despite the brief is marked unmeasured (Sonnet). Not taken: `Spectating` is true
+while a demo still loads (Sonnet), and a camera action then has no timeline to act on, so it does nothing. Sabotage,
+each restored: the "names" reading skipping a spectator button reddens the `w` test; the button-only branch answering
+false reddens the unwired, compound and other-case rows (an alias row's key is taken by the alias's own run).
+Presentation 2316 of 2316.
+
+Review 13 (Fable, Sonnet, Codex). **Corrected records** (review 12's own text is left as written; these are what it
+should have said): "the unwired … rows" is the not-spectating row, `Spectating = () => false` (Fable); "a camera action
+then has no timeline to act on, so it does nothing" is *unread*, nothing traced `CycleTarget` or the mode switch with no
+timeline (Sonnet); review 11's "the SPACE test's projection already reads" the skip was wrong, since `Bindings().KeyFor`
+fills an unreached action from its default and so names SPACE either way (Fable): that test now asserts `Unbound()`;
+review 10's "had no test" for the `Spectating` wiring meant no unit or session test, as review 4 had recorded the UI
+test `FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer` (Sonnet). **Reviews 3 and 8's settings-screen claims need a
+caveat** (Fable): the projection credits only keys that fire, but fills any action no key fires from its default key,
+so `alias +m1 +attack` with `bind MOUSE1 +m1`, or `bind SPACE +strafe`, still shows MOUSE1 or SPACE for an action those
+keys no longer fire. That fill is older than B844 (`bind SHIFT "toggle cl_showpos"` leaves fly-walk named on SHIFT), and changing it
+changes what the settings screen shows: filed as **B858**. Not taken: Codex's reading of the launch line's `spec_*`
+against D266 (review 1's not-taken): those are commands, D266 is about the three buttons.
+
+Review 14 (Fable, Sonnet, Codex). No code defect. **A visible change recorded** (Fable): before B844, SPACE with no demo
+open raised the camera switch, and `EnterCamera` said "No first-person view here: nothing to follow at this tick."; now
+nothing is spectating, so SPACE only sets `+jump`'s button and says nothing. That is TF2's: with no local player
+`HandleSpectatorKeyInput` is not reached for the camera, and `+jump` is a button (*read*; the old message's path is
+*probable*, `Eye` with no demo not traced). Fixed (records): **findings 114** written, the engine behaviour this bug
+learned (Fable: `docs/findings/` was untouched); B858's first example was wrong, `bind SHIFT +duck` keeps fly-walk since
+`+duck` does nothing here, so it is `toggle cl_showpos` (Fable); review 13's cross-reference is review 1's not-taken
+(Sonnet); two test remarks no longer claim the settings screen proves a key fires (Sonnet); `ViewerSession.Input`'s
+remark names the spectator buttons as the one spelling rule (Fable). Not taken: review 13's `Unbound()` half of the
+SPACE test is redundant with its press, since `CommandFor` hands both the `+jump` fallback (Fable); the skip itself is
+held by the `CTRL+e` row and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. No test releases a swallowed exact
+key (Fable): that is B854's open question. Codex re-reported the no-demo credit (review 9's not-taken). Reviews 13 and
+14 changed one assertion and remarks: Presentation 2316 of 2316 after each (review 15, Fable).
+
+Review 15 (Fable, Sonnet, Codex). No code defect. Fixed: **findings 114's evidence classes** (Sonnet, Fable): that a
+swallowed key's text is never run is the SDK's contract for `return 0` (`clientmode_shared.cpp:660`, `in_main.cpp:557`),
+not engine code read, and is now marked so there and in `KeyDown`'s comment; `KeyInput`'s gates before the spectator is
+asked (the visible console, chat, the vote HUD, an observer past the death cam) and the commands' own gates are written
+down; "moves no camera" is scoped to the HLTV camera, which reads only `IN_SPEED`. B850 said SHIFT's fly-fast for its
+fly-walk (Fable). Tests: `bind SPACE +strafe` with no demo leaves SPACE to the config's `+strafe`, untaken, which a
+`Spectating` gate in `DoesSomething` survived (Fable); a key with no default bound to `spec_mode 5` is not taken and
+raises nothing, and a clause after it still runs (Sonnet): `KeyDown_AKeyWithNoDefaultBoundToSpecModeWithAnArgument_IsNotTakenAndRaisesNothing`
+(the `return true` Sonnet named as a candidate survivor is equivalent: `RunClause`'s one caller discards its answer); the SPACE
+test's comment no longer presents its redundant half as the instrument (Fable). Filed: **B859**, the visible-console
+gate (Fable). The no-demo SPACE change of review 14 has not been shown to the owner; it goes in the next release notes.
+Not taken: Codex's `alias +attack spec_prev` reading: `KeyDown` answers the exact binding before any alias, and
+`KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires` holds it. The branch lacks B843; main is merged before
+the gate. Sabotage, restored: a `Spectating` gate on `DoesSomething`'s `+strafe` reddens the SPACE not-spectating row.
+Presentation 2319 of 2319.
+
+Review 16 (Fable, Sonnet, Codex). No code defect. Corrected findings 114 (Fable, Sonnet): `KeyInput` lets a key through
+only for the visible console; a chat bind and a key the vote HUD takes are swallowed (the vote branch only with
+`VOTING_ENABLED`), so review 15's gate list here had the direction wrong for those two; `KeyInput` ends at `:734`; a
+PVS-locked `spec_mode` swaps eye and chase, it does not cycle; `CInput::KeyEvent` swallows the two mouse buttons while the
+camera intercepts the mouse (`in_main.cpp:562-567`), ahead of everything, which the viewer has no state for. The fixed
+paragraph's "four non-exact routes" is three and the not-spectating row (Fable). Not taken: B845 naming `+strafe` beside
+SPACE and MOUSE1 on a live-recorder POV demo (Fable, low; B845 covers the gate); "the launch line's `+attack`" is the
+token after `stuffcmds` strips one `+` (Fable, wording, unread under `LaunchOptions`); a launch-line or config `+attack`
+holding its button keeps the free-look idle awake until released (Sonnet), which is TF2's button state; row 1 of the
+`spec_mode 5` test returns before any clause runs (Sonnet), so the claim is held by row 2 and the default test. Codex:
+B845's wording (same gate) and a test whose expectations it proposed changing (that reddens it).
+
+Reviews 17 and 18 (Fable, Sonnet, Codex), after main (B843) was merged in without conflict. No code defect and no merge
+blocker. Corrected findings 114: `pszCurrentBinding` being the whole binding is the engine's side, interpolated;
+`ForwardSpecCmdToServer` returns before sending anything; the cycle is `SpectatorGUI.cpp:852-861`; the vote HUD gate
+needs it visible; `+strafe` also sets the replay camera's director under `REPLAY_ENABLED`; a coaching player's other
+keys go to the engine, a non-coaching player's to the base (Fable, Sonnet). The handoff memory's merged list no longer
+spans B842, which is open (Fable). Presentation 2319 of 2319 at the last code change; nothing since but documents.
+
+The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
+string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
+`clientmode_shared.cpp:747-761`): it runs `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same
+command reached any other way (the launch line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack`
+inside a longer binding) only sets the button, which the HLTV camera does not read. The viewer performs the camera
+action for every `+attack` that reaches `Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix
+shape: act on the spectator's three only for a key whose whole binding is that command; anything else sets the button.
+
+## B854 — the release of a key the spectator swallowed still runs its binding's `-` half (2026-11-25) — OPEN
+
+Found in B844 review 6 (Fable). A key bound exactly to `+attack` is swallowed on the press while spectating
+(`HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`), but the viewer's release still runs `-attack <code>`, and
+`ConsultsAlias` lets `alias -attack "…"` run its body then. **Undecided, and unread**: every branch of
+`HandleSpectatorKeyInput` tests `down`, so the client itself does not swallow a release (B844 review 7, Sonnet); whether
+`Key_Event` (`engine.dll` build 1007 FUN_1801b6090) still adds the release's text for a key whose press the client took
+is the question, and the two recollections of `FilterKey` disagree (Sonnet's that it does, Fable's in review 12 that the
+release goes to the client alone and no `-attack` is added). Neither is read. Fix shape: read the release path in
+`Key_Event`, then drop the viewer's release text for such a key or close this. *Not fixed*.
+
+## B855 — `spec_next` and `spec_prev` leave the auto-director on, where SourceTV's turn it off (2026-11-25) — OPEN
+
+Found in B844 review 6 (Fable). On SourceTV, cycling the target ends with `SetAutoDirector( false )`
+(`hltvcamera.cpp:646-647`), as `spec_mode` does (`SpectatorGUI.cpp:868`, B851). The viewer's `CameraPresenter.CycleTarget`
+leaves `spec_autodirector` as it was (it is set only from settings and `+strafe`). *Read*, not measured. Fix shape: the
+cycle and the mode switch turn the director off on a SourceTV demo, then a test of `spec_autodirector` after each. *Not
+fixed*.
+
+## B853 — `spec_next`, `spec_prev` and `spec_mode` ignore SourceTV's PVS lock (2026-11-25) — OPEN
+
+Found in B844 review 5 (Fable). On SourceTV, `spec_next` and `spec_prev` do nothing while `HLTVCamera()->IsPVSLocked()`
+(`SpectatorGUI.cpp:796, 817`), and `spec_mode` then only swaps in eye and chase and ignores its argument (`:837-841`,
+`hltvcamera.cpp:843-866`). `IsPVSLocked` (`hltvcamera.cpp:855-866`) answers `!tv_transmitall->GetBool()` when a
+`tv_transmitall` ConVar is found, and `!engine->IsPlayingDemo()` when none is, so during demo playback it is locked only
+if the client registers `tv_transmitall` and holds it at 0 (B844 review 6, Sonnet). The viewer's camera cycles and
+switches regardless, for the keys (older than B844) and for the three commands B844 made. *Read*, not measured: whether
+TF2's client registers `tv_transmitall`, and whether a SourceTV demo replicates it. Fix shape: answer that in
+`engine.dll` or the shipped client, then gate the camera actions on it. *Not fixed*.
 
 ## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
 

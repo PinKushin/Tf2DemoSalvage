@@ -338,7 +338,9 @@ public sealed class ConfigConsole
             return command;
         }
 
-        foreach (ViewerAction action in Expand(fallback, depth: 0))
+        // What the default FIRES, as the claim it is compared with counts (B844 review 6, Fable): MOUSE1's `+attack` cycles
+        // forward whatever an alias of that name says.
+        foreach (ViewerAction action in Credited(fallback, key))
         {
             if (Claimed.Contains(action))
             {
@@ -357,7 +359,12 @@ public sealed class ConfigConsole
     /// </summary>
     /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
     /// <see cref="Applied"/>, which counts it.</remarks>
-    private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
+    /// <remarks>
+    /// An exact `+strafe` does something too (B844 review 2, Fable, Sonnet): the spectator's key turns the auto-director on,
+    /// so a config that binds it takes the key, as TF2's does, rather than falling back to the viewer's default.
+    /// </remarks>
+    private bool DoesSomething(string command) =>
+        Expand(command, depth: 0).Count > 0 || SetsState(command) || string.Equals(command, AutoDirectorKey, StringComparison.Ordinal);
 
     /// <summary>
     /// Whether a command line names a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
@@ -432,7 +439,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                foreach (ViewerAction action in Expand(command, depth: 0))
+                foreach (ViewerAction action in Credited(command, key))
                 {
                     _claimed.Add(action);
                 }
@@ -805,15 +812,64 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// The one-shots that are TF2's own commands, which a config's `wait` can put off to a tick when they act (B841):
-    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`. Not the spectator's `+jump`, `+attack`, `+attack2`
-    /// (review 1 added them, review 8 took them back, Fable): run from the buffer they only set their button, as the camera
-    /// answers a KEY bound exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`).
-    /// Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
+    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the spectator's `spec_next`, `spec_prev`,
+    /// `spec_mode` (B844). Not its `+jump`, `+attack`, `+attack2` (B841 review 1 added them, review 8 took them back, Fable):
+    /// run from the buffer they only set their button (<see cref="IsSpectatorButton"/>), as the camera answers a KEY bound
+    /// exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`). Every other one-shot
+    /// is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
     /// </summary>
     private static readonly HashSet<ViewerAction> Tf2OneShots =
     [
         ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView,
+        ViewerAction.CycleTargetForward, ViewerAction.CycleTargetReverse, ViewerAction.SwitchCameraMode,
     ];
+
+    /// <summary>
+    /// `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:739-772`, B844): a key event whose binding is
+    /// exactly one of these (`Q_strcmp`, so case and all) runs the spectator's command and swallows the key, so the bind's
+    /// own text never runs. Any other route to `+attack` (an alias, a longer binding, the launch line, a config) is the
+    /// button command, which only sets its button: the HLTV camera never reads it.
+    /// </summary>
+    private static readonly Dictionary<string, ViewerAction> SpectatorKeys = new(StringComparer.Ordinal)
+    {
+        ["+attack"] = ViewerAction.CycleTargetForward,
+        ["+attack2"] = ViewerAction.CycleTargetReverse,
+        ["+jump"] = ViewerAction.SwitchCameraMode,
+    };
+
+    /// <summary>The binding whose key turns the auto-director on while spectating (`clientmode_shared.cpp:762`).</summary>
+    private const string AutoDirectorKey = "+strafe";
+
+    /// <summary>`spec_autodirector.SetValue( 1 )`, what that key does (`hltvcamera.cpp:868-871`).</summary>
+    private const string AutoDirectorOn = "spec_autodirector 1";
+
+    /// <summary>
+    /// The commands the spectator's keys run (B844): `spec_next`, `spec_prev`, `spec_mode` (`clientmode_shared.cpp:749-759`),
+    /// TF2's own, so a config or alias that names one moves the camera as the key does. A console command's name is found
+    /// without regard to case.
+    /// </summary>
+    private static readonly Dictionary<string, ViewerAction> SpectatorCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["spec_next"] = ViewerAction.CycleTargetForward,
+        ["spec_prev"] = ViewerAction.CycleTargetReverse,
+        ["spec_mode"] = ViewerAction.SwitchCameraMode,
+    };
+
+    /// <summary>
+    /// Whether a key can reach the spectator (B844): `pPlayer &amp;&amp; ( pPlayer->GetObserverMode() &gt; OBS_MODE_DEATHCAM )`
+    /// (`clientmode_shared.cpp:714-716`), or null where nobody wired it: then no key is the spectator's. The session answers
+    /// whether a demo is open: with none there is no local player. On a point-of-view demo whose recorder is alive TF2 hands
+    /// the key on, where the viewer's camera keys still answer: B845, the owner's decision.
+    /// </summary>
+    public Func<bool>? Spectating { get; set; }
+
+    /// <summary>The one-shot a command raises: a spectator command's (B844), else the action the command names.</summary>
+    private static ViewerAction? OneShotOf(string command) =>
+        SpectatorCommands.TryGetValue(command, out ViewerAction spectator) ? spectator : KeyBindings.ActionOf(command);
+
+    /// <summary>Whether a command is one of the spectator's buttons run as a command, which sets only its button (B844).</summary>
+    private static bool IsSpectatorButton(string command) =>
+        SpectatorKeys.Keys.Any(button => string.Equals(button, command, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
@@ -1255,6 +1311,25 @@ public sealed class ConfigConsole
         // The defaults sit in the binds too (`WithDefaults`), so "built in" is the command being this key's default.
         bool builtIn = _defaults.TryGetValue(key!, out string? fallback) && string.Equals(fallback, command, StringComparison.Ordinal);
 
+        // **A key bound exactly to a spectator button runs the spectator's command and is swallowed** (B844,
+        // `HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): `return 0`, which the SDK's contract says the engine
+        // does not process (`in_main.cpp:557`), so no text is added and the button is never set. `Key_Event` itself is not
+        // read for this path (findings 114, B854).
+        if (Spectating?.Invoke() is true && SpectatorKeys.TryGetValue(command, out ViewerAction spectating))
+        {
+            Triggered?.Invoke(this, new ViewerActionEventArgs(spectating));
+            return true;
+        }
+
+        // `+strafe` turns the auto-director on and is swallowed the same way (B844 review 1, Fable, Gemini, Sonnet):
+        // `HLTVCamera()->SetAutoDirector( true )` (`clientmode_shared.cpp:762-769`) is `spec_autodirector.SetValue( 1 )`
+        // (`hltvcamera.cpp:868-871`), run here as that set. `+duck`'s spectator menu is not implemented: B850.
+        if (Spectating?.Invoke() is true && string.Equals(command, AutoDirectorKey, StringComparison.Ordinal))
+        {
+            RunKey(AutoDirectorOn, key!);
+            return true;
+        }
+
         // Restored rather than cleared, so a key pressed from a handler inside a built-in key's command leaves that command
         // built in (B820 review 6, Fable).
         bool viewerIssued = _viewerIssued;
@@ -1642,7 +1717,7 @@ public sealed class ConfigConsole
         // vanish from a report that is supposed to be the alarm for exactly this.
         foreach (string key in _binds.Keys.Union(_defaults.Keys, StringComparer.OrdinalIgnoreCase))
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
+            foreach (ViewerAction action in Credited(CommandFor(key) ?? string.Empty, key))
             {
                 reachable.Add(action);
             }
@@ -1675,7 +1750,7 @@ public sealed class ConfigConsole
 
         foreach (string key in _binds.Keys)
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
+            foreach (ViewerAction action in Credited(CommandFor(key) ?? string.Empty, key))
             {
                 bound.TryAdd(action, key);
             }
@@ -1717,7 +1792,7 @@ public sealed class ConfigConsole
     /// shadowed by an alias of its name here and is not in TF2; that alias's command does nothing here either way.
     /// </remarks>
     private static bool IsCommand(string name) =>
-        BuiltIns.Contains(name) || EngineConVars.TryByConsoleName(name, out _) || KeyBindings.ActionOf(name) is not null;
+        BuiltIns.Contains(name) || EngineConVars.TryByConsoleName(name, out _) || OneShotOf(name) is not null;
 
     /// <summary>Runs one of this console's own ConCommands: binds, aliases and `exec`.</summary>
     /// <returns>Whether the clause named one, whatever its arguments.</returns>
@@ -2356,6 +2431,10 @@ public sealed class ConfigConsole
 
         string command = tokens[0];
 
+        // The clause as `ArgC()` sees it, before a set's arguments are joined into one below: `spec_mode` reads exactly two
+        // (B844 review 2).
+        IReadOnlyList<string> asTyped = tokens;
+
         // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
         // where the name is a `+`/`-` button, which an alias may replace.
         if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
@@ -2453,10 +2532,19 @@ public sealed class ConfigConsole
         // to TF2 and do nothing at any tick, and the viewer's replay of the launch line is no second launch (B829).
         // `thirdperson` is `FCVAR_CHEAT` (`in_camera.cpp:912`), which `Cmd_ExecuteCommand` (`engine.dll` build 1007
         // FUN_1801678a0) refuses with "Can't use cheat command" unless `sv_cheats` is on (B841 review 2, Fable).
-        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
+        if (_loading && !_stuffing && !command.StartsWith('-') && !IsSpectatorButton(command) && OneShotOf(command) is { } shot &&
+            !HeldActions.Contains(shot) &&
             !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn) &&
               (shot != ViewerAction.Screenshot || ScreenshotsTaken) &&
               (shot is not (ViewerAction.FirstPersonView or ViewerAction.ThirdPersonView) || HltvPlayback?.Invoke() is not true)))
+        {
+            return true;
+        }
+
+        // **`spec_mode <n>` sets mode n rather than cycling** (`SpectatorGUI.cpp:847-851`, B844 review 1, Fable), which this
+        // viewer does not implement: B851. Cycling there would be the wrong mode, so it does nothing, as it did before B844.
+        // Exactly one argument (`ArgC() == 2`); with more it cycles, as TF2's does (review 2, Fable, Sonnet).
+        if (SetsASpectatorMode(asTyped))
         {
             return true;
         }
@@ -2476,9 +2564,17 @@ public sealed class ConfigConsole
 
         // Stryker disable once : a mutant that empties the guard body leaves 'action'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (KeyBindings.ActionOf(command) is not { } action)
+        if (OneShotOf(command) is not { } action)
         {
             return false;
+        }
+
+        // **The spectator's button, run as a command, sets its button and nothing else** (B844): `+attack` is
+        // `IN_Attack`'s `KeyDown`, and only a key bound exactly to it reaches the camera (`KeyDown` above).
+        if (IsSpectatorButton(command))
+        {
+            Press(action, key ?? AliasIssued);
+            return true;
         }
 
         if (!HeldActions.Contains(action))
@@ -2517,6 +2613,37 @@ public sealed class ConfigConsole
         return true;
     }
 
+    /// <summary>
+    /// Whether a clause is `spec_mode` with exactly one argument (`ArgC() == 2`, `SpectatorGUI.cpp:847-851`), which sets a
+    /// mode this viewer does not implement (B851) and so does nothing here, for every reader: a key bound to it keeps its
+    /// default, as before B844 (review 10, Sonnet).
+    /// </summary>
+    private static bool SetsASpectatorMode(IReadOnlyList<string> tokens) =>
+        tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode;
+
+    /// <summary>What a key's bind FIRES, for the claim, the settings projection and the unbound report (B844).</summary>
+    /// <param name="command">The key's bind.</param>
+    /// <param name="key">The key.</param>
+    /// <returns>
+    /// A key bound exactly to a spectator button: that button's action, before any alias of that name runs, as `KeyDown`
+    /// answers it (review 4, Fable). Anything else: what the text the key really runs reaches — <see cref="KeyText"/>, with
+    /// the key's number after a `+` bind and none for a chord (review 7, Fable), so `bind k "+use; spec_mode"` runs `spec_mode 21`.
+    /// An exact `+strafe`: nothing, since it turns the auto-director on and no alias of that name runs (review 9, Fable).
+    /// </returns>
+    /// <remarks>
+    /// The spectator's reading whether or not a demo is open (review 9, Fable, Sonnet): the bindings are a settings screen's
+    /// static answer, and the spectator's keys act only while a demo plays, which is when the viewer has a camera to drive.
+    /// </remarks>
+    private List<ViewerAction> Credited(string command, string key)
+    {
+        if (SpectatorKeys.TryGetValue(command, out ViewerAction exact))
+        {
+            return [exact];
+        }
+
+        return string.Equals(command, AutoDirectorKey, StringComparison.Ordinal) ? [] : Expand(KeyText(command, key), depth: 0, credit: true);
+    }
+
     /// <summary>Every action a command reaches by expansion.</summary>
     /// <remarks>
     /// Used only for the static projection and the applied count. The runtime expands as it goes,
@@ -2530,7 +2657,14 @@ public sealed class ConfigConsole
     /// of actions and the table does not change while it is read, so `alias a "a;a;a;a"` bound to a key costs at most
     /// <see cref="MaximumExpansion"/> walks of each alias rather than 4^20 calls (B820 review 3, Sonnet).
     /// </param>
-    private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null)
+    /// <param name="credit">
+    /// Whether to count only what the bind FIRES (B844 review 3, Fable, Sonnet), for the claim, the settings projection and
+    /// the unbound report: a spectator button as a clause only sets its button — a key's whole, exact binding is answered
+    /// before any clause is read (<see cref="Credited"/>, reviews 4 and 7). Without it, what a bind names, which decides
+    /// whether the key is the config's. `spec_mode n` sets a mode this viewer does not implement (B851), so it counts for
+    /// neither reading (review 10, Sonnet).
+    /// </param>
+    private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null, bool credit = false)
     {
         List<ViewerAction> found = [];
         walked ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -2556,7 +2690,7 @@ public sealed class ConfigConsole
                 if (!walked.TryGetValue(tokens[0], out int reached) || depth < reached)
                 {
                     walked[tokens[0]] = depth;
-                    found.AddRange(Expand(body, depth + 1, walked).Where(action => !found.Contains(action)));
+                    found.AddRange(Expand(body, depth + 1, walked, credit).Where(action => !found.Contains(action)));
                 }
 
                 continue;
@@ -2570,8 +2704,22 @@ public sealed class ConfigConsole
             //
             // Rejoined with single spaces rather than compared against the raw text, so
             // `mat_fullbright  1` and a tab both resolve.
+            // `spec_next` and its two siblings too (B844 review 1, Fable, Sonnet), or a key with a default bound to one counts as
+            // doing nothing and falls back to that default.
+            // A set's value is its whole `ArgS`, read as a number up to the first space, so `mat_fullbright 1 20` (a `+`
+            // bind's key number after it) is `mat_fullbright 1` (B844 review 8, Fable).
+            // A client ConVar's name with any argument is a set (`RunClause`'s `SetConVar`), never its bare one-shot, so it
+            // does not fall back to the verb: `mat_wireframe 20` sets 20 (B844 review 9, Fable, Sonnet). For the "names"
+            // reading this changes nothing, since `SetsState` counts the set (review 10, Fable, Sonnet).
             ViewerAction? action =
-                KeyBindings.ActionOf(string.Join(' ', tokens)) ?? KeyBindings.ActionOf(tokens[0]);
+                KeyBindings.ActionOf(string.Join(' ', tokens)) ??
+                (tokens.Count > 2 ? KeyBindings.ActionOf(string.Concat(tokens[0], " ", tokens[1])) : null) ??
+                (tokens.Count > 1 && IsClientConVar(tokens[0]) ? null : OneShotOf(tokens[0]));
+
+            if ((credit && IsSpectatorButton(tokens[0])) || SetsASpectatorMode(tokens))
+            {
+                continue;
+            }
 
             if (action is { } named && !found.Contains(named))
             {

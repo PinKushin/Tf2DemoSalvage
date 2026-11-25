@@ -298,6 +298,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // (B841 review 10, Sonnet).
         _console.HltvPlayback = () => DrawsThroughHltv(_presenter.Timeline);
 
+        // A key bound exactly to a spectator button moves the camera only where there is a local player: an open demo (B844).
+        _console.Spectating = () => _presenter.HasDemo;
+
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
 
