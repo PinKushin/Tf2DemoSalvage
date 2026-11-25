@@ -46590,7 +46590,8 @@ Not taken (Grok): that a key's future-tick commands ran at once (they were never
 `KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder` should leave 2 (its `Execute` moves the tick on, so `9` is
 due). Filed as B840 (Fable): a negative `wait` in text added while processing.
 
-**Review 4** (Fable, Sonnet, Grok; Gemini pending; no blocker). Fixed:
+**Review 4** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini read through the fixes below, c5e32cd7b, and found no
+finding but this record's). Fixed:
 - Review 3's second bullet had no test that could fail, so its "each fix reddened its own test" was wrong for it
   (Fable, Sonnet). Tests `KeyDown_FromAHandlerInsideACommand_RunsInOrder` and
   `Execute_FromAHandlerInsideACommand_DoesNothing`, each red with its guard loosened.
