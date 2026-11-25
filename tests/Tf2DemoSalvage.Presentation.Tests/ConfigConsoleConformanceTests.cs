@@ -1001,7 +1001,8 @@ public sealed class ConfigConsoleConformanceTests
     {
         // `resetspeed` is one of the viewer's own one-shots, which the host performs from the console's `Triggered` since
         // B825, so it takes the key: a menu shortcut on the same key must not fire it again. Until B825 it did not, and
-        // the host matched the key itself. `+strafe` is TF2's and means nothing here, so it may not take the key.
+        // the host matched the key itself. `+strafe` with nobody spectating is TF2's strafe button, which this viewer does not
+        // implement, so it may not take the key; spectating, it turns the auto-director on (B844).
         ConfigConsole console = new();
         console.Load($"bind k \"{command}\"");
 
@@ -2848,6 +2849,500 @@ public sealed class ConfigConsoleConformanceTests
 
         console.ConVar(Alpha).ShouldBe("1", "the control: the waited set ran");
         sets.ShouldBe(announced);
+    }
+
+    /// <remarks>
+    /// **Only a key bound exactly to a spectator button moves the camera** (B844): `HandleSpectatorKeyInput`
+    /// (`clientmode_shared.cpp:747-761`) compares the key's whole binding with `Q_strcmp` and swallows the key, so the
+    /// button is not set. Every other route to `+attack` is the button command, which only sets the button: an alias, a
+    /// longer binding, a binding in another case, the launch line. The control: the exact binding with nobody to spectate
+    /// sets the button too. Every route takes the key (B547): a set button is the bind's answer as the camera action is
+    /// (B844 review 12, Sonnet).
+    /// </remarks>
+    [TestCase("bind k +attack", true, true, false)]
+    [TestCase("bind k +attack", false, false, true)]
+    [TestCase("alias go +attack\nbind k go", true, false, true)]
+    [TestCase("bind k \"+attack; +use\"", true, false, true)]
+    [TestCase("bind k +ATTACK", true, false, true)]
+    public void KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding(
+        string config, bool spectating, bool cycles, bool held)
+    {
+        ConfigConsole console = new() { Spectating = () => spectating };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load(config);
+
+        bool taken = console.KeyDown("k");
+
+        (taken, raised.Contains(ViewerAction.CycleTargetForward), console.IsHeld(ViewerAction.CycleTargetForward))
+            .ShouldBe((true, cycles, held));
+    }
+
+    /// <remarks>
+    /// **Each of the three exact bindings is the spectator's, and the key is taken** (B844 review 1, Fable, Sonnet): the key
+    /// answers true, raises its own action, and sets no button. With nobody wiring `Spectating` no key is the spectator's.
+    /// </remarks>
+    [TestCase("+attack", ViewerAction.CycleTargetForward)]
+    [TestCase("+attack2", ViewerAction.CycleTargetReverse)]
+    [TestCase("+jump", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_AKeyBoundExactlyToASpectatorButton_RaisesItsActionAndIsTaken(string button, ViewerAction expected)
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        ConfigConsole unwired = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        unwired.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k {button}");
+        unwired.Load($"bind k {button}");
+
+        (console.KeyDown("k"), console.IsHeld(expected)).ShouldBe((true, false));
+        unwired.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+        unwired.IsHeld(expected).ShouldBeTrue("nobody wired: the bind's text ran, which only sets the button");
+    }
+
+    /// <remarks>
+    /// **A key bound exactly to `+strafe` turns the auto-director on while spectating** (B844 review 1):
+    /// `SetAutoDirector( true )` (`clientmode_shared.cpp:762-769`) is `spec_autodirector.SetValue( 1 )`
+    /// (`hltvcamera.cpp:868-871`). It sets 1, it does not toggle, so a second press leaves it on. The control: with nobody
+    /// spectating the key runs its own `+strafe`, which this viewer does not implement, and the value stays 0.
+    ///
+    /// The key's answer is asserted on every row (review 3, Fable, Gemini, Sonnet), and SPACE with `+STRAFE` falls back to
+    /// its own default: a binding in another case is not the spectator's, so it names nothing here and `+jump` runs.
+    /// A console nobody wired is not spectating (review 10, Sonnet).
+    /// </remarks>
+    [TestCase("k", "+strafe", true, "1", true, 0)]
+    [TestCase("k", "+strafe", false, "0", false, 0)]
+    [TestCase("k", "+strafe", null, "0", false, 0)]
+    [TestCase("k", "+STRAFE", true, "0", false, 0)]
+    [TestCase("SPACE", "+strafe", true, "1", true, 0)]
+    [TestCase("SPACE", "+strafe", false, "0", false, 0)]
+    [TestCase("SPACE", "+STRAFE", true, "0", true, 2)]
+    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(
+        string key, string binding, bool? spectating, string expected, bool taken, int raisedCount)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = spectating is { } wired ? () => wired : null;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"spec_autodirector 0\nbind {key} {binding}");
+
+        bool answered = console.KeyDown(key);
+        console.KeyUp(key);
+        console.KeyDown(key);
+
+        (console.ConVar("spec_autodirector"), answered, raised.Count).ShouldBe((expected, taken, raisedCount));
+    }
+
+    /// <remarks>
+    /// **A key with no default bound to `spec_mode 5` does nothing and is not taken** (B844 review 15, Sonnet): the mode
+    /// TF2 would set is not implemented here (B851), so the key answers false as any command this viewer does not implement
+    /// does, and raises nothing. A clause after it still runs.
+    /// </remarks>
+    [TestCase("spec_mode 5", false, 0)]
+    [TestCase("spec_mode 5; spec_next", true, 1)]
+    public void KeyDown_AKeyWithNoDefaultBoundToSpecModeWithAnArgument_IsNotTakenAndRaisesNothing(string bind, bool taken, int raisedCount)
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k \"{bind}\"");
+
+        (console.KeyDown("k"), raised.Count).ShouldBe((taken, raisedCount));
+    }
+
+    /// <remarks>
+    /// **A config's exact spectator binding takes a key that has a default of its own** (B844 review 12, Fable): `bind w
+    /// +attack` names `+attack`, so the config owns `w` and its default `+forward` does not run; spectating, the key cycles.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyWithAnotherDefaultBoundExactlyToASpectatorButton_CyclesAndDoesNotFly()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("bind w +attack");
+
+        console.KeyDown("w");
+
+        (string.Join(',', raised), console.IsHeld(ViewerAction.FlyForward)).ShouldBe((nameof(ViewerAction.CycleTargetForward), false));
+    }
+
+    /// <remarks>
+    /// **A spectator button pressed by a key whose binding is not exact is released by that key** (B844 review 11, Fable):
+    /// `bind k +ATTACK` is not the spectator's (`Q_strcmp`), so it sets `+attack`'s button with key 21, and the release
+    /// runs `-ATTACK 21`, which lets it go (`KeyUp( kbutton_t *b, const char *c )`, `in_main.cpp`).
+    /// </remarks>
+    [Test]
+    public void KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        console.Load("bind k +ATTACK");
+
+        console.KeyDown("k");
+        bool held = console.IsHeld(ViewerAction.CycleTargetForward);
+        console.KeyUp("k");
+
+        (held, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((true, false));
+    }
+
+    /// <remarks>
+    /// **A key bound to `spec_mode 5` keeps its default** (B844 review 10, Sonnet): `spec_mode` with one argument sets a mode
+    /// this viewer does not implement (B851), so the bind does nothing here and SPACE's `+jump` still switches the camera,
+    /// as before B844, rather than SPACE falling silent.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyWithADefaultBoundToSpecModeWithAnArgument_RunsItsDefault()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("bind SPACE \"spec_mode 5\"");
+
+        console.KeyDown("SPACE");
+
+        // The press carries the rule; the unbound report agrees with it, since `CommandFor` hands both the `+jump` fallback
+        // (B844 reviews 13 to 15, Fable). `Bindings().KeyFor` would fill the action from its default either way (B858).
+        (string.Join(',', raised), console.Unbound().Contains(ViewerAction.SwitchCameraMode))
+            .ShouldBe((nameof(ViewerAction.SwitchCameraMode), false));
+    }
+
+    /// <remarks>
+    /// **The claim counts only what a bind fires** (B844 review 3, Fable, Sonnet): `spec_mode 5` sets a mode this viewer
+    /// does not implement, so it does not claim the camera switch and SPACE keeps its `+jump` default after `unbindall`; an
+    /// alias that runs `+attack` only sets the button, so MOUSE1 keeps cycling, which the press shows. The settings screen
+    /// naming MOUSE1 says only that the alias's key was not credited (B858; review 14, Sonnet).
+    /// </remarks>
+    [Test]
+    public void Load_BindsThatNameASpectatorActionWithoutFiringIt_LeaveTheDefaultsTheirKeys()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nbind k \"spec_mode 5\"\nalias +m2 +attack\nalias -m2 -attack\nbind MOUSE2 +m2");
+
+        console.KeyDown("SPACE");
+        console.KeyDown("MOUSE1");
+
+        raised.ShouldBe([ViewerAction.SwitchCameraMode, ViewerAction.CycleTargetForward]);
+        console.Bindings().KeyFor(ViewerAction.CycleTargetForward).ShouldBe("MOUSE1");
+    }
+
+    /// <remarks>
+    /// **What the claim, the settings screen and the unbound report credit, route by route** (B844 review 4, Fable,
+    /// Sonnet): after `unbindall` the only bind is `k`. A compound bind, another case, `spec_mode 5 6` and `spec_next x` are
+    /// what they fire; an alias runs `+attack` and only sets the button, so cycling is unbound; and an alias NAMED `+attack`
+    /// is passed over for a key bound exactly to it, which cycles forward whatever the alias says.
+    /// </remarks>
+    [TestCase("\"+attack; +use\"", ViewerAction.CycleTargetForward, false)]
+    [TestCase("+ATTACK", ViewerAction.CycleTargetForward, false)]
+    [TestCase("\"spec_mode 5 6\"", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("spec_mode", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("\"+use; spec_mode\"", ViewerAction.SwitchCameraMode, false)]
+    [TestCase("\"+use; spec_mode 5\"", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("\"spec_next x\"", ViewerAction.CycleTargetForward, true)]
+    [TestCase("+m1\nalias +m1 +attack", ViewerAction.CycleTargetForward, false)]
+    [TestCase("+attack\nalias +attack spec_prev", ViewerAction.CycleTargetForward, true)]
+    public void Unbound_AfterUnbindallAndOneBind_CreditsOnlyWhatTheBindFires(string bind, ViewerAction action, bool credited)
+    {
+        ConfigConsole console = new();
+        console.Load($"unbindall\nbind k {bind}");
+
+        console.Unbound().Contains(action).ShouldBe(!credited);
+    }
+
+    /// <remarks>
+    /// **The credit reads the text the key really runs** (B844 review 7, Fable, Sonnet): a `+` bind gets the key's number
+    /// after its RAW text (`KeyText`), so a trailing `;` puts the number in a clause of its own and `spec_mode` keeps one
+    /// argument and cycles; a chord gets no number, so its `spec_mode` cycles too; an alias body gets none; and a
+    /// `spec_mode` that is not last keeps its own count.
+    /// </remarks>
+    [TestCase("k", "\"+use; spec_mode;\"", true)]
+    [TestCase("CTRL+e", "\"+use; spec_mode\"", true)]
+    [TestCase("CTRL+e", "\"+use; spec_mode 5\"", false)]
+    [TestCase("k", "\"+use; spec_mode; +use\"", true)]
+    [TestCase("k", "+a\nalias +a \"+use; spec_mode\"", true)]
+    [TestCase("k", "\"+use; spec_mode // x\"", true)]
+    public void Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns(string key, string bind, bool credited)
+    {
+        ConfigConsole console = new();
+        console.Load($"unbindall\nbind {key} {bind}");
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+
+        // The press, too (B844 review 8, Codex): the credit and what the key runs must agree.
+        console.KeyDown(key);
+
+        (console.Unbound().Contains(ViewerAction.SwitchCameraMode), raised.Contains(ViewerAction.SwitchCameraMode))
+            .ShouldBe((!credited, credited));
+    }
+
+    /// <remarks>
+    /// **The claim and the settings screen read the key's real text too** (B844 review 8, Sonnet): `bind k "+use; spec_mode"`
+    /// runs `spec_mode 21` (`k` is key 21), which switches nothing, so it does not claim the camera switch: SPACE keeps its
+    /// `+jump` default, which the press shows. The settings screen names SPACE, which here says only that `k` was not
+    /// credited, since the projection fills an action no key fires from its default (B858; review 14, Sonnet).
+    /// </remarks>
+    [Test]
+    public void Load_APlusBindEndingInSpecMode_LeavesSpaceItsCameraSwitch()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nbind k \"+use; spec_mode\"");
+
+        console.KeyDown("SPACE");
+
+        raised.ShouldBe([ViewerAction.SwitchCameraMode]);
+        console.Bindings().KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("SPACE");
+    }
+
+    /// <remarks>
+    /// **The settings screen credits only a key that fires the action** (B844 review 8, Fable): an alias that runs
+    /// `+attack` only sets the button, so `k` is not the key for cycling; and a `+` bind ending in `mat_fullbright 1` runs
+    /// `mat_fullbright 1 20` (`j` is key 20), which sets 1, so `j` is the key for it.
+    /// </remarks>
+    [Test]
+    public void Bindings_KeysWhoseTextGainsANumberOrRunsAnAlias_NameWhatTheyFire()
+    {
+        ConfigConsole console = new();
+        console.Load("alias +m1 +attack\nalias -m1 -attack\nbind k +m1\nbind j \"+use; mat_fullbright 1\"");
+
+        KeyBindings bindings = console.Bindings();
+
+        (bindings.KeyFor(ViewerAction.CycleTargetForward) == "k", bindings.KeyFor(ViewerAction.FullbrightNoLighting))
+            .ShouldBe((false, "j"));
+    }
+
+    /// <remarks>
+    /// **The press agrees with that credit** (B844 review 9, Fable): `j` runs `mat_fullbright 1 20`, a set of the whole
+    /// `ArgS`, as `RunClause` hands `SourceConfig.ConVarValue` to `SetConVar`; the value is read as a number up to its first
+    /// space where it is used (B823, `SourceConfig`), which this test does not hold. The exact text announced is asserted
+    /// (reviews 10 and 11, Fable).
+    /// </remarks>
+    [Test]
+    public void KeyDown_APlusBindEndingInAFullbrightSet_AnnouncesTheSetWithTheKeysNumber()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Load("sv_cheats 1\nbind j \"+use; mat_fullbright 1\"");
+
+        console.KeyDown("j");
+
+        set.ShouldBe(["mat_fullbright 1 20"]);
+    }
+
+    /// <remarks>
+    /// **A bare toggle with the key's number after it is a set, not the toggle** (B844 review 9, Fable, Sonnet):
+    /// `bind j "+use; mat_wireframe"` runs `mat_wireframe 20`, which `RunClause` sets, so `j` is not the wireframe key
+    /// and pressing it raises no toggle.
+    /// </remarks>
+    [Test]
+    public void Unbound_APlusBindEndingInABareToggle_LeavesTheToggleUnbound()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("sv_cheats 1\nunbindall\nbind j \"+use; mat_wireframe\"");
+
+        console.KeyDown("j");
+
+        (console.Unbound().Contains(ViewerAction.Wireframe), raised.Contains(ViewerAction.Wireframe)).ShouldBe((true, false));
+    }
+
+    /// <remarks>
+    /// **An alias named `+strafe` is passed over as the three buttons' are** (B844 review 9, Fable): while spectating, a key
+    /// bound exactly to `+strafe` turns the auto-director on and is swallowed (`clientmode_shared.cpp:762-769`), so the
+    /// alias's `spec_next` never runs and the key is not credited with it. `+STRAFE` is not exact (`Q_strcmp`), so the
+    /// alias runs and is credited (review 10, Fable).
+    /// </remarks>
+    [TestCase("+strafe", false)]
+    [TestCase("+STRAFE", true)]
+    public void Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody(string binding, bool runsTheAlias)
+    {
+        ConfigConsole console = new();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"unbindall\nalias +strafe spec_next\nbind k {binding}");
+
+        console.KeyDown("k");
+
+        (console.Unbound().Contains(ViewerAction.CycleTargetForward), raised.Contains(ViewerAction.CycleTargetForward))
+            .ShouldBe((!runsTheAlias, runsTheAlias));
+    }
+
+    /// <remarks>
+    /// **A default yields only to a bind that fires its action** (B844 review 6, Fable): with `alias +attack spec_prev`,
+    /// MOUSE1's default `+attack` still cycles forward, so `bind k spec_prev` does not take MOUSE1's key away, and both
+    /// keys work: k cycles back, MOUSE1 forward.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nalias +attack spec_prev\nbind k spec_prev");
+
+        console.KeyDown("k");
+        console.KeyDown("MOUSE1");
+
+        raised.ShouldBe([ViewerAction.CycleTargetReverse, ViewerAction.CycleTargetForward]);
+    }
+
+    /// <remarks>
+    /// **An alias named `+attack` is passed over for the key, by the key and by the credit alike** (B844 review 5, Fable):
+    /// `alias +attack spec_prev` with `bind k +attack` cycles FORWARD while spectating, as `HandleSpectatorKeyInput` tests
+    /// the binding before any text runs, and the credit holds forward cycling and not backward.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundExactlyToAnAliasNamedPlusAttack_CyclesForwardAndIsCreditedSo()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nalias +attack spec_prev\nbind k +attack");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([ViewerAction.CycleTargetForward]);
+        (console.Unbound().Contains(ViewerAction.CycleTargetForward), console.Unbound().Contains(ViewerAction.CycleTargetReverse))
+            .ShouldBe((false, true));
+    }
+
+    /// <remarks>
+    /// **`spec_mode` takes a mode only with exactly one argument; the other two ignore theirs** (B844 review 2, Fable,
+    /// Sonnet): `args.ArgC() == 2` (`SpectatorGUI.cpp:847`), so `spec_mode 5 6` cycles as the bare command does, and
+    /// `spec_next x` reads no argument (`:786-805`).
+    /// </remarks>
+    [TestCase("spec_next x", ViewerAction.CycleTargetForward)]
+    [TestCase("spec_mode 5 6", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_ASpectatorCommandWithArgumentsItIgnores_StillActs(string command, ViewerAction expected)
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k \"{command}\"");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+    }
+
+    /// <remarks>
+    /// **An alias cannot take a spectator command's name** (B844 review 2, Fable): `Cmd_ExecuteCommand` finds the ConCommand
+    /// before any alias (`engine.dll` build 1007 FUN_1801678a0), so `spec_next` still cycles and the alias's body never runs.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasNamedLikeASpectatorCommand_RunsTheCommand()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("alias spec_next \"cl_showfps 2\"\nbind k spec_next");
+
+        console.KeyDown("k");
+
+        (raised.Count, raised[0], console.ConVar("cl_showfps")).ShouldBe((1, ViewerAction.CycleTargetForward, null));
+    }
+
+    /// <remarks>
+    /// **A config's own `+attack` sets the button at load** (B844 review 1, Fable, Sonnet): run from the buffer it is the
+    /// button command, which the load's one-shot rule does not take.
+    /// </remarks>
+    [Test]
+    public void Load_PlusAttack_SetsTheButtonAndMovesNoCamera()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Load("+attack");
+
+        (raised, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((0, true));
+    }
+
+    /// <remarks>
+    /// **A spectator command bound to a key with a default replaces the default** (B844 review 1, Fable, Sonnet): MOUSE1's
+    /// default is `+attack`, and `bind MOUSE1 spec_prev` must cycle backwards. `spec_mode 5` keeps the default instead:
+    /// `KeyDown_AKeyWithADefaultBoundToSpecModeWithAnArgument_RunsItsDefault` (review 11, Fable).
+    /// </remarks>
+    [TestCase("spec_prev", new[] { ViewerAction.CycleTargetReverse })]
+    public void KeyDown_AKeyWithADefaultBoundToASpectatorCommand_RunsTheCommand(string command, ViewerAction[] expected)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind MOUSE1 \"{command}\"");
+
+        console.KeyDown("MOUSE1");
+
+        raised.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The launch line's `+attack` only sets the button** (B844): `stuffcmds` runs it as a command, never as a key.
+    /// </remarks>
+    [Test]
+    public void Stuff_PlusAttack_SetsTheButtonAndMovesNoCamera()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Stuff("+attack");
+
+        (raised, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((0, true));
+    }
+
+    /// <remarks>
+    /// **`spec_next`, `spec_prev` and `spec_mode` are TF2's own commands** (B844, `clientmode_shared.cpp:749-759`), so a key
+    /// bound to one moves the camera as the spectator's key does, in any case.
+    /// </remarks>
+    [TestCase("spec_next", ViewerAction.CycleTargetForward)]
+    [TestCase("SPEC_PREV", ViewerAction.CycleTargetReverse)]
+    [TestCase("spec_mode", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_AKeyBoundToASpectatorCommand_RaisesItsAction(string command, ViewerAction expected)
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k {command}");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+    }
+
+    /// <remarks>
+    /// **A config's `spec_next` does nothing at load, and acts when a `wait` put it off** (B844 with B841): TF2 runs its
+    /// configs before a demo plays, and `CCommandBuffer` runs a put-off command at its tick.
+    /// </remarks>
+    [TestCase("spec_next", 0)]
+    [TestCase("wait; spec_next", 1)]
+    [TestCase("wait; spec_prev", 1)]
+    [TestCase("wait; spec_mode", 1)]
+    public void Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff(string config, int expected)
+    {
+        ConfigConsole console = new();
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Load(config);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        raised.ShouldBe(expected);
     }
 
     /// <remarks>

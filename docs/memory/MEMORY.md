@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-25]] READ FIRST — B834-B841 merged (B841 `6dab6ba44`); B843, B844, B848 in flight; open B842, B845-B847, B852, more on those branches (B845 owner decision).
+- [[handoff-2026-11-25]] READ FIRST — B834-B841, B843, B844 merged (B843 `bf0926549`); B848 in flight; open B842, B845-B847, B850-B855, B857-B859 (B845 owner decision); Codex is the third reviewer.
 - [[handoff-2026-11-17]] — through B773 closed (`b35241abe`, D262); B766, B544, B768 merged; next open RISKS by priority.
 - [[handoff-2026-11-16]] — B744-B761 merged, B754 war paints (`82224742d`); next B752, B746, B741; LSP rename uses stale offsets.
 - [[handoff-2026-11-14]] — B724 review, B730-B732, B230, B556, B613, B546 merged; Fable implementer A/B and map label in flight; next the f12 decode.
@@ -48,6 +48,7 @@
 - [[the-demo-dates-its-own-fields]]; [[round-trip-needs-the-encoding-shape]]; [[wire-faithful-is-not-state-faithful]]; [[demo-ticks-do-not-start-at-zero]]; [[a-header-written-last-is-absent]]; [[a-demo-names-a-map-version]] — MapHash, never MapCrc.
 - [[measure-the-output-not-the-capability]]; [[output-level-assertion-or-it-is-not-done]]; [[engine-accepts-authored-demos]]; [[a-test-demo-is-not-demo-repair]]; [[a-picture-is-assertable]]; [[a-demo-without-its-map-fails-soft]] (D224).
 - [[a-changelog-dates-the-complaint]]; [[most-of-a-decoder-is-untested]]; [[boundaries-find-what-tests-cannot]]; [[a-grouped-sabotage-can-redden-for-the-wrong-reason]]; [[the-denominator-decides-what-can-be-lost]].
+- [[builds-leave-the-compiler-server-running]] — `UseSharedCompilation=false DOTNET_CLI_USE_MSBUILD_SERVER=0` on every build/test; stop leftover MSBuild/VBCSCompiler by PID.
 - [[write-tmp-is-not-bash-tmp]] — commit message via Write to a Windows path, check `%B` before push.
 - [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
 - [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230); [[a-thread-allocation-counter-counts-the-runtime]] — min over calls.

@@ -159,8 +159,9 @@ public sealed partial class ViewerSession
     /// <remarks>
     /// **Only the instant actions arrive here.** Flight is held rather than triggered and is read
     /// per frame by <see cref="FlyCamera"/>; the console tells the two apart by
-    /// <see cref="ConfigConsole.HeldActions"/> rather than by the command's spelling, because TF2
-    /// writes the camera switch as `+jump` even though nothing about it is continuous.
+    /// <see cref="ConfigConsole.HeldActions"/>, because TF2 writes the camera switch as `+jump` even though nothing about
+    /// it is continuous. The spectator's three buttons are the exception, told apart by spelling: a key bound exactly to
+    /// one raises its action here, and any other route only sets the button (B844).
     ///
     /// **Every one-shot is performed here, whatever key, alias or button ran it** (B825, the remaining half of B145): TF2
     /// runs every bound key's command through the console. Before, camera mode and the resets were matched by key in
