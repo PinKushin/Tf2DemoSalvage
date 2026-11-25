@@ -11,10 +11,13 @@ an alias, a longer binding, the launch line) cycled the camera. That is not wher
 
 ## What the client does
 
-`ClientModeShared::KeyInput` (`clientmode_shared.cpp:662-772`) is the client's say over a key event (**read**). It
-returns early, letting the key through, for a visible console (`:664-665`), the chat binds (`:668-697`) and the vote HUD
-(`:700-709`), and asks `HandleSpectatorKeyInput` only when there is a local player whose observer mode is past the death
-cam (`:714-716`). That gate is what the viewer's `Spectating` stands in for (an open demo; B845 is where it diverges).
+`ClientModeShared::KeyInput` (`clientmode_shared.cpp:662-734`) is the client's say over a key event (**read**). With
+the console visible it lets every key through untouched (`return 1`, `:664-665`); a chat bind starts message mode and is
+swallowed (`return 0`, `:668-697`); with voting compiled in (`#ifdef VOTING_ENABLED`, `:700`) a key the vote HUD takes
+is swallowed (`:704-707`). Only then is `HandleSpectatorKeyInput` asked, and only when there is a local player whose
+observer mode is past the death cam (`:714-716`). That gate is what the viewer's `Spectating` stands in for (an open demo;
+B845 is where it diverges). Before any of it, `CInput::KeyEvent` swallows `MOUSE_LEFT` and `MOUSE_RIGHT` while the camera
+intercepts the mouse (`in_main.cpp:562-567`), which the viewer has no state for.
 
 `HandleSpectatorKeyInput` (`:739-772`, **read**) compares the key's **whole binding string** with `Q_strcmp`,
 case-sensitive, and only on the press (`down`):
@@ -39,8 +42,8 @@ rather than something else, through the engine's command dispatch and `stuffcmds
 `spec_next`, `spec_prev` and `spec_mode` are ConCommands of their own (`SpectatorGUI.cpp:786, 807, 828`, **read**). Each
 returns unless the local player `IsObserver()` (`:790, 811, 832`); outside SourceTV each forwards to the server, which
 returns during demo playback (`ForwardSpecCmdToServer`, `:766-769`); on SourceTV, `spec_next` and `spec_prev` do nothing
-while the PVS is locked (`:796, 817`), and `spec_mode` with exactly one argument (`ArgC() == 2`) sets that mode only
-while it is not (`:835-851`), cycling otherwise. Those gates are B845, B851 and B853.
+while the PVS is locked (`:796, 817`), and `spec_mode` swaps eye and chase while it is (`ToggleChaseAsFirstPerson`,
+`:837-841`); unlocked, with exactly one argument (`ArgC() == 2`) it sets that mode, and otherwise cycles (`:843-851`). Those gates are B845, B851 and B853.
 
 TF2 overrides the function: `ClientModeTFNormal::HandleSpectatorKeyInput` (`tf/clientmode_tf.cpp:1589-1618`, **read**)
 takes only an exact `+jump` while the local player is coaching, and passes every other key on (B857).

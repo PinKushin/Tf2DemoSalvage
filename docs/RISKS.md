@@ -46434,7 +46434,7 @@ or the button), where the viewer's camera keys still answer; gating there would 
 cycling away on POV demos. Tests: `KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding` (four
 routes, plus nobody spectating as the control: five rows), `Stuff_PlusAttack_SetsTheButtonAndMovesNoCamera`,
 `KeyDown_AKeyBoundToASpectatorCommand_RaisesItsAction`, `Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff`.
-Sabotage, each restored: the button branch dropped reddens the four non-exact routes, the launch line and B841's three
+Sabotage, each restored: the button branch dropped reddens the three non-exact routes and the not-spectating row (review 16, Fable, corrected "four non-exact routes"), the launch line and B841's three
 waited-button cases; the exact-key branch dropped reddens the exact case alone. (Run together the two masked the exact
 case: a grouped sabotage can redden for the wrong reason.) Presentation 2,271 of 2,271.
 
@@ -46676,6 +46676,18 @@ Not taken: Codex's `alias +attack spec_prev` reading: `KeyDown` answers the exac
 `KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires` holds it. The branch lacks B843; main is merged before
 the gate. Sabotage, restored: a `Spectating` gate on `DoesSomething`'s `+strafe` reddens the SPACE not-spectating row.
 Presentation 2319 of 2319.
+
+Review 16 (Fable, Sonnet, Codex). No code defect. Corrected findings 114 (Fable, Sonnet): `KeyInput` lets a key through
+only for the visible console; a chat bind and a key the vote HUD takes are swallowed (the vote branch only with
+`VOTING_ENABLED`), so review 15's gate list here had the direction wrong for those two; `KeyInput` ends at `:734`; a
+PVS-locked `spec_mode` swaps eye and chase, it does not cycle; `CInput::KeyEvent` swallows the two mouse buttons while the
+camera intercepts the mouse (`in_main.cpp:562-567`), ahead of everything, which the viewer has no state for. The fixed
+paragraph's "four non-exact routes" is three and the not-spectating row (Fable). Not taken: B845 naming `+strafe` beside
+SPACE and MOUSE1 on a live-recorder POV demo (Fable, low; B845 covers the gate); "the launch line's `+attack`" is the
+token after `stuffcmds` strips one `+` (Fable, wording, unread under `LaunchOptions`); a launch-line or config `+attack`
+holding its button keeps the free-look idle awake until released (Sonnet), which is TF2's button state; row 1 of the
+`spec_mode 5` test returns before any clause runs (Sonnet), so the claim is held by row 2 and the default test. Codex:
+B845's wording (same gate) and a test whose expectations it proposed changing (that reddens it).
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
