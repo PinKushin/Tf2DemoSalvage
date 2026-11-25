@@ -46424,6 +46424,16 @@ T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait
 command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
 dequeued from its head. *Not fixed*.
 
+## B846 — the HUD thinks once a frame, where the engine thinks once a host tick (2026-11-25) — OPEN
+
+Found in B839 review 3 (Fable). `CHud::Think` is reached from `_Host_RunFrame_Input` (`ClientDLL_ProcessInput` →
+`HudProcessInput` → `CHud::ProcessInput`, `hud.cpp:996-1005`), which `_Host_RunFrame` runs in every host tick of the
+frame, each before that tick's packets. The viewer thinks once a frame, on the last frame's end state
+(`VguiHud.Think`'s `_thinkState`). In a frame of several ticks the engine's last think already sees the state after
+the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick frame has his health and ammo hidden by
+the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
+each tick the frame plays, on the state after the tick before it. *Not fixed*.
+
 ## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — OPEN
 
 Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
@@ -46440,8 +46450,8 @@ the game events and the user messages, whose HUD listeners read their ConVars in
 (`hud_deathnotice_time` in `CTFHudDeathNotice::FireGameEvent`, `hud_saytext_time` and `cl_chatfilters` in the chat).
 The rest of a frame's work reads them once, after the tick loop, in the engine as here: `_Host_RunFrame_Render` runs
 once per frame and fires the temp entities there (`FireEvents`, FUN_1800905d0; `SoundPresenter.InFrameOrder`), and
-the HUD's think and paint and the sound mix are per frame. So the fix hands each event and message the ConVars its own
-tick read:
+the HUD's paint and the sound mix are per frame (its think is per host tick in the engine: review 3, B846). So the fix
+hands each event and message the ConVars its own tick read:
 - `ConVarsByTick` (Presentation) keeps, for one frame, every set a tick's run made, with the value it replaced
   (`ConVarSetEventArgs.Before`, which the console now fills). `BeforeTick(tick, run)` labels a run made while the
   clock is on `tick` as first read by `tick + 1`, as the client step after `Cbuf_Execute` reads the next tick's
@@ -46500,6 +46510,23 @@ Review 2 (Fable, Sonnet; Gemini to follow): no engine fault, and no review-1 fix
 - The `ClientConVar` delegate is made once (Fable).
 - Not taken: the other event handlers' `heard` stays equivalent while they read only replicated ConVars (both); a
   throw in a handler skips that event's put-back while the frame aborts (Sonnet). 2,193 of 2,193 pass.
+
+Review 3 (Fable, Gemini: no findings, Sonnet): no engine fault in the mechanism. Recorded, no code changed:
+- **A correction to this entry** (Fable): "the HUD's think … per frame" was wrong for the engine. `CHud::Think` runs
+  from `_Host_RunFrame_Input` through `HudProcessInput` (`hud.cpp:996-1005`), once per host tick. For ConVars the
+  outcome matches: the last think reads what the last run left, the frame's own. For state it does not, and that
+  predates this branch: filed as **B846**. The paint, the temp entities and the sound mix are per frame, as said.
+- **Plausible, no ordinary route** (Fable): a reset frame that also played ticks forward hands every event the frame's
+  ConVars, where an event before a later tick's run should read the value before it; for a seek, `At(tick)` would be
+  the engine's answer. The first HUD frame and a jump with no skip are the only resets that also play, and neither is
+  reached with a set inside a tick's run today. Fix shape if it is: the frame's own only for ticks at or below the
+  frame's starting tick.
+- **Equivalent, recorded** (Fable, Sonnet, Gemini): the cheat revert's `Before` (no HUD handler reads a cheat ConVar in
+  an event); the death notice's `heard.RealTime`; the pickup branch's `heard` (its handlers read the viewport); the
+  copy-only-when-different check; `BeforeTick`'s null guard. A revert by the saved layer raises no `ConVarSet` and so
+  is in force for the whole frame (Sonnet), as the saved-layer `exec` above. `ClientConVarsAt` reads the frame's
+  record lazily, which holds because the HUD's events run on the frame's thread before the next `BeginFrame`
+  (Sonnet); a HUD fork that moved them would need the record copied.
 
 The original entry follows.
 
