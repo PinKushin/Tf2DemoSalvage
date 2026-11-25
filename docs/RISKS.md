@@ -46717,7 +46717,111 @@ T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait
 command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
 dequeued from its head. *Not fixed*.
 
-## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — OPEN
+## B846 — the HUD thinks once a frame, where the engine thinks once a host tick (2026-11-25) — OPEN
+
+Found in B839 review 3 (Fable). `CHud::Think` is reached from `_Host_RunFrame_Input` (`ClientDLL_ProcessInput` →
+`HudProcessInput` → `CHud::ProcessInput`, `hud.cpp:996-1005`), which `_Host_RunFrame` runs in every host tick of the
+frame, each before that tick's packets. The viewer thinks once a frame, on the last frame's end state
+(`VguiHud.Think`'s `_thinkState`). In a frame of several ticks the engine's last think already sees the state after
+the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick frame has his health and ammo hidden by
+the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
+each tick the frame plays, on the state after the tick before it. *Not fixed*.
+
+## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — OPEN
+
+Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
+`tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
+tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an
+earlier tick in a several-tick frame hears a value a later tick's packet set. *Read*, not measured. Fix shape: hand
+each event the server's ConVars at its own tick (`DemoTimeline.ServerConVarsAt(tick)`), as `HudEventFeed.Resolve`
+already hands it the rules at its tick. *Not fixed*.
+
+## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** What reads a client ConVar per tick in the engine is what `CL_ReadPackets` fires as each tick is parsed:
+the game events and the user messages, whose HUD listeners read their ConVars in the handler
+(`hud_deathnotice_time` in `CTFHudDeathNotice::FireGameEvent`, `hud_saytext_time` and `cl_chatfilters` in the chat).
+The rest of a frame's work reads them once, after the tick loop, in the engine as here: `_Host_RunFrame_Render` runs
+once per frame and fires the temp entities there (`FireEvents`, FUN_1800905d0; `SoundPresenter.InFrameOrder`), and
+the HUD's paint and the sound mix are per frame (its think is per host tick in the engine: review 3, B846). So the fix
+hands each event and message the ConVars its own tick read:
+- `ConVarsByTick` (Presentation) keeps, for one frame, every set a tick's run made, with the value it replaced
+  (`ConVarSetEventArgs.Before`, which the console now fills). `BeforeTick(tick, run)` labels a run made while the
+  clock is on `tick` as first read by `tick + 1`, as the client step after `Cbuf_Execute` reads the next tick's
+  packets. A set outside a tick's run (the frame's top run, a key, a load) is in force for every tick of the frame.
+- `ViewerSession` starts the record at the frame's top run and wraps each per-tick run in `BeforeTick`; it hands the
+  HUD `ClientConVarsAt(tick)` through `ViewerWindow`, `HudView` and `HudConVars.ClientAt`.
+- `VguiHud.Think` handles each game event and user message with `HudConVars.At(tick)`: on the state it passes and on
+  the viewport, where a panel reads them (`HudViewport.ConVarsOf`); the frame's own are put back after.
+
+Tests: `ConVarsByTickTests` (the run on tick 10 is first read by 11; two runs; a set outside a run and a new frame; a
+throw ends the run), `VguiHudTickConVarsTests.Think_AnEventAndAMessage_HearTheConVarsTheirTickRead` (the death
+notice's and the chat's own sounds read the viewport's ConVars inside their handlers: tick 1000 hears 3, tick 1001
+hears the frame's 9, and 9 is put back), and the session's
+`RenderFrame_AWaitedSetInsideAFrame_IsNotHeardByItsEarlierTicks` (a config's `wait 3; hud_deathnotice_time 0` run
+inside a playing frame: that frame's earlier ticks read the default, its later ones and the next frame's read 0).
+Sabotage, each restored: the run labelled with its own tick reddens the three unit cases that read across it; the
+session not recording a set reddens the session test; no put-back reddens the tick-1000 HUD case; messages read with
+the frame's ConVars reddens the tick-1000 HUD case; no frame start reddens the session test. 2,184 of 2,184 pass.
+
+Review 1 (Fable, Sonnet; Gemini to follow; Grok out of credit) found, all taken unless said:
+- **The session test could not fail on the label** (Fable): its last-tick check was true by construction.
+  `RenderFrame_ASetInEveryRun_IsHeardFromTheTickAfterItsRun` has a config loop set a ConVar in every run, so in a
+  playing frame the tick landed on reads it as now and the tick before does not; the session's tick argument moved
+  one way or the other reddens it alone.
+- **A replay hears the frame's ConVars** (Fable, Sonnet): reverse play and a seek deliver a reset replay, read after
+  every run the frame made, whose events' ticks sit below every label. `HeardAt` now takes the frame's own on a reset.
+  `Think_AReplayedEvent_HearsTheFramesConVars`; ignoring the reset reddens its reset case alone.
+- **The state handed to handlers, and the put-back, were untested** (Fable, Sonnet). The chat filters a name change
+  by `cl_chatfilters` off the state it is handed: `Think_AFilteredMessage_IsFilteredByItsTicksConVars`, which the
+  frame's state handed instead reddens. The frame's ConVars are now put back after each event and message, so what
+  runs between the loops reads the frame's: `Think_EventsAlone_PutTheFramesConVarsBack` reddens with that put-back
+  removed. The other event handlers read replicated ConVars, which this record does not touch, so `heard` and the
+  frame's state are the same to them today.
+- **`Before` and the wiring through `HudStates`** (Sonnet): `KeyDown_ASetAfterAnother_AnnouncesTheValueItReplaced`
+  (the second set announces the first's 3, under the ConVar's own name) and
+  `At_ATickWithTheWindowsPerTickConVars_CarriesThemToTheHud`; each reddens with its line undone.
+- **Cost** (Fable, Sonnet): `HeardAt` copies the state only when a tick's ConVars differ.
+- **Not taken:** `Before` comes from the console's view (settings clamped to bounds) where "now" is the session's
+  (raw settings first), which differ only for an out-of-bounds string (Fable); an existing split, not this one's. A
+  saved-layer `exec` at run time raises no `ConVarSet` (Sonnet), so its set is in force for the whole frame; it was
+  never announced to anything. A frame that crosses ticks without building the overlay hears them next frame as now
+  (Fable), as before. The replicated ConVars an event reads are still the frame's end tick's: filed as **B843**.
+- 2,192 of 2,192 pass.
+- Gemini, after: the same test gaps, already closed above, and a closure and a delegate made for every tick a frame
+  played. `BeforeTick` now takes an `Action<int>`, and the session holds both delegates, so a played tick allocates
+  nothing. *Read, not measured*: no allocation count was taken.
+
+Review 2 (Fable, Sonnet; Gemini to follow): no engine fault, and no review-1 fix introduced one. Taken:
+- **The session-to-HUD wiring had no test that could fail** (Fable, Sonnet): each link was tested apart. The every-run
+  session test now reads the state the frame presenter builds for the HUD (`FramePresenter.HudStateAt`, internal for
+  it) and asserts the tick before the landed one reads one run's step behind the value now, which also pins `Before`
+  through the session (Fable). Handing the window `_ => null`, the presenter dropping the argument, and the session
+  recording `Before` as null each redden it.
+- **The message loop's reset** (Fable, Sonnet): the filtered-message test gains a replay case, which the reset ignored
+  reddens.
+- The `ClientConVar` delegate is made once (Fable).
+- Not taken: the other event handlers' `heard` stays equivalent while they read only replicated ConVars (both); a
+  throw in a handler skips that event's put-back while the frame aborts (Sonnet). 2,193 of 2,193 pass.
+
+Review 3 (Fable, Gemini: no findings, Sonnet): no engine fault in the mechanism. Recorded, no code changed:
+- **A correction to this entry** (Fable): "the HUD's think … per frame" was wrong for the engine. `CHud::Think` runs
+  from `_Host_RunFrame_Input` through `HudProcessInput` (`hud.cpp:996-1005`), once per host tick. For ConVars the
+  outcome matches: the last think reads what the last run left, the frame's own. For state it does not, and that
+  predates this branch: filed as **B846**. The paint, the temp entities and the sound mix are per frame, as said.
+- **Plausible, no ordinary route** (Fable): a reset frame that also played ticks forward hands every event the frame's
+  ConVars, where an event before a later tick's run should read the value before it; for a seek, `At(tick)` would be
+  the engine's answer. The first HUD frame and a jump with no skip are the only resets that also play, and neither is
+  reached with a set inside a tick's run today. Fix shape if it is: the frame's own only for ticks at or below the
+  frame's starting tick.
+- **Equivalent, recorded** (Fable, Sonnet, Gemini): the cheat revert's `Before` (no HUD handler reads a cheat ConVar in
+  an event); the death notice's `heard.RealTime`; the pickup branch's `heard` (its handlers read the viewport); the
+  copy-only-when-different check; `BeforeTick`'s null guard. A revert by the saved layer raises no `ConVarSet` and so
+  is in force for the whole frame (Sonnet), as the saved-layer `exec` above. `ClientConVarsAt` reads the frame's
+  record lazily, which holds because the HUD's events run on the frame's thread before the next `BeginFrame`
+  (Sonnet); a HUD fork that moved them would need the record copied.
+
+The original entry follows.
 
 Found in B832 review 1 (Grok). `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs, for each host tick,
 the input step's `Cbuf_Execute` and then that tick's client step, which reads the demo's tick. B838 runs the console

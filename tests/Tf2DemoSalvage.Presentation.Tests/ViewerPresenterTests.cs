@@ -1163,6 +1163,7 @@ public sealed class ViewerPresenterTests
                 },
                 static () => new KeyBindings(),
                 static _ => null,
+                static _ => null,
                 static () => 5d,
                 () =>
                 {

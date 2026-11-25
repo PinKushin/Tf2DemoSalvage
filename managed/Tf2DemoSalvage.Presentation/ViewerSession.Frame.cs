@@ -510,7 +510,9 @@ public sealed partial class ViewerSession
     public bool RenderFrame()
     {
         // **The console's buffer runs at the top of every frame, map read or not** (B832): `_Host_RunFrame` (`engine.dll`
-        // build 1007 FUN_1801a5eb0) calls `Cbuf_Execute` before its tick loop, whatever else the frame does.
+        // build 1007 FUN_1801a5eb0) calls `Cbuf_Execute` before its tick loop, whatever else the frame does. Every tick
+        // this frame reads comes after it, so its sets are in force for all of them (B839).
+        _conVarsByTick.BeginFrame();
         ExecuteConsole(_transport.CurrentTick);
 
         // **Nothing is drawn while a map is being read on another thread (B146).** That read
@@ -820,8 +822,9 @@ public sealed partial class ViewerSession
         else
         {
             // **And the console once more before each host tick the frame runs** (B832, B838): `_Host_RunFrame_Input`
-            // (FUN_1801a74d0) runs `Cbuf_Execute` in every tick of the loop, before the tick's client step.
-            _playback.Advance(ExecuteConsole);
+            // (FUN_1801a74d0) runs `Cbuf_Execute` in every tick of the loop, before the tick's client step, which reads
+            // the next tick's packets — so what this run sets is first heard by that tick's events (B839).
+            _playback.Advance(_beforeEachTick ??= tick => _conVarsByTick.BeforeTick(tick, _executeConsole ??= ExecuteConsole));
         }
     }
 
@@ -833,6 +836,23 @@ public sealed partial class ViewerSession
     /// <param name="tick">The demo tick it runs at: the clock's, inside a frame's advance (B832 review 1, Fable).</param>
     private void ExecuteConsole(int tick) =>
         _console.Execute(ConfigConsole.WaitAllowed(_presenter.Timeline?.ServerConVarsAt(tick).Value(ConfigConsole.AllowWaitConVar)));
+
+    /// <summary>What runs before each tick a frame plays, made once so a played tick allocates nothing (B839 review 1, Gemini).</summary>
+    private Action<int>? _beforeEachTick;
+
+    /// <summary><see cref="ExecuteConsole"/> as a delegate, made once.</summary>
+    private Action<int>? _executeConsole;
+
+    /// <summary>The client ConVars each demo tick of this frame reads, for the game events the HUD hears at its end (B839).</summary>
+    private readonly ConVarsByTick _conVarsByTick = new();
+
+    /// <summary>The client ConVars a demo tick of this frame reads, or null where it reads them as they are now (B839).</summary>
+    /// <param name="tick">The demo tick.</param>
+    /// <returns>A lookup, or null.</returns>
+    internal Func<string, string?>? ClientConVarsAt(int tick) => _conVarsByTick.At(tick, _clientConVar ??= ClientConVar);
+
+    /// <summary><see cref="ClientConVar"/> as a delegate, made once (B839 review 2, Fable).</summary>
+    private Func<string, string?>? _clientConVar;
 
     /// <summary>`--measure`'s sun line, over the whole frame.</summary>
     private readonly SunMeter _sunMeter = new();

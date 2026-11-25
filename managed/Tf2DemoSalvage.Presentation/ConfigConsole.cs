@@ -2121,7 +2121,7 @@ public sealed class ConfigConsole
                 // Only what differs from its default is announced, as `ConVar::Revert` runs a ConVar's callbacks only when its
                 // STRING changed (`V_strcmp`, `src/tier1/convar.cpp:844`), so `nan` reverts where a float compare saw no
                 // difference (B823 review 1). *Not read:* the filter inside `RevertFlaggedConVars`, which is vstdlib's.
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default, now));
             }
         }
     }
@@ -2407,6 +2407,10 @@ public sealed class ConfigConsole
             tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
         }
 
+        // The value it held, for whoever must still answer as it stood before this set (B839).
+        string name = OwnName(tokens[0]);
+        string? before = ConVar(name);
+
         if (SetConVar(tokens))
         {
             // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
@@ -2415,7 +2419,7 @@ public sealed class ConfigConsole
             // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
             if (!_loading || (_settingValue is not null && !_savedLayer))
             {
-                ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(name, tokens[1], before));
             }
 
             acted = true;
@@ -2709,11 +2713,15 @@ public sealed class ViewerActionEventArgs(ViewerAction action) : EventArgs
 /// <summary>A client ConVar a command set.</summary>
 /// <param name="name">The name as typed.</param>
 /// <param name="value">The value as typed.</param>
-public sealed class ConVarSetEventArgs(string name, string value) : EventArgs
+/// <param name="before">The value it held before the set, or null where nothing had set it (its default).</param>
+public sealed class ConVarSetEventArgs(string name, string value, string? before = null) : EventArgs
 {
     /// <summary>The name as typed.</summary>
     public string Name { get; } = name;
 
     /// <summary>The value as typed.</summary>
     public string Value { get; } = value;
+
+    /// <summary>The value it held before the set, or null where nothing had set it (its default).</summary>
+    public string? Before { get; } = before;
 }

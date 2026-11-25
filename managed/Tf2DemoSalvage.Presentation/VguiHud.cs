@@ -186,6 +186,25 @@ public sealed class VguiHud
     /// </summary>
     internal Action? FrameStarted { get; set; }
 
+    /// <summary>
+    /// The frame's state with the ConVars a demo tick read (B839), set on the viewport too, where a panel reads them
+    /// (`HudViewport.ConVarsOf`).
+    /// </summary>
+    /// <param name="state">The frame's state.</param>
+    /// <param name="tick">The tick whose packet carried the event or message.</param>
+    /// <param name="reset">
+    /// Whether the frame follows a seek or a reverse step, whose events are a replay read after every run the frame made
+    /// (B839 review 1, Fable, Sonnet): they hear the frame's own ConVars.
+    /// </param>
+    /// <returns>The state the tick's listeners hear.</returns>
+    private HudState HeardAt(in HudState state, int tick, bool reset)
+    {
+        HudConVars conVars = reset ? state.ConVars : state.ConVars.At(tick);
+        Viewport.SetConVars(conVars);
+
+        return conVars == state.ConVars ? state : state with { ConVars = conVars };
+    }
+
     /// <summary>The serial half of <see cref="Frame"/>: scheme, think, events, lifecycle, updates — every side effect (finding 105 B4).</summary>
     /// <returns>Whether <see cref="Paint"/> should follow: false with no scheme, or for a frame that is not painted.</returns>
     /// <remarks>Parameters as <see cref="Frame"/>'s.</remarks>
@@ -302,11 +321,16 @@ public sealed class VguiHud
 
         // Events are dispatched as their packets are read, after the HUD's think and before the render stage — each to the
         // listeners that asked for it, as `IGameEventManager` delivers.
+        // **Each with the ConVars its own tick read** (B839): a frame that played several ticks ran the console before
+        // each, and `CL_ReadPackets` fires a tick's events straight after that tick's run, so a later tick's set is not
+        // heard yet. The frame's own ConVars are put back after each.
         foreach (HudGameEvent fired in events ?? [])
         {
+            HudState heard = HeardAt(state, fired.Event.Tick, reset);
+
             if (TfHudDeathNotice.ListensFor.Contains(fired.Event.Name))
             {
-                DeathNotice.HandleGameEvent(fired with { RealTime = state.RealTime });
+                DeathNotice.HandleGameEvent(fired with { RealTime = heard.RealTime });
             }
 
             if (TfHudTimeStatus.ListensFor.Contains(fired.Event.Name))
@@ -318,7 +342,7 @@ public sealed class VguiHud
 
             if (TfHudChat.ListensFor.Contains(fired.Event.Name))
             {
-                Chat.HandleGameEvent(fired.Event, state);
+                Chat.HandleGameEvent(fired.Event, heard);
             }
 
             if (TfHudMatchStatus.ListensFor.Contains(fired.Event.Name))
@@ -333,33 +357,35 @@ public sealed class VguiHud
 
             if (TfHudPlayerClass.ListensFor.Contains(fired.Event.Name))
             {
-                PlayerStatus.PlayerClass.HandleGameEvent(fired.Event, state);
+                PlayerStatus.PlayerClass.HandleGameEvent(fired.Event, heard);
             }
 
             if (TfHudPasstimeBallStatus.ListensFor.Contains(fired.Event.Name))
             {
-                ObjectiveStatus.Passtime.BallStatus.HandleGameEvent(fired, state);
+                ObjectiveStatus.Passtime.BallStatus.HandleGameEvent(fired, heard);
             }
 
             if (TfHudFlagObjectives.ListensFor.Contains(fired.Event.Name))
             {
-                ObjectiveStatus.FlagPanel.HandleGameEvent(fired, state);
+                ObjectiveStatus.FlagPanel.HandleGameEvent(fired, heard);
             }
 
             if (TfHudRobotDestruction.ListensFor.Contains(fired.Event.Name))
             {
-                ObjectiveStatus.RobotDestruction?.HandleGameEvent(fired, state);
+                ObjectiveStatus.RobotDestruction?.HandleGameEvent(fired, heard);
             }
 
             if (TfItemEffectMeterManager.ListensFor.Contains(fired.Event.Name))
             {
-                ItemEffectMeters.HandleGameEvent(fired.Event, state);
+                ItemEffectMeters.HandleGameEvent(fired.Event, heard);
             }
 
             if (TfFreezePanel.ListensFor.Contains(fired.Event.Name))
             {
-                FreezePanel.HandleGameEvent(fired, state);
+                FreezePanel.HandleGameEvent(fired, heard);
             }
+
+            Viewport.SetConVars(state.ConVars);
         }
 
         // `show_freezepanel`, `hide_freezepanel` and `freezecam_started` are fired client-side (c_baseplayer.cpp:905, :922,
@@ -393,19 +419,25 @@ public sealed class VguiHud
         _lastLocal = local;
 
         // `HOOK_HUD_MESSAGE`: the chat's user messages, as they are read.
+        // Read with the events of their tick, so with that tick's ConVars too (B839).
         foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])
         {
+            HudState heard = HeardAt(state, message.Tick, reset);
+
             // `USER_MESSAGE( PlayerPickupWeapon )` fires `localplayer_pickup_weapon` client-side (clientmode_tf.cpp:2469-2475).
             if (message.Name == Core.Scene.SceneUserMessage.PlayerPickupWeapon)
             {
                 SceneGameEvent pickup = ClientEvent(message.Tick, "localplayer_pickup_weapon");
 
-                PlayerStatus.PlayerClass.HandleGameEvent(pickup, state);
-                ItemEffectMeters.HandleGameEvent(pickup, state);
-                continue;
+                PlayerStatus.PlayerClass.HandleGameEvent(pickup, heard);
+                ItemEffectMeters.HandleGameEvent(pickup, heard);
+            }
+            else
+            {
+                Chat.HandleUserMessage(message, heard);
             }
 
-            Chat.HandleUserMessage(message, state);
+            Viewport.SetConVars(state.ConVars);
         }
 
         // `C_TFPlayer::ClientThink`'s `g_ItemEffectMeterManager.Update( this )` for the local player (c_tf_player.cpp:6021),

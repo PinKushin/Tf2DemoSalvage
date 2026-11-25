@@ -217,7 +217,7 @@ public static class HudStates
 
         hudState = hudState with
         {
-            ConVars = hudState.ConVars with { Client = view.ClientConVars },
+            ConVars = hudState.ConVars with { Client = view.ClientConVars, ClientAt = view.ClientConVarsAt },
             RealTime = view.RealTime,
             Fov = view.Fov,
             View = view.Viewing,
@@ -260,6 +260,7 @@ public static class HudStates
 /// <param name="Followed">The player that camera follows, or null.</param>
 /// <param name="Viewing">The camera the last frame was drawn through: the local player's `CalcView`, or null before one.</param>
 /// <param name="Speaking">The speakers whose voice sounds now (`VoicePresenter.Speaking`), or null where none plays.</param>
+/// <param name="ClientConVarsAt">The client's convars as a demo tick of the frame reads them, or null for all (B839).</param>
 public readonly record struct HudView(
     DemoTimeline? Timeline,
     int Tick,
@@ -272,4 +273,5 @@ public readonly record struct HudView(
     CameraMode Mode,
     int? Followed,
     FreeCamera? Viewing = null,
-    IReadOnlySet<int>? Speaking = null);
+    IReadOnlySet<int>? Speaking = null,
+    Func<int, Func<string, string?>?>? ClientConVarsAt = null);

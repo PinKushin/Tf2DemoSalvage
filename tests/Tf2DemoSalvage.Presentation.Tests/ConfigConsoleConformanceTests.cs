@@ -2752,6 +2752,25 @@ public sealed class ConfigConsoleConformanceTests
         triggered.ShouldBe(raised);
     }
 
+    /// <remarks>
+    /// **A set announces the value it replaced** (B839, review 1, Sonnet), as the console read it just before, under the
+    /// ConVar's own name whatever case it was typed in: the first set replaced nothing (its default), the second the
+    /// first's 3.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ASetAfterAnother_AnnouncesTheValueItReplaced()
+    {
+        ConfigConsole console = new();
+        List<(string Name, string Value, string? Before)> sets = [];
+        console.ConVarSet += (_, set) => sets.Add((set.Name, set.Value, set.Before));
+        console.Load("bind j \"HUD_DeathNotice_Time 3\"\nbind k \"hud_deathnotice_time 9\"");
+
+        console.KeyDown("j");
+        console.KeyDown("k");
+
+        sets.ShouldBe([("hud_deathnotice_time", "3", null), ("hud_deathnotice_time", "9", "3")]);
+    }
+
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
     private static List<string> Recorded(ConfigConsole console)
     {

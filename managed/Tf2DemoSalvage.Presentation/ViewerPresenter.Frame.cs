@@ -23,6 +23,7 @@ public readonly record struct WindowFrame(
 /// <param name="ShowOnly">Shows a tick with no replay before it: the window notes the tick, then calls <see cref="ViewerPresenter.Show"/>.</param>
 /// <param name="Bindings">Which key performs which action, for the HUD's key labels.</param>
 /// <param name="ClientConVars">The watcher's own ConVar values, or null where unset.</param>
+/// <param name="ClientConVarsAt">Those values as a demo tick of the frame reads them, or null where it reads them as they are now (B839).</param>
 /// <param name="VguiSeconds">The HUD's real-time clock.</param>
 /// <param name="ScoresHeld">Whether `+showscores` is held.</param>
 /// <param name="LastFrameSeconds">How long the last frame took, for `cl_showfps`.</param>
@@ -36,6 +37,7 @@ public sealed record ViewerWindow(
     Action<double> ShowOnly,
     Func<KeyBindings> Bindings,
     Func<string, string?> ClientConVars,
+    Func<int, Func<string, string?>?> ClientConVarsAt,
     Func<double> VguiSeconds,
     Func<bool> ScoresHeld,
     Func<double> LastFrameSeconds);
@@ -132,7 +134,8 @@ public sealed partial class ViewerPresenter
             _camera.EffectiveMode,
             _camera.Followed(hudTick),
             _lastViewing,
-            SpeakingNow),
+            SpeakingNow,
+            Window.ClientConVarsAt),
          _camera.ViewMatrix(),
          ViewFrameNow);
 
