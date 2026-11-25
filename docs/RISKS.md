@@ -46489,6 +46489,23 @@ Review 6 (Fable, Gemini, Sonnet):
   reddens the throw test alone; no case folding reddens the case test alone; the launch line without a pass reddens
   its replay test alone. 2,226 of 2,226 pass.
 
+Review 7 (Fable, Gemini: no findings, Sonnet):
+- **The finder folds `./` and `\`, so the record must** (Fable): `GameArchives` reads through `V_RemoveDotSlashes`
+  (`tier1/strtools.cpp:2315`), so `exec ./shots` reaches `cfg/shots.cfg` under the game folder. Round 6's "no finder
+  resolves them" came from a file in the flat own folder, which refuses any separator. The key is now
+  `RemoveDotSlashes` upper-cased: `LoadFrom_ADotSlashSpellingOfAFileAnEarlierReadRan_ReplaysIt` (both slashes), which
+  reddens both cases without the folding.
+- **Pass 0 was unpinned** (Fable): `LoadFrom_AFileOnlyAKeyRanBefore_RunsAsNew` — a key's `exec` leaves no mark, so a
+  later read's first `exec` of the file takes its screenshot; reddens with the `_pass == 0` guard removed.
+- **`ABOVE-VALVE.md` gains the reread's row** (Sonnet): it is the viewer's own rule.
+- **Known bounds, recorded not changed:** "earlier" is by pass number, not by time, so a pass-1 waited `exec` that runs
+  after a later pass first ran the same file runs it as new, as TF2 runs both queued `exec`s (Fable). A waited one-shot
+  queued before a throw stays queued and fires, and the unrecorded file runs as new next read, so it fires twice
+  (Fable). A key pressed by a handler inside a pass takes that pass (Sonnet); nested passes number by allocation
+  (Sonnet); no production handler presses a key or loads inside a pass. The record keeps each file version's text
+  (Sonnet); a session reads a handful.
+- 2,229 of 2,229 pass.
+
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
 (`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.

@@ -763,10 +763,13 @@ public sealed class ConfigConsole
     private void ReadThrough(string path, string text) => _firstPass.TryAdd((RecordPath(path), text), _pass);
 
     /// <summary>
-    /// A config path as the file it names: the search path ignores case on Windows, so `exec Shots` and `exec shots` are
-    /// one file (B841 review 6, Fable, Gemini). *Not folded*: a `\` or a `./`, which no finder here resolves to a file.
+    /// A config path as the file it names, as the finder reads it: `V_RemoveDotSlashes` (`tier1/strtools.cpp:2315`,
+    /// <see cref="Content.Assets.GameArchives.RemoveDotSlashes"/>) unifies the slashes and drops empty and `.` segments
+    /// (B841 review 7, Fable), and the search path ignores case on Windows (review 6), so `exec Shots`, `exec ./shots` and
+    /// `exec shots` are one file.
     /// </summary>
-    private static string RecordPath(string path) => path.ToUpperInvariant();
+    private static string RecordPath(string path) =>
+        (Content.Assets.GameArchives.RemoveDotSlashes(path) ?? path).ToUpperInvariant();
 
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;

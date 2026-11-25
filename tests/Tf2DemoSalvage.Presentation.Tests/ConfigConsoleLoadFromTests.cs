@@ -471,6 +471,57 @@ public sealed class ConfigConsoleLoadFromTests
     }
 
     /// <remarks>
+    /// **The record names the file as the finder reads it** (B841 review 7, Fable): `V_RemoveDotSlashes` drops a `./` and
+    /// takes either slash, so the game's `exec ./shots` and `exec .\shots` reach the `cfg/shots.cfg` an earlier read ran.
+    /// The control: the first read takes it.
+    /// </remarks>
+    [TestCase("exec ./shots\n")]
+    [TestCase("exec .\\shots\n")]
+    public void LoadFrom_ADotSlashSpellingOfAFileAnEarlierReadRan_ReplaysIt(string spelling)
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "exec shots\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, game, NowhereFolder());
+        triggered().ShouldBe(1, "the control: the first read takes it");
+
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), spelling);
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A key's `exec` is no read's, and leaves no mark on the record** (B841 review 7, Fable): a key runs `shots.cfg`
+    /// between reads; a later read's new `autoexec.cfg` exec'ing it is the first READ to run it, and takes its screenshot.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AFileOnlyAKeyRanBefore_RunsAsNew()
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "bind k \"exec shots\"\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, game, NowhereFolder());
+        console.KeyDown("k");
+
+        for (int run = 0; run < 2; run++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        triggered().ShouldBe(1, "the control: the key's took it");
+
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(2);
+    }
+
+    /// <remarks>
     /// **A file whose run threw partway is not on the record** (B841 review 6, Fable, Gemini): its lines after the throw
     /// never ran, so the next read runs it as new and its later waited screenshot is taken.
     /// </remarks>
