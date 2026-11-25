@@ -113,6 +113,35 @@ public sealed class VguiHudTickConVarsTests
         notice.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **An event hears the server's ConVars of its own tick, on a replay too** (B843): the client applies a
+    /// `net_SetConVar` as its packet is read, and a seek's `demo_gototick` reads every packet to the tick. Tick 1000's
+    /// server value is 3, the frame's 9; the client ConVars stay the frame's on the replay (B839).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Think_AnEvent_HearsTheServersConVarsOfItsTick(bool reset)
+    {
+        VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
+        VguiHud hud = new(host, new EntityModelSet());
+        (string? Server, string? Client)? heard = null;
+        hud.DeathNotice.SoundEmitter = _ =>
+        {
+            HudConVars now = HudViewport.ConVarsOf(hud.DeathNotice);
+            heard ??= (now.GetString("mp_timelimit"), now.GetString("hud_deathnotice_time"));
+        };
+        HudConVars conVars = new(
+            static _ => "9", static _ => "9", static read => read < 1001 ? static _ => "3" : null, static read => read < 1001 ? static _ => "3" : null);
+        HudState state = new(
+            true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1, Players: [new ScenePlayer(1, 0f, 0f, 0f, 2, 100, 3)], ConVars: conVars);
+
+        host.BeginFrame(640, 480);
+        hud.Think(state, events: [Death(1000)], reset: reset);
+
+        heard.ShouldBe(("3", reset ? "9" : "3"));
+        HudViewport.ConVarsOf(hud.DeathNotice).GetString("mp_timelimit").ShouldBe("9", "the frame's own, put back after");
+    }
+
     /// <summary>A domination by the recorder at a tick, which the death notice sounds (`PlayRivalrySounds`).</summary>
     private static HudGameEvent Death(int tick)
     {

@@ -46434,14 +46434,40 @@ the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick f
 the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
 each tick the frame plays, on the state after the tick before it. *Not fixed*.
 
-## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — OPEN
+## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN
 
-Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
+Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last `net_SetConVar`; the client
+applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole: `CameraPresenter` (`SetServer`, the
+free camera's movement limits), `EffectEntities` and `IMomentSource` (`TfHolidays.IsChristmasActive`'s
+`tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the interpolation window
+(`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`). A server that sets
+one mid-recording plays the whole demo under its last value. *Read*, not measured. Fix shape: each reader asks
+`ServerConVarsAt` its moment; the interpolation window needs the widest reach over the recording, which is a separate
+question from the value at a tick. *Not fixed*.
+
+## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** Worse than filed: the HUD did not read the frame's tick either. `HudStates.For` and the voice icons'
+`HeadLabels` took `DemoTimeline.ServerConVars`, the recording's last values, so a HUD at any tick ran under whatever the
+server sent last. Both now take `HudStates.ServerConVars(timeline, tick)`: the values at the shown tick, and
+`HudConVars.FindAt`, which `HudConVars.At` and `ServerAt` use to hand each event the values at its own tick. A replay
+after a seek swaps only the server's (`ServerAt`): `demo_gototick` reads every packet to the tick, so their
+`net_SetConVar`s apply in order, while the client's stay the frame's (B839). Engine: each host tick's `CL_ReadPackets`
+(`_Host_RunFrame`, `engine.dll` build 1007 FUN_1801a5eb0, read in B839) parses that tick's messages, and the
+`net_SetConVar` handler sets the value as it is read (B450). That handler is in the closed engine and not disassembled:
+*interpolated* from B450, as `ServerConVarsAt` already is. **Known bound:** an event and a
+`net_SetConVar` of the same tick are ordered as the set first; the stream order inside a tick is not carried.
+Tests: `HudStatesTests.For_ATickBetweenTwoSets_ReadsTheServersValueAtThatTick`,
+`VguiHudTickConVarsTests.Think_AnEvent_HearsTheServersConVarsOfItsTick`. Sabotage, each restored: the whole-recording
+value back in `ServerConVars` reddens the first; the replay without `ServerAt` reddens the second's replay case; `At`
+not calling `ServerAt` reddens the first and the second's live case. The rest of the whole-recording readers: B848.
+
+The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
 tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an
 earlier tick in a several-tick frame hears a value a later tick's packet set. *Read*, not measured. Fix shape: hand
 each event the server's ConVars at its own tick (`DemoTimeline.ServerConVarsAt(tick)`), as `HudEventFeed.Resolve`
-already hands it the rules at its tick. *Not fixed*.
+already hands it the rules at its tick.
 
 ## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — FIXED (2026-11-25)
 

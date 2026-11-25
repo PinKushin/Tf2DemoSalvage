@@ -74,6 +74,27 @@ public sealed class HudStatesTests
                 ServerName: "synthetic",
                 IsReplay: false))));
 
+    /// <remarks>
+    /// **The HUD reads the server's ConVars as of its tick, and an event as of its own** (B843): the client applies each
+    /// `net_SetConVar` as its packet is read (`DemoTimeline.ServerConVarsAt`, B450), so a frame at tick 15 runs under the
+    /// 30 sent at tick 10, not the 20 the recording ends with; an event of tick 12 hears 30 and one of tick 25 hears 20.
+    /// The default before either is the control that the lookup reaches the start.
+    /// </remarks>
+    [Test]
+    public void For_ATickBetweenTwoSets_ReadsTheServersValueAtThatTick()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (10, [SetConVar("mp_timelimit", "30")]),
+            (20, [SetConVar("mp_timelimit", "20")])));
+        HudConVars conVars = HudStates.For(timeline, 15).ConVars;
+
+        (conVars.GetString("mp_timelimit"), conVars.At(12).GetString("mp_timelimit"), conVars.At(25).GetString("mp_timelimit"),
+            conVars.ServerAt(5).GetString("mp_timelimit")).ShouldBe(("30", "30", "20", "0"));
+    }
+
+    private static Core.Net.SetConVarMessage SetConVar(string name, string value) =>
+        new([new System.Collections.Generic.KeyValuePair<string, string>(name, value)]);
+
     [Test]
     public void From_ADeadLifeState_IsNotAlive() =>
         HudStates.From(Player() with { LifeState = 2 }, 0).Alive.ShouldBeFalse();

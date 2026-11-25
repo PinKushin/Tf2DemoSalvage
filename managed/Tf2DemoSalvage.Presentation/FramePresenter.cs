@@ -458,7 +458,7 @@ public sealed partial class FramePresenter
         ((float X, float Y, float Z) _, (float X, float Y, float Z) right, (float X, float Y, float Z) _) = viewing.Basis();
 
         return _headLabels.For(
-            new Scene.Hud.HudConVars(timeline.ServerConVars.Value),
+            HudStates.ServerConVars(timeline, _frame.Tick),
             _frame.Speaking,
             _moments.PlayersShownAt(_frame.Tick),
             new System.Numerics.Vector3(right.X, right.Y, right.Z),

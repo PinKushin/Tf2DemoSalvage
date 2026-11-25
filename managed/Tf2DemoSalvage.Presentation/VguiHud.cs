@@ -194,12 +194,13 @@ public sealed class VguiHud
     /// <param name="tick">The tick whose packet carried the event or message.</param>
     /// <param name="reset">
     /// Whether the frame follows a seek or a reverse step, whose events are a replay read after every run the frame made
-    /// (B839 review 1, Fable, Sonnet): they hear the frame's own ConVars.
+    /// (B839 review 1, Fable, Sonnet): they hear the frame's own client ConVars, and the server's of their own tick, whose
+    /// packets the replay reads (B843).
     /// </param>
     /// <returns>The state the tick's listeners hear.</returns>
     private HudState HeardAt(in HudState state, int tick, bool reset)
     {
-        HudConVars conVars = reset ? state.ConVars : state.ConVars.At(tick);
+        HudConVars conVars = reset ? state.ConVars.ServerAt(tick) : state.ConVars.At(tick);
         Viewport.SetConVars(conVars);
 
         return conVars == state.ConVars ? state : state with { ConVars = conVars };
