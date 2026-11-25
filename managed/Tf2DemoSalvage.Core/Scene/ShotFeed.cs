@@ -27,7 +27,7 @@ public sealed class ShotFeed
     /// <summary>Takes one decoded temp entity if it is a shot.</summary>
     /// <param name="className">The class the effect's id resolved to.</param>
     /// <param name="effect">The decoded effect.</param>
-    /// <param name="tick">The demo tick its packet arrived on.</param>
+    /// <param name="tick">The demo tick it fires on (`FireTick`).</param>
     /// <param name="shooter">The player at an entity index as the client's list has them now, or null.</param>
     /// <param name="tempEntity">Its place among all the demo's temp entities, or 0.</param>
     /// <param name="reliable">Whether it came reliably.</param>

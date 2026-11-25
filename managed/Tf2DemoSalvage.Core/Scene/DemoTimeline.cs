@@ -882,6 +882,11 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`TF_GAMETYPE_ARENA` (tf_shareddefs.h:283).</summary>
     public const int GameTypeArena = 4;
 
+    /// <summary>
+    /// The rules with nothing sent: the constructor runs the property initializers, which `default` skips (B856).
+    /// </summary>
+    public static SceneGameRules Unsent { get; } = new(false, 0, false);
+
     /// <summary>`IsInWaitingForPlayers()`: `m_bInWaitingForPlayers` (teamplayroundbased_gamerules.cpp:108).</summary>
     public bool WaitingForPlayers { get; init; }
 
@@ -2682,9 +2687,9 @@ public sealed class DemoTimeline
     /// what the engine does for a server that changed nothing, so a timeline built from tracks for
     /// a test is not a special case needing a guard at every reader.
     ///
-    /// This is where a mod's altered movement arrives. A vanilla competitive server sends forty
-    /// values without touching movement and every one of these stays at its default;
-    /// <c>ServerConVars.Changed</c> is what distinguishes that from a jump or surf server.
+    /// **The values after the recording's last `net_SetConVar`**: a reader at a moment asks <see cref="ServerConVarsAt"/>
+    /// (B848). A vanilla competitive server sends forty values without touching movement and every one of these stays at
+    /// its default; <c>ServerConVars.Changed</c> is what distinguishes that from a jump or surf server.
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
@@ -9017,7 +9022,12 @@ public sealed class DemoTimeline
     /// <summary>The game rules the HUD tests, at a tick; the defaults before the first frame.</summary>
     /// <param name="tick">The tick.</param>
     /// <returns>The rules.</returns>
-    public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? default;
+    /// <remarks>
+    /// <see cref="SceneGameRules.Unsent"/> before the first frame, never `default` (B856): `default` of a struct skips the
+    /// property initializers, so it read `MatchGroup` 0 (MvM practice, whose description turns fixed spread off) where the
+    /// client's is -1, `TeamRespawnWaveTimes` 0 for -1 and `RopesHolidayLightsAllowed` false for true.
+    /// </remarks>
+    public SceneGameRules RulesAt(int tick) => FrameAt(tick)?.Rules ?? SceneGameRules.Unsent;
 
     /// <summary>The server's tick at a demo tick — the last `net_Tick` — or null before one arrived.</summary>
     /// <param name="tick">The demo tick.</param>

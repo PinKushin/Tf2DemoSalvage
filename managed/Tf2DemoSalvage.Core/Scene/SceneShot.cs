@@ -1,7 +1,7 @@
 namespace Tf2DemoSalvage.Core.Scene;
 
 /// <summary>One hitscan shot as `CTEFireBullets` carried it (B415).</summary>
-/// <param name="Tick">The demo tick its packet arrived on.</param>
+/// <param name="Tick">The demo tick it fires on: its packet's, plus `CL_QueueEvent`'s interpolation window (`FireTick`).</param>
 /// <param name="Shooter">The shooter's entity index: `m_iPlayer + 1`.</param>
 /// <param name="Origin">`m_vecOrigin`, where the bullets start.</param>
 /// <param name="Pitch">`m_vecAngles[0]`, in degrees. There is no roll on the wire, and the client zeroes it.</param>

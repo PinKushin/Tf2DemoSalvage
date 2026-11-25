@@ -46742,8 +46742,9 @@ signon game event matters more now that it hears the ConVars of its tick (B843).
 
 ## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — OPEN
 
-Split from B848 when it was filed, before any fix, because it is a different mechanism: not a value read at a moment
-but a delay every track samples behind. `DemoTimeline` sets every track's `InterpolationDelayTicks` once, from
+Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
+filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay
+every track samples behind. `DemoTimeline` sets every track's `InterpolationDelayTicks` once, from
 `client.Amount(end.ServerConVars)`, and the checkpoint walk's reach from `WindowReach.For(…, _end.ServerConVars, …)`.
 The engine's `GetClientInterpAmount` is computed when asked, clamping `cl_interp_ratio` by the replicated
 `sv_client_min_interp_ratio` and `sv_client_max_interp_ratio` as they stand, so a server that changes them mid-recording
@@ -46751,32 +46752,62 @@ changes the delay from that tick on. *Read*, not measured; such a change is rare
 sign-on. Fix shape: a delay schedule by tick from the ConVar history, read by `ScenePropTrack.At` and `Motion` (whose
 wakes add the delay to changetimes), and a walk reach that covers the widest delay over the recording. *Not fixed*.
 
-## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — FIXED (2026-11-25)
+## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN (part 1 fixed; the interpolation window, B849, finishes on this branch)
 
-**Fixed.** Each reader asks `DemoTimeline.ServerConVarsAt` at its own moment:
+**Part 1 fixed.** Each reader asks `DemoTimeline.ServerConVarsAt` at its own moment:
 
-- the free camera, every frame it flies (`CameraPresenter.Fly`): `FullNoClipMove` reads `sv_maxspeed` and
-  `sv_specspeed` on each move (`gamemovement.cpp:2260`). `FreeCameraController.SetServer` returns at once for the
-  instance it already holds, so its log line still fires only on a change;
+- the free camera, every frame it flies (`CameraPresenter.Fly`): `FullNoClipMove` reads `sv_maxspeed` on each move
+  (`gamemovement.cpp:2260`), and its callers pass `sv_specspeed` in as `factor` (`:2171`, `:2186`).
+  `FreeCameraController.SetServer` returns at once for the instance it already holds, so its log line fires only on a
+  change. The set when the free camera is placed (`CameraPresenter`) is overwritten by `Fly` before any flight reads it;
 - the Halloween vision flag (`TimelineMoments.HolidayVisionFlagsAt`) and the ropes' Christmas check
-  (`EffectEntities.RopeHolidayStyle`, the tick its rules are read at): `TF_IsHolidayActive` reads `tf_forced_holiday`
-  when asked (`tf_gamerules.cpp:1030-1060`);
-- each shot's fixed spread (`HitscanTracers.Trace`'s `fixedSpreadAt`, called with the shot's tick from `LoadedMap`):
-  `IsFixedWeaponSpreadEnabled` is read as `FX_FireBullets` runs, when the shot's packet is read.
+  (`TimelineMoments.ChristmasActiveAt`, asked by `EffectEntities` at the tick its rules are read at): `TF_IsHolidayActive`
+  reads `tf_forced_holiday` when asked (`tf_gamerules.cpp:1030-1060`);
+- each shot's fixed spread (`TimelineMoments.FixedWeaponSpreadAt`, called from `LoadedMap` through `HitscanTracers.Trace`'s
+  `fixedSpreadAt` with the shot's tick): `IsFixedWeaponSpreadEnabled` is read as `FX_FireBullets` runs, which is the
+  shot's fire tick, one interpolation window after its packet (`SceneShot.Tick`, from `FireTick`). **And the match
+  group's description overrides the ConVar** (`tf_fx_shared.cpp:419-423`, review 1, Fable): ladder 6v6 (2) and the event
+  placeholder (8) fixed, MvM (0, 1) and casual 12v12 (7) not, any other group the ConVar.
 
 Tests: `CameraPresenterTests.Fly_BeforeAndAfterTheServerRaisedItsSpeeds_MovesAtEachTicksSpeed` (96, 384, then 96 again
 units a frame), `TimelineMomentsTests.HolidayVisionFlagsAt_BeforeAndAfterTheServerForcedHalloween_FollowsEachTick`,
-`HitscanTracersConformanceTests.Trace_ABlastBeforeAndAfterTheServerTurnedFixedSpreadOn_ScattersOnlyTheFirst`. Sabotage,
-each restored: the camera on the whole-recording value, the holiday flag on it, and every shot read at one tick each
-redden their own test. **Not tested:** the Christmas call site in `EffectEntities` and the `LoadedMap` call site, which
-need a rope and a map the unit rigs do not build. The interpolation delay: B849.
+`…ChristmasActiveAt_BeforeAndAfterTheServerForcedChristmas_FollowsEachTick`,
+`…FixedWeaponSpreadAt_BeforeAndAfterTheServerTurnedItOn_FollowsEachTick`,
+`…FixedWeaponSpreadFor_AMatchGroup_OverridesTheConVarWhereItHasADescription`,
+`HitscanTracersConformanceTests.Trace_ABlastBeforeAndAfterTheServerTurnedFixedSpreadOn_ScattersOnlyTheFirst`,
+`FreeFlightServerSpeedTests.SetServer_TheSameServerTwiceThenANewOne_LogsTheChangeTwice`. Sabotage, each restored: the
+camera on the whole-recording value, the holiday flag on it, and every shot read at one tick each redden their own test.
+
+Review 1 (Fable, Sonnet, Codex). Fixed: the Christmas and fixed-spread reads were lambdas no test reached (all three);
+each is a `TimelineMoments` member with its own test, and `EffectEntities` keeps the tick rather than the ConVars. The
+holiday test's control was the real clock, which failed it on Halloween and full-moon days (Fable): the server holds
+holidays off until tick 10. The match group override (Fable). The `SetServer` guard had no test (Fable, Sonnet). Filed
+and fixed: **B856** (`RulesAt` before the first frame). **Corrected**: this entry first said the interpolation delay
+was split off "when it was filed, before any fix" (Fable): it was split on this branch after part 1, and a part the
+entry names finishes on its branch (D261), so B849 is done here before B848 merges; the spread was said to be read "when
+the shot's packet is read", but `SceneShot.Tick` is the fire tick (`RecordEffects` hands the feeds `FireTick`), and the
+shot docs that said arrival are corrected; the original entry's fix shape was dropped below and is restored. Not taken:
+a shot's tick being the wrong one (Fable): it is the fire tick. Sabotage, each restored: the Christmas and spread reads
+on the whole-recording value each redden their test; the `SetServer` guard removed reddens the log test.
 
 The original entry follows. Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last
 `net_SetConVar`; the client applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole:
 `CameraPresenter` (`SetServer`, the free camera's movement limits), `EffectEntities` and `IMomentSource`
 (`TfHolidays.IsChristmasActive`'s `tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the
 interpolation window (`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`).
-A server that sets one mid-recording plays the whole demo under its last value. *Read*, not measured.
+A server that sets one mid-recording plays the whole demo under its last value. *Read*, not measured. Fix shape: each
+reader asks `ServerConVarsAt` its moment; the interpolation window needs the widest reach over the recording, which is a
+separate question from the value at a tick. *Not fixed*.
+
+## B856 — the game rules before the first frame were a zeroed struct, not the client's unsent defaults (2026-11-25) — FIXED (2026-11-25)
+
+Found in B848 review 1, by the fixed-spread test failing on a synthetic demo. `DemoTimeline.RulesAt` answered `default`
+with no frame, and `default` of a struct skips its property initializers: `MatchGroup` 0 (MvM practice, whose
+description turns fixed spread off) where the client's unsent value is -1, `TeamRespawnWaveTimes` 0 where it is -1, and
+`RopesHolidayLightsAllowed` false where the constructor's is true (`tf_gamerules.cpp:1644`). **Fixed**: `RulesAt` answers
+`SceneGameRules.Unsent`, built by the constructor. Test: `SceneGameRulesTests.RulesAt_BeforeTheFirstFrame_IsTheUnsentDefaults`;
+`default` restored reddens it. Not changed: a `TimelineFrame` or `HudViewport` constructed without rules still defaults
+the struct; every decoded frame sets all three from the entity or its unsent value.
 
 ## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — FIXED (2026-11-25)
 

@@ -186,8 +186,8 @@ public sealed class HitscanTracers
     /// <param name="shots">Every shot, in fire order.</param>
     /// <param name="sweep">The world trace at a tick along a segment.</param>
     /// <param name="fixedSpreadAt">
-    /// `IsFixedWeaponSpreadEnabled` at a shot's tick (B848): the client fires a shot as its packet is read, under every
-    /// `net_SetConVar` read by then.
+    /// `IsFixedWeaponSpreadEnabled` at a shot's tick (B848): `FX_FireBullets` reads it as the shot fires, one interpolation
+    /// window after its packet, under every `net_SetConVar` read by then.
     /// </param>
     /// <param name="impacts">When given, every bullet the world stopped, in fire order.</param>
     /// <returns>The tracers.</returns>

@@ -35,7 +35,7 @@ public sealed class EffectFeeds
     /// <summary>Offers one decoded temp entity to each feed until one takes it.</summary>
     /// <param name="className">The class the effect's id resolved to.</param>
     /// <param name="effect">The decoded effect.</param>
-    /// <param name="tick">The tick its packet arrived on.</param>
+    /// <param name="tick">The tick it fires on (`FireTick`): its packet's plus the interpolation window.</param>
     /// <param name="isPlayer">Whether an entity index names a player right now.</param>
     /// <param name="shooter">A shot's shooter as the client sees them right now.</param>
     /// <param name="reliable">Whether its message came reliably — a zero count (B504).</param>

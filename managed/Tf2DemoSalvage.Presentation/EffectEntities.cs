@@ -640,8 +640,8 @@ public sealed class EffectEntities
 
         // The Christmas question is asked lazily, through one delegate made once over the frame and these rules rather
         // than a closure per frame (B599). It reads the frame's own timeline, so no field of its own holds one (B612).
-        _holidayRules = rules;
-        _holidayConVars = timeline.ServerConVarsAt(tick);
+        _holidayTimeline = timeline;
+        _holidayTick = tick;
 
         return _ropeHolidayMode.Style(
             rules.Present,
@@ -651,18 +651,17 @@ public sealed class EffectEntities
             (_frame.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
     }
 
-    private SceneGameRules _holidayRules;
+    /// <summary>The timeline and tick <see cref="RopeHolidayStyle"/> last read the rules at (B848).</summary>
+    private Core.Scene.DemoTimeline? _holidayTimeline;
 
-    /// <summary>The server's replicated ConVars at the tick <see cref="RopeHolidayStyle"/> last read (B848).</summary>
-    private Core.Net.ServerConVars? _holidayConVars;
+    private int _holidayTick;
 
     /// <summary>
-    /// `IsChristmasActive` for the rules and the server's `tf_forced_holiday` <see cref="RopeHolidayStyle"/> last read: the
-    /// values as of that tick, every `net_SetConVar` read by then (B848), not the recording's last.
+    /// `IsChristmasActive` at the tick <see cref="RopeHolidayStyle"/> last read: the rules and every `net_SetConVar` read by
+    /// then (B848), not the recording's last.
     /// </summary>
     private bool ChristmasActive() =>
-        _holidayConVars is { } server &&
-        TfHolidays.IsChristmasActive(server.Value, _holidayRules.MapHolidayType, TfHolidays.WatcherClock);
+        _holidayTimeline is { } timeline && TimelineMoments.ChristmasActiveAt(timeline, _holidayTick);
 
     /// <summary>
     /// <c>CHolidayLightManager::AddHolidayLight</c> for each light the build just dispatched, against the local player's

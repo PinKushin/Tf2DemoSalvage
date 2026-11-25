@@ -392,6 +392,46 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             ? VisionVisibility.HalloweenFlag
             : 0;
 
+    /// <summary>`TF_IsHolidayActive( kHoliday_Christmas )` at a tick: the server's ConVars and rules as of it (B848).</summary>
+    /// <param name="timeline">The demo.</param>
+    /// <param name="tick">The tick asked about.</param>
+    /// <returns>Whether Christmas is active then, by the server or the watcher's calendar.</returns>
+    public static bool ChristmasActiveAt(DemoTimeline timeline, int tick)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        return TfHolidays.IsChristmasActive(
+            timeline.ServerConVarsAt(tick).Value, timeline.RulesAt(tick).MapHolidayType, TfHolidays.WatcherClock);
+    }
+
+    /// <summary>`IsFixedWeaponSpreadEnabled()` for a shot at a tick (`tf_fx_shared.cpp:415-434`), B848.</summary>
+    /// <param name="timeline">The demo.</param>
+    /// <param name="tick">The shot's tick.</param>
+    /// <returns>Whether the shot's pellets take the fixed pattern.</returns>
+    /// <remarks>`GetInt`, so 0.5 is off and `1 x` on (B823 review 1, Fable). The weapon attribute branch is dead for a
+    /// demo's shot, which `FX_FireBullets` runs with no weapon.</remarks>
+    public static bool FixedWeaponSpreadAt(DemoTimeline timeline, int tick)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        return FixedWeaponSpreadFor(timeline.RulesAt(tick).MatchGroup, timeline.ServerConVarsAt(tick).GetBool("tf_use_fixed_weaponspreads"));
+    }
+
+    /// <summary>
+    /// The match group's word over `tf_use_fixed_weaponspreads`: `BUsesFixedWeaponSpread()` wherever
+    /// `GetMatchGroupDescription` finds a description (`tf_fx_shared.cpp:419-423`). The ladder description sets it
+    /// (`tf_match_description_comp.cpp:42`), registered for 6v6 ladder (2, `:224`) and inherited by the event placeholder
+    /// (8, `:226-266`); MvM (0, 1) and casual 12v12 (7) keep the base's false (`tf_match_description.h:167`). Any other
+    /// group has no description, so the ConVar stands.
+    /// </summary>
+    /// <param name="matchGroup">`m_nMatchGroupType`.</param>
+    /// <param name="conVar">`tf_use_fixed_weaponspreads`.</param>
+    /// <returns>Whether fixed spread is on.</returns>
+    public static bool FixedWeaponSpreadFor(int matchGroup, bool conVar) => matchGroup switch
+    {
+        2 or 8 => true,
+        0 or 1 or 7 => false,
+        _ => conVar,
+    };
+
     /// <inheritdoc />
     public int HalloweenScenarioAt(double tick) => timeline.RulesAt((int)Math.Floor(tick)).HalloweenScenario;
 
