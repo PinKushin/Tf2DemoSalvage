@@ -4276,8 +4276,17 @@ public sealed class DemoTimeline
 
                         // A signon's tick is the server's when recording began, not a playback tick (`z1800`: 70,718
                         // against a first packet at 6), and the set applies before any packet, so it holds from the start
-                        // (B843 review 4, Fable), as the light styles' does above.
-                        conVarHistory.Add((command.Type == DemoCommandType.Signon ? int.MinValue : command.Tick, serverConVars.Snapshot()));
+                        // (B843 review 4, Fable), as the light styles' does below. A signon after a packet's set (none is
+                        // known) is applied when read, so it takes the last stamp and the history stays in tick order
+                        // (review 5, Fable, Sonnet).
+                        int stamp = command.Tick;
+
+                        if (command.Type == DemoCommandType.Signon)
+                        {
+                            stamp = conVarHistory.Count > 0 ? conVarHistory[conVarHistory.Count - 1].Tick : int.MinValue;
+                        }
+
+                        conVarHistory.Add((stamp, serverConVars.Snapshot()));
                         continue;
 
                     // **The director telling the camera how to frame this shot** — `hltv_chase`,

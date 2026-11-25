@@ -67,8 +67,35 @@ public sealed class ServerConVarsAtTests
                 .. Enumerable.Range(6, 5).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
             ]));
 
-        (timeline.ServerConVarsAt(1).Number("sv_gravity"), timeline.ServerConVarsAt(5).Number("sv_gravity"),
-            timeline.ServerConVarsAt(600).Number("sv_gravity")).ShouldBe((400f, 200f, 200f));
+        // A negative tick too (review 5, Fable, Sonnet): a stamp of 0 would answer every tick asked above.
+        (timeline.ServerConVarsAt(-1000).Number("sv_gravity"), timeline.ServerConVarsAt(1).Number("sv_gravity"),
+            timeline.ServerConVarsAt(5).Number("sv_gravity"), timeline.ServerConVarsAt(600).Number("sv_gravity"))
+            .ShouldBe((400f, 400f, 200f, 200f));
+    }
+
+    /// <remarks>
+    /// **A signon after a packet's set is applied when read, not from the start** (B843 review 5, Fable, Sonnet): it takes
+    /// the stamp before it, so the history stays in tick order. Set to 200 by a packet at 5, then 100 by a signon stamped
+    /// 900: tick 4 still reads Valve's 800 and tick 5 on reads 100.
+    /// </remarks>
+    [Test]
+    public void ServerConVarsAt_ASignonAfterAPacketsSet_HoldsFromWhereItWasRead()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                .. Enumerable.Range(1, 4).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 5, SetConVar("sv_gravity", "200")),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 900, SetConVar("sv_gravity", "100")) with
+                {
+                    Type = Core.Container.DemoCommandType.Signon,
+                },
+                .. Enumerable.Range(6, 5).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+            ]));
+
+        (timeline.ServerConVarsAt(4).Number("sv_gravity"), timeline.ServerConVarsAt(5).Number("sv_gravity"),
+            timeline.ServerConVarsAt(8).Number("sv_gravity")).ShouldBe((800f, 100f, 100f));
     }
 
     /// <remarks>

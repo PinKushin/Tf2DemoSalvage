@@ -46728,6 +46728,17 @@ the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick f
 the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
 each tick the frame plays, on the state after the tick before it. *Not fixed*.
 
+## B852 — histories other than the ConVars still stamp a signon's message with the signon's tick (2026-11-25) — OPEN
+
+Found in B843 review 5 (Fable, Sonnet). A signon command's tick is the server's when recording began, far above the
+packets' (`z1800`: 70,718 against 6). Sounds, light styles, voice inits and now the ConVar history allow for it; these
+still stamp `command.Tick` and so would put a signon message after every packet in time, and out of tick order in lists
+read by binary search or `TailList.DropBefore`: `gameEvents`, `touchChanges`, `director`, `userMessages`,
+`spectatorGuiChanges`, viewmodels, soundscapes, tonemap, shadow control, suns, point cameras, fog, gestures and frames
+(`DemoTimeline`). Whether any signon carries such a message is **not measured**. Fix shape: a probe counting message
+types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
+signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
+
 ## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN
 
 Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last `net_SetConVar`; the client
@@ -46810,7 +46821,19 @@ defect; prediction's `ServerConVarsAt` readers get the fix. Fixed too: `NotCopie
 attribute is a guard against a copy keeping the original's delegate, not the fix of a live fault. Not taken: a voice-icon
 case at the set's own tick (Sonnet); `HudStates.ServerConVars` is the one call both sites make, and its boundary is
 tested. Sabotage, each restored: the old stamp reddens the synthetic and the corpus tests; no attribute reddens the copy
-test. Core 3,300 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269.
+test. Core 3,300 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269, Corpus 151 passed and 93 skipped of
+244 with gcor alone in this worktree (no lcor junction).
+
+Review 5 (Fable, Gemini, Sonnet). No blocking finding. Fixed: a signon after a packet's set would have appended
+`int.MinValue` behind a higher tick and unsorted the history (Fable, Sonnet): a signon set takes `int.MinValue` only while
+the history is empty, else the stamp before it, so it holds from where it was read
+(`ServerConVarsAt_ASignonAfterAPacketsSet_HoldsFromWhereItWasRead`; no corpus demo is known to have one); a stamp of 0
+would have passed every tick asked (Fable, Sonnet): the test reads tick -1000; the comment said "above" for the light
+styles below. **Corrected:** the corpus test's demo is the 2011 SourceTV granary, not `z1800`; that its signon is stamped
+above tick 0 is shown by the test reddening under the old stamp, not by a stated tick. **Softened:** prediction's
+`ServerConVarsAt` readers (`RecorderPrediction`) now read the signon's values at the opening, which no test asserts.
+Filed: the other histories stamped by a signon's tick, as **B852**. Sabotage, each restored: a stamp of 0 reddens the
+first signon test; the late-signon branch dropped reddens the second.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
