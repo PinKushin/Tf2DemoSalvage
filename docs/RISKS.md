@@ -46878,9 +46878,9 @@ unsorted history would blind the search for every later tick (Fable, Sonnet); tr
 answer moves, so the remark says the tick-7 read is the one that sees the clamp. `ConVarChanges`'s summary restated part
 of the stamp rule and is now a pointer to the builder and to review 8 (Sonnet); the resume test's remark no longer
 guesses the dropped field's default (Fable). The first signon test reads `int.MinValue` too, so a stamp of
-`int.MinValue + 1` reddens it (run, restored). The clamp reading the first stamp instead of the last survived (Sonnet);
-review 9 wrongly called it unreachable, and review 10 (Fable) gave the stream that tells them apart: a set at tick 2
-before the late signon, now in the repeat test. Core `ServerConVarsAtTests` 9 of 9.
+`int.MinValue + 1` reddens it (run, restored). Not taken at the time: the clamp reading the first stamp instead of the
+last, which survived (Sonnet), called unreachable. *(Correction added in review 10: it is reachable, and is now killed
+by the stored-stamps assertion; see review 10.)* Core `ServerConVarsAtTests` 9 of 9.
 
 Review 10 (Fable, Gemini, Sonnet). No blocking finding. Fable predicted that a set at tick 2 would make a clamp to the
 first stamp read 50 at tick 7; **run, it did not**: the unsorted `[2, 8, 7]` is answered the same as the sorted history

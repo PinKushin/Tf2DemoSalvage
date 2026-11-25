@@ -112,10 +112,10 @@ public sealed class ServerConVarsAtTests
 
     /// <remarks>
     /// **The history stays in tick order whatever the stream does** (B843 review 8, Fable, Sonnet): a packet that repeats
-    /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8, and the search over the unsorted
-    /// history answers 50 at tick 7, before either set was read. Clamped, it takes 8, so tick 7 reads the 300 set at 2
-    /// (review 9: only the tick-7 read sees the clamp; tick 9 is 50 either way and stands as the value after both). The set
-    /// at 2 makes a clamp to the FIRST stamp fail too (review 10, Fable).
+    /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8. Clamped, it takes 8. The search
+    /// answers this unsorted `[2, 8, 7]` the same as the sorted history at every tick asked (review 10, run), so the
+    /// stored stamps are asserted directly: they are what the clamp, to the LAST stamp, decides. The values stand as what
+    /// a reader gets: 300 at tick 7 (the set at 2), 50 at tick 9.
     /// </remarks>
     [Test]
     public void ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder()
