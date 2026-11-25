@@ -180,7 +180,7 @@ history all held per-slot state the engine keeps on the object. B727 lists each.
 measured on the corpus; the overshoot is arithmetic. The fixes, their tests and their sabotages are B726 in
 `docs/RISKS.md`.
 
-## The interpolation amount is derived from the update rate, and POV differs from STV
+## The interpolation amount is derived from the update rate, and a locally recorded demo differs from one that is not
 
 `cdll_bounded_cvars.cpp:127`:
 
@@ -215,7 +215,7 @@ if ( bPlayingMultiplayer || bPlayingNonLocallyRecordedDemo )
 	return AdjustInterpolationAmount( this, TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple ) );
 ```
 
-A **non-locally-recorded** demo — an STV recording, *interpolated* like the POV reading below — takes the full `cl_interp` path. A **locally
+A **non-locally-recorded** demo — an STV recording, *interpolated*: not read (B861) — takes the full `cl_interp` path. A **locally
 recorded** one — a POV, *interpolated*: what `IsPlayingDemoALocallyRecordedDemo` answers is engine code not read (B861)
 — falls through to the tick-based branches below it, where anything both
 animated and simulated every tick gets `TICK_INTERVAL * expandedServerTickMultiple` instead: about

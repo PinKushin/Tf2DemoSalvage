@@ -46756,7 +46756,7 @@ are networked, so the viewer could decide per entity. Fix shape: read `IsPlaying
 `engine.dll` for WHICH demos it answers true (B848 reviews 6 and 7, Fable, *recalled* not read: by the header's server
 name being `localhost`, which would make it per demo, a listen-server recording yes and a POV recorded on a remote
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
-with a test predicting the engine's delay; if none, close this with the read. *Not fixed*.
+with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
 ## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
 
@@ -46863,6 +46863,12 @@ conclusion kept with what corrected it; its heading and two sentences that mappe
 distinction as fact are marked as the unread reading (Fable). B861's fix shape asks for WHICH demos, per specimen
 (Fable). `GetClientInterpAmount`'s cite is its line and its `MAX` (Fable). Not taken: Codex's "one tick against eight" as
 an overstatement: it is said of players, which set both flags for `MOVETYPE_WALK`.
+
+Review 8 of B848 (Fable, Sonnet, Codex: no merge blocker). Findings 20's section heading still named POV and STV as fact
+(all three; review 7's record had claimed it done): it names the engine's locally recorded distinction; the STV half of
+the mapping is marked unread as the POV half is (Sonnet); B861's closing condition is "if it answers true for no demo",
+not "none" in the corpus (Fable). Not taken: the corrected `cl_interp` paragraph sitting under "not implemented" (Fable,
+placement; the paragraph says it was wrong).
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay
