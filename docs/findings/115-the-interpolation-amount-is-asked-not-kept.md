@@ -11,24 +11,34 @@ whole demo under its final ones.
 
 ## What the client does
 
-`GetClientInterpAmount()` (`cdll_bounded_cvars.cpp:126`, **read**) is computed every time it is asked: the larger of
-`cl_interp` and `cl_interp_ratio / cl_updaterate`, the ratio clamped by the replicated `sv_client_min_interp_ratio` and
-`sv_client_max_interp_ratio` and the rate by `sv_minupdaterate`/`sv_maxupdaterate`, as the client has them then. The
-client applies each `net_SetConVar` as its packet is read (B450), so the amount at a tick is the one under that tick's
-bounds. `GetInterpolationAmount` rounds it to ticks and adds one (`c_baseentity.cpp:5920`, B267).
+`GetClientInterpAmount()` (`cdll_bounded_cvars.cpp:127-134`, **read**) is computed every time it is asked: the larger of
+`cl_interp` and `cl_interp_ratio / cl_updaterate`. The clamping is the bounded ConVars' own: `cl_interp`,
+`cl_interp_ratio` and `cl_updaterate` are `ConVar_ServerBounded` wrappers that read the replicated
+`sv_client_min_interp_ratio`/`_max_` and `sv_minupdaterate`/`sv_maxupdaterate` when asked (`cdll_bounded_cvars.cpp`,
+**read**). The client applies each `net_SetConVar` as its packet is read (B450, engine side, **interpolated** there), so
+the amount at a tick is the one under that tick's bounds. `GetInterpolationAmount` rounds it to ticks and adds
+`serverTickMultiple` (`c_baseentity.cpp:5937`, **read**): one tick, two on a server simulating on alternate ticks
+(`:5919-5923`). A predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` instead, whatever the
+amount (`:5925-5928`).
 
-Each interpolated variable keeps its OWN amount. `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`,
-**read**) notices the amount change and sets every entity's variables to the new one
-(`Interp_UpdateInterpolationAmounts`, `:837-849`). It does not put an entity back on the interpolation list: one that
-had settled holds its value until its next update. And `Interpolate` prunes each history by the amount it was run with
-(`interpolatedvar.h:1057`), so after a rise the entries the new, longer delay would reach may already be gone.
+Each interpolated variable keeps its OWN amount (`SetInterpolationAmount` only stores it, `interpolatedvar.h:608-611`,
+**read**). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`, **read**), called at `FRAME_START`
+(`cdll_client_int.cpp:2344`, **read**), notices `GetClientInterpAmount()` or `cl_interp_npcs` changing and sets every
+entity's variables to the new amount (`Interp_UpdateInterpolationAmounts`, `:837-849`). Neither puts an entity back on
+the interpolation list, so one that had settled holds its value until its next update (**read**: no re-listing in
+either; that nothing else re-lists it on an amount change is **interpolated**). A variable therefore takes a new amount
+at the next frame start, not when the packet is read; where that falls against the packet read is engine code, not read.
+And `Interpolate` prunes each history by the amount it was run with (`interpolatedvar.h:1057`, **read**), so after a rise
+the entries the new, longer delay would reach may already be gone.
 
-Temp entities fire `GetClientInterpAmount()` after they arrive during demo playback (`CL_QueueEvent`, B415), under the
-bounds of the tick they arrive on.
+Temp entities fire `GetClientInterpAmount()` after they arrive during demo playback (`CL_QueueEvent`, `engine.dll`
+`0x1801f9bc0`, B415, disassembled), under the bounds of the tick they arrive on; they ask it directly, so they switch at
+once, where the variables switch at the next frame start.
 
 ## What the viewer does now
 
 `InterpolationSchedule` is the amount by tick, built from the same ConVar history `ServerConVarsAt` reads; tracks, the
 demo player's rollback and the faces read it at their own tick, and the checkpoint walk keeps enough history for the
-widest delay anywhere in the recording (B849). A falling delay matches the engine. A rising one does not yet: the
-sampler re-blends a settled entity and reads history the engine pruned (B860, open).
+widest delay anywhere in the recording (B849). A falling delay should match the engine, to within the frame-start lag
+(**interpolated** from the code above; no test predicts an engine value for it). A rising one does not yet: the sampler
+re-blends a settled entity and reads history the engine pruned (B860, open).

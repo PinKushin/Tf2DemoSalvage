@@ -46750,10 +46750,16 @@ sampler, taking `tick − TicksAt(tick)` fresh, draws it back along its path. An
 history pruned by the OLD amount (`RemoveEntriesPreviousTo( currentTime − amount − EXTRA… )`, `interpolatedvar.h:1057`),
 so a target the new amount puts further back finds those entries gone; `InterpolatedHistory` prunes nothing (licensed
 for one delay), and `ActorFace` prunes by the current delay, so the face and the track disagree there. A falling delay
-agrees. *Read*: where `CheckCLInterpChanged` is called and `SetInterpolationAmount`'s body are not read. Rare: no corpus
-demo is known to change its bounds mid-recording. Fix shape: read those two, then model a rise as the engine's per-entity
-state (settled entities hold; a moving one's target clamped to the history the old amount kept), with a stepped test that
-predicts the engine's value. *Not fixed*.
+should agree (*interpolated*). *Read*: `CheckCLInterpChanged` runs at `FRAME_START` (`cdll_client_int.cpp:2344`) and
+`SetInterpolationAmount` only stores the amount (`interpolatedvar.h:608-611`); that nothing else re-lists a settled
+entity on an amount change is *interpolated* from their bodies (B848 review 3, Fable, Sonnet). Three more gaps of the same
+mechanism (review 3): the variables take the new amount at the next frame start, not when the packet is read, where the
+viewer's tracks switch at the tick (where the frame start falls against the packet read is engine code, unread); a
+predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` whatever the amount, and a server on
+alternate ticks adds two ticks, not one (`c_baseentity.cpp:5919-5928`); `cl_interp_npcs` is a second trigger the schedule
+does not model. Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
+per-entity state (settled entities hold; a moving one's target clamped to the history the old amount kept) at the frame
+start after the change, with a stepped test that predicts the engine's value. *Not fixed*.
 
 ## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — FIXED (2026-11-25)
 
@@ -46792,6 +46798,20 @@ step; `DemoPlayerConformanceTests.InterpolateViewpoint_OnASinglePlayerServerAfte
 (426, 14 ticks back); `FaceFlexTests.Step_AfterTheDelayFell_UsesTheDelayAtItsTime`; `Covers` asked of a walk kept to
 20 track ticks. Sabotage, each restored: the rollback at tick 0, the face at time 0, and `Covers` from the end bounds
 each redden their test. The stepped test's remark no longer says the engine draws the crate mid-slide again (Fable).
+
+Review 3 of B848 (Fable, Sonnet, Codex). `Reaches` correct for rises and falls; `Motion` wakes wherever the sampler's
+answer changes; no correctness block. Fixed: the `end <= first` skip in `Reaches` was dead, `at < end` rejecting the same
+(Fable). Tests for the surviving mutants: a fractional tick asked from, a tick inside a step whose changetime was passed,
+the reach tick itself, a fall from a target already on the changetime (`<` against `<=`), `NextChangeAfter`'s positive
+answer (Fable, Sonnet); the stepped test asserts the crate leaves the lerping set after its re-reach, which restoring the
+first-reach-ever answer in both `Motion` callers reddens (one alone survives: the two histories share the stamps).
+Records: findings 115 attributes the clamping to the bounded ConVar wrappers (Codex), cites `:5937` and
+`serverTickMultiple`, the frame-start call site and `SetInterpolationAmount`, and classes the engine-side and deduced
+claims; B860 gains the frame-start lag, predictable and alternate-tick entities, `cl_interp_npcs` (Fable, Sonnet). Not
+taken: Codex's `Reaches(95, 99)` across a rise: the target lands on the changetime, still reached, and the target's move
+at 100 is the delay-change wake. **The lead's call** (Fable): this branch makes a settled entity replay its last motion at
+a rise, which the engine never shows, where main plays such a demo under one wrong delay throughout; B849's named parts
+are done, so B848 merges with B860 open, and B860 is next.
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay

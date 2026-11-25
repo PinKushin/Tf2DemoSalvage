@@ -69,14 +69,43 @@ public sealed class InterpolationScheduleTests
     /// the target is 97, at 100 it is 95, so a changetime of 97 is reached again at 102; one of 90 the target stays past
     /// (95 at 100), so asked after 100 it is never reached again.
     /// </summary>
-    [TestCase(97, 102d)]
-    [TestCase(90, null)]
-    public void Reaches_AfterARiseThatDropsTheTargetBack_IsTheReachAfterTheAskedTick(int changeTime, double? expected)
+    [TestCase(97, 100d, 102d)]
+    [TestCase(90, 100d, null)]
+    [TestCase(97, 100.5d, 102d)]
+    [TestCase(90, 91.5d, 92d)]
+    [TestCase(90, 95d, null)]
+    [TestCase(97, 102d, null)]
+    public void Reaches_AfterARiseThatDropsTheTargetBack_IsTheReachAfterTheAskedTick(int changeTime, double after, double? expected)
+    {
+        // Review 3 (Fable, Sonnet): a fractional tick asked from, as `Motion` asks; a tick inside a step whose changetime the
+        // target had passed (95: passed at 92, and still past at 100); and the reach tick itself (102), already reached.
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+
+        schedule.Reaches(changeTime, after).ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// **A falling delay whose old target sat exactly on the changetime is no new reach** (B848 review 3, Sonnet): 5 ticks
+    /// until 100 and 2 from it; at 99 the target is 94, already at a changetime of 94.
+    /// </summary>
+    [Test]
+    public void Reaches_AFallFromATargetAlreadyOnTheChangeTime_IsNone()
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, Set(("sv_client_min_interp_ratio", "4")), [(100, new ServerConVars())], Interval);
+
+        schedule.Reaches(94, 99).ShouldBeNull();
+    }
+
+    /// <summary>The step itself is the next change asked from before it, and nothing after it (B848 review 3, Fable).</summary>
+    [Test]
+    public void NextChangeAfter_ARise_IsItsTick()
     {
         InterpolationSchedule schedule = InterpolationSchedule.From(
             Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 
-        schedule.Reaches(changeTime, 100).ShouldBe(expected);
+        (schedule.NextChangeAfter(99.5), schedule.NextChangeAfter(100)).ShouldBe(((int?)100, (int?)null));
     }
 
     /// <summary>

@@ -137,12 +137,6 @@ public sealed class InterpolationSchedule
         for (int index = 0; index < _from.Length; index++)
         {
             double end = index + 1 < _from.Length ? _from[index + 1] : double.PositiveInfinity;
-
-            if (end <= first)
-            {
-                continue;
-            }
-
             double at = Math.Max(Math.Max(_from[index], first), changeTime + _ticks[index]);
 
             if (at < end && (at - 1d) - TicksAt(at - 1d) < changeTime)

@@ -151,7 +151,8 @@ public sealed class DemoTimelineSampleOrderTests
             return [crate];
         }
 
-        DemoTimeline stepped = DemoTimeline.ForTracks(Sliding());
+        List<ScenePropTrack> cast = Sliding();
+        DemoTimeline stepped = DemoTimeline.ForTracks(cast);
         List<SceneProp> props = [];
 
         for (double tick = 0d; tick <= 100d; tick += 0.5)
@@ -160,6 +161,10 @@ public sealed class DemoTimelineSampleOrderTests
 
             ShouldMatch(props, Fresh(Sliding, tick), $"at tick {tick}");
         }
+
+        // Past 30 + 34 = 64 the target has re-reached the last changetime, so the track leaves the lerping set (review 3,
+        // Fable): `Motion` woke there, which answering the first reach ever (16 ticks after the slide) could not.
+        cast[0].Lerping.ShouldBeFalse("the re-reach at 64 settled it");
     }
 
     /// <summary>
