@@ -36,22 +36,6 @@ public sealed class InterpolationSchedule
     /// <summary>Seconds per tick the delays were converted at.</summary>
     public double IntervalPerTick { get; }
 
-    /// <summary>The largest delay anywhere in the recording, in ticks: how far back a checkpoint's readers can reach.</summary>
-    public int MaximumTicks
-    {
-        get
-        {
-            int most = 0;
-
-            foreach (int ticks in _ticks)
-            {
-                most = Math.Max(most, ticks);
-            }
-
-            return most;
-        }
-    }
-
     /// <summary>One delay for every tick: Valve's defaults, or a track built for a test.</summary>
     /// <param name="intervalPerTick">Seconds per tick.</param>
     /// <param name="amount">`GetClientInterpAmount()` in seconds.</param>
@@ -86,13 +70,7 @@ public sealed class InterpolationSchedule
                 continue;
             }
 
-            // Two changes on one tick: the later is what that tick runs under.
-            if (from[^1] == tick)
-            {
-                amounts[^1] = amount;
-                continue;
-            }
-
+            // Two changes on one tick leave two steps there; the lookups take the later, the one that tick runs under.
             from.Add(tick);
             amounts.Add(amount);
         }
@@ -120,7 +98,9 @@ public sealed class InterpolationSchedule
     /// <summary>The delay at a time on the demo's clock, in seconds, for a reader that keeps time rather than ticks.</summary>
     /// <param name="seconds">The time.</param>
     /// <returns>The delay in seconds, whole ticks as `TICKS_TO_TIME` gives it.</returns>
-    public double SecondsAtTime(double seconds) => TicksAt(seconds / Interval) * Interval;
+    /// <remarks>A millionth of a tick added before the floor, as `FireTick` does, so an exact tick that division leaves a
+    /// hair short is not read as the one before (B848 review 2, Sonnet).</remarks>
+    public double SecondsAtTime(double seconds) => TicksAt((seconds / Interval) + 1e-6d) * Interval;
 
     /// <summary>The first tick after this one at which the delay changes, or null when it never does again.</summary>
     /// <param name="tick">The tick.</param>
@@ -139,25 +119,39 @@ public sealed class InterpolationSchedule
     }
 
     /// <summary>
-    /// The first tick at which the delayed target, <c>tick − <see cref="TicksAt"/>(tick)</c>, reaches a changetime.
+    /// The first tick after <paramref name="after"/> at which the delayed target, <c>tick − <see cref="TicksAt"/>(tick)</c>,
+    /// comes to reach a changetime it had not reached the tick before, or null when it never does again.
     /// </summary>
     /// <param name="changeTime">The changetime.</param>
-    /// <returns>The tick.</returns>
-    public double Reaches(double changeTime)
+    /// <param name="after">The tick asked from: the answer is later.</param>
+    /// <returns>The tick, or null.</returns>
+    /// <remarks>
+    /// Within a step the target rises with the tick, so it reaches a changetime once; a delay that RISES at the next step
+    /// can drop it back below one it had passed, and it reaches it again there (B848 review 2, Fable, Sonnet). A reach that
+    /// was already true at <paramref name="after"/> is no moment.
+    /// </remarks>
+    public double? Reaches(double changeTime, double after)
     {
+        double first = Math.Floor(after) + 1d;
+
         for (int index = 0; index < _from.Length; index++)
         {
-            double start = _from[index];
             double end = index + 1 < _from.Length ? _from[index + 1] : double.PositiveInfinity;
-            double at = Math.Max(start, changeTime + _ticks[index]);
 
-            if (at < end)
+            if (end <= first)
+            {
+                continue;
+            }
+
+            double at = Math.Max(Math.Max(_from[index], first), changeTime + _ticks[index]);
+
+            if (at < end && (at - 1d) - TicksAt(at - 1d) < changeTime)
             {
                 return at;
             }
         }
 
-        return double.PositiveInfinity;
+        return null;
     }
 
     private double Interval => IntervalPerTick > 0d ? IntervalPerTick : ScenePropTrack.Tf2TickInterval;

@@ -46740,6 +46740,21 @@ so would put a signon message after every packet in time, and out of tick order 
 types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
 signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
 
+## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
+
+Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
+`GetClientInterpAmount()` changing and sets each interpolated variable's own amount through
+`Interp_UpdateInterpolationAmounts` (`:837-849`); it does not put an entity back on `g_InterpolationList`. So an entity
+that had settled (removed on `bNoMoreChanges`) stays at its last value until its next data update, where the viewer's
+sampler, taking `tick − TicksAt(tick)` fresh, draws it back along its path. And an entity still interpolating had its
+history pruned by the OLD amount (`RemoveEntriesPreviousTo( currentTime − amount − EXTRA… )`, `interpolatedvar.h:1057`),
+so a target the new amount puts further back finds those entries gone; `InterpolatedHistory` prunes nothing (licensed
+for one delay), and `ActorFace` prunes by the current delay, so the face and the track disagree there. A falling delay
+agrees. *Read*: where `CheckCLInterpChanged` is called and `SetInterpolationAmount`'s body are not read. Rare: no corpus
+demo is known to change its bounds mid-recording. Fix shape: read those two, then model a rise as the engine's per-entity
+state (settled entities hold; a moving one's target clamped to the history the old amount kept), with a stepped test that
+predicts the engine's value. *Not fixed*.
+
 ## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — FIXED (2026-11-25)
 
 **Fixed.** `InterpolationSchedule` is `GetClientInterpAmount()` by tick: the watcher's settings under the server's
@@ -46747,7 +46762,8 @@ ConVars as they stand at each tick, built from the same history `ServerConVarsAt
 the amount. Every reader takes it at its own tick:
 
 - a track's pose (`ScenePropTrack.At`, `Motion`) samples `TicksAt(tick)` behind; `Motion`'s wakes are where the delayed
-  target first reaches a changetime (`Reaches`), and the delay's own change is a wake, since it moves the target;
+  target next comes to reach a changetime (`Reaches`, review 2), and the delay's own change is a wake, since it moves the
+  target;
 - the demo player's legacy rollback reads `AmountAt` its tick;
 - a face's `m_iv_flexWeight` reads the delay at its time (`ActorFace`, through `FaceSources.Interpolation`);
 - the checkpoint walk's reach covers the widest bounds anywhere in the recording (`EndFacts.WidestBounds`), not the last.
@@ -46761,6 +46777,21 @@ the whole build), `DemoTimelineSampleOrderTests.PropsAt_SteppedAcrossADelayChang
 Sabotage, each restored: the delay-change wake removed reddens the stepped test at tick 50; the reach from the end bounds
 reddens the reach; one delay for the recording reddens the per-tick delays. *Read*, not measured on a real demo: no
 corpus demo is known to change its bounds mid-recording.
+
+Review 2 of B848 (Fable, Sonnet, Codex). **The engine does not do what this sampler does across a RISING delay**
+(Fable), filed as **B860**: the per-tick amount is right, but a settled entity is not put back on the interpolation
+list, and a moving one's history was pruned by the old amount. Fixed: `Reaches(changeTime, after)` answers the first
+tick after the one asked at which the target comes to reach a changetime, so a rise that drops the target back below a
+changetime it had passed wakes the track there; it answered the first reach ever, filtered out as past, and the track
+stayed in the lerping set for good (Fable, Sonnet). `MaximumTicks` read by no production code is deleted (D180); the
+same-tick branch of `From` was equivalent and is gone, the lookups taking the later of two steps on one tick (Sonnet);
+`SecondsAtTime` adds a millionth of a tick before the floor, as `FireTick` does (Sonnet). Records: "`Reaches` either
+side of a change" covered only a rise (Codex); "`StateCopy.Immutable`" is its immutable-type list; the rollback and the
+face readers had no test (Fable). Tests: `Reaches` falling, after a rise, two changes on one tick, `SecondsAtTime` on a
+step; `DemoPlayerConformanceTests.InterpolateViewpoint_OnASinglePlayerServerAfterTheBoundsRose_RollsBackByTheAmountThen`
+(426, 14 ticks back); `FaceFlexTests.Step_AfterTheDelayFell_UsesTheDelayAtItsTime`; `Covers` asked of a walk kept to
+20 track ticks. Sabotage, each restored: the rollback at tick 0, the face at time 0, and `Covers` from the end bounds
+each redden their test. The stepped test's remark no longer says the engine draws the crate mid-slide again (Fable).
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay

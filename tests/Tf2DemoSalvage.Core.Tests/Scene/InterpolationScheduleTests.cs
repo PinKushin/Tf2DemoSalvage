@@ -35,7 +35,7 @@ public sealed class InterpolationScheduleTests
         InterpolationSchedule schedule = InterpolationSchedule.From(
             Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 
-        (schedule.TicksAt(99.5), schedule.TicksAt(100), schedule.MaximumTicks).ShouldBe((2, 5, 5));
+        (schedule.TicksAt(99.5), schedule.TicksAt(100)).ShouldBe((2, 5));
     }
 
     /// <summary>A change that leaves the amount alone adds no step, so the schedule names no change for a reader to wake on.</summary>
@@ -61,6 +61,66 @@ public sealed class InterpolationScheduleTests
         InterpolationSchedule schedule = InterpolationSchedule.From(
             Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 
-        schedule.Reaches(changeTime).ShouldBe(expected);
+        schedule.Reaches(changeTime, 0).ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// **A rising delay can drop the target back below a changetime it had passed** (B848 review 2, Fable, Sonnet): at 99
+    /// the target is 97, at 100 it is 95, so a changetime of 97 is reached again at 102; one of 90 the target stays past
+    /// (95 at 100), so asked after 100 it is never reached again.
+    /// </summary>
+    [TestCase(97, 102d)]
+    [TestCase(90, null)]
+    public void Reaches_AfterARiseThatDropsTheTargetBack_IsTheReachAfterTheAskedTick(int changeTime, double? expected)
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+
+        schedule.Reaches(changeTime, 100).ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// **Two changes on one tick: the tick runs under the later** (B848 review 2, Sonnet): 4 then 6 at tick 100 is 7 ticks
+    /// there, not 5.
+    /// </summary>
+    [Test]
+    public void TicksAt_TwoChangesOnOneTick_IsTheLaters()
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner,
+            new ServerConVars(),
+            [(100, Set(("sv_client_min_interp_ratio", "4"))), (100, Set(("sv_client_min_interp_ratio", "6")))],
+            Interval);
+
+        schedule.TicksAt(100).ShouldBe(7);
+    }
+
+    /// <summary>
+    /// **A face's time on an exact step reads the step** (B848 review 2, Sonnet): 1.5 s at 0.015 s a tick is tick 100 by
+    /// arithmetic, which the division leaves a hair short of; the delay there is the raised one, 5 ticks, 0.075 s.
+    /// </summary>
+    [Test]
+    public void SecondsAtTime_TheTimeOfAStep_IsTheStepsDelay()
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+
+        schedule.SecondsAtTime(100 * Interval).ShouldBe(5 * Interval, 1e-12);
+    }
+
+    /// <summary>
+    /// **A falling delay** (B848 review 2, Codex): the minimum ratio of 4 from the start (5 ticks) put back to Valve's at
+    /// tick 100 (2 ticks). A changetime of 90 is reached at 95; one of 97 would be at 102 under the first delay, but from 100
+    /// the target is 98, so 100; one of 99 is reached at 101.
+    /// </summary>
+    [TestCase(90, 95)]
+    [TestCase(97, 100)]
+    [TestCase(99, 101)]
+    public void Reaches_AChangeTimeEitherSideOfAFallingDelay_IsTheFirstTickTheTargetPassesIt(int changeTime, double expected)
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, Set(("sv_client_min_interp_ratio", "4")), [(100, new ServerConVars())], Interval);
+
+        (schedule.TicksAt(99), schedule.TicksAt(100), schedule.Reaches(changeTime, 0)).ShouldBe((5, 2, (double?)expected));
     }
 }

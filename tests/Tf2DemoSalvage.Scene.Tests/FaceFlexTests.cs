@@ -137,10 +137,40 @@ public sealed class FaceFlexTests
     }
 
     /// <summary>
-    /// An interpolation of exactly 0.1 s: at 0.05 s a tick an amount of 0.05 s is one tick, plus the engine's whole extra
-    /// tick, two ticks of 0.05 s (`DelayTicksFor`).
+    /// A delay of 0.1 s at 0.05 s a tick: an amount of 0.05 s is one tick, and `DelayTicksFor` adds the engine's whole extra
+    /// tick, so two ticks of 0.05 s.
     /// </summary>
     private static readonly Core.Scene.InterpolationSchedule TenthOfASecond = Core.Scene.InterpolationSchedule.Constant(0.05d, 0.05d);
+
+    /// <summary>
+    /// A delay of 0.25 s until 1.0 s, then 0.1 s (B849): at 0.05 s a tick, a client of 0.05 / 1 / 20 under a minimum ratio of
+    /// 4 is 4 / 20 = 0.2 s (five ticks), and from tick 20 under Valve's bounds 0.05 s (two ticks).
+    /// </summary>
+    private static Core.Scene.InterpolationSchedule FallingAtOneSecond()
+    {
+        Core.Net.ServerConVars raised = new();
+        raised.Apply(new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "4")]));
+        return Core.Scene.InterpolationSchedule.From(new Core.Net.ClientInterp(0.05f, 1f, 20f), raised, [(20, new Core.Net.ServerConVars())], 0.05d);
+    }
+
+    /// <summary>
+    /// **A face reads the delay at its own time** (B849, B848 review 2, Fable): from 1.0 s the schedule is the same 0.1 s as
+    /// <see cref="Step_FramesTooLongForTheHistory_Extrapolate"/>, so the same frames extrapolate to the same 0.975; read
+    /// at the start of the recording, 0.25 s, the target stays inside the history and nothing extrapolates.
+    /// </summary>
+    [Test]
+    public void Step_AfterTheDelayFell_UsesTheDelayAtItsTime()
+    {
+        List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
+        ActorFace face = new(Model, "m.mdl", null, interpolation: FallingAtOneSecond(), created: 1d);
+
+        foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
+        {
+            face.Step(t, 1, scenes, []);
+        }
+
+        face.Global["smile"].ShouldBe(0.975f, 1e-5f);
+    }
 
     [Test]
     public void Step_WithTheLatchedHistory_StartsEachFrameFromWhatInterpolationLeft()

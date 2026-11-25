@@ -253,6 +253,27 @@ public sealed class DemoPlayerConformanceTests
         view.Origin.X.ShouldBe(450f, Tolerance);
     }
 
+    /// <remarks>
+    /// **The rollback reads the interp amount at the playback tick** (B849, B848 review 2, Fable): the server raises
+    /// `sv_client_min_interp_ratio` to 4 at tick 110, so at 120 the default client's ratio is clamped to 4, 4 / 20 = 0.2 s,
+    /// and the view rolls back 1 + (int)(0.2 / 0.015 + 0.5) = 14 ticks, to 106.5, where the line is at 426.
+    /// </remarks>
+    [Test]
+    public void InterpolateViewpoint_OnASinglePlayerServerAfterTheBoundsRose_RollsBackByTheAmountThen()
+    {
+        List<DemoCommand> commands = [.. SyntheticViews.Run(100, 130, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f)))];
+        commands.Insert(
+            commands.FindIndex(command => command.Tick >= 110),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                110,
+                new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "4")])));
+
+        RecordedView view = Player(SyntheticViews.Demo(1, commands)).InterpolateViewpoint(120.5).ShouldNotBeNull();
+
+        view.Origin.X.ShouldBe(426f, Tolerance);
+    }
+
     [Test]
     public void InterpolateViewpoint_OnASinglePlayerServerWithoutLegacyRollback_RollsBackOneTick()
     {

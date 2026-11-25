@@ -128,6 +128,10 @@ public sealed class WindowReachTests
         WindowReach.For(new WindowSettings(), whole.ServerConVars, Interval).TrackTicks.ShouldBe(15, "the control: the end bounds reach 15");
         checkpoints.Reach.TrackTicks.ShouldBe(41);
 
+        // `Covers` asks the same widest reach (B848 review 2, Fable): a walk kept to 20 track ticks covers the end bounds'
+        // 15 but not the raised span's 41.
+        DemoTimeline.Checkpoints.Walk(demo, 2, lookbackTicks: 1000, trackLookbackTicks: 20)!.Covers(new WindowSettings()).ShouldBeFalse();
+
         foreach (int tick in new[] { 45, 55, 65 })
         {
             TimelineFingerprint.OfAnswer(TimelineAnswers.At(checkpoints.Window(tick, tick + 1), tick)).Hash

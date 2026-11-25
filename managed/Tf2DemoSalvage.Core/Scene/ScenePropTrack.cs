@@ -1899,9 +1899,10 @@ public sealed class ScenePropTrack
             [
                 _simulation.ArrivesAfter(now),
                 _animation.ArrivesAfter(now),
-                _simulation.HeadChangeTime(now) is { } simulated ? Interpolation.Reaches(simulated) : null,
-                _animation.HeadChangeTime(now) is { } animated ? Interpolation.Reaches(animated) : null,
-                Interpolation.Reaches(born) + 1,
+                _simulation.HeadChangeTime(now) is { } simulated ? Interpolation.Reaches(simulated, tick) : null,
+                _animation.HeadChangeTime(now) is { } animated ? Interpolation.Reaches(animated, tick) : null,
+                // One past `born`: at a target of exactly `born` the answer is still the first keyframe.
+                Interpolation.Reaches(born + 1, tick),
                 Interpolation.NextChangeAfter(tick),
             ])
         {

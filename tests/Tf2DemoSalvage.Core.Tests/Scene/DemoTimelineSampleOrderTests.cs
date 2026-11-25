@@ -122,8 +122,10 @@ public sealed class DemoTimelineSampleOrderTests
 
     /// <summary>
     /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 300 over ticks 0 to 30 and rests;
-    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the target falls back to 16 and the crate is
-    /// drawn mid-slide again. A stepped reader that slept once the slide settled would hold it at rest.
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the sampler's target falls back to 16. This
+    /// holds only that the cache agrees with the sampler across the change, which a reader asleep since the slide settled
+    /// would not; what the ENGINE draws there is not this (a settled entity is not put back on the interpolation list):
+    /// B860.
     /// </summary>
     [Test]
     public void PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere()
