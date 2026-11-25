@@ -67,7 +67,11 @@ widest delay anywhere in the recording (B849). Since B860 a rise and the frame s
 - **A held variable keeps the entry that last changed it**, sampled at the first such entry still held (a later
   same-valued latch can flush the changing one), a fraction of zero; and **a pair starting on the pruned floor has no
   third sample** — `Truncate( i + 3 )` leaves nothing older (`interpolatedvar.h:782-795`, `:851`, **read**) — so the origin
-  and the cycle run linear there. The floor is chosen from the history as the cutting frame held it.
+  and the cycle run linear there. The floor is chosen from the history as the cutting frame held it — after every
+  earlier frame's cut, which a late update arriving between them exposes by flushing the entries after it — and then
+  follows the later updates: one stamped below the kept three flushes them and is itself the oldest held (`AddToHead`,
+  `interpolatedvar.h:649`, **read**). The cut that sets it is the furthest any frame since reached, found over every
+  delay step in the window, not only the last rise.
 - **Each variable holds or blends on its own.** Origin, angles, cycle and pose parameters are separate
   `CInterpolatedVar`s, and a latch re-arms only those whose value it changed (`NoteChanged`, `interpolatedvar.h:633-639`;
   `c_baseentity.cpp:2828-2829`, **read**). So after a rise a crate turned in place by a late update holds its position

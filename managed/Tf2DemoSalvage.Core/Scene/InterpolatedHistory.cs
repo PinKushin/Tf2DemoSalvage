@@ -102,6 +102,9 @@ public sealed class InterpolatedHistory
 
     private int _lastGeneration = -1;
 
+    /// <summary>The furthest any entry's changetime has run past its arrival, never below zero.</summary>
+    private int _maxLead;
+
     /// <summary>A history whose entries carry a fixed number of components.</summary>
     /// <param name="width">How many floats an entry holds — the engine's <c>m_nMaxCount</c>.</param>
     /// <remarks>
@@ -403,6 +406,7 @@ public sealed class InterpolatedHistory
         _changeTimes.Add(changeTime);
         _received.Add(received);
         _flushedAt.Add(Never);
+        _maxLead = Math.Max(_maxLead, changeTime - received);
 
         // **Before the components, so it records where they land** (B386). This is the entry's
         // address; `index * _width` was a guess about it that a width change falsifies.
@@ -701,9 +705,11 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// `RemoveEntriesPreviousTo` walks newest first, and at the first entry older than the cut keeps it and two more
     /// (`m_VarHistory.Truncate( i + 3 )`, <c>interpolatedvar.h:782-795</c>): the third is the oldest the client holds.
-    /// The engine deletes; this keeps every entry for a scrub and answers the bound instead.
+    /// The engine deletes; this keeps every entry for a scrub and answers the bound instead, skipping an entry an earlier
+    /// frame's cut had already deleted (<paramref name="cutEarlier"/>, B860 review 10, Fable).
     /// </remarks>
-    public int? PrunedFloor(double threshold, int arrivedBy)
+    /// <param name="cutEarlier">Whether an entry, by index, was already gone from the engine's history.</param>
+    private int? KeptFloor(double threshold, int arrivedBy, Func<int, bool> cutEarlier)
     {
         int last = LastReceivedAtOrBefore(arrivedBy);
 
@@ -716,7 +722,7 @@ public sealed class InterpolatedHistory
 
         for (int index = last; index >= floor; index--)
         {
-            if (_flushedAt[index] <= arrivedBy || _changeTimes[index] >= threshold)
+            if (_flushedAt[index] <= arrivedBy || _changeTimes[index] >= threshold || cutEarlier(index))
             {
                 continue;
             }
@@ -727,7 +733,7 @@ public sealed class InterpolatedHistory
             {
                 int older = Older(kept, floor, arrivedBy);
 
-                if (older == kept)
+                if (older == kept || cutEarlier(older))
                 {
                     break;
                 }
@@ -742,21 +748,76 @@ public sealed class InterpolatedHistory
     }
 
     /// <summary>
+    /// Whether a frame before <paramref name="cutAt"/> had already cut an entry out of the engine's history (B860 review
+    /// 10, Fable).
+    /// </summary>
+    /// <param name="index">The entry.</param>
+    /// <param name="cutAt">The frame whose cut is being taken; only frames before it are asked.</param>
+    /// <param name="cutOf">A frame's cut: its target less the extra history kept.</param>
+    /// <param name="prunes">Whether a frame pruned this variable at all: listed, or reading a latch.</param>
+    /// <returns>True when some such frame from the entry's arrival on held three live entries newer than it below its cut.</returns>
+    /// <remarks>
+    /// `Truncate( i + 3 )` keeps the newest entry below the cut and two more (<c>interpolatedvar.h:782-795</c>), so an entry
+    /// is deleted exactly when three live entries newer than it are below the cut. An entry that arrived before this one
+    /// with a later changetime was flushed by it (`AddToHead`, <c>:649</c>), so every newer entry counted arrived after it,
+    /// and none of them can have been cut before it without cutting it too: counting the unflushed ones is enough.
+    /// </remarks>
+    private bool CutBefore(int index, int cutAt, Func<int, double> cutOf, Func<int, bool> prunes)
+    {
+        int changeTime = _changeTimes[index];
+        int generation = _generationStarts[index];
+
+        for (int frame = cutAt - 1; frame >= _received[index]; frame--)
+        {
+            double cut = cutOf(frame);
+
+            if (cut <= changeTime)
+            {
+                continue;
+            }
+
+            int newer = 0;
+            int last = LastReceivedAtOrBefore(frame);
+
+            for (int other = index + 1; other <= last && newer < 3; other++)
+            {
+                if (_generationStarts[other] == generation && _flushedAt[other] > frame &&
+                    _changeTimes[other] > changeTime && _changeTimes[other] < cut)
+                {
+                    newer++;
+                }
+            }
+
+            if (newer == 3 && prunes(frame))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The changetime of the oldest entry a client holds now, after a frame cut the history and later updates arrived
     /// (B860 review 9, Fable).
     /// </summary>
     /// <param name="threshold">The cut.</param>
     /// <param name="cutAt">The frame that made it: the three it kept are chosen from what had arrived by then.</param>
     /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="cutOf">A frame's cut: its target less the extra history kept.</param>
+    /// <param name="prunes">Whether a frame pruned this variable at all: listed, or reading a latch.</param>
     /// <returns>That changetime, or null when the cut dropped nothing.</returns>
     /// <remarks>
     /// After the cut the history holds the three kept entries and whatever arrived since, less what a later update's
     /// `AddToHead` flushed (every entry at or after its changetime, <c>interpolatedvar.h:649</c>): a late update stamped
-    /// below the kept three deletes them and is itself the oldest held.
+    /// below the kept three deletes them and is itself the oldest held. The three are chosen from what earlier frames'
+    /// cuts left (B860 review 10, Fable): a late update arriving BEFORE the cutting frame flushes the entries after it, and
+    /// the two older than it may already be gone.
     /// </remarks>
-    public int? PrunedFloor(double threshold, int cutAt, int arrivedBy)
+    public int? PrunedFloor(
+        double threshold, int cutAt, int arrivedBy, Func<int, double> cutOf, Func<int, bool> prunes)
     {
-        if (PrunedFloor(threshold, cutAt) is not { } kept)
+        if (KeptFloor(threshold, cutAt, index => CutBefore(index, cutAt, cutOf, prunes)) is not { } kept)
         {
             return null;
         }
@@ -764,9 +825,10 @@ public sealed class InterpolatedHistory
         int last = LastReceivedAtOrBefore(arrivedBy);
         int? oldest = null;
 
-        // An entry received before the kept changetime was stamped before it too (a changetime is a simulation time, never
-        // past its own arrival), so it is neither kept nor late: the walk stops there.
-        for (int index = last; index >= 0 && index >= _generationStarts[last] && _received[index] >= kept; index--)
+        // An entry received well before the kept changetime was stamped before it too, so it is neither kept nor late: the
+        // walk stops there. "Well before" is by the furthest any entry's changetime has led its arrival (B860 review 10,
+        // Sonnet): a simulation time carried onto the demo's axis can sit after the packet that carried it.
+        for (int index = last; index >= 0 && index >= _generationStarts[last] && _received[index] + _maxLead >= kept; index--)
         {
             bool held = _flushedAt[index] > arrivedBy &&
                 (_received[index] > cutAt || _changeTimes[index] >= kept);

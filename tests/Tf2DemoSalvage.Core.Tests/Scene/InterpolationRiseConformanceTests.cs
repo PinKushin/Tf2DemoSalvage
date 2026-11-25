@@ -268,8 +268,10 @@ public sealed class InterpolationRiseConformanceTests
 
     /// <summary>
     /// The control (B860 review 9, Sonnet): one pair above the floor still has its third sample, 30, which the frame at 50
-    /// kept, so the cycle splines there. At 68 the target is 34, between 33 (0.31) and 36 (0.313): not the straight line's
-    /// 0.311 — which a change refusing every third sample after a rise would give.
+    /// kept, so the cycle splines there. At 68 the target is 34, a third of the way from 33 (0.31) to 36 (0.313), and
+    /// `Hermite_Spline( p1, p2, p1 - p0, p2 - p1, t )` (mathlib_base.cpp:2535-2538) with p0 0.30 gives 0.740741 × 0.31 + 0.259259 × 0.313
+    /// + 0.148148 × 0.01 − 0.074074 × 0.003 = 0.312037. The straight line's 0.311 is what refusing every third sample after
+    /// a rise gives; the pair's own older as the third gives 0.310556 (B860 review 10, Sonnet: assert the value).
     /// </summary>
     [Test]
     public void At_ACyclePairOneAboveThePrunedFloor_StillSplines()
@@ -288,7 +290,7 @@ public sealed class InterpolationRiseConformanceTests
             prop.Add(tick, new ScenePose { Cycle = 0.31f + ((tick - 33) * 0.001f) });
         }
 
-        System.Math.Abs(prop.At(68)!.Value.Cycle - 0.311f).ShouldBeGreaterThan(1e-4f);
+        prop.At(68)!.Value.Cycle.ShouldBe(0.312037f, 2e-5f);
     }
 
     /// <summary>
@@ -336,6 +338,52 @@ public sealed class InterpolationRiseConformanceTests
         }
 
         crate.At(57)!.Value.X.ShouldBe(250f, 0.01f);
+    }
+
+    /// <summary>
+    /// **The kept three are what the earlier frames' cuts left** (B860 review 10, Fable). X ten a tick, an update every 3
+    /// ticks to 39; the frame at 40 cuts at 32 − 3.33 = 28.67 and keeps 27, 24, 21, deleting 18 and older. An update stamped
+    /// 20 (205) arrives at 41 and flushes 21 to 39, leaving only itself. At 50 the history is 48, 45, 42, 20, and the frame
+    /// at 51 aims at 17, older than all of them: 205, the oldest (`:877-882`). One cut over everything kept 20, 18, 15 and
+    /// drew the pair 15–18 at 170.
+    /// </summary>
+    [Test]
+    public void At_ALateUpdateBeforeTheCuttingFrame_LeavesWhatEarlierCutsDeleted()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 39; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(41, new ScenePose { X = 205f }, appliedAt: 20);
+
+        for (int tick = 42; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.At(51)!.Value.X.ShouldBe(205f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A changetime can lead its own arrival** (B860 review 10, Sonnet): a simulation time carried onto the demo's axis.
+    /// Updates every 3 ticks stamped two ticks after the packet, X ten a stamp. The frame at 50 aims at 42, cuts at 38.67 and
+    /// keeps 38, 35, 32 — the last received at 30. The frame at 57 aims at 23, older than all: 320. A walk that stopped at
+    /// the first entry RECEIVED before 32 missed it and answered 35: 350.
+    /// </summary>
+    [Test]
+    public void At_AKeptEntryStampedAfterItArrived_IsStillTheFloor()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = (tick + 2) * 10f }, appliedAt: tick + 2);
+        }
+
+        crate.At(57)!.Value.X.ShouldBe(320f, 0.01f);
     }
 
     /// <summary>

@@ -47125,7 +47125,7 @@ with a test predicting the engine's delay; if it answers true for no demo, close
 
 ## B865 — an entity's first delay window draws its birth state, and a re-parent in a rise's packet takes the new amount a frame late (2026-11-25) — OPEN
 
-Found in B860 review 5 (Fable). Two small divergences of the frame's state, both *read*, neither measured:
+Found in B860 reviews 5 and 7 (Fable, Sonnet). Three small divergences of the frame's state, all *read*, none measured:
 - **The first pose is answered whole.** `ScenePropTrack.At` returns `FirstPose` while the delayed target is before birth,
   state fields included. The engine answers the oldest entry for the interpolated variables (`interpolatedvar.h:877-882`),
   but `m_nSkin`, the effects, the sequence and the scale are plain networked members, live from the latest update: an
@@ -47393,7 +47393,25 @@ Review 9 (Fable, Sonnet, Codex: no blocker). Fixed:
   which reddens when every third sample is refused after a rise (Sonnet).
 
 Not taken: `Settled` judges the hermite clause with an `oldest` the engine has dropped, which can only call unsettled what
-the engine calls settled — an extra wake, never a missed one (Sonnet). Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+the engine calls settled — an extra wake, never a missed one (Sonnet).
+
+Review 10 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The kept three could be entries an earlier frame had already cut** (Fable): a late update arriving BEFORE the cutting
+  frame flushes the entries after it, and the two older than it were gone since an earlier frame's cut. The floor now skips
+  an entry some frame from its arrival on had three live newer entries below the cut of (`InterpolatedHistory.CutBefore`,
+  `Truncate( i + 3 )`, `interpolatedvar.h:782-795`); `At_ALateUpdateBeforeTheCuttingFrame_LeavesWhatEarlierCutsDeleted`
+  (205; 170 with one cut over everything) reddens when the count needs four.
+- **The walk after a later flush assumed a changetime never leads its arrival** (Sonnet). It does when a simulation time
+  sits after its packet, so the walk now stops by the furthest lead any entry has had;
+  `At_AKeptEntryStampedAfterItArrived_IsStillTheFloor` (320; 350 without the lead) reddens with the lead dropped.
+- **`LastListedTarget` stepped back over every frame of a long rest** (Fable). It now jumps to the later of the settle
+  frame and the last arrival, which are the only frames between that can prune; the answer is unchanged.
+- **The cycle control test detected an effect rather than a value** (Sonnet, Fable): it now asserts the spline,
+  0.312037 from `Hermite_Spline` (`mathlib_base.cpp:2535-2538`).
+- Records: findings 115 carries reviews 9 and 10's mechanisms; B865 counts its three bullets.
+
+Not taken (Sonnet): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
+same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
 anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
 before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`

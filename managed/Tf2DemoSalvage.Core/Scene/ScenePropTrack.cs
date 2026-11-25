@@ -2466,11 +2466,18 @@ public sealed class ScenePropTrack
 
         // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
         double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
-        double cut = pruned.Target - (0.05d / interval);
+        double extra = 0.05d / interval;
+        double cut = pruned.Target - extra;
 
         // **Chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )` ran then,
-        // so an update arriving later with a changetime below the cut is not one of its three.
-        floor = history.PrunedFloor(cut, pruned.Frame, now);
+        // so an update arriving later with a changetime below the cut is not one of its three; and the frames before it had
+        // cut too, which a late update arriving between them exposes (review 10).
+        floor = history.PrunedFloor(
+            cut,
+            pruned.Frame,
+            now,
+            frame => FrameTarget(frame, schedule) - extra,
+            frame => Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame);
 
         return floor is { } oldest && target < oldest ? oldest : target;
     }
@@ -2502,14 +2509,16 @@ public sealed class ScenePropTrack
     {
         (double Target, int Frame)? most = null;
 
-        for (int frame = (int)Math.Ceiling(tick) - 1; history.LatestArrival(frame) is not null; frame--)
+        int frame = (int)Math.Ceiling(tick) - 1;
+
+        while (history.LatestArrival(frame) is { } arrived)
         {
             if (most is { } best && schedule.MaxTargetBefore(frame + 1) <= best.Target)
             {
                 break;
             }
 
-            if (Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame)
+            if (arrived == frame || Listed(history, frame, schedule, variable))
             {
                 double target = FrameTarget(frame, schedule);
 
@@ -2517,7 +2526,19 @@ public sealed class ScenePropTrack
                 {
                     most = (target, frame);
                 }
+
+                frame--;
+                continue;
             }
+
+            // **Nothing prunes between here and the frame that settled it or the last arrival** (B860 review 10, Fable): a
+            // variable is listed from a re-arming latch to its settle frame and an arrival is a latch, so the walk jumps to
+            // the later of the two rather than stepping back over every frame of a long rest.
+            int? settled = history.LatestChange(frame, variable.First, variable.Count) is { } changed
+                ? SettleFrame(history, changed, frame - 1, schedule, variable)
+                : null;
+
+            frame = Math.Max(arrived, settled ?? arrived);
         }
 
         return most;
