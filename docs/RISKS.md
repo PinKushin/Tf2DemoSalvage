@@ -46331,7 +46331,19 @@ Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_180
 rule, so `--autoplay 4 a.dem` tries to open a demo named `4`. These flags are the viewer's own (TF2 has none), so
 whether they follow TF2's grammar is the owner's to say. *Not fixed*.
 
-## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — OPEN
+**Closed as above Valve, the owner's pick** (2026-11-24, asked whether these switches should follow TF2 and drop the
+word after them, or keep it; the owner picked "Keep them as they are", the recommended option, without words of their
+own, D183): `--autoplay a.dem` keeps opening `a.dem`. Listed in `docs/ABOVE-VALVE.md`, held by
+`Read_AViewerSwitchBeforeAWord_KeepsTheWordAsADemo` (one case per switch).
+
+## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed, the owner's pick** (2026-11-24, asked whether `-h` should take TF2's meaning or stay help; the owner picked
+"TF2's meaning", the recommended option, without words of their own, D183). `-h` is no longer help (`--help`, `-?` and
+`/?` are, through one predicate, `ViewerHelp.IsHelp`, which `LaunchOptionsReader` now shares where it held its own
+copy); it is an unknown flag, so it drops `1080` as `stuffcmds` drops a `-flag`'s value (B828). The window size itself
+is not applied. Tests `Read_ATf2WindowSizeLine_OpensItsDemoAndShowsNoHelp` and `Wanted_WithoutOne_IsFalse`; both red
+before; sabotage: `-h` put back in `IsHelp` reddens both. The paragraph below is the entry as filed.
 
 Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so
 a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window

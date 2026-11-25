@@ -336,7 +336,7 @@ public static class LaunchOptionsReader
                 continue;
             }
 
-            if (argument is "--help" or "-h" or "-?" or "/?")
+            if (ViewerHelp.IsHelp(argument))
             {
                 read = read with { ShowHelp = true };
                 continue;

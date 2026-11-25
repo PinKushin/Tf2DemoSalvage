@@ -178,6 +178,41 @@ public sealed class LaunchOptionsTests
         }
     }
 
+    /// <remarks>
+    /// **A pasted TF2 line with `-h` opens its demo** (B836, the owner's pick, "TF2's meaning"): `-h` is TF2's window
+    /// height, so it is an unknown flag here and drops its value as `stuffcmds` does (B828), where it was help and left
+    /// `1080` as a demo path.
+    /// </remarks>
+    [Test]
+    public void Read_ATf2WindowSizeLine_OpensItsDemoAndShowsNoHelp()
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(["-w", "1920", "-h", "1080", "a.dem"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["a.dem"]);
+        read.ShowHelp.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The viewer's own switches keep the word after them** (B837, the owner's pick, "Keep them as they are"; above
+    /// Valve, `docs/ABOVE-VALVE.md`): TF2 skips the word after any `-flag`, but these are the viewer's, so
+    /// `--autoplay a.dem` opens `a.dem`.
+    /// </remarks>
+    [TestCase("--autoplay")]
+    [TestCase("--colours")]
+    [TestCase("--windows")]
+    [TestCase("--first-person")]
+    [TestCase("--third-person")]
+    public void Read_AViewerSwitchBeforeAWord_KeepsTheWordAsADemo(string option)
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read([option, "a"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["a"]);
+    }
+
     /// <remarks>The warning names the value it dropped, and none it kept (B828 review 1, Fable, Gemini, Grok).</remarks>
     [Test]
     public void Read_AnUnknownFlagWithAValue_NamesTheValueInItsWarning()

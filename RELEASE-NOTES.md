@@ -8,7 +8,9 @@
 
 - **A one-shot on the command line runs, as in TF2 (B829).** `+screenshot`, `+togglefullscreen`, `+resetcamera` and the viewer's other one-shot commands on the command line now run once the window is up and before the named demo opens, as TF2 runs every `+command`, with or without a demo named; before, they did nothing. `+opendemo` is skipped on a `--shot` or `--measure` run, where its dialog would wait for nobody. The same commands in a config still do nothing at startup. The viewer's own command names, such as `+togglefullscreen`, are not TF2's, so running them is above Valve.
 
-- **An unknown `-flag` takes its value with it, as in TF2 (B828).** TF2 skips the word after any `-flag` unless it starts with `+` or `-`, so `-threads 4 a.dem` now ignores `4` and opens `a.dem`, where before the viewer tried to open a demo named `4`. A `.dem`, or the path of an existing folder written in full or with a `\` or `/` in it, is never taken as a value, so `-novid a.dem` still opens `a.dem`, where TF2 would not play it: this is above Valve.
+- **An unknown `-flag` takes its value with it, as in TF2 (B828).** TF2 skips the word after any `-flag` unless it starts with `+` or `-`, so `-threads 4 a.dem` now ignores `4` and opens `a.dem`, where before the viewer tried to open a demo named `4`. A `.dem`, or the path of an existing folder written in full or with a `\` or `/` in it, is never taken as a value, so `-novid a.dem` still opens `a.dem`, where TF2 would not play it: this is above Valve. The viewer's own switches that take no value (`--autoplay`, `--colours`, `--windows`, `--first-person`, `--third-person`) still keep the word after them, so `--autoplay a.dem` opens `a.dem` (B837, above Valve).
+
+- **`-h` is TF2's window height, not help (B836).** A pasted TF2 launch line such as `-w 1920 -h 1080 a.dem` now opens `a.dem`, where before it showed the help and tried to open a demo named `1080`. `--help`, `-?` and `/?` still show the help. The window size itself is not applied.
 
 ## Changes in 0.1.0-beta.71
 
@@ -1288,9 +1290,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Config, binds and the command line (beta.71), open:**
   a held CTRL or ALT chord on a menu shortcut such as `CTRL+w` fires again on every auto-repeat, so wireframe flickers while the keys are held (B827);
-  `wait` is not implemented, so a script that relies on it runs its commands without the pause (B832);
-  `-h` on the command line shows the help, where TF2's sets the window height (B836);
-  the viewer's own flags that take no value, such as `--autoplay`, leave the next word as a demo path, where TF2 skips the word after any `-flag` (B837).
+  `wait` is not implemented, so a script that relies on it runs its commands without the pause (B832).
 - **Wireframe and the debug views (beta.70), open:**
   the other debug views (`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`) are not yet checked against TF2's cheat gate or its drawing (B806);
   a map's own `Wireframe` material would draw the textures it names, where TF2's wireframe shader reads none (B807; TF2's own wireframe material names none, so nothing differs on screen);

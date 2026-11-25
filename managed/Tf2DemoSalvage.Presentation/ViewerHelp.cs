@@ -34,7 +34,7 @@ public static class ViewerHelp
 
         foreach (string argument in arguments)
         {
-            if (argument is "--help" or "-h" or "-?" or "/?")
+            if (IsHelp(argument))
             {
                 return true;
             }
@@ -42,6 +42,15 @@ public static class ViewerHelp
 
         return false;
     }
+
+    /// <summary>Whether one argument asks for the list.</summary>
+    /// <param name="argument">The argument.</param>
+    /// <returns>True for `--help`, `-?` or `/?`.</returns>
+    /// <remarks>
+    /// Not `-h` (B836, the owner's pick): TF2's `-h` is the window height, so a pasted TF2 line `-w 1920 -h 1080` would
+    /// stop at this page.
+    /// </remarks>
+    public static bool IsHelp(string argument) => argument is "--help" or "-?" or "/?";
 
     /// <summary>The list.</summary>
     public const string Text = """
@@ -51,7 +60,7 @@ public static class ViewerHelp
           tf2demoview <demo.dem> [more.dem ...] [options]
 
         OPTIONS
-          --help, -h                 Print this and exit.
+          --help, -?                 Print this and exit. (-h is TF2's window height, so not help.)
           --autoplay                 Start playing as soon as the demo is loaded.
           --first-person             Open in the recorder's view rather than the free camera.
           --third-person             Open over a player's shoulder, the chase camera.
