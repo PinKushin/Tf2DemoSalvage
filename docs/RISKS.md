@@ -46363,7 +46363,7 @@ Gemini, Grok). Tests `Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBefor
 `Load_AThrowInsideAnAlias_DropsWhatTheLoadAddedDueNow`. Immediate commands sent to the tail reddened eight console
 tests; any due command taken instead of the head reddened `Load_ACommandBehindOnePutOff_WaitsForIt`.
 
-Review 2 (Fable, Sonnet, Grok; Gemini pending). Fixed:
+Review 2 (Fable, Gemini, Sonnet, Grok; Gemini's two blockers are the first two fixes below). Fixed:
 - A command put off past the current `Cbuf_Execute` keeps no alias depth or budgets: the engine has neither, so a
   `wait` loop runs every tick for ever; such a command is a command of its own, at depth 0 with budgets of its own, as
   before B840. One due within the run keeps them, which bounds a loop that never leaves it (Fable). Test
