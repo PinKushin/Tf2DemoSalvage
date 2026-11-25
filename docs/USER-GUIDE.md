@@ -138,7 +138,8 @@ ignored with a warning, and, as in TF2, so is the argument after it unless that 
 is the path of an existing folder (written in full, or with a `\` or `/` in it): `-threads 4 a.dem` opens `a.dem`, and
 so does `-novid a.dem`; `-novid C:\demos` opens the folder, while `-game tf` drops `tf` as TF2 does. `-h` is such a
 flag, TF2's window height, so `-w 1920 -h 1080 a.dem` opens `a.dem`; `--help`, `-?` and `/?` show the help. The
-viewer's own switches that take no value, such as `--autoplay`, keep the word after them: `--autoplay a.dem` opens it.
+viewer's own switches that take no value, such as `--autoplay`, keep the word after them: `--autoplay demos` keeps
+`demos` as a path, where `-novid demos` drops it.
 
 **Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
 `mat_wireframe`, `r_screenfademinsize` and others) is refused from a config, the console or the command line while
