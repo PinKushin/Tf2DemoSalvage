@@ -215,7 +215,7 @@ public sealed partial class ViewerSession
         }
     }
 
-    /// <summary>Every action, read once rather than per auto-repeat (B827 review 1, Sonnet).</summary>
+    /// <summary>Every action, read once rather than per auto-repeat (B827 review 1, Fable, Gemini, Sonnet, Grok).</summary>
     private static readonly ViewerAction[] AllActions = Enum.GetValues<ViewerAction>();
 
     /// <summary>Decides what a key press does: which bound action it is, and whether the focused control keeps it.</summary>

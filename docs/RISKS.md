@@ -45969,10 +45969,15 @@ suite sends no real auto-repeat.
 **Review 1** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: the guard matches a bare bound key too (`IsChord` is an
 exact compare), so a held F11 whose press the console did not take is one press as well; the comment, this entry and
 the release note said chords only, and a test holds the bare key (`KeyPressed_AHeldBareMenuKeyRepeating_IsTaken`)
-(Fable, Sonnet). The action list is read once, not per repeat (Fable, Gemini, Sonnet, Grok). The form's own wiring, lParam bit
-30 read as a repeat, had no test (Fable): `ProcessCmdKey_AHeldMenuChordRepeating_TicksItsItemOnce` sends `CTRL+p`
-through `ProcessCmdKey` with and without the bit and reads the Position item; sabotage: the session's guard made to
-miss reddens it, which took one repeat, not two, since two ticks put it back. Full screen added to the list (Fable).
+(Fable, Sonnet). The action list is read once, not per repeat (Fable, Gemini, Sonnet, Grok). The form's own wiring,
+lParam bit 30 read as a repeat, had no test (Fable): `ProcessCmdKey_AHeldMenuChordRepeating_TicksItsItemOnce` sends
+`CTRL+p` through `ProcessCmdKey` with and without the bit and reads the Position item; sabotage: the session's guard
+made to miss reddens it, which took one repeat, not two, since two ticks put it back. Full screen added to the list
+(Fable).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, nits):
+two code comments credited one reviewer where this entry credits more; a line above past the wrap width. Kept: the form
+test sits in `FullScreenTests` beside `EscapeProbe`, the probe it reuses.
 
 The paragraph below is the entry as filed.
 

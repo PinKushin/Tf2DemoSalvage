@@ -1503,7 +1503,7 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **A held bare menu key fires once too** (B827 review 1, Sonnet): a bare key bound to a menu action whose press did
+    /// **A held bare menu key fires once too** (B827 review 1, Fable, Sonnet): a bare key bound to a menu action whose press did
     /// not go through the console (here, a repeat with no press before it) is matched the same way, so a held F11 does
     /// not toggle full screen at the repeat rate.
     /// </remarks>
