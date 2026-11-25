@@ -741,6 +741,45 @@ public sealed class InterpolatedHistory
         return null;
     }
 
+    /// <summary>
+    /// The changetime of the oldest entry a client holds now, after a frame cut the history and later updates arrived
+    /// (B860 review 9, Fable).
+    /// </summary>
+    /// <param name="threshold">The cut.</param>
+    /// <param name="cutAt">The frame that made it: the three it kept are chosen from what had arrived by then.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>That changetime, or null when the cut dropped nothing.</returns>
+    /// <remarks>
+    /// After the cut the history holds the three kept entries and whatever arrived since, less what a later update's
+    /// `AddToHead` flushed (every entry at or after its changetime, <c>interpolatedvar.h:649</c>): a late update stamped
+    /// below the kept three deletes them and is itself the oldest held.
+    /// </remarks>
+    public int? PrunedFloor(double threshold, int cutAt, int arrivedBy)
+    {
+        if (PrunedFloor(threshold, cutAt) is not { } kept)
+        {
+            return null;
+        }
+
+        int last = LastReceivedAtOrBefore(arrivedBy);
+        int? oldest = null;
+
+        // An entry received before the kept changetime was stamped before it too (a changetime is a simulation time, never
+        // past its own arrival), so it is neither kept nor late: the walk stops there.
+        for (int index = last; index >= 0 && index >= _generationStarts[last] && _received[index] >= kept; index--)
+        {
+            bool held = _flushedAt[index] > arrivedBy &&
+                (_received[index] > cutAt || _changeTimes[index] >= kept);
+
+            if (held && (oldest is not { } so || _changeTimes[index] < so))
+            {
+                oldest = _changeTimes[index];
+            }
+        }
+
+        return oldest;
+    }
+
     /// <summary>The newest entry the client still holds — the engine's <c>m_VarHistory.Head()</c>.</summary>
     /// <param name="floor">The generation boundary, so this is the same head the walk can reach.</param>
     /// <param name="arrivedBy">The tick being played.</param>

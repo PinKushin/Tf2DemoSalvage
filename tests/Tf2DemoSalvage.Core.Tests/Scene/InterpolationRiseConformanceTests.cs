@@ -267,6 +267,31 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// The control (B860 review 9, Sonnet): one pair above the floor still has its third sample, 30, which the frame at 50
+    /// kept, so the cycle splines there. At 68 the target is 34, between 33 (0.31) and 36 (0.313): not the straight line's
+    /// 0.311 — which a change refusing every third sample after a rise would give.
+    /// </summary>
+    [Test]
+    public void At_ACyclePairOneAboveThePrunedFloor_StillSplines()
+    {
+        ScenePropTrack prop = new(entityIndex: 1, "models/props_farm/windmill_blades.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 27; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { Cycle = tick * 0.25f / 27f });
+        }
+
+        prop.Add(30, new ScenePose { Cycle = 0.30f });
+
+        for (int tick = 33; tick <= 99; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { Cycle = 0.31f + ((tick - 33) * 0.001f) });
+        }
+
+        System.Math.Abs(prop.At(68)!.Value.Cycle - 0.311f).ShouldBeGreaterThan(1e-4f);
+    }
+
+    /// <summary>
     /// **The floor is chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )`
     /// ran then. X is ten a tick, an update every 3 ticks to 48; the frame at 50 kept 36, 33 and 30. A late update stamped
     /// 37 arrives at 52 and flushes 39 to 48 but is none of those three. The frame at 65 aims at 31 between 30 and 33,
@@ -285,6 +310,65 @@ public sealed class InterpolationRiseConformanceTests
         crate.Add(52, new ScenePose { X = 370f }, appliedAt: 37);
 
         crate.At(65)!.Value.X.ShouldBe(310f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A late update that flushes the kept entries is the oldest held** (B860 review 9, Fable): `AddToHead` drops every
+    /// entry at or after its changetime (`interpolatedvar.h:649`). X ten a tick, an update every 3 ticks to 48 and from 54;
+    /// the frame at 50 kept 36, 33, 30. An update stamped 28 (250) arrives at 52 and flushes them all. The frame at 57 aims
+    /// at 23, older than every entry held, and answers the oldest, 28: 250 (`:877-882`).
+    /// </summary>
+    [Test]
+    public void At_ALateUpdateThatFlushesTheKeptEntries_IsTheOldestHeld()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 48; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(52, new ScenePose { X = 250f }, appliedAt: 28);
+
+        for (int tick = 54; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.At(57)!.Value.X.ShouldBe(250f, 0.01f);
+    }
+
+    /// <summary>
+    /// **Two rises inside one window: the furthest cut is the first's** (B860 review 9, Fable). Delay 8, then 34 from 50,
+    /// then 51 from 55; X ten a tick, an update every 3 ticks. The frame at 50 aimed at 42 and kept 36, 33 and 30; every
+    /// later frame cut lower. The frame at 70 aims at 19, older than all of them: 300, the oldest held.
+    /// </summary>
+    [Test]
+    public void At_TwoRisesInOneWindow_KeepTheFirstRisesFloor()
+    {
+        Core.Net.ServerConVars ten = new();
+        ten.Apply(new SetConVarMessage(
+        [
+            new KeyValuePair<string, string>("sv_client_min_interp_ratio", "10"),
+            new KeyValuePair<string, string>("sv_client_max_interp_ratio", "10"),
+        ]));
+        Core.Net.ServerConVars fifteen = new();
+        fifteen.Apply(new SetConVarMessage(
+        [
+            new KeyValuePair<string, string>("sv_client_min_interp_ratio", "15"),
+            new KeyValuePair<string, string>("sv_client_max_interp_ratio", "15"),
+        ]));
+        InterpolationSchedule twice = InterpolationSchedule.From(
+            new ClientInterp(), new ServerConVars(), [(50, ten), (55, fifteen)], Interval);
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = twice };
+
+        for (int tick = 0; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        (twice.TicksAt(54), twice.TicksAt(55)).ShouldBe((34, 51), "the control: the two rises");
+        crate.At(70)!.Value.X.ShouldBe(300f, 0.01f);
     }
 
     /// <summary>

@@ -2459,7 +2459,7 @@ public sealed class ScenePropTrack
             return heldAt;
         }
 
-        if (LastListedTarget(history, tick, rise, schedule, variable) is not { } pruned)
+        if (LastListedTarget(history, tick, schedule, variable) is not { } pruned)
         {
             return target;
         }
@@ -2470,7 +2470,7 @@ public sealed class ScenePropTrack
 
         // **Chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )` ran then,
         // so an update arriving later with a changetime below the cut is not one of its three.
-        floor = history.PrunedFloor(cut, pruned.Frame);
+        floor = history.PrunedFloor(cut, pruned.Frame, now);
 
         return floor is { } oldest && target < oldest ? oldest : target;
     }
@@ -2491,35 +2491,33 @@ public sealed class ScenePropTrack
     /// on the frame that reads it, so its cut is that frame's target, which a listed frame no older already covers — except
     /// a latch that did not re-arm, which prunes on a frame the variable is not listed in. Those are counted too.
     /// </remarks>
+    /// <remarks>
+    /// **Every step, not only the last rise's** (B860 review 9, Fable): two rises inside one window leave the furthest cut
+    /// on the frame before the first. So the walk goes back frame by frame, taking every frame that pruned — listed, or
+    /// reading a latch — and stops once no earlier frame aimed further (<see cref="InterpolationSchedule.MaxTargetBefore"/>
+    /// is the furthest any frame up to there reached), or nothing had arrived.
+    /// </remarks>
     private static (double Target, int Frame)? LastListedTarget(
-        InterpolatedHistory history, double tick, int rise, InterpolationSchedule schedule, HistoryVariable variable)
+        InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable)
     {
-        int last = (int)Math.Ceiling(tick) - 1;
         (double Target, int Frame)? most = null;
 
-        for (int frame = last; frame > rise; frame--)
+        for (int frame = (int)Math.Ceiling(tick) - 1; history.LatestArrival(frame) is not null; frame--)
         {
-            if (Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame)
+            if (most is { } best && schedule.MaxTargetBefore(frame + 1) <= best.Target)
             {
-                most = (FrameTarget(frame, schedule), frame);
                 break;
             }
-        }
 
-        int oldest = Math.Min(rise, last);
-
-        if (history.LatestChange(oldest, variable.First, variable.Count) is { } changed)
-        {
-            int settled = SettleFrame(history, changed, oldest - 1, schedule, variable) ?? oldest;
-
-            // A latch since the settle frame that changed nothing still pruned, on its own frame.
-            if (history.LatestArrival(oldest) is { } arrived && arrived > settled)
+            if (Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame)
             {
-                settled = arrived;
-            }
+                double target = FrameTarget(frame, schedule);
 
-            double old = FrameTarget(settled, schedule);
-            most = most is { } newer && newer.Target >= old ? newer : (old, settled);
+                if (most is not { } so || target > so.Target)
+                {
+                    most = (target, frame);
+                }
+            }
         }
 
         return most;

@@ -47351,8 +47351,10 @@ Review 7 (Fable, Sonnet, Codex: no blocker). Fixed:
   `At_AHeldVariableWhoseChangingEntryWasFlushed_HoldsItsValue` (400) reddens without it.
 - **A pair starting on the pruned floor splined through an entry the engine had dropped** (Fable): `Truncate( i + 3 )`
   leaves nothing older (`interpolatedvar.h:782-795`), so there is no valid `oldestindex` (`:851`) and the origin runs
-  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. *(Corrected in review 8: the cycle
-  takes its third sample from its own history, not the simulation's; the pose parameters are always linear.)*
+  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. *(Corrected in reviews 8 and 9: the cycle
+  takes its third sample from its own history, not the simulation's; the pose parameters blend linearly HERE, which is
+  itself a recorded divergence — the engine splines them, `m_iv_flPoseParameter` having no `INTERPOLATE_LINEAR_ONLY` — so
+  the floor has no effect on them in this viewer.)*
 - The stateless `At` test asserted the rise tick, where the stateless sampler reads its own tick and the frame model the
   old delay; it asserts 51, where both agree (Sonnet).
 
@@ -47374,7 +47376,24 @@ Review 8 (Fable, Sonnet, Codex: no blocker; Codex's first run read the wrong che
 
 Not taken (Sonnet): the frame start persisting after its presenter goes away needs a later reader at exactly that tick
 with no presenter, and that reader would be asking for the shown moment; the motion window's two reads, recorded in
-review 1. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+review 1.
+
+Review 9 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A later flush could delete the kept entries, where the floor still named them** (Fable): `AddToHead` drops every
+  entry at or after the new changetime (`interpolatedvar.h:649`), so a late update stamped below the kept three is the
+  oldest held. `InterpolatedHistory.PrunedFloor(cut, cutAt, arrivedBy)` takes the oldest of the kept three and every later
+  arrival still held; `At_ALateUpdateThatFlushesTheKeptEntries_IsTheOldestHeld` (250) reddens with the floor as of the cut.
+- **Two rises in one window took the floor from the last rise only** (Fable). Review 2's "covered by the general
+  recursion" was wrong: there was none. `LastListedTarget` now walks back frame by frame over every step, taking every
+  frame that pruned, until no earlier frame aimed further; `At_TwoRisesInOneWindow_KeepTheFirstRisesFloor` (300; 100 from
+  the last rise) reddens without the walk.
+- **The record said the pose parameters are linear**, where that is this viewer's, itself a recorded divergence (the
+  engine splines them) (Sonnet, Fable); corrected.
+- A control: the cycle pair one above the floor still splines (`At_ACyclePairOneAboveThePrunedFloor_StillSplines`),
+  which reddens when every third sample is refused after a rise (Sonnet).
+
+Not taken: `Settled` judges the hermite clause with an `oldest` the engine has dropped, which can only call unsettled what
+the engine calls settled — an extra wake, never a missed one (Sonnet). Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
 anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
 before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`
