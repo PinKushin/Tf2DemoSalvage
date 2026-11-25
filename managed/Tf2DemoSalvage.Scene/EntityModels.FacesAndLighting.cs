@@ -670,7 +670,7 @@ public sealed partial class EntityModelSet
             // never plays a demo backwards).
             _faces[actor] = (modelPath, new ActorFace(
                 own.Flex, own.Flex.ModelName, Faces,
-                Faces?.InterpolationSeconds ?? ScenePropTrack.DelayTicksFor(IntervalPerTick) * (double)IntervalPerTick,
+                Faces?.Interpolation ?? InterpolationSchedule.Constant(IntervalPerTick),
                 seconds));
             _delays.Remove(actor);
         }

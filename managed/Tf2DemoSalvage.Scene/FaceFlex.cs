@@ -428,7 +428,7 @@ public sealed class ActorFace
     /// <summary><c>m_iv_flexWeight</c>'s entries, newest first; null when the face keeps no history.</summary>
     private readonly List<(double ChangeTime, float[] Values)>? _history;
 
-    private readonly double _interpolation;
+    private readonly Core.Scene.InterpolationSchedule? _interpolation;
     private bool _needsToInterpolate;
     private double _lastInterpolationTime = double.NegativeInfinity;
     private double _animTime;
@@ -438,12 +438,16 @@ public sealed class ActorFace
     /// <param name="modelName">The model's internal name (<c>pszName</c>), which the phoneme files are named from.</param>
     /// <param name="sources">Where expression files come from.</param>
     /// <param name="interpolation">
-    /// <c>GetInterpolationAmount( LATCH_ANIMATION_VAR )</c> in seconds, which turns on <c>m_iv_flexWeight</c>; null keeps
-    /// no history, which is <c>SetupGlobalWeights</c> alone.
+    /// <c>GetInterpolationAmount( LATCH_ANIMATION_VAR )</c> by tick (B849), which turns on <c>m_iv_flexWeight</c>; null
+    /// keeps no history, which is <c>SetupGlobalWeights</c> alone.
     /// </param>
     /// <param name="created">When the face was reset, demo seconds.</param>
     public ActorFace(
-        StudioFlexData data, string modelName, FaceSources? sources, double? interpolation = null, double created = 0d)
+        StudioFlexData data,
+        string modelName,
+        FaceSources? sources,
+        Core.Scene.InterpolationSchedule? interpolation = null,
+        double created = 0d)
     {
         _data = data ?? throw new ArgumentNullException(nameof(data));
         _flexWeight = new float[data.Controllers.Count];
@@ -668,7 +672,7 @@ public sealed class ActorFace
         }
 
         history.Insert(0, (_animTime, (float[])_flexWeight.Clone()));
-        RemoveEntriesPreviousTo(history, curtime - _interpolation - ExtraHistory);
+        RemoveEntriesPreviousTo(history, curtime - InterpolationAt(curtime) - ExtraHistory);
 
         if (differs)
         {
@@ -682,11 +686,15 @@ public sealed class ActorFace
         }
     }
 
+    /// <summary>The delay <c>m_iv_flexWeight</c> is read behind at a demo time, as the server's bounds stood then (B849).</summary>
+    private double InterpolationAt(double seconds) => _interpolation?.SecondsAtTime(seconds) ?? 0d;
+
     /// <summary><c>CInterpolatedVarArrayBase::Interpolate</c> (<c>interpolatedvar.h:967</c>), without extrapolation.</summary>
     /// <returns><c>noMoreChanges</c>.</returns>
     private bool Interpolate(List<(double ChangeTime, float[] Values)> history, double currentTime)
     {
-        double target = currentTime - _interpolation;
+        double interpolation = InterpolationAt(currentTime);
+        double target = currentTime - interpolation;
         int older = -1, newer = -1, oldest = -1;
         bool hermite = false, noMoreChanges = false, found = false;
         float frac = 0f;
@@ -789,7 +797,7 @@ public sealed class ActorFace
                     (d1 * (t3 - (2 * t2) + frac)) + (d2 * (t3 - t2));
             }
         }
-        else if (older == newer && newer + 1 < history.Count && history[newer + 1].ChangeTime > 0d && _interpolation > 0.000001d)
+        else if (older == newer && newer + 1 < history.Count && history[newer + 1].ChangeTime > 0d && interpolation > 0.000001d)
         {
             // _Extrapolate (interpolatedvar.h:1345), cl_extrapolate_amount 0.25. Allowed: cl_extrapolate is on, and the
             // per-frame latch keeps m_LastNetworkedTime at the last packet's stamp. Reached only when a frame is longer

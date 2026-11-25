@@ -1190,8 +1190,11 @@ public sealed class ScenePropTrack
     ///
     /// Derived through <see cref="DelayTicksFor"/> rather than stated, so the reasoning is code
     /// and the tick interval is an input.
+    ///
+    /// **By tick, not one number** (B849): `GetClientInterpAmount` is computed when asked, under the server's bounds as
+    /// they stand, so the delay at a tick is <see cref="InterpolationSchedule.TicksAt"/> that tick.
     /// </remarks>
-    internal int InterpolationDelayTicks { get; set; } = DelayTicksFor(Tf2TickInterval);
+    internal InterpolationSchedule Interpolation { get; set; } = InterpolationSchedule.Tf2Default;
 
     /// <summary>TF2's tick interval, and the fallback when a demo states none.</summary>
     /// <remarks>
@@ -1835,7 +1838,7 @@ public sealed class ScenePropTrack
 
         int born = _keyframes.FirstTick;
         int now = (int)Math.Floor(tick);
-        double target = tick - InterpolationDelayTicks;
+        double target = tick - Interpolation.TicksAt(tick);
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
         // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
@@ -1890,13 +1893,16 @@ public sealed class ScenePropTrack
         // **The last is the first-pose answer's end, one tick past it**: at exactly `born + delay` the target
         // is still ON the first keyframe, so a wake there would find the track unchanged and schedule nothing
         // further. One past is the first tick the answer comes from a history.
-        foreach (int? moment in (int?[])
+        // **The delay by tick** (B849): a changetime is reached where the delayed target first passes it, and the delay's
+        // own change moves the target, so it is a moment too.
+        foreach (double? moment in (double?[])
             [
                 _simulation.ArrivesAfter(now),
                 _animation.ArrivesAfter(now),
-                _simulation.HeadChangeTime(now) + InterpolationDelayTicks,
-                _animation.HeadChangeTime(now) + InterpolationDelayTicks,
-                born + InterpolationDelayTicks + 1,
+                _simulation.HeadChangeTime(now) is { } simulated ? Interpolation.Reaches(simulated) : null,
+                _animation.HeadChangeTime(now) is { } animated ? Interpolation.Reaches(animated) : null,
+                Interpolation.Reaches(born) + 1,
+                Interpolation.NextChangeAfter(tick),
             ])
         {
             if (moment is { } at && at > tick && at < next)
@@ -2360,7 +2366,7 @@ public sealed class ScenePropTrack
     /// toward it the entire time — a shutter drifting open on its own for ten seconds, and sinking
     /// below its own frame on the way back (B94). Two rules restore it:
     ///
-    /// - the pose is sampled <see cref="InterpolationDelayTicks"/> behind the requested tick, which
+    /// - the pose is sampled <see cref="Interpolation"/>'s delay behind the requested tick, which
     ///   is what <c>cl_interp</c> does;
     /// - a keyframe later than the requested tick is not used, because it has not arrived yet.
     ///
@@ -2375,7 +2381,7 @@ public sealed class ScenePropTrack
         }
 
         // The moment being drawn, one interpolation window behind the moment being asked for.
-        double target = tick - InterpolationDelayTicks;
+        double target = tick - Interpolation.TicksAt(tick);
 
         if (target <= _keyframes.FirstTick)
         {

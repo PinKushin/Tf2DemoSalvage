@@ -69,7 +69,7 @@ public sealed class DemoPlayerConformanceTests
     {
         // max( cl_interp 0.1, cl_interp_ratio 2 / cl_updaterate 20 ), the rollback's other input.
         DemoTimeline.Build(SyntheticViews.Demo(SyntheticViews.Packet(100, (1f, 0f, 0f))))
-            .ClientInterpAmount.ShouldBe(0.1d, 1e-6d);
+            .Interpolation.AmountAt(0).ShouldBe(0.1d, 1e-6d);
     }
 
     [Test]

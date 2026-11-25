@@ -46740,9 +46740,29 @@ so would put a signon message after every packet in time, and out of tick order 
 types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
 signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
 
-## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — OPEN
+## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — FIXED (2026-11-25)
 
-Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
+**Fixed.** `InterpolationSchedule` is `GetClientInterpAmount()` by tick: the watcher's settings under the server's
+ConVars as they stand at each tick, built from the same history `ServerConVarsAt` reads, one step per change that moves
+the amount. Every reader takes it at its own tick:
+
+- a track's pose (`ScenePropTrack.At`, `Motion`) samples `TicksAt(tick)` behind; `Motion`'s wakes are where the delayed
+  target first reaches a changetime (`Reaches`), and the delay's own change is a wake, since it moves the target;
+- the demo player's legacy rollback reads `AmountAt` its tick;
+- a face's `m_iv_flexWeight` reads the delay at its time (`ActorFace`, through `FaceSources.Interpolation`);
+- the checkpoint walk's reach covers the widest bounds anywhere in the recording (`EndFacts.WidestBounds`), not the last.
+
+Temp entities already fired under the bounds of their tick (`RecordEffects` is handed `client.Amount(serverConVars)`).
+`DemoTimeline.ClientInterpAmount` is replaced by `Interpolation`. The schedule is immutable and shared by every track,
+so a checkpoint copies none of it (`StateCopy.Immutable`). Tests: `InterpolationScheduleTests` (the steps, a set that
+leaves the amount, `Reaches` either side of a change), `WindowReachTests.Walk_BoundsRaisedMidRecordingThenLowered_DelaysByTickAndReachesTheWidest`
+(8, 34, 8 ticks either side of a raise and a lowering; a reach of 41 where the end bounds give 15; windows answering as
+the whole build), `DemoTimelineSampleOrderTests.PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere`.
+Sabotage, each restored: the delay-change wake removed reddens the stepped test at tick 50; the reach from the end bounds
+reddens the reach; one delay for the recording reddens the per-tick delays. *Read*, not measured on a real demo: no
+corpus demo is known to change its bounds mid-recording.
+
+The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay
 every track samples behind. `DemoTimeline` sets every track's `InterpolationDelayTicks` once, from
 `client.Amount(end.ServerConVars)`, and the checkpoint walk's reach from `WindowReach.For(…, _end.ServerConVars, …)`.
@@ -46752,9 +46772,10 @@ changes the delay from that tick on. *Read*, not measured; such a change is rare
 sign-on. Fix shape: a delay schedule by tick from the ConVar history, read by `ScenePropTrack.At` and `Motion` (whose
 wakes add the delay to changetimes), and a walk reach that covers the widest delay over the recording. *Not fixed*.
 
-## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN (part 1 fixed; the interpolation window, B849, finishes on this branch)
+## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — FIXED (2026-11-25)
 
-**Part 1 fixed.** Each reader asks `DemoTimeline.ServerConVarsAt` at its own moment:
+**Fixed, both parts.** The interpolation window is part 2, B849. Each other reader asks `DemoTimeline.ServerConVarsAt`
+at its own moment:
 
 - the free camera, every frame it flies (`CameraPresenter.Fly`): `FullNoClipMove` reads `sv_maxspeed` on each move
   (`gamemovement.cpp:2260`), and its callers pass `sv_specspeed` in as `factor` (`:2171`, `:2186`).

@@ -136,6 +136,12 @@ public sealed class FaceFlexTests
         face.Global["smile"].ShouldBe(0f);
     }
 
+    /// <summary>
+    /// An interpolation of exactly 0.1 s: at 0.05 s a tick an amount of 0.05 s is one tick, plus the engine's whole extra
+    /// tick, two ticks of 0.05 s (`DelayTicksFor`).
+    /// </summary>
+    private static readonly Core.Scene.InterpolationSchedule TenthOfASecond = Core.Scene.InterpolationSchedule.Constant(0.05d, 0.05d);
+
     [Test]
     public void Step_WithTheLatchedHistory_StartsEachFrameFromWhatInterpolationLeft()
     {
@@ -144,7 +150,7 @@ public sealed class FaceFlexTests
         // so frame 3 interpolates at 0.99 — before every latch but the reset's 0 at 1.0 — and the draw blends from 0:
         // 0.5, where the plain face gives 0.7375 × 0.95 × 0.5 + 0.5. The scene's own write never reached the history.
         List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
-        ActorFace latched = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+        ActorFace latched = new(Model, "m.mdl", null, interpolation: TenthOfASecond, created: 1d);
         ActorFace plain = new(Model, "m.mdl", null);
 
         // Inside the ramp's interior samples, where it is exactly 0.5.
@@ -164,7 +170,7 @@ public sealed class FaceFlexTests
         // At 0.1 s a frame, frame 3 asks for 1.2 while the newest latch is 1.1 (0.5) after 1.0 (0): _Extrapolate takes
         // Lerp( 1 + 0.1 / 0.1, 0, 0.5 ) = 1, and the draw blends from there: 1 × 0.95 × 0.5 + 0.5.
         List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
-        ActorFace face = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+        ActorFace face = new(Model, "m.mdl", null, interpolation: TenthOfASecond, created: 1d);
 
         foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
         {

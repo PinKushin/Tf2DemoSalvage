@@ -171,8 +171,7 @@ public static class DemoAppearance
                         : null;
                 })
             {
-                InterpolationSeconds =
-                    ScenePropTrack.DelayTicksFor(timeline.IntervalPerTick, timeline.ClientInterpAmount) * (double)timeline.IntervalPerTick,
+                Interpolation = timeline.Interpolation,
             },
         };
 

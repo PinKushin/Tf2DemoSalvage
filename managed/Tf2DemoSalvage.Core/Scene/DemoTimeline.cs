@@ -2659,9 +2659,11 @@ public sealed class DemoTimeline
     /// <remarks>One is a single-player listen server, the only case <c>InterpolateViewpoint</c> rolls the view back for.</remarks>
     public int MaxClients { get; private init; }
 
-    /// <summary><c>GetClientInterpAmount()</c>: the watcher's interp under the recording server's bounds, in seconds.</summary>
-    /// <remarks>The same amount every track's delay is built from (<see cref="ClientInterp.Amount"/>).</remarks>
-    public double ClientInterpAmount { get; private init; }
+    /// <summary>
+    /// <c>GetClientInterpAmount()</c> by tick: the watcher's interp under the recording server's bounds as they stood at each
+    /// tick (B849), and the delay every track is sampled behind.
+    /// </summary>
+    public InterpolationSchedule Interpolation { get; private init; } = InterpolationSchedule.Tf2Default;
 
     /// <summary>The first tick with positions, or zero when the demo has none.</summary>
     public int FirstTick => _frames.Count > 0 ? _frames.TickAt(0) : 0;
@@ -3274,7 +3276,7 @@ public sealed class DemoTimeline
                 return null;
             }
 
-            WindowReach needed = WindowReach.For(settings, walked._end.ServerConVars, walked.IntervalPerTick);
+            WindowReach needed = WindowReach.For(settings, walked._end.WidestBounds, walked.IntervalPerTick);
 
             if (walked.Reach.Covers(needed))
             {
@@ -3315,7 +3317,7 @@ public sealed class DemoTimeline
         public bool Covers(WindowSettings settings)
         {
             ArgumentNullException.ThrowIfNull(settings);
-            return settings.Interp == Client && Reach.Covers(WindowReach.For(settings, _end.ServerConVars, IntervalPerTick));
+            return settings.Interp == Client && Reach.Covers(WindowReach.For(settings, _end.WidestBounds, IntervalPerTick));
         }
 
         private static Checkpoints? Walk(
@@ -3751,6 +3753,9 @@ public sealed class DemoTimeline
         private string? levelName;
         private IReadOnlyList<byte>? mapHash;
         private readonly ServerConVars serverConVars;
+
+        /// <summary>The bounds that delayed interpolation the most so far, Valve's defaults before any set (B849).</summary>
+        private ServerConVars widestBounds = new();
         private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
 
         /// <summary>The tick of the last packet read, from which a signon read after it holds (B843 review 6, Fable).</summary>
@@ -4307,7 +4312,15 @@ public sealed class DemoTimeline
                             stamp = Math.Max(stamp, conVarHistory[conVarHistory.Count - 1].Tick);
                         }
 
-                        conVarHistory.Add((stamp, serverConVars.Snapshot()));
+                        ServerConVars setNow = serverConVars.Snapshot();
+                        conVarHistory.Add((stamp, setNow));
+
+                        // The bounds that delay the most anywhere in the recording, which a checkpoint's reach covers (B849).
+                        if (client.Amount(setNow) > client.Amount(widestBounds))
+                        {
+                            widestBounds = setNow;
+                        }
+
                         continue;
 
                     // **The director telling the camera how to frame this shot** — `hltv_chase`,
@@ -5906,10 +5919,12 @@ public sealed class DemoTimeline
         }
 
         /// <summary>The facts only the END of a demo knows, which every window of it reports (D217 step 3).</summary>
-        /// <param name="ServerConVars">The final server ConVars, which bound the interpolation.</param>
+        /// <param name="ServerConVars">The final server ConVars.</param>
         /// <param name="FirstStated">Each player's first stated team and class, the final frame observed.</param>
         /// <param name="Everyone">Everyone who played, by user id.</param>
-        internal sealed record EndFacts(ServerConVars ServerConVars, FirstStatedRoster FirstStated, Dictionary<int, PlayerInfo> Everyone);
+        /// <param name="WidestBounds">The server ConVars that delayed interpolation the most at any tick (B849).</param>
+        internal sealed record EndFacts(
+            ServerConVars ServerConVars, FirstStatedRoster FirstStated, Dictionary<int, PlayerInfo> Everyone, ServerConVars WidestBounds);
 
         /// <summary>This pass's end facts, once its last command has run: its final frame is observed here, being final.</summary>
         /// <returns>The facts, which nothing writes afterwards — the pass is finished — so every window shares them.</returns>
@@ -5920,7 +5935,7 @@ public sealed class DemoTimeline
                 firstStated.Observe(frames[^1]);
             }
 
-            return new EndFacts(serverConVars, firstStated, everyone);
+            return new EndFacts(serverConVars, firstStated, everyone, widestBounds);
         }
 
         /// <summary>The first frame's tick, kept when a trim drops that frame: the demo's start, for a walk's windows.</summary>
@@ -6077,13 +6092,14 @@ public sealed class DemoTimeline
             heard = [.. heard.OrderBy(sound => sound.Tick)];
         }
 
-        // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
-        double interpAmount = client.Amount(end.ServerConVars);
-        int delayTicks = ScenePropTrack.DelayTicksFor(interval, interpAmount);
+        // The viewer's own interp (`cl_interp` and friends from its config), under the server's bounds as they stand at each
+        // tick (B849): `GetClientInterpAmount` is computed when asked, so a bound set mid-recording delays from its tick on.
+        IReadOnlyList<(int Tick, ServerConVars ConVars)> conVarChanges = conVarHistory.HandOut();
+        InterpolationSchedule interpolation = InterpolationSchedule.From(client, new ServerConVars(), conVarChanges, interval);
 
         foreach (ScenePropTrack track in props.Concat(playerTracks))
         {
-            track.InterpolationDelayTicks = delayTicks;
+            track.Interpolation = interpolation;
         }
 
         return new DemoTimeline(
@@ -6091,7 +6107,7 @@ public sealed class DemoTimeline
             soundscapes.HandOut(), director.HandOut(), end.FirstStated)
         {
             MaxClients = maxClients,
-            ClientInterpAmount = interpAmount,
+            Interpolation = interpolation,
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
@@ -6127,7 +6143,7 @@ public sealed class DemoTimeline
             Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = end.ServerConVars,
-            ConVarChanges = conVarHistory.HandOut(),
+            ConVarChanges = conVarChanges,
             UserCommands = userCommands.HandOut(),
             PacketAcknowledgements = packetAcknowledgements.HandOut(),
             MapCrc = mapCrc,

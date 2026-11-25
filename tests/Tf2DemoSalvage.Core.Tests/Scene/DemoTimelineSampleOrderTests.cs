@@ -121,6 +121,46 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
+    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 300 over ticks 0 to 30 and rests;
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the target falls back to 16 and the crate is
+    /// drawn mid-slide again. A stepped reader that slept once the slide settled would hold it at rest.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Sliding()
+        {
+            Core.Net.ServerConVars raised = new();
+            raised.Apply(new Core.Net.SetConVarMessage(
+            [
+                new KeyValuePair<string, string>("sv_client_min_interp_ratio", "10"),
+                new KeyValuePair<string, string>("sv_client_max_interp_ratio", "10"),
+            ]));
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
+            };
+
+            for (int tick = 0; tick <= 30; tick += 3)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [crate];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Sliding());
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            ShouldMatch(props, Fresh(Sliding, tick), $"at tick {tick}");
+        }
+    }
+
+    /// <summary>
     /// **An entity whose own clock runs behind its arrival: every history settles before the first
     /// stated pose stops being the answer.**
     /// </summary>

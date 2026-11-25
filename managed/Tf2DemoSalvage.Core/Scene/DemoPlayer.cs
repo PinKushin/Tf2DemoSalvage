@@ -65,7 +65,7 @@ public sealed class DemoPlayer
 
     private readonly float _interval;
     private readonly int _maxClients;
-    private readonly float _interpAmount;
+    private readonly InterpolationSchedule _interpolation;
 
     /// <summary>The parse-ahead list (+0x5d0): indices into the stream, in stream order.</summary>
     private readonly List<int> _packets = [];
@@ -143,7 +143,7 @@ public sealed class DemoPlayer
         NotSimpleBecause = Simple(_commands, out _bodyStart);
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _maxClients = timeline.MaxClients;
-        _interpAmount = (float)timeline.ClientInterpAmount;
+        _interpolation = timeline.Interpolation;
 
         _stamped = new int[_commands.Count];
 
@@ -578,7 +578,8 @@ public sealed class DemoPlayer
 
         if (_maxClients == 1)
         {
-            target -= conVars.LegacyRollback ? 1 + (int)((_interpAmount / _interval) + 0.5f) : 1;
+            // `GetClientInterpAmount()` as the server's bounds stand at this tick (B849).
+            target -= conVars.LegacyRollback ? 1 + (int)(((float)_interpolation.AmountAt(playbackTick) / _interval) + 0.5f) : 1;
         }
 
         RecordedView? outinfo = null;

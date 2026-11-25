@@ -76,7 +76,7 @@ public sealed class FaceFlexAnimationDemoTests
             timeline.Sounds,
             timeline.IntervalPerTick,
             new Dictionary<string, Sentence>(),
-            production.Expression) { InterpolationSeconds = production.InterpolationSeconds };
+            production.Expression) { Interpolation = production.Interpolation };
 
         float[] animated = Played(timeline, medic, appearance, SceneStart + 60).ShouldNotBeNull();
         float[]? control = Played(timeline, medic, appearance with { Faces = without }, SceneStart + 60);
