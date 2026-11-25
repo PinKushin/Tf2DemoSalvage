@@ -474,7 +474,8 @@ public sealed class ConfigConsole
     /// second launch.
     /// </param>
     public void Stuff(string? text, bool oneShots) =>
-        AtStartup(oneShots, replaying: !oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0))));
+        InPass(() => AtStartup(
+            oneShots, replaying: !oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0)))));
 
     /// <summary>
     /// Runs one command typed with budgets of its own (B820 review 5, Fable): a key, each line of a config
@@ -665,6 +666,7 @@ public sealed class ConfigConsole
         bool Stuffing,
         bool PutOff,
         bool Replaying,
+        int Pass,
         bool ViewerIssued,
         bool SavedLayer,
         Budget Budget,
@@ -721,27 +723,50 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// Every config file an earlier <see cref="LoadFrom"/> read, itself or by `exec`, by path and text: one read again
-    /// unchanged is a replay (B841).
+    /// Every config file a read of the configs or the launch line ran to its end, itself or by `exec`, by path and text,
+    /// with the first pass that ran it: one run unchanged by a LATER pass is a replay (B841). Only an earlier pass makes
+    /// it one, as TF2 runs a file `exec`'d twice at one startup twice.
     /// </summary>
-    private readonly HashSet<(string Path, string Text)> _configsRead = [];
+    private readonly Dictionary<(string Path, string Text), int> _firstPass = [];
 
     /// <summary>
-    /// The files the read now running has read, kept apart until it ends: TF2 runs a file `exec`'d twice at one startup
-    /// twice, so only an EARLIER read makes a file a replay.
+    /// The read the command running now belongs to (a <see cref="LoadFrom"/> or a launch line), or 0 for none — a key, a
+    /// load made directly. It rides the queued command, so a waited `exec` is judged by the read that queued it, whenever
+    /// it runs, and a key's run while a read is in progress is not (B841 review 6, Fable).
     /// </summary>
-    private readonly HashSet<(string Path, string Text)> _configsReadThisPass = [];
+    private int _pass;
 
-    /// <summary>Whether <see cref="LoadFrom"/> is reading the configs now, so an `exec` reached from them is on the record.</summary>
-    private bool _readingConfigs;
+    /// <summary>The last pass numbered.</summary>
+    private int _passes;
 
-    /// <summary>Notes a config file read now; whether an earlier read read it, unchanged.</summary>
-    private bool ReadBefore(string path, string text)
+    /// <summary>Runs one read of the configs or the launch line as a pass of its own.</summary>
+    private void InPass(Action run)
     {
-        _configsReadThisPass.Add((path, text));
+        int pass = _pass;
+        _pass = ++_passes;
 
-        return _configsRead.Contains((path, text));
+        try
+        {
+            run();
+        }
+        finally
+        {
+            _pass = pass;
+        }
     }
+
+    /// <summary>Whether an earlier pass ran this file, unchanged, to its end.</summary>
+    private bool ReadBefore(string path, string text) =>
+        _firstPass.TryGetValue((RecordPath(path), text), out int first) && first < _pass;
+
+    /// <summary>Notes that this pass ran this file to its end, unless an earlier one did.</summary>
+    private void ReadThrough(string path, string text) => _firstPass.TryAdd((RecordPath(path), text), _pass);
+
+    /// <summary>
+    /// A config path as the file it names: the search path ignores case on Windows, so `exec Shots` and `exec shots` are
+    /// one file (B841 review 6, Fable, Gemini). *Not folded*: a `\` or a `./`, which no finder here resolves to a file.
+    /// </summary>
+    private static string RecordPath(string path) => path.ToUpperInvariant();
 
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;
@@ -819,8 +844,8 @@ public sealed class ConfigConsole
                 // current tick, behind what is queued for it, and its run adds the text where it stands. One command with
                 // no bytes stands for it here, so what runs before it, and at what tick, is the engine's.
                 Link(new Entry(
-                    now, 0, string.Empty, null, 0, _loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer,
-                    _adding, add));
+                    now, 0, string.Empty, null, 0, _loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget,
+                    _answer, _adding, add));
                 Processing(now, () => Pump(until: null));
             }
         }
@@ -883,11 +908,12 @@ public sealed class ConfigConsole
         _queuedBytes -= entry.Size;
         _tick = entry.Tick;
 
-        (bool loading, bool stuffing, bool putOff, bool replaying, bool viewerIssued, bool savedLayer, Budget budget, Answer? answer,
-            int adding) = (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding);
-        (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-            (entry.Loading, entry.Stuffing, entry.PutOff, entry.Replaying, entry.ViewerIssued, entry.SavedLayer, entry.Budget,
-                entry.Answer, entry.Adding);
+        (bool loading, bool stuffing, bool putOff, bool replaying, int pass, bool viewerIssued, bool savedLayer, Budget budget,
+            Answer? answer, int adding) =
+            (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding);
+        (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+            (entry.Loading, entry.Stuffing, entry.PutOff, entry.Replaying, entry.Pass, entry.ViewerIssued, entry.SavedLayer,
+                entry.Budget, entry.Answer, entry.Adding);
 
         try
         {
@@ -908,8 +934,8 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-                (loading, stuffing, putOff, replaying, viewerIssued, savedLayer, budget, answer, adding);
+            (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+                (loading, stuffing, putOff, replaying, pass, viewerIssued, savedLayer, budget, answer, adding);
         }
     }
 
@@ -1513,33 +1539,27 @@ public sealed class ConfigConsole
             // **TF2's saved configs rank below the viewer's own saved settings** (D264): their ConVars stay in this console's
             // list, which the attached settings shadow, rather than reaching the settings as a run-time set. Their binds
             // and aliases count as always. `autoexec.cfg` reaches the settings, as the player's hand-written layer.
-            _configsReadThisPass.Clear();
-            _readingConfigs = true;
-
-            try
+            InPass(() =>
             {
                 foreach ((string path, string text) in configs)
                 {
                     _savedLayer = Tf2ConfigFiles.IsSaved(path);
 
-                    // **A file an earlier read read, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or
+                    // **A file an earlier read ran, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or
                     // are queued, from that read, so the reread is no second launch (B829). A file read for the first time
                     // here is not: with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read now (Sonnet).
+                    // Noted only once run to its end (review 6, Fable): a throw partway leaves its later lines unrun.
                     try
                     {
                         Load(text, replaying: ReadBefore(path, text));
+                        ReadThrough(path, text);
                     }
                     finally
                     {
                         _savedLayer = false;
                     }
                 }
-            }
-            finally
-            {
-                _readingConfigs = false;
-                _configsRead.UnionWith(_configsReadThisPass);
-            }
+            });
 
             // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
             // `CheatRefused` handler has printed it already (B811 review 5, Sonnet): only a console nobody listens to prints here.
@@ -1901,21 +1921,22 @@ public sealed class ConfigConsole
 
         string text = Tf2ConfigFiles.Decode(bytes);
 
-        if (!_readingConfigs)
+        if (_pass == 0)
         {
             RunFile(text, depth + 1);
             return;
         }
 
-        // **A file `exec`'d while the configs are read is on the record too** (B841 review 5, Fable): it is a replay only if
-        // an earlier read ran it, unchanged, whatever the file that reached it is, so a file the chosen folder adds under
-        // a replayed `autoexec.cfg` is read as new, and one a new file reaches that an earlier read ran is not.
+        // **A file a read `exec`s is on the record too** (B841 reviews 5 and 6, Fable): it is a replay only if an earlier pass
+        // ran it, unchanged, whatever file reached it and whenever a `wait` lets it run, so a file the chosen folder adds
+        // under a replayed `autoexec.cfg` is read as new, and one a new file reaches that an earlier pass ran is not.
         bool replaying = _replaying;
         _replaying = ReadBefore(path, text);
 
         try
         {
             RunFile(text, depth + 1);
+            ReadThrough(path, text);
         }
         finally
         {
@@ -2265,6 +2286,7 @@ public sealed class ConfigConsole
                 // brought back inside the load still runs in it, where a one-shot does nothing.
                 _putOff || later,
                 _replaying,
+                _pass,
                 _viewerIssued,
                 _savedLayer,
                 later ? LaterBudget(laterBudgets ??= [], queued.Tick) : _budget,

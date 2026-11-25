@@ -46465,6 +46465,30 @@ not review rounds 4 and 5):
 - Equivalent mutants kept: `AtStartup`'s restore of `_replaying`, as of `_putOff` (`RunEntry` restores both around every
   command), and the stand-in entry's `_putOff`, false whenever `FromOutside` builds one.
 
+Review 6 (Fable, Gemini, Sonnet):
+- **"While the configs are read" was a time window, not a property of the command** (Fable, Gemini). A waited `exec`
+  runs after the read and took its parent's flag unjudged, so both round-5 faults came back behind a `wait`; a key's
+  `exec` run inside the window landed on the record. Now each read of the configs and each launch line is a numbered
+  pass that rides the queued `Entry` like the other context, and the record maps a file to the first pass that ran
+  it. Every `exec` inside a pass is judged against it whenever it runs; a key's (pass 0) is not.
+- **A file is noted only once run to its end** (Fable, Gemini): a throw partway left its later lines unrun, yet the
+  next read replayed it. Sonnet's form of this, that the queue drops the throw's waited commands, does not hold:
+  `DropUnrun` drops only what is due by then, so a waited command queued before the throw stays and fires.
+- **The record names the file, not its case** (Fable, Gemini): Windows' search path ignores case, so `exec Shots` is
+  `shots.cfg`. Slashes and `./` are not folded: no finder here resolves them to a file, so a test of them could only
+  pass empty, and the first one written did.
+- **The launch line's replay judges what it `exec`s too** (Fable): `+exec shots` that found nothing at launch, found by
+  the replay, is run as new. *Known bound*: its waited one-shots fire, its plain ones do not, as a config's; the
+  launch itself would fire both (B829).
+- Tests: `LoadFrom_AWaitedExecAcrossAReread_IsJudgedByItsOwnRead` (both directions),
+  `LoadFrom_AWaitedExecReadAgain_FiresOnlyTheFirstReads`,
+  `LoadFrom_AReplayedConfigsLineAfterAnExecOfANewFile_IsStillAReplay` (Sonnet: the line after an `exec` is its own
+  file's again), `LoadFrom_AnotherCaseOfAFileAnEarlierReadRan_ReplaysIt`,
+  `LoadFrom_AFileWhoseRunThrew_IsReadAsNewNextTime`, `Stuff_AReplayExecingAFileFirstFoundNow_RunsItAsNew`.
+  Sabotage, each restored: `exec` always taking its parent's flag reddens six tests; a file noted before its run
+  reddens the throw test alone; no case folding reddens the case test alone; the launch line without a pass reddens
+  its replay test alone. 2,226 of 2,226 pass.
+
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
 (`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.
