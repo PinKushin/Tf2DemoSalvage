@@ -46385,8 +46385,9 @@ measured. Fix shape: the spectator menu panel, then the key, answered exactly be
 
 Found in B844 review 13 (Fable). `ConfigConsole.Bindings()` credits each key with what it fires, then hands the result
 to `KeyBindings`, whose constructor starts from `Defaults` (`ViewerAction.cs:217`). An action no key fires therefore
-keeps its default key in the projection even when the config rebound that key to something else: `bind SHIFT +duck`
-leaves fly-walk shown on SHIFT, `alias +m1 +attack; bind MOUSE1 +m1` leaves cycling on MOUSE1 though pressing it only
+keeps its default key in the projection even when the config rebound that key to something else: `bind SHIFT "toggle
+cl_showpos"` leaves fly-walk shown on SHIFT (B844 review 14, Fable: `+duck` was the wrong example, since it does nothing
+here and SHIFT falls back to fly-walk), `alias +m1 +attack; bind MOUSE1 +m1` leaves cycling on MOUSE1 though pressing it only
 sets the button, and `bind SPACE +strafe` leaves the camera switch on SPACE. `Unbound()` reports each correctly; only
 the projection disagrees. Not a parity question (TF2 has no such screen); the viewer's own settings screen is above
 Valve, so a change is shown to the owner first. Fix shape: the projection leaves an action whose default key no longer
@@ -46634,9 +46635,22 @@ review 10's "had no test" for the `Spectating` wiring meant no unit or session t
 test `FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer` (Sonnet). **Reviews 3 and 8's settings-screen claims need a
 caveat** (Fable): the projection credits only keys that fire, but fills any action no key fires from its default key,
 so `alias +m1 +attack` with `bind MOUSE1 +m1`, or `bind SPACE +strafe`, still shows MOUSE1 or SPACE for an action those
-keys no longer fire. That fill is older than B844 (`bind SHIFT +duck` leaves fly-walk named on SHIFT), and changing it
+keys no longer fire. That fill is older than B844 (`bind SHIFT "toggle cl_showpos"` leaves fly-walk named on SHIFT), and changing it
 changes what the settings screen shows: filed as **B858**. Not taken: Codex's reading of the launch line's `spec_*`
-against D266 (review 2's not-taken): those are commands, D266 is about the three buttons.
+against D266 (review 1's not-taken): those are commands, D266 is about the three buttons.
+
+Review 14 (Fable, Sonnet, Codex). No code defect. **A visible change recorded** (Fable): before B844, SPACE with no demo
+open raised the camera switch, and `EnterCamera` said "No first-person view here: nothing to follow at this tick."; now
+nothing is spectating, so SPACE only sets `+jump`'s button and says nothing. That is TF2's: with no local player
+`HandleSpectatorKeyInput` is not reached for the camera, and `+jump` is a button (*read*; the old message's path is
+*probable*, `Eye` with no demo not traced). Fixed (records): **findings 114** written, the engine behaviour this bug
+learned (Fable: `docs/findings/` was untouched); B858's first example was wrong, `bind SHIFT +duck` keeps fly-walk since
+`+duck` does nothing here, so it is `toggle cl_showpos` (Fable); review 13's cross-reference is review 1's not-taken
+(Sonnet); two test remarks no longer claim the settings screen proves a key fires (Sonnet); `ViewerSession.Input`'s
+remark names the spectator buttons as the one spelling rule (Fable). Not taken: review 13's `Unbound()` half of the
+SPACE test is redundant with its press, since `CommandFor` hands both the `+jump` fallback (Fable); the skip itself is
+held by the `CTRL+e` row and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. No test releases a swallowed exact
+key (Fable): that is B854's open question. Codex re-reported the no-demo credit (review 9's not-taken).
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,

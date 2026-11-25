@@ -2996,7 +2996,8 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **The claim counts only what a bind fires** (B844 review 3, Fable, Sonnet): `spec_mode 5` sets a mode this viewer
     /// does not implement, so it does not claim the camera switch and SPACE keeps its `+jump` default after `unbindall`; an
-    /// alias that runs `+attack` only sets the button, so MOUSE1 keeps cycling and the settings screen names MOUSE1.
+    /// alias that runs `+attack` only sets the button, so MOUSE1 keeps cycling, which the press shows. The settings screen
+    /// naming MOUSE1 says only that the alias's key was not credited (B858; review 14, Sonnet).
     /// </remarks>
     [Test]
     public void Load_BindsThatNameASpectatorActionWithoutFiringIt_LeaveTheDefaultsTheirKeys()
@@ -3065,8 +3066,9 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **The claim and the settings screen read the key's real text too** (B844 review 8, Sonnet): `bind k "+use; spec_mode"`
-    /// runs `spec_mode 21` (`k` is key 21), which switches nothing, so it does not claim the camera switch: SPACE keeps its `+jump` default
-    /// and the settings screen names SPACE for it.
+    /// runs `spec_mode 21` (`k` is key 21), which switches nothing, so it does not claim the camera switch: SPACE keeps its
+    /// `+jump` default, which the press shows. The settings screen names SPACE, which here says only that `k` was not
+    /// credited, since the projection fills an action no key fires from its default (B858; review 14, Sonnet).
     /// </remarks>
     [Test]
     public void Load_APlusBindEndingInSpecMode_LeavesSpaceItsCameraSwitch()
