@@ -56,6 +56,13 @@ public interface IMomentSource
         return players.Find(player => player.EntityIndex == entityIndex);
     }
 
+    /// <summary><c>FRAME_START</c>: the frame about to be sampled had read the recording through this tick (B860).</summary>
+    /// <param name="lastRead">The tick the previous frame was drawn at, or this frame's own after a seek.</param>
+    /// <remarks>A source with no interpolation delay that changes has nothing to do.</remarks>
+    public void FrameStart(double lastRead)
+    {
+    }
+
     /// <summary>Fills a buffer with the props at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
@@ -297,6 +304,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             ? timeline.PlayerAt(tick, entityIndex, recorderViewed: true, Prediction?.VelocityThrough(whole))
             : timeline.PlayerAt(tick, entityIndex);
     }
+
+    /// <inheritdoc />
+    public void FrameStart(double lastRead) => timeline.FrameStart(lastRead);
 
     /// <inheritdoc />
     public void PropsAt(

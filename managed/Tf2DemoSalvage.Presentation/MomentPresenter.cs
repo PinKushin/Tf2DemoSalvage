@@ -172,10 +172,17 @@ public sealed class MomentPresenter
         {
             _source = value;
             _moment.EarlierPlayer = value is null ? null : value.ActivityPlayerAt;
+            _framedAt = null;
         }
     }
 
     private IMomentSource? _source;
+
+    /// <summary>The tick the last frame was shown at, or null before the first of this source (B860).</summary>
+    private double? _framedAt;
+
+    /// <summary>The tick this frame's <c>FRAME_START</c> had read through (B860).</summary>
+    private double _frameRead;
 
     /// <summary>Where the players' appearance comes from, or null when nothing can build one.</summary>
     /// <remarks>
@@ -244,6 +251,17 @@ public sealed class MomentPresenter
         // moved out of the window with the sampling it measures.
         long sampledAt = Stopwatch.GetTimestamp();
 
+        // **`FRAME_START` comes before the frame's packets are read** (B860): `CEngine::Frame` notifies the client before
+        // the host frame's `CL_ReadPackets`, so a delay change read this frame is interpolated under from the next. While
+        // playing forward the frame start had read what the last frame showed; a seek, a pause or the first frame reads
+        // its own tick. A second build at the same tick is the same frame, with the same frame start.
+        if (_framedAt is not { } shown || shown < tick || shown > tick)
+        {
+            _frameRead = view.Playing && _framedAt is { } previous && previous < tick ? previous : tick;
+            _framedAt = tick;
+        }
+
+        source.FrameStart(_frameRead);
         source.PlayersAt(tick, _players, view.Playing);
         _shownTick = (int)Math.Floor(tick);
 

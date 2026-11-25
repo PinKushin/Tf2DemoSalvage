@@ -64,6 +64,28 @@ public sealed class MomentPresenterTests
         source.LastPlayersInterpolating.ShouldBe(false);
     }
 
+    /// <summary>
+    /// **`FRAME_START` comes before the frame reads its packets** (B860): `CEngine::Frame` notifies the client, then the
+    /// host frame's `CL_ReadPackets` reads. Playing forward, each frame starts having read the tick the last one showed; the
+    /// first frame, a second build of the same frame, a rewind and a paused frame start at their own tick.
+    /// </summary>
+    [Test]
+    public void Show_FrameAfterFrame_StartsEachHavingReadTheLastOnesTick()
+    {
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        foreach (double tick in (double[])[10d, 10.5d, 10.5d, 11.25d, 9d])
+        {
+            presenter.Show(tick, View());
+        }
+
+        presenter.Show(12d, View() with { Playing = false });
+
+        source.FrameStarts.ShouldBe([10d, 10d, 10d, 10.5d, 9d, 12d]);
+    }
+
     [Test]
     public void Show_WhilePlaying_LeavesInterpolationOn()
     {
@@ -557,6 +579,11 @@ public sealed class MomentPresenterTests
 
         /// <summary>The same, for the prop sampling.</summary>
         public bool? LastPropsInterpolating { get; private set; }
+
+        /// <summary>Every <c>FRAME_START</c> the presenter announced, in order (B860).</summary>
+        public List<double> FrameStarts { get; } = [];
+
+        public void FrameStart(double lastRead) => FrameStarts.Add(lastRead);
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {

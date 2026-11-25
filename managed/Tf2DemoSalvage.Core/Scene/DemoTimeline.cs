@@ -8079,8 +8079,17 @@ public sealed class DemoTimeline
         // the caller supplies rather than one the recording states, and a sample kept from a call
         // made from somebody else's eyes answered that call's question: a `kRenderNone` mover asked
         // for from its own eyes held its last position where a cold sample blends it.
+        //
+        // **And so does a new delay schedule** (B860): a frame learns a step only at the frame start after reading it, so
+        // the step is not a tick any track's `Motion` can name. The steps are a server's bounds arriving, a few a recording.
+        _sampledRead = FrameRead(tick);
+        int steps = DelayStepsThrough(_sampledRead);
+        bool newSchedule = steps != _sampledSteps;
+
+        _sampledSteps = steps;
+
         if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam ||
-            interpolating != _sampledInterpolating || viewEntity != _sampledView)
+            interpolating != _sampledInterpolating || viewEntity != _sampledView || newSchedule)
         {
             ResyncSample(tick, viewEntity, recorderTeam, interpolating);
         }
@@ -8154,6 +8163,74 @@ public sealed class DemoTimeline
     /// <summary>Whose eyes the held samples were built from (B438).</summary>
     private int? _sampledView;
 
+    /// <summary>How many delay steps the held samples' frame start had read (B860); -1 before the first.</summary>
+    private int _sampledSteps = -1;
+
+    /// <summary>The frame start the current sample is built under (B860).</summary>
+    private double _sampledRead;
+
+    /// <summary>Every step of every track's delay schedule, ascending; built on the first sample (B860).</summary>
+    private int[]? _delaySteps;
+
+    /// <summary>The last tick read before this frame's <c>FRAME_START</c>, or infinity when no frame has said (B860).</summary>
+    private double _frameStart = double.PositiveInfinity;
+
+    /// <summary>
+    /// <c>FRAME_START</c>: the frame about to be sampled starts with the recording read through
+    /// <paramref name="lastRead"/>, so it interpolates under the delay as that tick left it (B860).
+    /// </summary>
+    /// <param name="lastRead">
+    /// The tick the previous frame was drawn at, or the frame's own tick after a seek or when nothing came before.
+    /// </param>
+    /// <remarks>
+    /// <c>CEngine::Frame</c> calls <c>ClientDLL_FrameStageNotify( FRAME_START )</c> and only then runs the host frame whose
+    /// <c>CL_ReadPackets</c> reads this frame's packets (<see cref="InterpolationSchedule.AsOf"/>), and <c>FRAME_START</c>
+    /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A reader
+    /// that never calls this samples each tick under the delay of that tick, as if every frame were a tick apart.
+    /// </remarks>
+    public void FrameStart(double lastRead)
+    {
+        lock (_sampling)
+        {
+            _frameStart = lastRead;
+        }
+    }
+
+    /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
+    private double FrameRead(double tick) => Math.Min(_frameStart, tick);
+
+    /// <summary>How many steps of any track's delay schedule a frame start through <paramref name="read"/> knows.</summary>
+    private int DelayStepsThrough(double read)
+    {
+        if (_delaySteps is null)
+        {
+            SortedSet<int> steps = [];
+            HashSet<InterpolationSchedule> seen = new(ReferenceEqualityComparer.Instance);
+
+            foreach (ScenePropTrack track in _props)
+            {
+                if (seen.Add(track.Interpolation))
+                {
+                    foreach (int start in track.Interpolation.StepStarts)
+                    {
+                        steps.Add(start);
+                    }
+                }
+            }
+
+            _delaySteps = [.. steps];
+        }
+
+        int count = 0;
+
+        while (count < _delaySteps.Length && _delaySteps[count] <= read)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     /// <summary>Rebuilds every track's sample from nothing, at one tick.</summary>
     /// <remarks>
     /// The cold path: the first call, any seek backwards, a recorder team switch, a pause and a new
@@ -8203,7 +8280,7 @@ public sealed class DemoTimeline
             // Mid-lerp tracks are blend-sampled by construction: `Motion` only reports a track
             // changing under blended sampling. Hidden is re-read because it is a field of the
             // pose, discrete at the keyframe the lerp is walking away from.
-            SetLive(track, track.At(tick) is { Hidden: false } pose
+            SetLive(track, track.At(tick, track.Interpolation.AsOf(_sampledRead)) is { Hidden: false } pose
                 ? BuildProp(track, tick, pose, recorderTeam)
                 : null);
         }
@@ -8304,7 +8381,8 @@ public sealed class DemoTimeline
         // `Interpolate` produced, every frame — so a beam stands at the last position it was SENT, not between two.
         bool blend = interpolating && stated?.Beam is null && Interpolates(track, stated, tick, viewEntity, out revisit);
 
-        (bool changing, double nextWake) = track.Motion(tick, blend);
+        InterpolationSchedule schedule = track.Interpolation.AsOf(_sampledRead);
+        (bool changing, double nextWake) = track.Motion(tick, blend, schedule);
 
         nextWake = Math.Min(nextWake, revisit);
 
@@ -8315,7 +8393,7 @@ public sealed class DemoTimeline
             nextWake = Math.Min(nextWake, WeaponLifeChangesAfter(weapon, tick));
         }
 
-        ScenePose? sampled = blend ? track.At(tick) : stated;
+        ScenePose? sampled = blend ? track.At(tick, schedule) : stated;
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
         SetLive(track, sampled is { Hidden: false } pose
@@ -8976,7 +9054,7 @@ public sealed class DemoTimeline
 
         // **One pair of samples for the speed and the heading**, where each asked for the same two: they are the
         // same differencing over the same window, and `At` is three of a frame's five track reads per player.
-        ScenePose? now = track.At(tick);
+        ScenePose? now = track.At(tick, track.Interpolation.AsOf(FrameRead(tick)));
 
         if ((interpolating ? now : track.Held(tick)) is not { } pose)
         {
@@ -8985,7 +9063,8 @@ public sealed class DemoTimeline
 
         // Stryker restore all
 
-        ScenePose? was = now is null ? null : track.At(Math.Max(0d, tick - MotionWindowTicks));
+        double earlier = Math.Max(0d, tick - MotionWindowTicks);
+        ScenePose? was = now is null ? null : track.At(earlier, track.Interpolation.AsOf(FrameRead(earlier)));
 
         // The eyes the anim state is handed: `m_angEyeAngles` as the interpolator left it (B749), or the angles where
         // the demo sends no eyes, as the frame's own facing reads them.
@@ -9162,7 +9241,7 @@ public sealed class DemoTimeline
     /// threw; both produced a fully-formed wrong answer.
     ///
     /// **<see cref="ScenePropTrack.Alive"/> rather than a tick comparison written here** — it is the
-    /// bound <see cref="ScenePropTrack.At"/> and <c>Held</c> both apply, so a track this returns is a
+    /// bound <see cref="ScenePropTrack.At(double)"/> and <c>Held</c> both apply, so a track this returns is a
     /// track the sampler will answer for. A second reading of the same two ends is how expressions
     /// that must agree stop agreeing.
     ///

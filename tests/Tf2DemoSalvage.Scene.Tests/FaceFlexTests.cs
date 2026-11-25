@@ -172,6 +172,34 @@ public sealed class FaceFlexTests
         face.Global["smile"].ShouldBe(0.975f, 1e-5f);
     }
 
+    /// <summary>
+    /// **The frame that reads a fall still draws under the old delay** (B860): `FRAME_START` hands `m_iv_flexWeight` its
+    /// amount before the frame's packets are read. The delay falls from 0.25 s to 0.1 s at tick 26, 1.3 s; frames at 1.1,
+    /// 1.2 and 1.3 s. The frame at 1.3 started having read 1.2, so it draws as a face whose delay never fell; read at its
+    /// own time it would extrapolate under 0.1 s to <see cref="Step_FramesTooLongForTheHistory_Extrapolate"/>'s 0.975.
+    /// </summary>
+    [Test]
+    public void Step_TheFrameThatReadsAFall_DrawsUnderTheDelayItStartedWith()
+    {
+        Core.Net.ServerConVars raised = new();
+        raised.Apply(new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "4")]));
+        Core.Scene.InterpolationSchedule fallsAtTick26 = Core.Scene.InterpolationSchedule.From(
+            new Core.Net.ClientInterp(0.05f, 1f, 20f), raised, [(26, new Core.Net.ServerConVars())], 0.05d);
+
+        List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
+        ActorFace falling = new(Model, "m.mdl", null, interpolation: fallsAtTick26, created: 1d);
+        ActorFace neverFell = new(Model, "m.mdl", null, interpolation: Core.Scene.InterpolationSchedule.Constant(0.05d, 0.2d), created: 1d);
+
+        foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
+        {
+            falling.Step(t, 1, scenes, []);
+            neverFell.Step(t, 1, scenes, []);
+        }
+
+        falling.Global["smile"].ShouldBe(neverFell.Global["smile"], 1e-6f);
+        System.Math.Abs(falling.Global["smile"] - 0.975f).ShouldBeGreaterThan(1e-3f, "read at its own time it extrapolates");
+    }
+
     [Test]
     public void Step_WithTheLatchedHistory_StartsEachFrameFromWhatInterpolationLeft()
     {

@@ -431,6 +431,9 @@ public sealed class ActorFace
     private readonly Core.Scene.InterpolationSchedule? _interpolation;
     private bool _needsToInterpolate;
     private double _lastInterpolationTime = double.NegativeInfinity;
+
+    /// <summary>The demo seconds this frame's <c>FRAME_START</c> had read through (B860).</summary>
+    private double _frameRead;
     private double _animTime;
 
     /// <summary>A player's face, reset as <c>OnNewModel</c> leaves it.</summary>
@@ -612,6 +615,10 @@ public sealed class ActorFace
 
         FrameTime = double.IsNaN(LastSeconds) ? 0d : seconds - LastSeconds;
 
+        // `FRAME_START` hands the variable its amount before the frame's packets are read (B860): moving forward, the
+        // amount as the last frame left it; after a seek back or on the first frame, this one's.
+        _frameRead = !double.IsNaN(LastSeconds) && LastSeconds < seconds ? LastSeconds : seconds;
+
         foreach ((double started, float now) in _sceneTime)
         {
             _previousSceneTime[started] = now;
@@ -672,7 +679,7 @@ public sealed class ActorFace
         }
 
         history.Insert(0, (_animTime, (float[])_flexWeight.Clone()));
-        RemoveEntriesPreviousTo(history, curtime - InterpolationAt(curtime) - ExtraHistory);
+        RemoveEntriesPreviousTo(history, curtime - Interpolation() - ExtraHistory);
 
         if (differs)
         {
@@ -686,14 +693,17 @@ public sealed class ActorFace
         }
     }
 
-    /// <summary>The delay <c>m_iv_flexWeight</c> is read behind at a demo time, as the server's bounds stood then (B849).</summary>
-    private double InterpolationAt(double seconds) => _interpolation?.SecondsAtTime(seconds) ?? 0d;
+    /// <summary>
+    /// The delay <c>m_iv_flexWeight</c> is read behind this frame: the server's bounds as they stood when the frame
+    /// started (B849, B860).
+    /// </summary>
+    private double Interpolation() => _interpolation?.SecondsAtTime(_frameRead) ?? 0d;
 
     /// <summary><c>CInterpolatedVarArrayBase::Interpolate</c> (<c>interpolatedvar.h:967</c>), without extrapolation.</summary>
     /// <returns><c>noMoreChanges</c>.</returns>
     private bool Interpolate(List<(double ChangeTime, float[] Values)> history, double currentTime)
     {
-        double interpolation = InterpolationAt(currentTime);
+        double interpolation = Interpolation();
         double target = currentTime - interpolation;
         int older = -1, newer = -1, oldest = -1;
         bool hermite = false, noMoreChanges = false, found = false;

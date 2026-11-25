@@ -1801,7 +1801,7 @@ public sealed class ScenePropTrack
 
     /// <summary>Whether the pose is mid-lerp at this tick, and when its answer next changes.</summary>
     /// <param name="tick">The moment being sampled.</param>
-    /// <param name="blend">Whether this track samples through <see cref="At"/> rather than <see cref="Held"/>.</param>
+    /// <param name="blend">Whether this track samples through <see cref="At(double)"/> rather than <see cref="Held"/>.</param>
     /// <returns>
     /// <c>Changing</c>: the sampled pose varies continuously right now, so it must be re-sampled
     /// every rebuild until the next wake. <c>NextWake</c>: the next tick at which the answer can
@@ -1810,7 +1810,7 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **This is <c>NoteChanged</c> computed ahead of time.** The engine is told when an update
     /// changes a variable and marks the entity for interpolation; a demo's future is on disk, so a
-    /// track can name every tick where its own <see cref="At"/> changes behaviour: a keyframe
+    /// track can name every tick where its own <see cref="At(double)"/> changes behaviour: a keyframe
     /// arriving (the causality gate at <c>toTick &gt; tick</c> opening), a lerp window opening
     /// (`heldUntil + delay`) or closing (`keyframe + delay`), and the track's own birth and death.
     ///
@@ -1825,7 +1825,14 @@ public sealed class ScenePropTrack
     /// window judged slightly wide re-samples a constant answer, while one judged narrow freezes
     /// a moving prop. It is true from the gate opening to a tick past the window closing.
     /// </remarks>
-    internal (bool Changing, double NextWake) Motion(double tick, bool blend)
+    internal (bool Changing, double NextWake) Motion(double tick, bool blend) => Motion(tick, blend, Interpolation);
+
+    /// <summary><see cref="Motion(double, bool)"/> under the delay schedule a frame knows (B860).</summary>
+    /// <param name="tick">The moment being sampled.</param>
+    /// <param name="blend">Whether this track samples through <see cref="At(double)"/> rather than <see cref="Held"/>.</param>
+    /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
+    /// <returns>As <see cref="Motion(double, bool)"/>.</returns>
+    internal (bool Changing, double NextWake) Motion(double tick, bool blend, InterpolationSchedule schedule)
     {
         // **The state fields, the track's birth and its death are `Held`'s boundaries**, and a settled
         // interpolation says nothing about any of them — so they are wakes whatever else is true.
@@ -1840,8 +1847,8 @@ public sealed class ScenePropTrack
         int now = (int)Math.Floor(tick);
 
         // The same targets `At` samples at, per history (B860).
-        double target = TargetFor(_simulation, tick);
-        double animationTarget = TargetFor(_animation, tick);
+        double target = TargetFor(_simulation, tick, schedule);
+        double animationTarget = TargetFor(_animation, tick, schedule);
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
         // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
@@ -1902,11 +1909,12 @@ public sealed class ScenePropTrack
             [
                 _simulation.ArrivesAfter(now),
                 _animation.ArrivesAfter(now),
-                _simulation.HeadChangeTime(now) is { } simulated ? Interpolation.Reaches(simulated, tick) : null,
-                _animation.HeadChangeTime(now) is { } animated ? Interpolation.Reaches(animated, tick) : null,
+                _simulation.HeadChangeTime(now) is { } simulated ? schedule.Reaches(simulated, tick) : null,
+                _animation.HeadChangeTime(now) is { } animated ? schedule.Reaches(animated, tick) : null,
                 // One past `born`: at a target of exactly `born` the answer is still the first keyframe.
-                Interpolation.Reaches(born + 1, tick),
-                Interpolation.NextChangeAfter(tick),
+                schedule.Reaches(born + 1, tick),
+                // A frame's schedule ends at its frame start; the step after is the timeline's to notice (B860).
+                schedule.NextChangeAfter(tick),
             ])
         {
             if (moment is { } at && at > tick && at < next)
@@ -1937,7 +1945,7 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **Everything a track's state fields and its visibility can do between two samples.** `Held` is the
     /// keyframe at or before the tick, and `Alive` bounds it, so its answer moves only at those three.
-    /// Shared by <see cref="Motion"/>, whose own state wakes these are, and by a move PARENT whose
+    /// Shared by <see cref="Motion(double, bool)"/>, whose own state wakes these are, and by a move PARENT whose
     /// interpolation turns on this track's visibility (B438): `ShouldInterpolate`'s fourth clause asks a
     /// child, so the parent has to be looked at again when the child's answer can change.
     /// </remarks>
@@ -2347,14 +2355,16 @@ public sealed class ScenePropTrack
     ///   its history at <c>currentTime − amount − EXTRA_INTERPOLATION_HISTORY_STORED</c> (<c>interpolatedvar.h:1057</c>),
     ///   and a target older than every entry it kept answers the oldest (<c>:877-882</c>).
     ///
-    /// The amount takes effect at the next `FRAME_START` (<c>cdll_client_int.cpp:2344</c>); this takes it at the tick,
-    /// a frame early (*interpolated*: where `FRAME_START` falls against the packet read is engine code, not read).
+    /// The amount takes effect at the next `FRAME_START` (<c>cdll_client_int.cpp:2344</c>), which comes before that
+    /// frame's packets are read: <paramref name="schedule"/> is the schedule as that frame start knew it
+    /// (<see cref="InterpolationSchedule.AsOf"/>).
     /// </remarks>
-    private double TargetFor(InterpolatedHistory history, double tick)
+    /// <param name="schedule">The delay schedule the frame interpolates under.</param>
+    private static double TargetFor(InterpolatedHistory history, double tick, InterpolationSchedule schedule)
     {
-        double target = tick - Interpolation.TicksAt(tick);
+        double target = tick - schedule.TicksAt(tick);
 
-        if (Interpolation.LastRiseAtOrBefore(tick) is not { } rise)
+        if (schedule.LastRiseAtOrBefore(tick) is not { } rise)
         {
             return target;
         }
@@ -2363,17 +2373,18 @@ public sealed class ScenePropTrack
 
         if (history.LatestArrival(now) is { } arrived && arrived < rise)
         {
-            double before = TargetFor(history, rise - 1);
+            // The last frame under the old delay is the one that read the rise: it started knowing the steps before it.
+            double before = TargetFor(history, rise, schedule.AsOf(rise - 1));
 
-            if (history.Bracket(before, rise - 1) is { NoMoreChanges: true })
+            if (history.Bracket(before, rise) is { NoMoreChanges: true })
             {
                 return before;
             }
         }
 
         // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
-        double interval = Interpolation.IntervalPerTick > 0d ? Interpolation.IntervalPerTick : Tf2TickInterval;
-        double cut = Interpolation.MaxTargetBefore(tick) - (0.05d / interval);
+        double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
+        double cut = schedule.MaxTargetBefore(tick) - (0.05d / interval);
 
         return history.PrunedFloor(cut, now) is { } floor && target < floor ? floor : target;
     }
@@ -2424,7 +2435,13 @@ public sealed class ScenePropTrack
     /// Together those turn a long gap into exactly what a client shows: the old pose held, then the
     /// movement rendered over the interpolation window once the update lands.
     /// </remarks>
-    public ScenePose? At(double tick)
+    public ScenePose? At(double tick) => At(tick, Interpolation);
+
+    /// <summary><see cref="At(double)"/> under the delay schedule a frame knows (B860).</summary>
+    /// <param name="tick">The moment, which may fall between ticks.</param>
+    /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
+    /// <returns>As <see cref="At(double)"/>.</returns>
+    internal ScenePose? At(double tick, InterpolationSchedule schedule)
     {
         if (AtKeyframe((int)Math.Floor(tick)) is not { } earlier)
         {
@@ -2432,8 +2449,8 @@ public sealed class ScenePropTrack
         }
 
         // The moment being drawn, one interpolation window behind the moment being asked for, per history (B860).
-        double target = TargetFor(_simulation, tick);
-        double animationTarget = TargetFor(_animation, tick);
+        double target = TargetFor(_simulation, tick, schedule);
+        double animationTarget = TargetFor(_animation, tick, schedule);
 
         if (target <= _keyframes.FirstTick)
         {
