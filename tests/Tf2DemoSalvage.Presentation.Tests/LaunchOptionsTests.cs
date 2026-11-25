@@ -98,6 +98,113 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **An unknown `-flag` takes the next argument as its value, as `stuffcmds` does** (B828): `engine.dll` x64 build 1007
+    /// FUN_1801683d0 asks `ParmValueByIndex` for a `-flag`'s value, which tier0's `CCommandLine` gives unless there is no
+    /// next argument or it starts with `+` or `-`, and skips it; so `-threads 4` neither runs nor opens `4`. **Above Valve**
+    /// (`docs/ABOVE-VALVE.md`, the owner's pick): a `.dem` is never taken as a value, so `-novid a.dem` still opens it, where
+    /// TF2 would not play it. Nor is a folder (the next test).
+    /// </remarks>
+    [TestCase(new[] { "-threads", "4", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-threads", "", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-novid", "a.dem" }, new[] { "a.dem" })]
+    [TestCase(new[] { "-novid", "B.DEM", "c" }, new[] { "B.DEM", "c" })]
+    [TestCase(new[] { "-novid", "-threads", "4" }, new string[0])]
+    [TestCase(new[] { "-threads", "4" }, new string[0])]
+    [TestCase(new[] { "a.dem", "-novid" }, new[] { "a.dem" })]
+    public void Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo(string[] arguments, string[] paths)
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(paths);
+    }
+
+    /// <remarks>
+    /// **An existing folder is never a flag's value either** (B828 review 1, Fable, Sonnet; the owner's pick, above Valve): a
+    /// folder on the line opens as a playlist, and `-novid C:\demos` did before. A name that is no folder is still dropped,
+    /// and so is a bare word that names one beside the viewer (review 2, Sonnet, Fable, Grok): `-game tf`, run from TF2's
+    /// folder, drops `tf` as TF2 does. `./` before the same name keeps it (`/` is a separator on every platform CI runs).
+    /// </remarks>
+    [Test]
+    public void Read_AnUnknownFlagBeforeAFolder_OpensTheFolder()
+    {
+        RecordingLogger log = new();
+
+        // A name of its own per run (B828 review 4, Fable): Stryker's test hosts share one working directory.
+        string bare = $"b828-folder-{Guid.NewGuid():N}";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(bare)).FullName;
+        string missing = System.IO.Path.GetFullPath("no-such-folder-b828");
+
+        try
+        {
+            LaunchOptions read = LaunchOptionsReader.Read(
+                ["-novid", folder, "-novid", missing, "-game", bare, "-novid", $"./{bare}"], ViewerSettings.Load(), log);
+
+            read.Paths.ShouldBe([folder, $"./{bare}"]);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder);
+        }
+    }
+
+    /// <remarks>
+    /// **A drive-relative folder is a path too** (B828 review 3, Fable): `C:b828-drive` has no separator, but it is rooted
+    /// at a drive, so it is kept, where the bare `b828-drive` is a value.
+    /// </remarks>
+    [Test]
+    [Platform("Win")]
+    public void Read_AnUnknownFlagBeforeADriveRelativeFolder_OpensTheFolder()
+    {
+        RecordingLogger log = new();
+        string bare = $"b828-drive-{Guid.NewGuid():N}";
+        string folder = System.IO.Directory.CreateDirectory(System.IO.Path.GetFullPath(bare)).FullName;
+        string driveRelative = folder[..2] + bare;
+
+        try
+        {
+            // A working directory on a drive letter (review 4, Fable): a UNC one has no drive-relative spelling.
+            Assume.That(folder[1], Is.EqualTo(':'));
+
+            LaunchOptions read = LaunchOptionsReader.Read(
+                ["-game", bare, "-novid", driveRelative], ViewerSettings.Load(), log);
+
+            read.Paths.ShouldBe([driveRelative]);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(folder);
+        }
+    }
+
+    /// <remarks>The warning names the value it dropped, and none it kept (B828 review 1, Fable, Gemini, Grok).</remarks>
+    [Test]
+    public void Read_AnUnknownFlagWithAValue_NamesTheValueInItsWarning()
+    {
+        RecordingLogger log = new();
+
+        _ = LaunchOptionsReader.Read(["-threads", "4", "-novid", "a.dem"], ViewerSettings.Load(), log);
+
+        log.Count("'-threads' '4' is not an option this viewer knows").ShouldBe(1);
+        log.Count("'-novid' is not an option this viewer knows").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// The control (B828): a `+command` after an unknown `-flag` is not its value, since `ParmValueByIndex` gives none that
+    /// starts with `+`, so it still runs.
+    /// </remarks>
+    [Test]
+    public void Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue()
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(["-novid", "+fps_max", "60"], ViewerSettings.Load(), log);
+
+        read.AfterConfigs.ShouldBe(["fps_max 60"]);
+    }
+
+    /// <remarks>
     /// The control, and the reason the test above uses a leading dash rather than a known list: a
     /// bare word IS a demo path, and a rule that reported everything it did not recognise would
     /// refuse every demo.

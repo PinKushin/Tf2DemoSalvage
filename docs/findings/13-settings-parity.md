@@ -321,5 +321,7 @@ the next argument starts with `+` or `-`. So the value is exactly one argument, 
 - `+cl_showfps "1;bind q quit"` reaches the console as two commands.
 
 **What it changed.** The viewer now follows that rule for every `+command`. A `--like` sidecar, which is untrusted text,
-moved to the viewer's own `--set name value`, which keeps the quoting and the declared-ConVar guard. The `-flag` skip is
-not ported yet (B828).
+moved to the viewer's own `--set name value`, which keeps the quoting and the declared-ConVar guard. The `-flag` skip
+followed (B828): an unknown `-flag` drops the argument `ParmValueByIndex` would give it, so `-threads 4 a.dem` opens no
+demo named `4`. The owner chose to keep a `.dem` or an existing folder there opened, above Valve, so `-novid a.dem`
+still opens it where TF2 would not play it. A folder counts only when written as a path, so `-game tf` still drops `tf`.

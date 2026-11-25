@@ -46323,6 +46323,20 @@ viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+f
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
+## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — OPEN
+
+Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_1801683d0) skips the argument
+`ParmValueByIndex` gives after every `-flag`, known or not. The viewer's own flags that take no value (`--autoplay`,
+`--colours`, `--windows`, `--first-person`, `--third-person`; B828 review 2, Sonnet, Gemini) are matched before that
+rule, so `--autoplay 4 a.dem` tries to open a demo named `4`. These flags are the viewer's own (TF2 has none), so
+whether they follow TF2's grammar is the owner's to say. *Not fixed*.
+
+## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — OPEN
+
+Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so
+a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window
+height and takes `1080` as its value. *Not read*: which TF2 module reads `-h`. *Not fixed*.
+
 ## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
@@ -46339,7 +46353,69 @@ Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review 
 `wait` to space its commands runs them all at once here (*inferred* from the console having no `wait`; not measured).
 Fix shape: read how TF2's command buffer defers the rest of a buffer at a `wait`, then port it. *Not fixed*.
 
-## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — OPEN
+## B828 — an unknown `-flag` leaves its value as a demo path, where TF2's `stuffcmds` skips it (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** An unknown `-flag` now takes the next argument as its value and drops it, under the same test the `+command`
+branch uses for `ParmValueByIndex` (`IsParmValue`: a next argument not starting with `+` or `-`, an empty one included).
+**Above Valve, the owner's pick** (2026-11-24, asked whether `-novid a.dem` should copy TF2 and not open the demo, or
+keep opening it; the owner picked "Keep opening it", the recommended option, without words of their own, D183): a
+next argument ending `.dem` (any case) is never a value, so it is still opened (`docs/ABOVE-VALVE.md`). The warning
+names the dropped value. Tests `Read_AnUnknownFlag_TakesItsValueUnlessItIsADemo` (`-threads 4 a.dem`, an empty value,
+`-novid a.dem`, `-novid B.DEM c`, two flags, a flag with its value at the end) and
+`Read_APlusCommandAfterAnUnknownFlag_IsNotItsValue`; four cases red before. Sabotage: the `.dem` exception made to miss
+reddens the two `.dem` cases and two older tests.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed: a folder after an unknown flag was dropped,
+where it opened as a playlist before (`-novid C:\demos`) (Fable, Sonnet). Asked again, the owner picked "Folders open
+too", the recommended option, without words of their own (D183): an existing folder is never a value either (test
+`Read_AnUnknownFlagBeforeAFolder_OpensTheFolder`, with a missing folder as its control; sabotage: the folder check made
+to miss reddens it). The warning's value is asserted (`Read_AnUnknownFlagWithAValue_NamesTheValueInItsWarning`;
+sabotage: the value left out reddens it) (Fable, Gemini, Grok). A bare flag at the end is tested (`a.dem -novid`), and
+the case list above no longer calls `-threads 4` one (Gemini, Sonnet). `docs/findings/13-settings-parity.md` said the
+skip was not ported (Fable). Filed: B836, `-h` read as help where TF2's is a height; B837, a known viewer flag that
+takes no value keeps the next word as a path (Fable).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: the folder test asked only whether a folder existed, so a
+TF2 value that named one beside the viewer was opened: `-game tf` run from TF2's folder opened `tf` as a playlist
+(Sonnet, Fable, Gemini, Grok), and a folder named `4` made `-threads 4` keep `4` (Gemini, Grok). A folder now counts
+only when written as a path, in full or with a `\` or `/` (`IsFolderPath`), so `-game tf` drops `tf` and `-novid .\tf`
+keeps it; the test makes `b828-folder` beside the run and checks both; sabotage: the path-shape check made to pass for a
+bare word reddens it alone. A full path a TF2 flag takes is still opened (`-basedir C:\Steam`), which
+`docs/ABOVE-VALVE.md` now says (Fable). The guide says "existing" (Fable, Gemini, Grok). Kept as the owner's line,
+`.dem` or folder: an existing file of another name after an unknown flag (`-novid match.dem.bak`), which
+`DemoLibrary.Open` would open, is dropped, with the warning naming it (Fable). B837 lists `--colours` and `--windows`
+too (Sonnet, Gemini).
+
+**Review 3** (Fable, Gemini, Sonnet, Grok). Fixed (Fable, Gemini, a blocker): the folder test's `.\b828-folder` holds
+a `\`, a file name character on Linux, where CI runs this suite, so it would have been dropped and the test red; it is
+`./b828-folder` now. The test deletes its folder (Fable, Gemini, Sonnet, Grok). A drive-relative folder
+(`C:b828-drive`, rooted with no separator) had no test of its own, so the `IsPathRooted` half could go (Fable, Gemini):
+a Windows-only test keeps it and drops the bare name; sabotage: that half made false reddens it alone.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): the two folder
+tests name their folder per run, since Stryker's test hosts may share a working directory and one host's delete could
+fall between another's create and read; the drive-relative test is skipped when the working directory has no drive
+letter (a UNC path). Recorded (Fable): the mutation job runs Presentation on Linux, where the drive-relative test is
+skipped, so a mutant that made the `IsPathRooted` half false alone would survive there.
+
+**Review 5** (Fable, Gemini, Sonnet, Grok; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): review 4 said
+the `IsPathRooted` mutant survives on Linux every run, but the folder test, which runs on Linux, reddens for the
+mutant made there (`||` to `&&`: it drops `./b828-folder-…`); only a change that makes that half false alone would
+survive, and the record above now says so.
+
+**Review 6** (Fable, Gemini, Sonnet, Grok; Gemini had no findings). Fixed: review 5 named three Stryker.NET mutants on
+that half; the pinned `dotnet-stryker` 4.16.0 makes only `||` to `&&` there (`BinaryExpressionMutator` maps `||` to
+`&&` alone; `NegateConditionMutator` negates only an `if` or `while` condition), read from its published source (Fable;
+Sonnet and Grok doubted the other two). Recorded (Fable): `>= 0` to `> 0` on the separator half survives every run. It
+is equivalent on Windows, where a separator at index 0 makes the path rooted; on Linux, where the mutation job runs, a
+leading `\` is not rooted, so there it survives untested (review 7, Fable, Gemini, Sonnet).
+
+**Review 7** (Fable, Gemini, Sonnet, Grok; Grok had no findings). Fixed (Fable, Gemini, Sonnet, low): review 6 called
+the `> 0` mutant equivalent on both platforms; the sentence above now says equivalent on Windows, untested on Linux.
+
+**Review 8** (Fable, Gemini, Sonnet, Grok). No findings.
+
+The paragraph below is the entry as filed.
 
 Found fixing B824, in the same read of FUN_1801683d0: for a `-flag`, `stuffcmds` asks `ParmValueByIndex(i)` and skips the
 next argument when it gets one (not starting with `+` or `-`), so that argument is neither run nor opened. The viewer
