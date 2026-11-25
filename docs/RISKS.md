@@ -46350,12 +46350,46 @@ to TF2, so they do nothing at any tick. A load is put off by nothing, even one a
 The viewer's replay of the launch line (`Stuff(text, oneShots: false)`) carries `Replaying` and fires no one-shot,
 waited or not, as it is no second launch (B829).
 
-Review 1 (Fable, Gemini, Sonnet; Grok pending at the time of writing) found the first version decided the rule by the
+Review 1 (Fable, Gemini, Sonnet, Grok) found the first version decided the rule by the
 CALLER, a flag set only inside a frame's `Execute`. Fable and Gemini: a key pressed between two frames pumps the queue
 (`FromOutside`), takes the waited `screenshot` off at its tick outside `Execute`, and drops it, though `Key_Event` only
 adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`); and a `Load` or replay from a
 handler inside `Execute` fired its un-waited one-shots. All three: `+jump`, `+attack` and `+attack2` were missing from
-the set. Sonnet: a waited one-shot in the launch-line replay would act a second time. All taken.
+the set. Sonnet and Grok: a waited one-shot in the launch-line replay would act a second time. All taken.
+
+Review 2 (Fable, Gemini, Sonnet, Grok) found four more, all taken:
+- **The reload doubled it** (Fable, Sonnet). A chosen game folder reads the configs again "as a fresh start is" (B811
+  review 3), but the first read's waited commands stayed queued, so a `wait 500; screenshot` ran twice and a waited
+  `demo_togglepause` cancelled itself. `DropQueuedConfigs` now drops every queued config command (`Loading`, not
+  `Stuffing`) before the second read; the launch line's own stay.
+- **Put off past the run, not the tick it was added at** (Fable). `alias x "wait; screenshot"; wait -3; x` brings the
+  body back inside the load's run, where `CCommandBuffer` runs it while the load processes; it was marked put off and
+  acted. The flag is now `later` (past the run's last tick).
+- **`thirdperson` is a cheat command** (Fable). `in_camera.cpp:912` flags it `FCVAR_CHEAT`, and `Cmd_ExecuteCommand`
+  (`engine.dll` build 1007 FUN_1801678a0, read for this) prints "Can't use cheat command %s in multiplayer, unless the
+  server has sv_cheats set to 1." and returns, unless `sv_cheats` is on (`Host_IsSinglePlayerGame` is false while a demo
+  plays). A config's waited `thirdperson` now acts only with cheats on. A key's `thirdperson` is the viewer's camera
+  and is untouched (D246).
+- **Coverage** (all four): no test ran an alias body or an `exec` inside a put-off command, a `wait 0` or a negative
+  `wait`, or `mat_surfacecolours` and a bare ConVar among the zero cases; and nothing read the output through the
+  session (Fable).
+
+Not taken: a `Load` run from a ConVar handler inside the launch-line replay resets `Replaying` (Sonnet). No handler
+loads a config, so the path has no caller to test.
+
+Tests added in review 2: `Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTick`,
+`Load_AOneShotRunInsideTheLoadAfterAWait_DoesNothing` (`wait 0`, `wait -1`, the negative-`wait` alias),
+`DropQueuedConfigs_BeforeAReload_RunsAWaitedOneShotOnce`,
+`DropQueuedConfigs_WithTheLaunchLinesWaitedOneShotQueued_KeepsIt`, the `thirdperson` cases with and without
+`sv_cheats 1`, and the session's `RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemoOnce`: a config's
+`wait; demo_togglepause` plays the paused demo, with and without a folder reload. Sabotage, each restored: the reload
+not dropping reddens its session case alone; `PutOff` not inherited reddens the alias and `exec` cases; `PutOff`
+measured against the added tick reddens the negative-`wait` alias case alone; the cheat gate removed reddens the
+`thirdperson` case alone. 2,205 of 2,205 pass.
+
+The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
+behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
+(`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.
 
 Tests: `Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt` (every member of the set acts once, at the third
 `Execute` of a `wait 2` and not before; four viewer-only names stay at zero),

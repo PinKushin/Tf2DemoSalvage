@@ -715,6 +715,27 @@ public sealed class ConfigConsole
         }
     }
 
+    /// <summary>
+    /// Drops every config command a `wait` left queued, releasing its bytes: the viewer reads its configs again from a
+    /// chosen game folder "as a fresh start is" (B811 review 3), and a fresh start has none queued, so the second read would
+    /// otherwise run a waited one-shot twice (B841 review 2, Fable, Sonnet). The launch line's own commands stay.
+    /// </summary>
+    public void DropQueuedConfigs()
+    {
+        for (LinkedListNode<Entry>? at = _queue.First; at is not null;)
+        {
+            LinkedListNode<Entry>? next = at.Next;
+
+            if (at.Value is { Loading: true, Stuffing: false })
+            {
+                _queuedBytes -= at.Value.Size;
+                _queue.Remove(at);
+            }
+
+            at = next;
+        }
+    }
+
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;
 
@@ -2190,9 +2211,11 @@ public sealed class ConfigConsole
                 _loading,
                 _stuffing,
 
-                // Put off by its own `wait`, or added by a command that was (B841): the flag rides the command, so it acts
-                // at its tick whichever call takes it off the queue, a frame's run or a key's (B841 review 1, Fable).
-                _putOff || queued.Tick > _tick,
+                // Put off past this run by its own `wait`, or added by a command that was (B841): the flag rides the
+                // command, so it acts at its tick whichever call takes it off the queue, a frame's run or a key's (B841
+                // review 1, Fable). Past the RUN, not the tick it was added at (review 2, Fable): one a negative `wait`
+                // brought back inside the load still runs in it, where a one-shot does nothing.
+                _putOff || later,
                 _replaying,
                 _viewerIssued,
                 _savedLayer,
@@ -2328,8 +2351,10 @@ public sealed class ConfigConsole
         // **Unless a `wait` put it off, and TF2 has the command** (B841): `CCommandBuffer` runs it at its tick, whatever text
         // added it, so it acts then (`screenshot` 500 ticks into the session takes one). The viewer's own names are unknown
         // to TF2 and do nothing at any tick, and the viewer's replay of the launch line is no second launch (B829).
+        // `thirdperson` is `FCVAR_CHEAT` (`in_camera.cpp:912`), which `Cmd_ExecuteCommand` (`engine.dll` build 1007
+        // FUN_1801678a0) refuses with "Can't use cheat command" unless `sv_cheats` is on (B841 review 2, Fable).
         if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
-            !(_putOff && !_replaying && Tf2OneShots.Contains(shot)))
+            !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn)))
         {
             return true;
         }

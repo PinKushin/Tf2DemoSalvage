@@ -2466,19 +2466,23 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): waited two ticks, it acts at the third
     /// `Execute` and not before, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The
-    /// viewer's own names are unknown to TF2 and do nothing at any tick.
+    /// viewer's own names are unknown to TF2, and TF2 only prints a bare ConVar, so they do nothing at any tick.
+    /// `thirdperson` is a cheat command, refused without `sv_cheats` (B841 review 2, Fable).
     /// </remarks>
     [TestCase("screenshot", 1)]
     [TestCase("demo_togglepause", 1)]
     [TestCase("firstperson", 1)]
-    [TestCase("thirdperson", 1)]
     [TestCase("+jump", 1)]
     [TestCase("+attack", 1)]
     [TestCase("+attack2", 1)]
+    [TestCase("sv_cheats 1; thirdperson", 1)]
+    [TestCase("thirdperson", 0)]
     [TestCase("togglefullscreen", 0)]
     [TestCase("resetcamera", 0)]
     [TestCase("opendemo", 0)]
     [TestCase("resetspeed", 0)]
+    [TestCase("mat_surfacecolours", 0)]
+    [TestCase("cl_showfps", 0)]
     public void Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt(string command, int raised)
     {
         ConfigConsole console = new();
@@ -2516,6 +2520,97 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("screenshot");
 
         triggered.ShouldBe(1, "a later load's one-shot still does nothing");
+    }
+
+    /// <remarks>
+    /// **What a put-off command adds is put off too** (B841 review 2, Fable, Sonnet): an alias body and an `exec`'s lines run
+    /// at the waited command's tick, so their one-shot acts there. Not before: nothing at the load, nor at the first run.
+    /// </remarks>
+    [TestCase("alias x screenshot; wait 2; x")]
+    [TestCase("wait 2; exec shot")]
+    public void Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTick(string text)
+    {
+        ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "screenshot"u8.ToArray() : null };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load(text);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(0, "not before its tick");
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A one-shot that runs inside the load does nothing, however it got there** (B841 review 2, Fable, Sonnet): a `wait 0`
+    /// or a negative `wait` does not put it past the load's run, and nor does a `wait` inside an alias that a negative one
+    /// brought back into it. `CCommandBuffer` runs all three while the load is processing.
+    /// </remarks>
+    [TestCase("wait 0; screenshot")]
+    [TestCase("wait -1; screenshot")]
+    [TestCase("alias x \"wait; screenshot\"; wait -3; x")]
+    public void Load_AOneShotRunInsideTheLoadAfterAWait_DoesNothing(string text)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load(text);
+
+        for (int run = 0; run < 5; run++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        triggered.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A chosen folder's second read of the configs holds none of the first read's waited commands** (B841 review 2,
+    /// Fable, Sonnet), as a fresh start holds none: the one-shot runs once, from the second read. The control: without the
+    /// drop it runs twice.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 2)]
+    public void DropQueuedConfigs_BeforeAReload_RunsAWaitedOneShotOnce(bool drop, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("wait; screenshot");
+
+        if (drop)
+        {
+            console.DropQueuedConfigs();
+        }
+
+        console.Load("wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **The drop keeps the launch line's own waited commands** (B841 review 2): the launch happened once, and the line's
+    /// replay fires none, so the original is the one that acts.
+    /// </remarks>
+    [Test]
+    public void DropQueuedConfigs_WithTheLaunchLinesWaitedOneShotQueued_KeepsIt()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Stuff("wait\nscreenshot", oneShots: true);
+        console.DropQueuedConfigs();
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
     }
 
     /// <remarks>

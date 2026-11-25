@@ -467,6 +467,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // launch. Set without reverting (review 4, all four): a typed `sv_cheats 0` put back every cheat the saved
             // settings or the menu held, which a fresh start keeps.
             _console.StartCheatsOff();
+
+            // Nor does a fresh start hold the first read's waited commands (B841 review 2, Fable, Sonnet).
+            _console.DropQueuedConfigs();
             LoadUserConfig();
 
             // The configs ran again, so the whole line runs after them again, as `stuffcmds` follows `exec` (B811 review 2,

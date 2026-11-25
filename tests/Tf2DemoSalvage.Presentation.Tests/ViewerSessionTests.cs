@@ -2458,6 +2458,38 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A config's one-shot put off by `wait` reaches the playback at its frame, once** (B841, and review 2, Fable,
+    /// Sonnet): `CCommandBuffer` runs it at its tick, so `demo_togglepause` plays the paused demo. A chosen folder reads the
+    /// configs again as a fresh start, which holds none of the first read's waited commands, so it toggles once and not
+    /// twice. The control: paused before the frames, as no `--autoplay` was given.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemoOnce(bool folderChosen)
+    {
+        string demo = WriteDemo("toggles", ticks: 600);
+        using Rig rig = BuildWithAutoexec("wait; demo_togglepause\n", demo);
+
+        if (folderChosen)
+        {
+            await File.WriteAllTextAsync(Path.Combine(_gameFolder!, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
+            rig.Session.GameFolderChosen(_gameFolder!);
+        }
+
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Transport.Playing.ShouldBeFalse("the control: paused before the frames");
+
+        for (int frame = 0; frame < 3; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Transport.Playing.ShouldBeTrue();
+    }
+
+    /// <remarks>
     /// **The folder's configs and the line run from `sv_cheats 0`, as a fresh start does** (B811 review 3, Fable, Sonnet):
     /// `+mat_fullbright 1 +sv_cheats 1` refuses the fullbright and leaves cheats on; a chosen folder whose autoexec sets no
     /// `sv_cheats` must refuse it again, as the next launch would. The control: the same cheat after the line's
