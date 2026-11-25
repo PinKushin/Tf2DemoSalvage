@@ -192,13 +192,17 @@ public sealed class VguiHud
     /// </summary>
     /// <param name="state">The frame's state.</param>
     /// <param name="tick">The tick whose packet carried the event or message.</param>
+    /// <param name="reset">
+    /// Whether the frame follows a seek or a reverse step, whose events are a replay read after every run the frame made
+    /// (B839 review 1, Fable, Sonnet): they hear the frame's own ConVars.
+    /// </param>
     /// <returns>The state the tick's listeners hear.</returns>
-    private HudState HeardAt(in HudState state, int tick)
+    private HudState HeardAt(in HudState state, int tick, bool reset)
     {
-        HudConVars conVars = state.ConVars.At(tick);
+        HudConVars conVars = reset ? state.ConVars : state.ConVars.At(tick);
         Viewport.SetConVars(conVars);
 
-        return state with { ConVars = conVars };
+        return conVars == state.ConVars ? state : state with { ConVars = conVars };
     }
 
     /// <summary>The serial half of <see cref="Frame"/>: scheme, think, events, lifecycle, updates — every side effect (finding 105 B4).</summary>
@@ -319,10 +323,10 @@ public sealed class VguiHud
         // listeners that asked for it, as `IGameEventManager` delivers.
         // **Each with the ConVars its own tick read** (B839): a frame that played several ticks ran the console before
         // each, and `CL_ReadPackets` fires a tick's events straight after that tick's run, so a later tick's set is not
-        // heard yet. The frame's own ConVars are put back after.
+        // heard yet. The frame's own ConVars are put back after each.
         foreach (HudGameEvent fired in events ?? [])
         {
-            HudState heard = HeardAt(state, fired.Event.Tick);
+            HudState heard = HeardAt(state, fired.Event.Tick, reset);
 
             if (TfHudDeathNotice.ListensFor.Contains(fired.Event.Name))
             {
@@ -380,9 +384,9 @@ public sealed class VguiHud
             {
                 FreezePanel.HandleGameEvent(fired, heard);
             }
-        }
 
-        Viewport.SetConVars(state.ConVars);
+            Viewport.SetConVars(state.ConVars);
+        }
 
         // `show_freezepanel`, `hide_freezepanel` and `freezecam_started` are fired client-side (c_baseplayer.cpp:905, :922,
         // :1721), so no demo carries them: derived here from the recorder's observer mode, after the demo's own (B748).
@@ -418,7 +422,7 @@ public sealed class VguiHud
         // Read with the events of their tick, so with that tick's ConVars too (B839).
         foreach (Core.Scene.SceneUserMessage message in userMessages ?? [])
         {
-            HudState heard = HeardAt(state, message.Tick);
+            HudState heard = HeardAt(state, message.Tick, reset);
 
             // `USER_MESSAGE( PlayerPickupWeapon )` fires `localplayer_pickup_weapon` client-side (clientmode_tf.cpp:2469-2475).
             if (message.Name == Core.Scene.SceneUserMessage.PlayerPickupWeapon)
@@ -427,13 +431,14 @@ public sealed class VguiHud
 
                 PlayerStatus.PlayerClass.HandleGameEvent(pickup, heard);
                 ItemEffectMeters.HandleGameEvent(pickup, heard);
-                continue;
+            }
+            else
+            {
+                Chat.HandleUserMessage(message, heard);
             }
 
-            Chat.HandleUserMessage(message, heard);
+            Viewport.SetConVars(state.ConVars);
         }
-
-        Viewport.SetConVars(state.ConVars);
 
         // `C_TFPlayer::ClientThink`'s `g_ItemEffectMeterManager.Update( this )` for the local player (c_tf_player.cpp:6021),
         // from `SimulateEntities` at `FRAME_RENDER_START` (cdll_client_int.cpp:2005, :2207, :2279) — which `SCR_UpdateScreen`

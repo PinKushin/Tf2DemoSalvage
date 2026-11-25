@@ -46424,6 +46424,15 @@ T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait
 command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
 dequeued from its head. *Not fixed*.
 
+## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — OPEN
+
+Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
+`tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
+tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an
+earlier tick in a several-tick frame hears a value a later tick's packet set. *Read*, not measured. Fix shape: hand
+each event the server's ConVars at its own tick (`DemoTimeline.ServerConVarsAt(tick)`), as `HudEventFeed.Resolve`
+already hands it the rules at its tick. *Not fixed*.
+
 ## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — FIXED (2026-11-25)
 
 **Fixed.** What reads a client ConVar per tick in the engine is what `CL_ReadPackets` fires as each tick is parsed:
@@ -46451,6 +46460,31 @@ inside a playing frame: that frame's earlier ticks read the default, its later o
 Sabotage, each restored: the run labelled with its own tick reddens the three unit cases that read across it; the
 session not recording a set reddens the session test; no put-back reddens the tick-1000 HUD case; messages read with
 the frame's ConVars reddens the tick-1000 HUD case; no frame start reddens the session test. 2,184 of 2,184 pass.
+
+Review 1 (Fable, Sonnet; Gemini to follow; Grok out of credit) found, all taken unless said:
+- **The session test could not fail on the label** (Fable): its last-tick check was true by construction.
+  `RenderFrame_ASetInEveryRun_IsHeardFromTheTickAfterItsRun` has a config loop set a ConVar in every run, so in a
+  playing frame the tick landed on reads it as now and the tick before does not; the session's tick argument moved
+  one way or the other reddens it alone.
+- **A replay hears the frame's ConVars** (Fable, Sonnet): reverse play and a seek deliver a reset replay, read after
+  every run the frame made, whose events' ticks sit below every label. `HeardAt` now takes the frame's own on a reset.
+  `Think_AReplayedEvent_HearsTheFramesConVars`; ignoring the reset reddens its reset case alone.
+- **The state handed to handlers, and the put-back, were untested** (Fable, Sonnet). The chat filters a name change
+  by `cl_chatfilters` off the state it is handed: `Think_AFilteredMessage_IsFilteredByItsTicksConVars`, which the
+  frame's state handed instead reddens. The frame's ConVars are now put back after each event and message, so what
+  runs between the loops reads the frame's: `Think_EventsAlone_PutTheFramesConVarsBack` reddens with that put-back
+  removed. The other event handlers read replicated ConVars, which this record does not touch, so `heard` and the
+  frame's state are the same to them today.
+- **`Before` and the wiring through `HudStates`** (Sonnet): `KeyDown_ASetAfterAnother_AnnouncesTheValueItReplaced`
+  (the second set announces the first's 3, under the ConVar's own name) and
+  `At_ATickWithTheWindowsPerTickConVars_CarriesThemToTheHud`; each reddens with its line undone.
+- **Cost** (Fable, Sonnet): `HeardAt` copies the state only when a tick's ConVars differ.
+- **Not taken:** `Before` comes from the console's view (settings clamped to bounds) where "now" is the session's
+  (raw settings first), which differ only for an out-of-bounds string (Fable); an existing split, not this one's. A
+  saved-layer `exec` at run time raises no `ConVarSet` (Sonnet), so its set is in force for the whole frame; it was
+  never announced to anything. A frame that crosses ticks without building the overlay hears them next frame as now
+  (Fable), as before. The replicated ConVars an event reads are still the frame's end tick's: filed as **B843**.
+- 2,192 of 2,192 pass.
 
 The original entry follows.
 

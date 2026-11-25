@@ -2124,6 +2124,34 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **The run made on a tick is first heard by the next one, exactly** (B839 review 1, Fable): a config's waited loop sets
+    /// a ConVar in every run, so in a playing frame the tick the clock lands on reads it as it is now, and the tick before
+    /// it, whose run came after its packets, reads the value before the last run. The control: the frame played two ticks.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_ASetInEveryRun_IsHeardFromTheTickAfterItsRun()
+    {
+        string demo = WriteDemo("everyrun", ticks: 600);
+        using Rig rig = BuildWithAutoexec(
+            "alias tickset \"incrementvar hud_deathnotice_time 0 100000 1; wait; tickset\"\ntickset\n", demo, "--autoplay");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        int start = rig.Transport.LastShownTick;
+
+        for (int frame = 0; frame < 10 && rig.Transport.LastShownTick - start < 2; frame++)
+        {
+            start = rig.Transport.LastShownTick;
+            rig.Session.RenderFrame();
+        }
+
+        int end = rig.Transport.LastShownTick;
+        (end - start).ShouldBeGreaterThanOrEqualTo(2, "the control: the frame played two ticks");
+        rig.Session.ClientConVarsAt(end).ShouldBeNull("the tick landed on reads them as they are now");
+        rig.Session.ClientConVarsAt(end - 1).ShouldNotBeNull("the tick before it was read before the last run");
+    }
+
+    /// <remarks>
     /// **A playing frame runs the buffer once more for each tick it played** (B832): `_Host_RunFrame_Input` (`engine.dll`
     /// build 1007 FUN_1801a74d0) runs `Cbuf_Execute` in every host tick, and a frame here plays up to 0.1 s, six ticks, so
     /// six frames run at least 31 calls and reach a `wait 30`. The control: paused, six frames run six, and it waits on.
