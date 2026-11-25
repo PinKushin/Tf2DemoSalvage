@@ -11761,8 +11761,9 @@ and `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` hold it. A parity pas
 camera (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`, which compares the binding with
 `Q_strcmp`). An alias that runs `+attack` (a crosshair script's `bind MOUSE1 +m1` with `alias +m1 "+attack; ..."`), a
 compound bind, the launch line or a config runs the button command, which only sets the button the HLTV camera never
-reads. Before B844 the viewer cycled or switched the camera for every route, so a config that wraps `+attack` loses
-cycling on that key.
+reads. Before B844 the viewer cycled or switched the camera for a key's alias, a compound bind, a binding in another
+case and the launch line (a config's own `+attack` had already stopped moving it, B841), so a config that wraps `+attack`
+in an alias loses cycling on that key.
 
 **Provenance: voiced.** Shown the loss (B844 review 3, Sonnet; recorded under B845), the owner: *"thats correct, dop it
 tf2s way"* [do it TF2's way].

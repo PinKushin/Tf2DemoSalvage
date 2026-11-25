@@ -12,7 +12,10 @@ by PID).
 
 **Why:** owner, 2026-11-25: "my pc is chugging, somthing is lkeft over", then "that compiler server thing is staying up".
 
-**How to apply:** prefix every ad-hoc build and test with `UseSharedCompilation=false` beside
-`MSBUILDDISABLENODEREUSE=1` (an environment variable becomes the MSBuild property), so no server starts. After a gate or
-anything else that may have started one, check `Get-Process VBCSCompiler` and stop it if it is this session's. See
+**How to apply:** prefix every ad-hoc build and test with `UseSharedCompilation=false DOTNET_CLI_USE_MSBUILD_SERVER=0`
+beside `MSBUILDDISABLENODEREUSE=1`. The MSBuild server (`MSBuild.exe /nodemode:8`) outlives a build and keeps the
+environment it started with, so a later build's `UseSharedCompilation=false` never reaches it, and it starts
+`/nodeReuse:true` worker nodes and `VBCSCompiler` anyway (measured 2026-11-25: eight nodes and a compiler server, ~1.3
+GB, at 9:01). Reviewer delegates build too despite a "do not build" brief. After a gate, a review round or anything else
+that may have started them, list `MSBuild`/`VBCSCompiler` by start time and stop this session's by PID. See
 [[my-own-processes-are-mine]], [[delete-leftover-files-yourself]].

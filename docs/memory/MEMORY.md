@@ -48,7 +48,7 @@
 - [[the-demo-dates-its-own-fields]]; [[round-trip-needs-the-encoding-shape]]; [[wire-faithful-is-not-state-faithful]]; [[demo-ticks-do-not-start-at-zero]]; [[a-header-written-last-is-absent]]; [[a-demo-names-a-map-version]] — MapHash, never MapCrc.
 - [[measure-the-output-not-the-capability]]; [[output-level-assertion-or-it-is-not-done]]; [[engine-accepts-authored-demos]]; [[a-test-demo-is-not-demo-repair]]; [[a-picture-is-assertable]]; [[a-demo-without-its-map-fails-soft]] (D224).
 - [[a-changelog-dates-the-complaint]]; [[most-of-a-decoder-is-untested]]; [[boundaries-find-what-tests-cannot]]; [[a-grouped-sabotage-can-redden-for-the-wrong-reason]]; [[the-denominator-decides-what-can-be-lost]].
-- [[builds-leave-the-compiler-server-running]] — set `UseSharedCompilation=false` on every build/test; stop a leftover VBCSCompiler by PID.
+- [[builds-leave-the-compiler-server-running]] — `UseSharedCompilation=false DOTNET_CLI_USE_MSBUILD_SERVER=0` on every build/test; stop leftover MSBuild/VBCSCompiler by PID.
 - [[write-tmp-is-not-bash-tmp]] — commit message via Write to a Windows path, check `%B` before push.
 - [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
 - [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230); [[a-thread-allocation-counter-counts-the-runtime]] — min over calls.

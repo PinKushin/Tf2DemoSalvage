@@ -2905,8 +2905,7 @@ public sealed class ConfigConsoleConformanceTests
     /// `SetAutoDirector( true )` (`clientmode_shared.cpp:762-769`) is `spec_autodirector.SetValue( 1 )`
     /// (`hltvcamera.cpp:868-871`). It sets 1, it does not toggle, so a second press leaves it on. The control: with nobody
     /// spectating the key runs its own `+strafe`, which this viewer does not implement, and the value stays 0.
-    /// </remarks>
-    /// <remarks>
+    ///
     /// The key's answer is asserted on every row (review 3, Fable, Gemini, Sonnet), and SPACE with `+STRAFE` falls back to
     /// its own default: a binding in another case is not the spectator's, so it names nothing here and `+jump` runs.
     /// </remarks>
@@ -2946,9 +2945,30 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("unbindall\nbind k \"spec_mode 5\"\nalias +m2 +attack\nalias -m2 -attack\nbind MOUSE2 +m2");
 
         console.KeyDown("SPACE");
+        console.KeyDown("MOUSE1");
 
-        raised.ShouldBe([ViewerAction.SwitchCameraMode]);
+        raised.ShouldBe([ViewerAction.SwitchCameraMode, ViewerAction.CycleTargetForward]);
         console.Bindings().KeyFor(ViewerAction.CycleTargetForward).ShouldBe("MOUSE1");
+    }
+
+    /// <remarks>
+    /// **What the claim, the settings screen and the unbound report credit, route by route** (B844 review 4, Fable,
+    /// Sonnet): after `unbindall` the only bind is `k`. A compound bind, another case, `spec_mode 5 6` and `spec_next x` are
+    /// what they fire; an alias runs `+attack` and only sets the button, so cycling is unbound; and an alias NAMED `+attack`
+    /// is passed over for a key bound exactly to it, which cycles forward whatever the alias says.
+    /// </remarks>
+    [TestCase("\"+attack; +use\"", ViewerAction.CycleTargetForward, false)]
+    [TestCase("+ATTACK", ViewerAction.CycleTargetForward, false)]
+    [TestCase("\"spec_mode 5 6\"", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("\"spec_next x\"", ViewerAction.CycleTargetForward, true)]
+    [TestCase("+m1\nalias +m1 +attack", ViewerAction.CycleTargetForward, false)]
+    [TestCase("+attack\nalias +attack spec_prev", ViewerAction.CycleTargetForward, true)]
+    public void Unbound_AfterUnbindallAndOneBind_CreditsOnlyWhatTheBindFires(string bind, ViewerAction action, bool credited)
+    {
+        ConfigConsole console = new();
+        console.Load($"unbindall\nbind k {bind}");
+
+        console.Unbound().Contains(action).ShouldBe(!credited);
     }
 
     /// <remarks>

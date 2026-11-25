@@ -46457,6 +46457,24 @@ the camera before this branch on every demo and now only sets the button, which 
 demo open (Fable, Sonnet) matches the key being the config's; the user docs (Sonnet) are the release's pass. Sabotage,
 restored: the credit check dropped reddens the claim test. Presentation 383 of 383 in `ConfigConsoleConformanceTests`.
 
+Review 4 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: an alias NAMED `+attack` made the
+credit disagree with the key (Fable) — `alias +attack spec_prev` with `bind k +attack` cycles forward, as `KeyDown` tests
+the exact binding before any alias runs, but the claim credited cycling backward: `Expand` in credit mode now answers an
+exact spectator binding first; the credit had tests only for the alias route and `spec_mode 5` (all three):
+`Unbound_AfterUnbindallAndOneBind_CreditsOnlyWhatTheBindFires` covers a compound bind, another case, `spec_mode 5 6`,
+`spec_next x`, an alias that runs `+attack` and an alias named `+attack`, and the claim test now presses MOUSE1 too. The
+session's `Spectating` wiring (Fable, Sonnet) is held by the UI suite, which presses SPACE on a demo and asserts it
+spectates a player (`FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer`): without the wiring SPACE only sets its
+button. **D266 corrected** (Fable): before B844 a config's own `+attack` did not move the camera (B841 had stopped it);
+the key routes (alias, compound, other case) and the launch line did. Not taken: `+strafe` runs `spec_autodirector 1`
+through the command buffer where the engine sets the ConVar directly, so a full buffer (B834) would swallow the key with
+nothing set (Fable, low); a launch-line or config `+attack` holds its button until released, as the engine's does, which
+the idle log reads as flying in free look (Fable, diagnostic only); `Applied` counts `spec_mode 5` (Sonnet), as it counts
+the key the config owns; `spec_mode`'s `SetAutoDirector( false )` is in B851 and already cited by `SpectatorViewTests`
+(Sonnet, Fable). Sabotage, each restored: the exact-first step dropped reddens the alias-named row alone; the unbound
+report without credit reddens the compound, other-case and alias rows. Presentation 389 of 389 in
+`ConfigConsoleConformanceTests`.
+
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
 `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch

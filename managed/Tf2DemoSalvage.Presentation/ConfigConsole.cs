@@ -2653,6 +2653,14 @@ public sealed class ConfigConsole
             return found;
         }
 
+        // A key bound exactly to a spectator button fires its action before any alias of that name runs, as `KeyDown` does
+        // (B844 review 4, Fable): `alias +attack spec_prev` with `bind k +attack` cycles forward.
+        if (credit && depth == 0 && SpectatorKeys.TryGetValue(commandLine, out ViewerAction exact))
+        {
+            found.Add(exact);
+            return found;
+        }
+
         foreach (string clause in SourceConfig.Clauses(commandLine))
         {
             IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
