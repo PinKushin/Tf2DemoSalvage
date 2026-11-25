@@ -289,12 +289,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         // The engine's demo player answers whether a demo plays back, which TF2's `screenshot` asks first (B841 review 9).
         // From the open on: `playdemo` starts playback before the map loads (B841 review 10, Fable, Sonnet).
-        _console.PlayingBack = () => _presenter.HasDemo || _presenter.LoadsInFlight > 0;
+        // The count read first: an open sets the demo before it counts down, so no read between them answers neither
+        // (B841 review 11, Fable).
+        _console.PlayingBack = () => PlaysBack(loadsInFlight: _presenter.LoadsInFlight, hasDemo: _presenter.HasDemo);
 
         // A SourceTV demo draws through the HLTV camera, which TF2's first- and third-person commands do not reach.
         // `engine->IsHLTV()`, asked directly: a POV demo with no recorded view is still drawn through its local player
         // (B841 review 10, Sonnet).
-        _console.HltvPlayback = () => _presenter.Timeline is { IsSourceTv: true };
+        _console.HltvPlayback = () => DrawsThroughHltv(_presenter.Timeline);
 
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
@@ -430,6 +432,23 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <summary>A playlist row was activated: loads it and keeps the load in <see cref="Loading"/>.</summary>
     /// <param name="path">The row's path, or null when nothing is selected.</param>
     public void Activate(string? path) => Loading = LoadSelected(path);
+
+    /// <summary>
+    /// Whether the engine's demo player plays back: from `playdemo` on, so while the demo still loads too, until it is
+    /// closed or failed to open (B841 review 10, Fable, Sonnet).
+    /// </summary>
+    /// <param name="hasDemo">Whether a demo is open.</param>
+    /// <param name="loadsInFlight">How many opens are in progress.</param>
+    /// <returns>Whether a demo plays back.</returns>
+    internal static bool PlaysBack(bool hasDemo, int loadsInFlight) => hasDemo || loadsInFlight > 0;
+
+    /// <summary>
+    /// `engine->IsHLTV()` for the open demo: whether TF2 draws it through the HLTV camera alone (`view.cpp:660-662`), as
+    /// its ServerInfo says, whatever views it recorded (B841 review 10, Sonnet, Fable).
+    /// </summary>
+    /// <param name="timeline">The open demo, or null.</param>
+    /// <returns>Whether it is a SourceTV demo.</returns>
+    internal static bool DrawsThroughHltv(Core.Scene.DemoTimeline? timeline) => timeline is { IsSourceTv: true };
 
     /// <summary>Whether the startup prompt for a missing install should open, saying what discovery found.</summary>
     /// <returns>Whether to ask.</returns>

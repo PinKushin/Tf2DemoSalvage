@@ -2509,30 +2509,51 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **A demo still loading is already playing back** (B841 review 10, Fable, Sonnet): `playdemo` starts playback before
-    /// the map loads, so a config's waited `screenshot` that comes due during the load takes none. The frames run while the
-    /// load is in flight; the control is that a load was in flight for them.
+    /// the map loads, so the console is told a demo plays back from the open on, until it is closed or failed. A pure rule,
+    /// tested apart from a load whose length the rig cannot hold (review 11, Sonnet).
     /// </remarks>
-    [Test]
-    public async Task RenderFrame_AConfigsWaitedScreenshotDuringTheLoad_TakesNone()
+    [TestCase(false, 0, false)]
+    [TestCase(false, 1, true)]
+    [TestCase(true, 0, true)]
+    [TestCase(true, 1, true)]
+    public void PlaysBack_ADemoOpenOrLoading_PlaysBack(bool hasDemo, int loadsInFlight, bool expected) =>
+        ViewerSession.PlaysBack(hasDemo, loadsInFlight).ShouldBe(expected);
+
+    /// <remarks>
+    /// **A demo is drawn through the HLTV camera when its ServerInfo says SourceTV, not when it recorded no view** (B841
+    /// review 10, Sonnet, Fable): both synthetic demos here record no view; only the SourceTV one is HLTV. No demo is not.
+    /// </remarks>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void DrawsThroughHltv_ADemoWithNoRecordedView_IsHltvOnlyWhenSourceTv(bool sourceTv, bool expected)
     {
-        string demo = WriteDemo("loading", ticks: 600);
-        _gameFolder = Path.Combine(_folder, "tf");
-        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
-        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
-        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }, 0.5, demo)
-            .WithDevice();
-        rig.Session.PlanStartup();
-        rig.Session.WindowShown();
-        rig.Session.Presenter.LoadsInFlight.ShouldBeGreaterThan(0, "the control: the load is in flight");
+        Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticDemo.From(
+            Core.Tests.SyntheticDemo.DefaultProtocol,
+            Core.Tests.SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            Core.Tests.SyntheticDemo.Packet(Core.Tests.SyntheticDemo.DefaultProtocol, 0, Info(sourceTv))));
+        timeline.HasRecordedView.ShouldBeFalse("the control: neither demo recorded a view");
 
-        for (int frame = 0; frame < 3; frame++)
-        {
-            rig.Session.RenderFrame();
-        }
-
-        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
-        rig.Device.Captured.Count.ShouldBe(0);
+        (ViewerSession.DrawsThroughHltv(timeline), ViewerSession.DrawsThroughHltv(null)).ShouldBe((expected, false));
     }
+
+    /// <summary>A ServerInfo, SourceTV or not.</summary>
+    private static Core.Net.ServerInfoMessage Info(bool sourceTv) => new(
+        NetworkProtocol: Core.Tests.SyntheticDemo.DefaultProtocol,
+        ServerCount: 7,
+        IsSourceTv: sourceTv,
+        IsDedicated: true,
+        MapCrc: 0,
+        MaxClasses: 9,
+        MapHash: new byte[16],
+        PlayerSlot: 1,
+        MaxPlayers: 24,
+        IntervalPerTick: 0.015f,
+        Platform: 'w',
+        GameDirectory: "tf",
+        Map: Map,
+        Skybox: "sky_tf2_04",
+        ServerName: "synthetic",
+        IsReplay: false);
 
     /// <remarks>
     /// **A chosen folder's reread of a config already read is no second launch** (B841 reviews 2 to 4, Fable, Sonnet,

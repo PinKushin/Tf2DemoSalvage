@@ -46597,6 +46597,19 @@ Review 10 (Fable, Sonnet):
 - B845 names the launch line too (Fable): its `+wait +screenshot` and `+thirdperson` are exempt through `_stuffing`.
 - 2,239 of 2,239 pass.
 
+Review 11 (Fable, Sonnet; Gemini after):
+- **The load test raced the decode** (both): the rig cannot hold a load open, so it could go red on a correct build
+  and stay green on a broken one. Replaced by two pure rules the session calls, each tested apart:
+  `ViewerSession.PlaysBack(hasDemo, loadsInFlight)` (`PlaysBack_ADemoOpenOrLoading_PlaysBack`) and
+  `DrawsThroughHltv(timeline)` (`DrawsThroughHltv_ADemoWithNoRecordedView_IsHltvOnlyWhenSourceTv`, over two synthetic
+  demos with no view recorded, SourceTV or not; Fable: round 10's `IsSourceTv` change had no test). Each reddens with
+  its rule undone. The two wiring lines that call them are read, not tested. The count is read before the demo, as an
+  open sets the demo before it counts down (Fable).
+- **Not taken:** the dot-slash test's second read has no control that `autoexec.cfg` ran (Fable); its folding sabotage
+  reddens it, which is what it is for. A load that fails counts as playing back until it fails (Fable), beside the
+  unread `StartPlayback` bound above.
+- 2,244 of 2,244 pass.
+
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
 (`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.
