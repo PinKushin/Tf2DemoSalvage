@@ -46607,8 +46607,17 @@ finding but this record's). Fixed:
 sets in order (Grok); the throw test asserts the bytes are
 released (an 8192-byte launch line fits after it) and a future-tick command of the key survives (Fable, Sonnet); a
 pointless `KeyDown` of an unbound key is gone; `RunCommand`'s remark names the key's due commands' shared set (Fable).
-Not taken: `!_processing` in the key test (Sonnet) is redundant with `_commandsRunning == 1` and is kept as the
-engine's own condition (`!m_bIsProcessingCommands`). Not taken (Grok): that a spent budget no longer stops the rest
+Not taken: that `!_processing` in the key test can go (Sonnet). It holds the loop up: a key's own queued command is
+run by `Run` straight from `RunDue` with `_commandsRunning` still 1, and only `_processing` stops it being linked
+again as a new key text, without end (review 6, Fable; every key press covers it). It is the engine's own condition
+too (`!m_bIsProcessingCommands`).
+
+**Review 6** (Fable, Gemini pending, Sonnet, Grok; no blocker; Grok no findings). Fixed: the record's reason for keeping
+`!_processing`, which said it was redundant (Fable, above); a throw keeps other texts' queued commands, now tested
+(`KeyDown_AHandlerThatThrows_KeepsOtherTextsQueuedCommands`, red when the drop takes text 0 too; Fable); the throw
+test's remark names its controls (Sonnet).
+
+Not taken (Grok): that a spent budget no longer stops the rest
 of a key's text. The alias budget never stopped it (a spent alias is skipped and the text goes on); the clause budget
 still does, each remaining entry refused at its first clause (Fable, Sonnet traced it).
 

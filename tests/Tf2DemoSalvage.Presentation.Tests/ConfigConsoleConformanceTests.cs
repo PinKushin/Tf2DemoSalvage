@@ -2112,7 +2112,8 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **A throw drops the rest of a key's text due now** (B832 review 4, Fable, Sonnet): as a run text's rest is, rather
-    /// than left queued to fire at some later run. The control: its first command ran.
+    /// than left queued to fire at some later run, and its bytes with it. The controls: its first command ran, and what
+    /// it put off to a later tick still runs.
     /// </remarks>
     [Test]
     public void KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText()
@@ -2132,11 +2133,40 @@ public sealed class ConfigConsoleConformanceTests
 
         // Its first command ran, the rest due now was dropped, and what it put off to a later tick still ran (B832 review 5,
         // Fable).
-        sets.ShouldBe(["1", "3"]);
+        sets.ShouldBe(["1", "3"], "1 ran, 2 was dropped, 3 (a tick later) still ran");
 
         // Its bytes went with it (B832 review 5, Sonnet): a launch line of exactly 8192 bytes still fits.
         console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength));
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A throw drops the key's own text only** (B832 review 6, Fable): a config's command due at the same run stays
+    /// queued and runs at the next `Execute`. The control: the key's command ran before the throw.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AHandlerThatThrows_KeepsOtherTextsQueuedCommands()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"wait -1; {Alpha} 1\"\nwait; fps_max 60");
+        console.Execute(waitAllowed: true);
+        bool threw = false;
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                threw = true;
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.KeyDown("k"));
+        console.ConVarSet -= throwing;
+        threw.ShouldBeTrue("the control: the key's command ran first, as its tick is earlier");
+        console.Execute(waitAllowed: true);
+
+        console.ConVar("fps_max").ShouldBe("60");
     }
 
     /// <remarks>
