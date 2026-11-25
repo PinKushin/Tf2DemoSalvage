@@ -2442,9 +2442,9 @@ public sealed class ConfigConsoleConformanceTests
     /// are eight runs, each within its budget, and add 4096 with no budget line. The engine has no budget; the viewer's is
     /// per run (B820).
     /// </remarks>
-    [TestCase("wait; b; b; b; b; b; b; b; b", 2, true)]
-    [TestCase("wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b", 9, false)]
-    public void Load_PutOffAliasesFanningOut_ShareABudgetPerTick(string text, int calls, bool cut)
+    [TestCase("wait; b; b; b; b; b; b; b; b", 2, true, "3584.000000")]
+    [TestCase("wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b", 9, false, "4096.000000")]
+    public void Load_PutOffAliasesFanningOut_ShareABudgetPerTick(string text, int calls, bool cut, string adds)
     {
         RecordingLogger log = new();
         ConfigConsole console = new() { Log = log };
@@ -2459,7 +2459,8 @@ public sealed class ConfigConsoleConformanceTests
         }
 
         (log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs") > 0).ShouldBe(cut);
-        (console.ConVar(Alpha) == "4096.000000").ShouldBe(!cut);
+        // Cut at run 4097, the eighth `b`'s first `c`: seven whole `b`s, 3584 adds (B840 review 5, Fable).
+        console.ConVar(Alpha).ShouldBe(adds);
     }
 
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
