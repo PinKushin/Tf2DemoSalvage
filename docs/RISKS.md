@@ -46873,7 +46873,7 @@ late-signon, resume and repeat tests; user messages heard a tick late redden the
 Review 4's parenthetical now points here (Sonnet). Not taken: the chat case keeps only the first sound (Fable), as one
 message makes one. Core `ServerConVarsAtTests` 9 of 9.
 
-Review 9 (Fable, Sonnet; Gemini pending). No engine finding. Corrected: the repeat test's remark and review 8's record said the
+Review 9 (Fable, Gemini, Sonnet). No engine finding; Gemini found the same remark, already corrected. Corrected: the repeat test's remark and review 8's record said the
 unsorted history would blind the search for every later tick (Fable, Sonnet); traced, only the repeated tick's own
 answer moves, so the remark says the tick-7 read is the one that sees the clamp. `ConVarChanges`'s summary restated part
 of the stamp rule and is now a pointer to the builder and to review 8 (Sonnet); the resume test's remark no longer
