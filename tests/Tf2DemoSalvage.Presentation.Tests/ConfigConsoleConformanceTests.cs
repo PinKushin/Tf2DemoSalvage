@@ -2020,6 +2020,22 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A command a key's own alias puts off to a tick the key's text also holds runs after the key's** (B832 review 3,
+    /// Fable): the key's whole text is linked first, `al` at T-1 and `9` at T, and `al`'s `2`, put off to T when it runs,
+    /// is linked after `9` (`InsertCommandAtAppropriateTime`), so 2 is left.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasPuttingOffToATickItsKeyHolds_RunsAfterTheKeys()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 2\"\nbind k \"wait -1; al; wait; {Alpha} 9\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
     /// **A command runs at its own tick, so a `wait` in what it runs counts from there** (B832 review 2, Fable, Sonnet):
     /// `DequeueNextCommand` sets `m_nCurrentTick` to the command's tick (`commandbuffer.cpp:307`). A key's `wait -1; al`
     /// runs `al` a tick early, and its `wait` puts `2` back to the key's own tick, which the same `Cbuf_Execute` runs.

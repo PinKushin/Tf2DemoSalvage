@@ -250,8 +250,9 @@ public sealed class PlaybackPresenter
         MomentChanged?.Invoke(this, new MomentEventArgs(clock.Position));
 
         // **Whichever end it is travelling towards.** Stopping only at the end would leave reverse
-        // playback spinning against tick zero while still claiming to play.
-        if ((clock.TimeScale > 0 && clock.AtEnd) || (clock.TimeScale < 0 && clock.AtStart))
+        // playback spinning against tick zero while still claiming to play. The end the frame travelled towards, at its
+        // own speed, whatever a command inside it set for the next (B832 review 3, Sonnet).
+        if ((frameScale > 0 && clock.AtEnd) || (frameScale < 0 && clock.AtStart))
         {
             _view.Playing = false;
             _elapsed.Reset();

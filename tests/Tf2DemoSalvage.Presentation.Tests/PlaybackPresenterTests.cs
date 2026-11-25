@@ -214,6 +214,32 @@ public sealed class PlaybackPresenterTests
     }
 
     /// <remarks>
+    /// **A frame that reaches the end stops there, whatever speed a command inside it set** (B832 review 3, Sonnet): the
+    /// frame played towards the end at its own speed, so a `demo_timescale 0` from its console does not leave playback
+    /// claiming to play at the last tick. The control: the speed is 0 for the next frame.
+    /// </remarks>
+    [Test]
+    public void Advance_AFrameThatReachesTheEndWithASpeedSetToZero_Stops()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired(lastTick: 3);
+        bool set = false;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.1;
+        presenter.Advance(_ =>
+        {
+            if (!set)
+            {
+                set = true;
+                view.ChooseSpeed(0f);
+            }
+        });
+
+        view.LastShownTick.ShouldBe(3);
+        view.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
     /// **A frame a rounding error short of the next tick reaches it, the console run before it** (B832 review 2, Fable,
     /// Sonnet): half a tick in, a frame of the other half less 1e-12 seconds counts as reaching tick 1.
     /// </remarks>

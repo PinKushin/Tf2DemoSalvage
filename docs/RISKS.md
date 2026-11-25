@@ -46338,6 +46338,18 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
+## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — OPEN
+
+Found in B832 review 3 (Fable). `InsertCommand` (`engine.dll` x64 build 1007 FUN_180295740;
+`src/tier1/commandbuffer.cpp:148-155`) puts text added while commands are processing at the front in order, but a
+command it puts off past the current tick is linked by tick among everything queued, the text's own front commands
+included. The console runs such text (an alias body, a file line, the launch line, a waited command) from a list of
+its own and links only the put-off commands into the queue. The order differs only when a negative `wait` lowers the
+current tick: `wait -2; al; wait 2; b` with `al` = `wait; d` runs al, d, b in TF2 (`d` at T-1 is linked before `b` at
+T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait`. Fix shape: one queue for every
+command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
+dequeued from its head. *Not fixed*.
+
 ## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — OPEN
 
 Found in B832 review 1 (Grok). `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs, for each host tick,
@@ -46354,7 +46366,8 @@ the order read; not measured. Fix shape: hand the per-tick work (event delivery)
 (`PlaybackClock.SecondsToNextTick`, `StepToNextTick`), runs the console before each, and stops on the tick reached
 when a command it ran paused playback; the frame's last part-tick is advanced as before. `ViewerSession.Simulate`
 passes it `ExecuteConsole(tick)`, which reads `sv_allow_wait_command` at that tick. Tests
-`Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check removed), `SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
+`Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check removed),
+`SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
 `SecondsToNextTick_AtTheEndPlayingForward_IsInfinite`. *Not reproduced*: TF2 counts its host ticks from accumulated
 frame time before the loop; the viewer counts the demo ticks the frame crosses, which is the same count while a demo
 plays one tick per host tick.
@@ -46523,9 +46536,9 @@ The per-tick calls first ran after the frame's whole advance; filed and fixed as
 - A `+` bind's text carries its key's `ButtonCode_t` (`"%s %i"`), so its bytes count, and the release carries it too
   (Fable, Gemini; `ButtonCodeNames.CodeOf`). Test `KeyDown_APlusBindBesideAFullBuffer_CountsItsKeyNumber`.
 - The clock reads the next tick's distance again after the console runs, as a command may change the speed, and a
-  frame a rounding error short of a tick still reaches it (Fable, Gemini, Sonnet). Tests
-  `Advance_ASpeedSetBeforeTheFirstTick_TimesEveryTickAtIt`,
-  `Advance_AFrameOfExactlyThreeTicks_RunsTheConsoleThreeTimes`.
+  frame a rounding error short of a tick still reaches it (Fable, Gemini, Sonnet). *Superseded by review 2*: a
+  frame's ticks run at the speed it began with, and the speed test is now
+  `Advance_ASpeedSetBeforeTheFirstTick_TimesTheNextFrame`.
 - Each per-tick call reads `sv_allow_wait_command` at the tick the clock is on, not the previous frame's (Fable,
   Gemini).
 - The context a waited command runs in has tests that fail without it: a config's (`Loading`), the launch line's
@@ -46542,7 +46555,8 @@ but the immediate ones modelled (alias, `exec`); the handlers are the viewer's o
 are applied after all of the frame's console calls (Grok). `_deferred` survives a new demo, as TF2's buffer survives
 `playdemo` (Sonnet). Reverse playback, which TF2 has not, runs a console call per tick it crosses backwards.
 
-**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini's three findings are the ones below). Fixed:
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini's three are the
+frame speed and the key's tick order below). Fixed:
 - A frame's ticks are counted at the speed it began with, as `_Host_RunFrame` fixes its host ticks before the loop: a
   speed a command sets inside a frame times the next frame, and a tick the console ran for is always stepped, where
   round 1's re-read could run the console twice for one tick (Sonnet). `PlaybackClock.SecondsToNextTick`,
@@ -46559,6 +46573,21 @@ are applied after all of the frame's console calls (Grok). `_deferred` survives 
 - `ButtonCodeNames.CodeOf` has a test of its values (`k` 21, `SPACE` 65, `MOUSE1` 107, a chord none) (Sonnet); its
   summary and the labels say B832 review 1 (Fable, Sonnet).
 - Each fix sabotaged alone reddened its own test.
+
+**Review 3** (Fable, Gemini pending, Sonnet, Grok; no blocker). Fixed:
+- A key's whole text is linked into the queue by tick and run from it, so a command a key's own alias puts off to a
+  tick its text also holds runs after the key's (Fable). Round 2's per-command drain ran it first. Test
+  `KeyDown_AnAliasPuttingOffToATickItsKeyHolds_RunsAfterTheKeys`. The key is answered for its own commands only.
+- Only a key pressed from outside every command is queued so (Fable, Sonnet); one a handler presses inside a command
+  runs inside it, as before. `Execute` does nothing inside such a command, which stands in for one (Fable).
+- A frame stops at the end it travelled towards at its own speed, whatever a command in it set (Sonnet). Test
+  `Advance_AFrameThatReachesTheEndWithASpeedSetToZero_Stops`.
+- Review 1's re-read bullet is marked superseded (Fable).
+- Each fix sabotaged alone reddened its own test.
+
+Not taken (Grok): that a key's future-tick commands ran at once (they were never in the list run at once), and that
+`KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder` should leave 2 (its `Execute` moves the tick on, so `9` is
+due). Filed as B840 (Fable): a negative `wait` in text added while processing.
 
 The paragraph below is the entry as filed.
 
