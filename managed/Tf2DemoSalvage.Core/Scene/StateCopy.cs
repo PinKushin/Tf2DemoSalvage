@@ -724,5 +724,7 @@ internal static class StateCopy
         || type.IsPointer
         || type == typeof(PropertyBag.Frozen)
         || type == typeof(Schema.DecodedProperties)
+        // Its arrays are private and written only by its constructor (B849): every track shares one.
+        || type == typeof(InterpolationSchedule)
         || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

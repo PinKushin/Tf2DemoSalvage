@@ -305,6 +305,32 @@ public sealed class CameraPresenterTests
         read.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The free camera flies at the server's speeds as of the shown tick** (B848): `FullNoClipMove` reads `sv_maxspeed`
+    /// and `sv_specspeed` on every move (`gamemovement.cpp:2260`), and the client applies each `net_SetConVar` as its
+    /// packet is read. The server quadrupled the ceiling at tick 30: a frame at tick 20 moves Valve's 96 units in a
+    /// tenth of a second, one at tick 40 moves 384, and back at tick 20 it is 96 again.
+    /// </remarks>
+    [Test]
+    public void Fly_BeforeAndAfterTheServerRaisedItsSpeeds_MovesAtEachTicksSpeed()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (30, [new Core.Net.SetConVarMessage([new("sv_maxspeed", "640"), new("sv_specspeed", "6")])])));
+        (CameraPresenter camera, FakeLoadView window, _) = Camera(timeline, tick: 20);
+        camera.Free.Angles = (0f, 0f);
+        System.Collections.Generic.List<float> moved = [];
+
+        foreach (int tick in (int[])[20, 40, 20])
+        {
+            window.Window = new CameraWindow(tick, tick, 1280, 720, false);
+            float before = camera.Free.Origin?.X ?? 0f;
+            camera.Fly(static () => new FlightInput(Forward: 1f, Right: 0f, Up: 0f, Walk: false), FreeCameraController.MaximumFrameSeconds);
+            moved.Add(camera.Free.Origin!.Value.X - before);
+        }
+
+        moved.ConvertAll(static step => System.MathF.Round(step, 2)).ShouldBe([96f, 384f, 96f]);
+    }
+
     [Test]
     public void CycleTarget_InTheFreeCamera_DoesNothing()
     {

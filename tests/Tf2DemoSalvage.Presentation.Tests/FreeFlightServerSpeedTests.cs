@@ -131,6 +131,25 @@ public sealed class FreeFlightServerSpeedTests
         camera.Origin.Value.X.ShouldBe(96f, 0.01);
     }
 
+    /// <remarks>
+    /// **The same server handed every frame logs once** (B848 review 1, Fable, Sonnet): the camera is told the moment's
+    /// server each frame it flies, and `ServerConVarsAt` hands back one instance between two `net_SetConVar`s, so the
+    /// change is said once. A new instance is said again: the control.
+    /// </remarks>
+    [Test]
+    public void SetServer_TheSameServerTwiceThenANewOne_LogsTheChangeTwice()
+    {
+        RecordingLogger log = new();
+        FreeCameraController camera = new(log);
+        ServerConVars jump = JumpServer();
+
+        camera.SetServer(jump);
+        camera.SetServer(jump);
+        camera.SetServer(JumpServer());
+
+        log.Count("free camera: this server changed").ShouldBe(2);
+    }
+
     private static FlightInput Forward =>
         new(Forward: 1f, Right: 0f, Up: 0f, Walk: false);
 }

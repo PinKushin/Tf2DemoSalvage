@@ -47105,16 +47105,203 @@ so would put a signon message after every packet in time, and out of tick order 
 types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
 signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
 
-## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN
+## B861 — a locally recorded demo's every-tick entities take one tick of interpolation, where the viewer takes the full amount for every demo (2026-11-25) — OPEN
 
-Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last `net_SetConVar`; the client
-applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole: `CameraPresenter` (`SetServer`, the
-free camera's movement limits), `EffectEntities` and `IMomentSource` (`TfHolidays.IsChristmasActive`'s
-`tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the interpolation window
-(`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`). A server that sets
-one mid-recording plays the whole demo under its last value. *Read*, not measured. Fix shape: each reader asks
-`ServerConVarsAt` its moment; the interpolation window needs the widest reach over the recording, which is a separate
-question from the value at a tick. *Not fixed*.
+Found in B848 review 4 (Sonnet), split from B860 in review 5 (Fable): it does not need a rise. `GetInterpolationAmount`'s
+`:5937` return (`c_baseentity.cpp`) is reached only in multiplayer or for a demo that is not locally recorded
+(`:5932-5935`); a locally recorded demo falls through to `:5940-5960`, where an entity animated and simulated every tick,
+or latched for the one it is, takes `TICK_INTERVAL ×` the tick multiple whatever the amount, and only the rest reach the
+amount at `:5960` (`g_nThreadModeTicks`, a file-scope static declared 0 at `:60` and only read, adds nothing). B267 chose the non-local path for every demo on purpose, on the reasoning that a third-party viewer
+holds no prediction history (findings 20 supplies only the reading that a POV demo is locally recorded), and recorded
+the magnitude: `SetMoveType` sets both flags for `MOVETYPE_WALK`, so every player would be drawn one tick behind instead
+of eight, about 105 ms by arithmetic (seven ticks of 15 ms, as B267 reasons it); that is a reading of WHY the branch exists, not of what TF2 does when
+it plays the same file. *Read* in the SDK; what `IsPlayingDemoALocallyRecordedDemo` answers for a POV demo is engine
+code, not read, and decides whether this is a divergence at all. `m_bAnimatedEveryTick` and `m_bSimulatedEveryTick`
+are networked, so the viewer could decide per entity. Fix shape: read `IsPlayingDemoALocallyRecordedDemo` in
+`engine.dll` for WHICH demos it answers true (B848 reviews 6 and 7, Fable, *recalled* not read: by the header's server
+name being `localhost`, which would make it per demo, a listen-server recording yes and a POV recorded on a remote
+server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
+with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
+
+## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
+
+Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
+`GetClientInterpAmount()` changing and sets each interpolated variable's own amount through
+`Interp_UpdateInterpolationAmounts` (`:837-849`); it does not put an entity back on `g_InterpolationList`. So an entity
+that had settled (removed on `bNoMoreChanges`) stays at its last value until its next data update, where the viewer's
+sampler, taking `tick − TicksAt(tick)` fresh, draws it back along its path. And an entity still interpolating had its
+history pruned by the OLD amount (`RemoveEntriesPreviousTo( currentTime − amount − EXTRA… )`, `interpolatedvar.h:1057`),
+so a target the new amount puts further back finds those entries gone; `InterpolatedHistory` prunes nothing (licensed
+for one delay), and `ActorFace` prunes by the current delay, so the face and the track disagree there. A falling delay
+should agree (*interpolated*). *Read*: `CheckCLInterpChanged` runs at `FRAME_START` (`cdll_client_int.cpp:2344`) and
+`SetInterpolationAmount` only stores the amount (`interpolatedvar.h:608-611`); that nothing else re-lists a settled
+entity on an amount change is *interpolated* from their bodies (B848 review 3, Fable, Sonnet). Three more gaps of the same
+mechanism (review 3): the variables take the new amount at the next frame start, not when the packet is read, where the
+viewer's tracks switch at the tick (where the frame start falls against the packet read is engine code, unread); a
+predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` whatever the amount, and a server on
+alternate ticks adds two ticks, not one (`c_baseentity.cpp:5919-5928`); `cl_interp_npcs` is a second trigger the schedule
+does not model. (The locally recorded path, which does not need a rise, is B861.) Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
+per-entity state (settled entities hold; a moving one's target clamped to the history the old amount kept) at the frame
+start after the change, with a stepped test that predicts the engine's value. *Not fixed*.
+
+## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** `InterpolationSchedule` is `GetClientInterpAmount()` by tick: the watcher's settings under the server's
+ConVars as they stand at each tick, built from the same history `ServerConVarsAt` reads, one step per change that moves
+the amount. Every reader takes it at its own tick:
+
+- a track's pose (`ScenePropTrack.At`, `Motion`) samples `TicksAt(tick)` behind; `Motion`'s wakes are where the delayed
+  target next comes to reach a changetime (`Reaches`, review 2), and the delay's own change is a wake, since it moves the
+  target;
+- the demo player's legacy rollback reads `AmountAt` its tick;
+- a face's `m_iv_flexWeight` reads the delay at its time (`ActorFace`, through `FaceSources.Interpolation`);
+- the checkpoint walk's reach covers the widest bounds anywhere in the recording (`EndFacts.WidestBounds`), not the last.
+
+Temp entities already fired under the bounds of their tick (`RecordEffects` is handed `client.Amount(serverConVars)`).
+`DemoTimeline.ClientInterpAmount` is replaced by `Interpolation`. The schedule is immutable and shared by every track,
+so a checkpoint copies none of it (`StateCopy.Immutable`). Tests: `InterpolationScheduleTests` (the steps, a set that
+leaves the amount, `Reaches` either side of a change), `WindowReachTests.Walk_BoundsRaisedMidRecordingThenLowered_DelaysByTickAndReachesTheWidest`
+(8, 34, 8 ticks either side of a raise and a lowering; a reach of 41 where the end bounds give 15; windows answering as
+the whole build), `DemoTimelineSampleOrderTests.PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere`.
+Sabotage, each restored: the delay-change wake removed reddens the stepped test at tick 50; the reach from the end bounds
+reddens the reach; one delay for the recording reddens the per-tick delays. *Read*, not measured on a real demo: no
+corpus demo is known to change its bounds mid-recording.
+
+Review 2 of B848 (Fable, Sonnet, Codex). **The engine does not do what this sampler does across a RISING delay**
+(Fable), filed as **B860**: the per-tick amount is right, but a settled entity is not put back on the interpolation
+list, and a moving one's history was pruned by the old amount. Fixed: `Reaches(changeTime, after)` answers the first
+tick after the one asked at which the target comes to reach a changetime, so a rise that drops the target back below a
+changetime it had passed wakes the track there; it answered the first reach ever, filtered out as past, and the track
+stayed in the lerping set for good (Fable, Sonnet). `MaximumTicks` read by no production code is deleted (D180); the
+same-tick branch of `From` was equivalent and is gone, the lookups taking the later of two steps on one tick (Sonnet);
+`SecondsAtTime` adds a millionth of a tick before the floor, as `FireTick` does (Sonnet). Records: "`Reaches` either
+side of a change" covered only a rise (Codex); "`StateCopy.Immutable`" is its immutable-type list; the rollback and the
+face readers had no test (Fable). Tests: `Reaches` falling, after a rise, two changes on one tick, `SecondsAtTime` on a
+step; `DemoPlayerConformanceTests.InterpolateViewpoint_OnASinglePlayerServerAfterTheBoundsRose_RollsBackByTheAmountThen`
+(426, 14 ticks back); `FaceFlexTests.Step_AfterTheDelayFell_UsesTheDelayAtItsTime`; `Covers` asked of a walk kept to
+20 track ticks. Sabotage, each restored: the rollback at tick 0, the face at time 0, and `Covers` from the end bounds
+each redden their test. The stepped test's remark no longer says the engine draws the crate mid-slide again (Fable).
+
+Review 3 of B848 (Fable, Sonnet, Codex). `Reaches` correct for rises and falls; `Motion` wakes wherever the sampler's
+answer changes; no correctness block. Fixed: the `end <= first` skip in `Reaches` was dead, `at < end` rejecting the same
+(Fable). Tests for the surviving mutants: a fractional tick asked from, a tick inside a step whose changetime was passed,
+the reach tick itself, a fall from a target already on the changetime (`<` against `<=`), `NextChangeAfter`'s positive
+answer (Fable, Sonnet); the stepped test asserts the crate leaves the lerping set after its re-reach, which restoring the
+first-reach-ever answer in both `Motion` callers reddens (one alone survives: the two histories share the stamps).
+Records: findings 115 attributes the clamping to the bounded ConVar wrappers (Codex), cites `:5937` and
+`serverTickMultiple`, the frame-start call site and `SetInterpolationAmount`, and classes the engine-side and deduced
+claims; B860 gains the frame-start lag, predictable and alternate-tick entities, `cl_interp_npcs` (Fable, Sonnet). Not
+taken: Codex's `Reaches(95, 99)` across a rise: the target lands on the changetime, still reached, and the target's move
+at 100 is the delay-change wake. **The lead's call** (Fable): this branch makes a settled entity replay its last motion at
+a rise, which the engine never shows, where main plays such a demo under one wrong delay throughout; B849's named parts
+are done, so B848 merges with B860 open, and B860 is next.
+
+Review 4 of B848 (Fable, Sonnet, Codex: no merge blocker). Tests for the surviving mutants: `Reaches(95, 99)` across a
+rise is no new reach and `Reaches(98, 0)` is 103, where `TicksAt(at)` for the step before and `<=` against the step's end
+answered 100 (Sonnet, Fable); `SecondsAtTime` at tick 120, where the division falls short (at 100 it is exact, so the old
+test could not fail, Fable); a rise and back to the start is three steps, which comparing with the first amount merged
+(Fable). `IndexAt`'s floor was equivalent and is gone (Fable). Records: the `cl_updaterate` clamp is the engine's
+(`engine.dll` `0x180164230`), not the SDK file's; a locally recorded demo takes `GetInterpolationAmount`'s other path,
+now in B860 and findings 115 (Sonnet, Fable); `GetClientInterpAmount` is at `:127`. Not taken: either `Motion` reach
+call reverted alone survives, the two histories sharing stamps (recorded in review 3). Sabotage, each restored: no
+epsilon reddens the step test, the first amount compared reddens the three-step test. Core 3328 of 3328.
+
+Review 5 of B848 (Fable, Sonnet, Codex: no merge blocker, no code finding). Records: the locally recorded path is its
+own bug, **B861**, since it needs no rise and B860's fix shape would have left it untracked (Fable); it names B267's
+deliberate choice and findings 20's reading that a POV demo is locally recorded, which B860 had called unread (Sonnet);
+`g_nThreadModeTicks` is 0 and never written in the SDK (Fable); findings 115 declares its "disassembled" class and that
+the two addresses' builds are unrecorded, qualifies the falling-delay claim to the `:5937` path, and states the bounded
+wrappers exactly (Fable). The `(95, 99)` test comment names the mutant it kills (Sonnet; Fable traced it to `TicksAt(at)`).
+
+Review 6 of B848 (Fable, Sonnet, Codex: no merge blocker). Records: findings 20's "a POV is locally recorded" is marked
+interpolated with a pointer to B861, and its "the delay is not reproduced" is out of date since B267 (Fable); B861
+attributes the choice to B267 alone and carries B267's magnitude, one tick against eight for every player (Fable);
+B861's first sentence says the `:5937` return, the amount being reached at `:5960` too for the rest (Sonnet); the
+`cl_interp` and `cl_interp_ratio` wrapper lines are `:108-121` and `:74-86` (Sonnet, Fable); findings 115's title and
+index row name B861 (Sonnet, Fable); `g_nThreadModeTicks` is a file-scope static only read, so nothing in the SDK can
+write it (Codex asked); a test comment's 95 is the asked tick for changetime 90 (Fable). Lead for B861, *recalled* not
+read (Fable): the engine may decide "locally recorded" by the demo header's server name being `localhost`.
+
+Review 7 of B848 (Fable, Sonnet, Codex: no merge blocker). Findings 20 still said, in its "not implemented" section, that
+the delay need not be reproduced, beside review 6's "reproduced since B267" (Sonnet, Fable): rewritten as a wrong
+conclusion kept with what corrected it; its heading and two sentences that mapped POV and STV to the engine's
+distinction as fact are marked as the unread reading (Fable). B861's fix shape asks for WHICH demos, per specimen
+(Fable). `GetClientInterpAmount`'s cite is its line and its `MAX` (Fable). Not taken: Codex's "one tick against eight" as
+an overstatement: it is said of players, which set both flags for `MOVETYPE_WALK`.
+
+Review 8 of B848 (Fable, Sonnet, Codex: no merge blocker). Findings 20's section heading still named POV and STV as fact
+(all three; review 7's record had claimed it done): it names the engine's locally recorded distinction; the STV half of
+the mapping is marked unread as the POV half is (Sonnet); B861's closing condition is "if it answers true for no demo",
+not "none" in the corpus (Fable). Not taken: the corrected `cl_interp` paragraph sitting under "not implemented" (Fable,
+placement; the paragraph says it was wrong).
+
+The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
+filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay
+every track samples behind. `DemoTimeline` sets every track's `InterpolationDelayTicks` once, from
+`client.Amount(end.ServerConVars)`, and the checkpoint walk's reach from `WindowReach.For(…, _end.ServerConVars, …)`.
+The engine's `GetClientInterpAmount` is computed when asked, clamping `cl_interp_ratio` by the replicated
+`sv_client_min_interp_ratio` and `sv_client_max_interp_ratio` as they stand, so a server that changes them mid-recording
+changes the delay from that tick on. *Read*, not measured; such a change is rare, since a server's bounds arrive at
+sign-on. Fix shape: a delay schedule by tick from the ConVar history, read by `ScenePropTrack.At` and `Motion` (whose
+wakes add the delay to changetimes), and a walk reach that covers the widest delay over the recording. *Not fixed*.
+
+## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed, both parts.** The interpolation window is part 2, B849. Each other reader asks `DemoTimeline.ServerConVarsAt`
+at its own moment:
+
+- the free camera, every frame it flies (`CameraPresenter.Fly`): `FullNoClipMove` reads `sv_maxspeed` on each move
+  (`gamemovement.cpp:2260`), and its callers pass `sv_specspeed` in as `factor` (`:2171`, `:2186`).
+  `FreeCameraController.SetServer` returns at once for the instance it already holds, so its log line fires only on a
+  change. The set when the free camera is placed (`CameraPresenter`) is overwritten by `Fly` before any flight reads it;
+- the Halloween vision flag (`TimelineMoments.HolidayVisionFlagsAt`) and the ropes' Christmas check
+  (`TimelineMoments.ChristmasActiveAt`, asked by `EffectEntities` at the tick its rules are read at): `TF_IsHolidayActive`
+  reads `tf_forced_holiday` when asked (`tf_gamerules.cpp:1030-1060`);
+- each shot's fixed spread (`TimelineMoments.FixedWeaponSpreadAt`, called from `LoadedMap` through `HitscanTracers.Trace`'s
+  `fixedSpreadAt` with the shot's tick): `IsFixedWeaponSpreadEnabled` is read as `FX_FireBullets` runs, which is the
+  shot's fire tick, one interpolation window after its packet (`SceneShot.Tick`, from `FireTick`). **And the match
+  group's description overrides the ConVar** (`tf_fx_shared.cpp:419-423`, review 1, Fable): ladder 6v6 (2) and the event
+  placeholder (8) fixed, MvM (0, 1) and casual 12v12 (7) not, any other group the ConVar.
+
+Tests: `CameraPresenterTests.Fly_BeforeAndAfterTheServerRaisedItsSpeeds_MovesAtEachTicksSpeed` (96, 384, then 96 again
+units a frame), `TimelineMomentsTests.HolidayVisionFlagsAt_BeforeAndAfterTheServerForcedHalloween_FollowsEachTick`,
+`…ChristmasActiveAt_BeforeAndAfterTheServerForcedChristmas_FollowsEachTick`,
+`…FixedWeaponSpreadAt_BeforeAndAfterTheServerTurnedItOn_FollowsEachTick`,
+`…FixedWeaponSpreadFor_AMatchGroup_OverridesTheConVarWhereItHasADescription`,
+`HitscanTracersConformanceTests.Trace_ABlastBeforeAndAfterTheServerTurnedFixedSpreadOn_ScattersOnlyTheFirst`,
+`FreeFlightServerSpeedTests.SetServer_TheSameServerTwiceThenANewOne_LogsTheChangeTwice`. Sabotage, each restored: the
+camera on the whole-recording value, the holiday flag on it, and every shot read at one tick each redden their own test.
+
+Review 1 (Fable, Sonnet, Codex). Fixed: the Christmas and fixed-spread reads were lambdas no test reached (all three);
+each is a `TimelineMoments` member with its own test, and `EffectEntities` keeps the tick rather than the ConVars. The
+holiday test's control was the real clock, which failed it on Halloween and full-moon days (Fable): the server holds
+holidays off until tick 10. The match group override (Fable). The `SetServer` guard had no test (Fable, Sonnet). Filed
+and fixed: **B856** (`RulesAt` before the first frame). **Corrected**: this entry first said the interpolation delay
+was split off "when it was filed, before any fix" (Fable): it was split on this branch after part 1, and a part the
+entry names finishes on its branch (D261), so B849 is done here before B848 merges; the spread was said to be read "when
+the shot's packet is read", but `SceneShot.Tick` is the fire tick (`RecordEffects` hands the feeds `FireTick`), and the
+shot docs that said arrival are corrected; the original entry's fix shape was dropped below and is restored. Not taken:
+a shot's tick being the wrong one (Fable): it is the fire tick. Sabotage, each restored: the Christmas and spread reads
+on the whole-recording value each redden their test; the `SetServer` guard removed reddens the log test.
+
+The original entry follows. Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last
+`net_SetConVar`; the client applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole:
+`CameraPresenter` (`SetServer`, the free camera's movement limits), `EffectEntities` and `IMomentSource`
+(`TfHolidays.IsChristmasActive`'s `tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the
+interpolation window (`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`).
+A server that sets one mid-recording plays the whole demo under its last value. *Read*, not measured. Fix shape: each
+reader asks `ServerConVarsAt` its moment; the interpolation window needs the widest reach over the recording, which is a
+separate question from the value at a tick. *Not fixed*.
+
+## B856 — the game rules before the first frame were a zeroed struct, not the client's unsent defaults (2026-11-25) — FIXED (2026-11-25)
+
+Found in B848 review 1, by the fixed-spread test failing on a synthetic demo. `DemoTimeline.RulesAt` answered `default`
+with no frame, and `default` of a struct skips its property initializers: `MatchGroup` 0 (MvM practice, whose
+description turns fixed spread off) where the client's unsent value is -1, `TeamRespawnWaveTimes` 0 where it is -1, and
+`RopesHolidayLightsAllowed` false where the constructor's is true (`tf_gamerules.cpp:1644`). **Fixed**: `RulesAt` answers
+`SceneGameRules.Unsent`, built by the constructor. Test: `SceneGameRulesTests.RulesAt_BeforeTheFirstFrame_IsTheUnsentDefaults`;
+`default` restored reddens it. Not changed: a `TimelineFrame` or `HudViewport` constructed without rules still defaults
+the struct; every decoded frame sets all three from the entity or its unsent value.
 
 ## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — FIXED (2026-11-25)
 

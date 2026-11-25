@@ -84,6 +84,61 @@ public sealed class WindowReachTests
             ]);
     }
 
+    /// <summary>
+    /// The same moving player with the bounds raised to 10 at tick 40 and put back to Valve's (1, 5) at tick 60 (B849): the
+    /// recording ENDS on the defaults, but between 40 and 60 the delay is 0.5 s.
+    /// </summary>
+    private static byte[] InterpBoundRaisedThenLowered()
+    {
+        byte[] moving = SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(10, 71).Select(tick => (tick, (float)tick, 0f))]);
+
+        static DemoCommand Bounds(int tick, string minimum, string maximum) => SyntheticDemo.Packet(
+            SyntheticDemo.DefaultProtocol,
+            tick,
+            new SetConVarMessage(
+            [
+                new KeyValuePair<string, string>("sv_client_min_interp_ratio", minimum),
+                new KeyValuePair<string, string>("sv_client_max_interp_ratio", maximum),
+            ]));
+
+        List<DemoCommand> commands = [.. DemoCommandReader.Read(moving.AsMemory(DemoHeader.SizeBytes)).Where(command => command.Type != DemoCommandType.Stop)];
+        int raise = commands.FindIndex(command => command.Tick >= 40);
+        commands.Insert(raise, Bounds(40, "10", "10"));
+        int lower = commands.FindIndex(command => command.Tick >= 60 && command.Type == DemoCommandType.Packet && command != commands[raise]);
+        commands.Insert(lower, Bounds(60, "1", "5"));
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <remarks>
+    /// **The delay is the server's bounds AT each tick, and the reach covers the widest** (B849): 0.1 s is
+    /// (int)(0.5 + 0.1/0.015) + 1 = 8 ticks before 40 and after 60, and 0.5 s is (int)(0.5 + 0.5/0.015) + 1 = 34 between.
+    /// The recording ends on the defaults, so a reach from the END bounds (15) would not walk again; the widest needs 34 +
+    /// 7 = 41. A window inside the raised span answers as the whole build.
+    /// </remarks>
+    [Test]
+    public void Walk_BoundsRaisedMidRecordingThenLowered_DelaysByTickAndReachesTheWidest()
+    {
+        byte[] demo = InterpBoundRaisedThenLowered();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, 2, new WindowSettings())!;
+
+        (whole.Interpolation.TicksAt(30), whole.Interpolation.TicksAt(50), whole.Interpolation.TicksAt(70)).ShouldBe((8, 34, 8));
+        WindowReach.For(new WindowSettings(), whole.ServerConVars, Interval).TrackTicks.ShouldBe(15, "the control: the end bounds reach 15");
+        checkpoints.Reach.TrackTicks.ShouldBe(41);
+
+        // `Covers` asks the same widest reach (B848 review 2, Fable): a walk kept to 20 track ticks covers the end bounds'
+        // 15 but not the raised span's 41.
+        DemoTimeline.Checkpoints.Walk(demo, 2, lookbackTicks: 1000, trackLookbackTicks: 20)!.Covers(new WindowSettings()).ShouldBeFalse();
+
+        foreach (int tick in new[] { 45, 55, 65 })
+        {
+            TimelineFingerprint.OfAnswer(TimelineAnswers.At(checkpoints.Window(tick, tick + 1), tick)).Hash
+                .ShouldBe(TimelineFingerprint.OfAnswer(TimelineAnswers.At(whole, tick)).Hash, $"at {tick}");
+        }
+    }
+
     /// <remarks>
     /// **The END bounds force a second walk**: (int)(0.5 + 0.5/0.015) + 1 + 7 = 41 track ticks are needed, past the 15 the
     /// first walk kept; the walk returned must keep 41, and a window must answer as the whole build — the moving player

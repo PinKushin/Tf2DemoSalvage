@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -16,6 +17,73 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class TimelineMomentsTests
 {
+    /// <summary>
+    /// A demo whose server holds every holiday off from tick 1 and forces <paramref name="holiday"/> at tick 10:
+    /// `tf_force_holidays_off` is read before the calendar, so tick 5 answers no on any date (B848 review 1, Fable).
+    /// </summary>
+    private static DemoTimeline HolidayForcedAtTen(int holiday) =>
+        DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoWithMessagesAt(
+            (1, [new Core.Net.SetConVarMessage([new("tf_force_holidays_off", "1")])]),
+            (10, [new Core.Net.SetConVarMessage(
+                [new("tf_force_holidays_off", "0"), new("tf_forced_holiday", holiday.ToString(CultureInfo.InvariantCulture))])])));
+
+    /// <remarks>
+    /// **The holiday vision reads the server's ConVars as of its tick** (B848), as the client applies each `net_SetConVar`
+    /// as its packet is read: holidays off until tick 10, then Halloween forced, so tick 5 has no flag and tick 15 has it,
+    /// whatever the date (review 1, Fable: the calendar control failed on Halloween and full-moon days).
+    /// </remarks>
+    [Test]
+    public void HolidayVisionFlagsAt_BeforeAndAfterTheServerForcedHalloween_FollowsEachTick()
+    {
+        TimelineMoments moments = new(HolidayForcedAtTen(2));
+
+        (moments.HolidayVisionFlagsAt(5), moments.HolidayVisionFlagsAt(15)).ShouldBe((0, VisionVisibility.HalloweenFlag));
+    }
+
+    /// <remarks>
+    /// **The ropes' Christmas check reads the server's ConVars as of its tick** (B848 review 1, Fable, Sonnet):
+    /// `TF_IsHolidayActive` reads `tf_forced_holiday` when asked (`tf_gamerules.cpp:1030-1060`). Christmas (3) forced at
+    /// tick 10.
+    /// </remarks>
+    [Test]
+    public void ChristmasActiveAt_BeforeAndAfterTheServerForcedChristmas_FollowsEachTick()
+    {
+        DemoTimeline timeline = HolidayForcedAtTen(3);
+
+        (TimelineMoments.ChristmasActiveAt(timeline, 5), TimelineMoments.ChristmasActiveAt(timeline, 15)).ShouldBe((false, true));
+    }
+
+    /// <remarks>
+    /// **A shot's fixed spread reads `tf_use_fixed_weaponspreads` as of its tick** (B848 review 1, Fable, Sonnet):
+    /// `IsFixedWeaponSpreadEnabled` (`tf_fx_shared.cpp:415-434`) is read as `FX_FireBullets` runs.
+    /// </remarks>
+    [Test]
+    public void FixedWeaponSpreadAt_BeforeAndAfterTheServerTurnedItOn_FollowsEachTick()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoWithMessagesAt(
+            (10, [new Core.Net.SetConVarMessage([new("tf_use_fixed_weaponspreads", "1")])])));
+
+        (TimelineMoments.FixedWeaponSpreadAt(timeline, 5), TimelineMoments.FixedWeaponSpreadAt(timeline, 15)).ShouldBe((false, true));
+    }
+
+    /// <remarks>
+    /// **A match group's description overrides the ConVar** (B848 review 1, Fable): `IsFixedWeaponSpreadEnabled` takes
+    /// `BUsesFixedWeaponSpread()` whenever `GetMatchGroupDescription` finds one (`tf_fx_shared.cpp:419-423`). Only the ladder
+    /// description sets it (`tf_match_description_comp.cpp:42`), which 6v6 ladder (2) and the event placeholder (8) use;
+    /// MvM (0, 1) and casual 12v12 (7) keep the base's false (`tf_match_description.h:167`); a group nothing registers,
+    /// and invalid (-1), has none and leaves the ConVar.
+    /// </remarks>
+    [TestCase(2, false, true)]
+    [TestCase(8, false, true)]
+    [TestCase(0, true, false)]
+    [TestCase(1, true, false)]
+    [TestCase(7, true, false)]
+    [TestCase(5, true, true)]
+    [TestCase(-1, true, true)]
+    [TestCase(-1, false, false)]
+    public void FixedWeaponSpreadFor_AMatchGroup_OverridesTheConVarWhereItHasADescription(int group, bool conVar, bool expected) =>
+        TimelineMoments.FixedWeaponSpreadFor(group, conVar).ShouldBe(expected);
+
     [Test]
     public void OnNewModel_ForAnEntityWithATrack_TeachesItWhichParametersWrap()
     {

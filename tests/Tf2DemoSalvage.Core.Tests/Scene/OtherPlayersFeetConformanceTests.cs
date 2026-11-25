@@ -56,7 +56,7 @@ public sealed class OtherPlayersFeetConformanceTests
         // conformance tests hold the arithmetic; this holds that the frame time is the frame's, not a tick's.
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEyesOverTicks(
             0.015f, (100, 0f, 0f, 0f), (104, 0f, 90f, 0f), (108, 0f, 90f, 0f), (140, 0f, 90f, 0f)));
-        int delay = timeline.TrackFor(1).ShouldNotBeNull().InterpolationDelayTicks;
+        int delay = timeline.TrackFor(1).ShouldNotBeNull().Interpolation.TicksAt(100);
         PlayerFeet feet = new();
         double first = 108 + delay;
         double second = first + 0.25;
@@ -87,7 +87,7 @@ public sealed class OtherPlayersFeetConformanceTests
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEyesOverTicks(
             0.015f, (100, 0f, 0f, 0f), (100 + UpdateGap, 0f, 30f, 0f), (100 + (2 * UpdateGap), 0f, 30f, 0f)));
 
-        return (timeline, 100 + timeline.TrackFor(1).ShouldNotBeNull().InterpolationDelayTicks + (UpdateGap / 2d));
+        return (timeline, 100 + timeline.TrackFor(1).ShouldNotBeNull().Interpolation.TicksAt(100) + (UpdateGap / 2d));
     }
 
     private static ScenePlayer Drawn(DemoTimeline timeline, double moment, PlayerFeet feet)

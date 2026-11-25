@@ -121,6 +121,53 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
+    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 300 over ticks 0 to 30 and rests;
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the sampler's target falls back to 16. This
+    /// holds only that the cache agrees with the sampler across the change, which a reader asleep since the slide settled
+    /// would not; what the ENGINE draws there is not this (a settled entity is not put back on the interpolation list):
+    /// B860.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Sliding()
+        {
+            Core.Net.ServerConVars raised = new();
+            raised.Apply(new Core.Net.SetConVarMessage(
+            [
+                new KeyValuePair<string, string>("sv_client_min_interp_ratio", "10"),
+                new KeyValuePair<string, string>("sv_client_max_interp_ratio", "10"),
+            ]));
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
+            };
+
+            for (int tick = 0; tick <= 30; tick += 3)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [crate];
+        }
+
+        List<ScenePropTrack> cast = Sliding();
+        DemoTimeline stepped = DemoTimeline.ForTracks(cast);
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            ShouldMatch(props, Fresh(Sliding, tick), $"at tick {tick}");
+        }
+
+        // Past 30 + 34 = 64 the target has re-reached the last changetime, so the track leaves the lerping set (review 3,
+        // Fable): `Motion` woke there, which answering the first reach ever (16 ticks after the slide) could not.
+        cast[0].Lerping.ShouldBeFalse("the re-reach at 64 settled it");
+    }
+
+    /// <summary>
     /// **An entity whose own clock runs behind its arrival: every history settles before the first
     /// stated pose stops being the answer.**
     /// </summary>

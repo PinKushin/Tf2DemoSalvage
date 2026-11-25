@@ -78,7 +78,7 @@ public sealed class EyeAnglesInterpolationConformanceTests
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEyesOverTicks(
             0.015f, (100, 0f, 0f, 0f), (100 + UpdateGap, 4f, 40f, -40f), (100 + (2 * UpdateGap), 8f, 40f, -40f)));
         ScenePropTrack track = timeline.TrackFor(1).ShouldNotBeNull();
-        double moment = 100 + track.InterpolationDelayTicks + (UpdateGap / 2d);
+        double moment = 100 + track.Interpolation.TicksAt(100) + (UpdateGap / 2d);
         ScenePose drawn = track.At(moment).ShouldNotBeNull();
         List<ScenePlayer> players = [];
 
@@ -116,5 +116,5 @@ public sealed class EyeAnglesInterpolationConformanceTests
     };
 
     private static double Between(ScenePropTrack track, double fraction) =>
-        100 + track.InterpolationDelayTicks + (fraction * UpdateGap);
+        100 + track.Interpolation.TicksAt(100) + (fraction * UpdateGap);
 }

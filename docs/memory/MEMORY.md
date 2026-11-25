@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-25]] READ FIRST — B834-B841, B843, B844 merged (B843 `bf0926549`); B848 in flight; open B842, B845-B847, B850-B855, B857-B859 (B845 owner decision); Codex is the third reviewer.
+- [[handoff-2026-11-25]] READ FIRST — B834-B841, B843, B844, B848 merged (B844 `e01aa2987`); next B860; open B842, B845-B847, B850-B855, B857-B861 (B845 owner decision); Codex is the third reviewer.
 - [[handoff-2026-11-17]] — through B773 closed (`b35241abe`, D262); B766, B544, B768 merged; next open RISKS by priority.
 - [[handoff-2026-11-16]] — B744-B761 merged, B754 war paints (`82224742d`); next B752, B746, B741; LSP rename uses stale offsets.
 - [[handoff-2026-11-14]] — B724 review, B730-B732, B230, B556, B613, B546 merged; Fable implementer A/B and map label in flight; next the f12 decode.

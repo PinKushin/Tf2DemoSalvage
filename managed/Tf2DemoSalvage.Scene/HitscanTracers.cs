@@ -179,24 +179,28 @@ public sealed class HitscanTracers
     {
         ArgumentNullException.ThrowIfNull(sweep);
 
-        return Trace(shots, (_, from, to) => sweep(from, to), fixedSpread, impacts);
+        return Trace(shots, (_, from, to) => sweep(from, to), _ => fixedSpread, impacts);
     }
 
     /// <summary>As <see cref="Trace(IReadOnlyList{SceneShot}, Func{ValueTuple{float, float, float}, ValueTuple{float, float, float}, BspTrace}, bool, ICollection{ShotImpact}?)"/>, the sweep told each shot's tick — for what moves, such as a door.</summary>
     /// <param name="shots">Every shot, in fire order.</param>
     /// <param name="sweep">The world trace at a tick along a segment.</param>
-    /// <param name="fixedSpread">`IsFixedWeaponSpreadEnabled`.</param>
+    /// <param name="fixedSpreadAt">
+    /// `IsFixedWeaponSpreadEnabled` at a shot's tick (B848): `FX_FireBullets` reads it as the shot fires, one interpolation
+    /// window after its packet, under every `net_SetConVar` read by then.
+    /// </param>
     /// <param name="impacts">When given, every bullet the world stopped, in fire order.</param>
     /// <returns>The tracers.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<ShotTracer> Trace(
         IReadOnlyList<SceneShot> shots,
         Func<int, (float X, float Y, float Z), (float X, float Y, float Z), BspTrace> sweep,
-        bool fixedSpread,
+        Func<int, bool> fixedSpreadAt,
         ICollection<ShotImpact>? impacts = null)
     {
         ArgumentNullException.ThrowIfNull(shots);
         ArgumentNullException.ThrowIfNull(sweep);
+        ArgumentNullException.ThrowIfNull(fixedSpreadAt);
 
         List<ShotTracer> tracers = [];
         int count = 0;
@@ -225,7 +229,7 @@ public sealed class HitscanTracers
             bool critical = holding && shot.Critical;
 
             (float X, float Y, float Z)[] directions = FireBulletsSpread.Directions(
-                shot.Pitch, shot.Yaw, shot.Spread, shot.Seed, bullets, buckshot && bullets > 1 && fixedSpread);
+                shot.Pitch, shot.Yaw, shot.Spread, shot.Seed, bullets, buckshot && bullets > 1 && fixedSpreadAt(shot.Tick));
 
             int frequency = shot.WeaponId == MinigunId ? DefaultTracerFrequency : TracerFrequency;
             string? effect = holding ? TracerType(script, shot.WeaponId, by.Team, critical) : null;

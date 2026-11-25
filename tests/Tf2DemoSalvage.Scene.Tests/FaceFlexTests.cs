@@ -136,6 +136,42 @@ public sealed class FaceFlexTests
         face.Global["smile"].ShouldBe(0f);
     }
 
+    /// <summary>
+    /// A delay of 0.1 s at 0.05 s a tick: an amount of 0.05 s is one tick, and `DelayTicksFor` adds the engine's whole extra
+    /// tick, so two ticks of 0.05 s.
+    /// </summary>
+    private static readonly Core.Scene.InterpolationSchedule TenthOfASecond = Core.Scene.InterpolationSchedule.Constant(0.05d, 0.05d);
+
+    /// <summary>
+    /// A delay of 0.25 s until 1.0 s, then 0.1 s (B849): at 0.05 s a tick, a client of 0.05 / 1 / 20 under a minimum ratio of
+    /// 4 is 4 / 20 = 0.2 s (five ticks), and from tick 20 under Valve's bounds 0.05 s (two ticks).
+    /// </summary>
+    private static Core.Scene.InterpolationSchedule FallingAtOneSecond()
+    {
+        Core.Net.ServerConVars raised = new();
+        raised.Apply(new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "4")]));
+        return Core.Scene.InterpolationSchedule.From(new Core.Net.ClientInterp(0.05f, 1f, 20f), raised, [(20, new Core.Net.ServerConVars())], 0.05d);
+    }
+
+    /// <summary>
+    /// **A face reads the delay at its own time** (B849, B848 review 2, Fable): from 1.0 s the schedule is the same 0.1 s as
+    /// <see cref="Step_FramesTooLongForTheHistory_Extrapolate"/>, so the same frames extrapolate to the same 0.975; read
+    /// at the start of the recording, 0.25 s, the target stays inside the history and nothing extrapolates.
+    /// </summary>
+    [Test]
+    public void Step_AfterTheDelayFell_UsesTheDelayAtItsTime()
+    {
+        List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
+        ActorFace face = new(Model, "m.mdl", null, interpolation: FallingAtOneSecond(), created: 1d);
+
+        foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
+        {
+            face.Step(t, 1, scenes, []);
+        }
+
+        face.Global["smile"].ShouldBe(0.975f, 1e-5f);
+    }
+
     [Test]
     public void Step_WithTheLatchedHistory_StartsEachFrameFromWhatInterpolationLeft()
     {
@@ -144,7 +180,7 @@ public sealed class FaceFlexTests
         // so frame 3 interpolates at 0.99 — before every latch but the reset's 0 at 1.0 — and the draw blends from 0:
         // 0.5, where the plain face gives 0.7375 × 0.95 × 0.5 + 0.5. The scene's own write never reached the history.
         List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
-        ActorFace latched = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+        ActorFace latched = new(Model, "m.mdl", null, interpolation: TenthOfASecond, created: 1d);
         ActorFace plain = new(Model, "m.mdl", null);
 
         // Inside the ramp's interior samples, where it is exactly 0.5.
@@ -164,7 +200,7 @@ public sealed class FaceFlexTests
         // At 0.1 s a frame, frame 3 asks for 1.2 while the newest latch is 1.1 (0.5) after 1.0 (0): _Extrapolate takes
         // Lerp( 1 + 0.1 / 0.1, 0, 0.5 ) = 1, and the draw blends from there: 1 × 0.95 × 0.5 + 0.5.
         List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
-        ActorFace face = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+        ActorFace face = new(Model, "m.mdl", null, interpolation: TenthOfASecond, created: 1d);
 
         foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
         {

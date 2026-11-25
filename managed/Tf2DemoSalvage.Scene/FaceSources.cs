@@ -376,10 +376,11 @@ public sealed class FaceSources
     }
 
     /// <summary>
-    /// <c>GetInterpolationAmount( LATCH_ANIMATION_VAR )</c> in seconds — the delay <c>m_iv_flexWeight</c> is read at, the
-    /// same one every interpolated variable of a demo is (<c>c_baseentity.cpp:5937</c>).
+    /// <c>GetInterpolationAmount( LATCH_ANIMATION_VAR )</c> by tick — the delay <c>m_iv_flexWeight</c> is read at, the
+    /// same one every interpolated variable of a demo is (<c>c_baseentity.cpp:5937</c>), under the server's bounds as they
+    /// stand at each tick (B849). Null: Valve's defaults.
     /// </summary>
-    public double InterpolationSeconds { get; init; } = 0.1d;
+    public Core.Scene.InterpolationSchedule? Interpolation { get; init; }
 
     /// <summary>An expression file by name, for the phoneme classes.</summary>
     /// <param name="name">As <c>FindSceneFile</c> takes it.</param>

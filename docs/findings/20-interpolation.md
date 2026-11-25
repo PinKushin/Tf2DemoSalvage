@@ -180,7 +180,7 @@ history all held per-slot state the engine keeps on the object. B727 lists each.
 measured on the corpus; the overshoot is arithmetic. The fixes, their tests and their sabotages are B726 in
 `docs/RISKS.md`.
 
-## The interpolation amount is derived from the update rate, and POV differs from STV
+## The interpolation amount is derived from the update rate, and a locally recorded demo differs from one that is not
 
 `cdll_bounded_cvars.cpp:127`:
 
@@ -204,8 +204,8 @@ return AdjustInterpolationAmount( this, TICKS_TO_TIME( TIME_TO_TICKS( GetClientI
 `serverTickMultiple` is 2 when `IsSimulatingOnAlternateTicks()`, which is the single-player
 tick-skipping case.
 
-**The engine treats a POV demo differently from an STV one, and names the distinction**
-(`c_baseentity.cpp:5930`):
+**The engine treats a locally recorded demo differently from one that is not, and names the distinction**
+(`c_baseentity.cpp:5930`; which demos are which is unread, B861):
 
 ```cpp
 // Always fully interpolate during multi-player or during demo playback, if the recorded
@@ -215,8 +215,9 @@ if ( bPlayingMultiplayer || bPlayingNonLocallyRecordedDemo )
 	return AdjustInterpolationAmount( this, TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple ) );
 ```
 
-A **non-locally-recorded** demo — an STV recording — takes the full `cl_interp` path. A **locally
-recorded** one — a POV — falls through to the tick-based branches below it, where anything both
+A **non-locally-recorded** demo — an STV recording, *interpolated*: not read (B861) — takes the full `cl_interp` path. A **locally
+recorded** one — a POV, *interpolated*: what `IsPlayingDemoALocallyRecordedDemo` answers is engine code not read (B861)
+— falls through to the tick-based branches below it, where anything both
 animated and simulated every tick gets `TICK_INTERVAL * expandedServerTickMultiple` instead: about
 one tick rather than a whole interp window.
 
@@ -225,9 +226,9 @@ was recorded locally", while the condition fires for demos that were **not** rec
 code is what runs; recorded here because a reader checking only the comment would conclude the
 opposite.
 
-**What this means for this project.** The delay itself is a streaming artefact and is not
-reproduced — see the `cl_interp` note below — but the *shape* of it matters when comparing our
-output against what a player saw: a POV and an STV recording of the same moment were displayed by
+**What this means for this project.** The delay is reproduced since B267 (eight ticks at TF2's
+defaults; per tick since B849), on the non-local path for every demo (B861 questions that). The *shape* of it matters when
+comparing our output against what a player saw: a POV and an STV recording of the same moment may have been displayed (if the POV counts as locally recorded, B861) by
 the engine with different amounts of smoothing, so neither is "what really happened". The stored
 positions are the server's either way, which is what this project interpolates, and that is the
 closer thing to truth.
@@ -243,12 +244,10 @@ small one: Valve falls back to linear for angles by its own choice, and exposes
 also produces. The visible difference is smoothness through a direction change, most noticeable on
 something fast and curving, which in TF2 means projectiles.
 
-**`cl_interp` as a concept.** The client deliberately renders *in the past* so it always has a later
-keyframe to interpolate towards — by `cl_interp_ratio / cl_updaterate`, as above, not a fixed
-figure. This project has the whole demo in hand, so the later keyframe always exists and there is
-nothing to delay for. Worth stating because the absence looks like an oversight otherwise: the
-engine's interpolation delay is a consequence of streaming, not a property of correct playback.
-
-This is also the one place where being an offline reader is strictly better rather than merely
-different. The engine must guess how far behind to sit, and gets it wrong when the update rate
-changes under it; a reader holding the whole file never has to guess.
+**`cl_interp` as a concept — a wrong conclusion, kept because it was confidently held.** This section
+once said the delay need not be reproduced: the client renders *in the past* so it always has a later
+keyframe to interpolate towards, this project has the whole demo in hand, so "there is nothing to
+delay for", and the engine's delay is "a consequence of streaming, not a property of correct
+playback". That was wrong for a parity viewer: what the engine DRAWS is the delayed pose, so drawing
+the present puts every entity where TF2 never showed it. B267 reproduced the delay (eight ticks at
+TF2's defaults), and B849 made it follow the server's bounds tick by tick (findings 115).

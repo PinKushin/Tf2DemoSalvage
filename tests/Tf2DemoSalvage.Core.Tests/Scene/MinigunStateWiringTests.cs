@@ -23,7 +23,7 @@ public sealed class MinigunStateWiringTests
 {
     /// <remarks>
     /// **This is the REBUILD path, and naming it took a sabotage to get right.** `At` subtracts
-    /// `InterpolationDelayTicks` (8) and then refuses any keyframe that has not arrived —
+    /// the interpolation delay (8) and then refuses any keyframe that has not arrived —
     /// `if (arrivedAt > tick) return from;` (`ScenePropTrack.cs:1492`). Asking at 660 makes
     /// `arrivedAt(660) > 660` false, so execution falls through into the field-by-field rebuild;
     /// that is where a discrete value gets dropped, and `HeadScale`, `TorsoScale` and `HandScale`
