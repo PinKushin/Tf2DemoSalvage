@@ -46612,7 +46612,8 @@ run by `Run` straight from `RunDue` with `_commandsRunning` still 1, and only `_
 again as a new key text, without end (review 6, Fable; every key press covers it). It is the engine's own condition
 too (`!m_bIsProcessingCommands`).
 
-**Review 6** (Fable, Gemini pending, Sonnet, Grok; no blocker; Grok no findings). Fixed: the record's reason for keeping
+**Review 6** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini and Grok no findings; Gemini's note of uncommitted
+changes was a sabotage under way, restored before 1c2d672b8). Fixed: the record's reason for keeping
 `!_processing`, which said it was redundant (Fable, above); a throw keeps other texts' queued commands, now tested
 (`KeyDown_AHandlerThatThrows_KeepsOtherTextsQueuedCommands`, red when the drop takes text 0 too; Fable); the throw
 test's remark names its controls (Sonnet).
