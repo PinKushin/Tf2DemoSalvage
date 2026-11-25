@@ -46753,8 +46753,10 @@ of eight, about 105 ms by arithmetic (seven ticks of 15 ms, as B267 reasons it);
 it plays the same file. *Read* in the SDK; what `IsPlayingDemoALocallyRecordedDemo` answers for a POV demo is engine
 code, not read, and decides whether this is a divergence at all. `m_bAnimatedEveryTick` and `m_bSimulatedEveryTick`
 are networked, so the viewer could decide per entity. Fix shape: read `IsPlayingDemoALocallyRecordedDemo` in
-`engine.dll`; if TF2 answers true for a POV demo, decode the two flags and take a tick for those entities, with a test
-predicting the engine's delay; if false, close this with the read. *Not fixed*.
+`engine.dll` for WHICH demos it answers true (B848 reviews 6 and 7, Fable, *recalled* not read: by the header's server
+name being `localhost`, which would make it per demo, a listen-server recording yes and a POV recorded on a remote
+server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
+with a test predicting the engine's delay; if none, close this with the read. *Not fixed*.
 
 ## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
 
@@ -46854,6 +46856,13 @@ B861's first sentence says the `:5937` return, the amount being reached at `:596
 index row name B861 (Sonnet, Fable); `g_nThreadModeTicks` is a file-scope static only read, so nothing in the SDK can
 write it (Codex asked); a test comment's 95 is the asked tick for changetime 90 (Fable). Lead for B861, *recalled* not
 read (Fable): the engine may decide "locally recorded" by the demo header's server name being `localhost`.
+
+Review 7 of B848 (Fable, Sonnet, Codex: no merge blocker). Findings 20 still said, in its "not implemented" section, that
+the delay need not be reproduced, beside review 6's "reproduced since B267" (Sonnet, Fable): rewritten as a wrong
+conclusion kept with what corrected it; its heading and two sentences that mapped POV and STV to the engine's
+distinction as fact are marked as the unread reading (Fable). B861's fix shape asks for WHICH demos, per specimen
+(Fable). `GetClientInterpAmount`'s cite is its line and its `MAX` (Fable). Not taken: Codex's "one tick against eight" as
+an overstatement: it is said of players, which set both flags for `MOVETYPE_WALK`.
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay

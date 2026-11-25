@@ -13,7 +13,7 @@ whole demo under its final ones.
 
 ## What the client does
 
-`GetClientInterpAmount()` (`cdll_bounded_cvars.cpp:127-134`, **read**) is computed every time it is asked: the larger of
+`GetClientInterpAmount()` (`cdll_bounded_cvars.cpp:127`, the `MAX` at `:134`, **read**) is computed every time it is asked: the larger of
 `cl_interp` and `cl_interp_ratio / cl_updaterate`. The clamping is the bounded ConVars' own, in that file (**read**):
 `cl_interp` is raised to at least `sv_client_min_interp_ratio / cl_updaterate` (`:108-121`), and `cl_interp_ratio` is
 clamped between the minimum and `sv_client_max_interp_ratio` (`:74-86`), both skipped when the minimum is −1; `cl_updaterate` is only cast to one (`:133`), and its clamp by
