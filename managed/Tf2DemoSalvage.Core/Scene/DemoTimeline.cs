@@ -4273,7 +4273,11 @@ public sealed class DemoTimeline
                     // project read it correctly, and every reader used a baked constant instead.
                     case SetConVarMessage convars:
                         serverConVars.Apply(convars);
-                        conVarHistory.Add((command.Tick, serverConVars.Snapshot()));
+
+                        // A signon's tick is the server's when recording began, not a playback tick (`z1800`: 70,718
+                        // against a first packet at 6), and the set applies before any packet, so it holds from the start
+                        // (B843 review 4, Fable), as the light styles' does above.
+                        conVarHistory.Add((command.Type == DemoCommandType.Signon ? int.MinValue : command.Tick, serverConVars.Snapshot()));
                         continue;
 
                     // **The director telling the camera how to frame this shot** — `hltv_chase`,

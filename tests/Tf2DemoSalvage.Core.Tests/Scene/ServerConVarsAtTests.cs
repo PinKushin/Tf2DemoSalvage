@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
@@ -42,6 +43,55 @@ public sealed class ServerConVarsAtTests
     {
         // tf_gamemovement.cpp:49: ConVar tf_clamp_airducks( "tf_clamp_airducks", "1", FCVAR_REPLICATED ).
         new ServerConVars().Number("tf_clamp_airducks").ShouldBe(1f);
+    }
+
+    /// <remarks>
+    /// **A set the signon carries holds from the first tick** (B843 review 4, Fable): a signon command's tick is the server's
+    /// when recording began, not a playback tick (`z1800` stamps its signon 70,718 and its first packet 6), and the engine
+    /// applies the set before any packet. So tick 1 reads 400, not Valve's 800, and a packet's later set at 5 still lands
+    /// in tick order after it.
+    /// </remarks>
+    [Test]
+    public void ServerConVarsAt_ASetFromTheSignon_HoldsFromTheFirstTick()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 500, SetConVar("sv_gravity", "400")) with
+                {
+                    Type = Core.Container.DemoCommandType.Signon,
+                },
+                .. Enumerable.Range(1, 3).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 5, SetConVar("sv_gravity", "200")),
+                .. Enumerable.Range(6, 5).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+            ]));
+
+        (timeline.ServerConVarsAt(1).Number("sv_gravity"), timeline.ServerConVarsAt(5).Number("sv_gravity"),
+            timeline.ServerConVarsAt(600).Number("sv_gravity")).ShouldBe((400f, 200f, 200f));
+    }
+
+    /// <remarks>
+    /// **A copy makes its own lookup, and making one changes no digest** (B843 review 4, Fable, Sonnet): the cache is
+    /// `StateCopy.NotCopied`, so a copy does not keep a delegate bound to the original (which a later `Apply` to the
+    /// original would leak into), and a read is not a write to the checkpoint the digest guards.
+    /// </remarks>
+    [Test]
+    public void Lookup_OfACopiedSet_IsTheCopysOwnAndChangesNoDigest()
+    {
+        ServerConVars original = new();
+        original.Apply(SetConVar("sv_gravity", "400"));
+        HashSet<object> none = [];
+        string before = StateCopy.Digest(original, none);
+        System.Func<string, string?> lookup = original.Lookup();
+
+        StateCopy.Digest(original, none).ShouldBe(before);
+
+        ServerConVars copy = StateCopy.Of(original, none);
+        original.Apply(SetConVar("sv_gravity", "200"));
+
+        copy.Lookup().ShouldNotBeSameAs(lookup);
+        copy.Lookup()("sv_gravity").ShouldBe("400");
     }
 
     /// <remarks>

@@ -46794,6 +46794,24 @@ Sonnet's question). Not taken: a sprite-count assertion through `HeadLabels` (So
 install has. Sabotage, each restored: the tick's lookup as `.Value` reddens the identity test; the frame read a tick
 early reddens the tick-10 case. Presentation 2,269 of 2,269, Core 3,298 (40 skipped), Scene 5,421 of 5,421.
 
+Review 4 (Fable, Gemini, Sonnet). **A blocking divergence, older than this branch and made visible by it** (Fable,
+Gemini): a `net_SetConVar` the signon carries was stamped with the signon's tick, which is the server's when recording
+began, not a playback tick (container ticks, measured by Fable: `z1800` signon 70,718 against a first packet at 6; the
+2011 POV 3,212 against 0; live STV 13,923 against 4). `ServerConVarsAt` answered Valve's defaults for every tick below it,
+about the first seventeen minutes of `z1800`, and the history fell out of tick order once a packet set followed. The HUD
+read the recording's last value before this branch, so it never showed; now it reads per tick. Fixed as the light
+styles already are (`DemoTimeline`, the signon's update holds from the start): a signon's set is stamped `int.MinValue`.
+`ServerConVarsAtTests.ServerConVarsAt_ASetFromTheSignon_HoldsFromTheFirstTick` failed before the fix; the output-level
+control `CorpusServerConVarTests.ServerConVarsAt_TheFirstTick_IsWhatTheSignonSent` reads `sv_turbophysics` at tick 0 of
+`tf2-2011-build4604-spec-stv-cp_granary` and reddens with the old stamp (measured, real bytes). This is also B450's
+defect; prediction's `ServerConVarsAt` readers get the fix. Fixed too: `NotCopied` had no test (all three):
+`Lookup_OfACopiedSet_IsTheCopysOwnAndChangesNoDigest`, red without the attribute. **A correction to review 3's record**
+(Fable): a window copies its checkpoint with only its inputs shared, so no set the HUD reads is a checkpoint's object; the
+attribute is a guard against a copy keeping the original's delegate, not the fix of a live fault. Not taken: a voice-icon
+case at the set's own tick (Sonnet); `HudStates.ServerConVars` is the one call both sites make, and its boundary is
+tested. Sabotage, each restored: the old stamp reddens the synthetic and the corpus tests; no attribute reddens the copy
+test. Core 3,300 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269.
+
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
 tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an
