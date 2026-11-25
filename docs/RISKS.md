@@ -46340,17 +46340,34 @@ lines were wrapped, where the whole entry was.
 
 ## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — FIXED (2026-11-25)
 
-**Fixed.** The one-shot rule is now decided by when the command runs. A config's one-shot that runs during a frame's
-`Execute` acts, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson` and `thirdperson`. The same
-one-shot run at the load itself still does nothing (B820 review 1). The viewer's own names (`togglefullscreen`,
-`resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown to TF2, so they do nothing at any tick. The
-test is `Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt`: `screenshot; wait; screenshot` raises nothing
-at the load and one trigger after two `Execute` calls. The `togglefullscreen` case is the control and stays at zero.
-Sabotage: with the frame-run flag never set, the `screenshot` case reddens alone (1 of 2,179).
+**Fixed.** `CCommandBuffer` runs a command a `wait` put off at its tick, whatever text added it, so the one-shot rule
+now rides the queued command. Each entry carries `PutOff`: set when its own `wait` put it past the tick it was added at,
+or inherited from the command that added it (an alias body, an `exec`'s lines). A config's one-shot that is put off acts
+at its tick, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the
+spectator's `+jump`, `+attack` and `+attack2`. The same one-shot at the load itself still does nothing (B820 review 1).
+The viewer's own names (`togglefullscreen`, `resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown
+to TF2, so they do nothing at any tick. A load is put off by nothing, even one a handler runs inside a put-off command.
+The viewer's replay of the launch line (`Stuff(text, oneShots: false)`) carries `Replaying` and fires no one-shot,
+waited or not, as it is no second launch (B829).
 
-The original entry follows. Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
-`demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup, before a demo plays. A
-command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
+Review 1 (Fable, Gemini, Sonnet; Grok pending at the time of writing) found the first version decided the rule by the
+CALLER, a flag set only inside a frame's `Execute`. Fable and Gemini: a key pressed between two frames pumps the queue
+(`FromOutside`), takes the waited `screenshot` off at its tick outside `Execute`, and drops it, though `Key_Event` only
+adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`); and a `Load` or replay from a
+handler inside `Execute` fired its un-waited one-shots. All three: `+jump`, `+attack` and `+attack2` were missing from
+the set. Sonnet: a waited one-shot in the launch-line replay would act a second time. All taken.
+
+Tests: `Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt` (every member of the set acts once, at the third
+`Execute` of a `wait 2` and not before; four viewer-only names stay at zero),
+`KeyDown_BetweenFramesAtAWaitedConfigOneShotsTick_RunsItAndItActs`,
+`Load_FromAHandlerInsideAWaitedOneShot_ItsOneShotsDoNothing`, `Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay`.
+Sabotage, each restored: `PutOff` never set by a `wait` reddens the seven TF2 cases and the two path tests (9 of 2,192);
+a load keeping its caller's `PutOff` reddens the handler test alone; the replay guard dropped reddens the replay case
+alone.
+
+The original entry follows. Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action
+such as `screenshot` or `demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup,
+before a demo plays. A command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
 `wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be playing.
 *Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or the
 startup run), not by whether its text came from a config. *Not fixed*.

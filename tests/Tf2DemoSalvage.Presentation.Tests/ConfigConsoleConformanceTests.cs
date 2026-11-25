@@ -2464,20 +2464,97 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): `screenshot` waited a tick acts at the second
-    /// `Execute`, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The viewer's own
-    /// `togglefullscreen` is unknown to TF2 and does nothing at any tick.
+    /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): waited two ticks, it acts at the third
+    /// `Execute` and not before, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The
+    /// viewer's own names are unknown to TF2 and do nothing at any tick.
     /// </remarks>
     [TestCase("screenshot", 1)]
+    [TestCase("demo_togglepause", 1)]
+    [TestCase("firstperson", 1)]
+    [TestCase("thirdperson", 1)]
+    [TestCase("+jump", 1)]
+    [TestCase("+attack", 1)]
+    [TestCase("+attack2", 1)]
     [TestCase("togglefullscreen", 0)]
+    [TestCase("resetcamera", 0)]
+    [TestCase("opendemo", 0)]
+    [TestCase("resetspeed", 0)]
     public void Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt(string command, int raised)
     {
         ConfigConsole console = new();
         int triggered = 0;
         console.Triggered += (_, _) => triggered++;
 
-        console.Load($"{command}; wait; {command}");
+        console.Load($"{command}; wait 2; {command}");
         triggered.ShouldBe(0, "the control: a config's one-shot does nothing at the load");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(0, "not before its tick");
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A key's run takes a waited config command off the queue at its tick, and it still acts** (B841 review 1, Fable):
+    /// `Key_Event` only adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`), so whichever
+    /// call runs it, the `screenshot` is the config's put-off one. A load after it is put off by nothing, and does nothing.
+    /// </remarks>
+    [Test]
+    public void KeyDown_BetweenFramesAtAWaitedConfigOneShotsTick_RunsItAndItActs()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("bind w +forward; wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.KeyDown("w");
+        triggered.ShouldBe(1);
+
+        console.Execute(waitAllowed: true);
+        console.Load("screenshot");
+
+        triggered.ShouldBe(1, "a later load's one-shot still does nothing");
+    }
+
+    /// <remarks>
+    /// **A config a handler loads inside a waited command is put off by nothing** (B841 review 1, Fable, Gemini): its own
+    /// one-shot does nothing at its load, though the command whose handler loaded it was put off.
+    /// </remarks>
+    [Test]
+    public void Load_FromAHandlerInsideAWaitedOneShot_ItsOneShotsDoNothing()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) =>
+        {
+            if (++triggered == 1)
+            {
+                console.Load("screenshot");
+            }
+        };
+
+        console.Load("wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The viewer's replay of the launch line fires no one-shot, waited or not** (B829, B841 review 1, Sonnet): it is no
+    /// second launch. The launch itself fires both.
+    /// </remarks>
+    [TestCase(true, 2)]
+    [TestCase(false, 0)]
+    public void Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay(bool oneShots, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Stuff("screenshot\nwait\nscreenshot", oneShots);
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
 

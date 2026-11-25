@@ -449,7 +449,8 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) => AtStartup(stuffing: false, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
+    public void Load(string? text) =>
+        AtStartup(stuffing: false, replaying: false, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
 
     /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
     /// <param name="text">The commands.</param>
@@ -468,7 +469,7 @@ public sealed class ConfigConsole
     /// second launch.
     /// </param>
     public void Stuff(string? text, bool oneShots) =>
-        AtStartup(oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0))));
+        AtStartup(oneShots, replaying: !oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0))));
 
     /// <summary>
     /// Runs one command typed with budgets of its own (B820 review 5, Fable): a key, each line of a config
@@ -657,6 +658,8 @@ public sealed class ConfigConsole
         int Depth,
         bool Loading,
         bool Stuffing,
+        bool PutOff,
+        bool Replaying,
         bool ViewerIssued,
         bool SavedLayer,
         Budget Budget,
@@ -701,7 +704,6 @@ public sealed class ConfigConsole
 
         _waitEnabled = waitAllowed;
         int last = _tick;
-        _inFrameRun = true;
 
         try
         {
@@ -709,20 +711,27 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_tick, _inFrameRun) = (last + 1, false);
+            _tick = last + 1;
         }
     }
 
-    /// <summary>Whether a frame's <see cref="Execute"/> is running, as against a load or a key run at once (B841).</summary>
-    private bool _inFrameRun;
+    /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
+    private bool _putOff;
+
+    /// <summary>Whether the command running now came from the viewer's replay of the launch line, which is no second launch (B829, B841).</summary>
+    private bool _replaying;
 
     /// <summary>
-    /// The one-shots that are TF2's own commands (`screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`), which a
-    /// config's `wait` can put off to a tick when they act (B841); every other one-shot is the viewer's own name, unknown to
-    /// TF2, or a bare ConVar, which TF2 only prints.
+    /// The one-shots that are TF2's own commands, which a config's `wait` can put off to a tick when they act (B841):
+    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the spectator's `+jump`, `+attack` and `+attack2`
+    /// (B841 review 1, Fable, Sonnet). Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which
+    /// TF2 only prints.
     /// </summary>
     private static readonly HashSet<ViewerAction> Tf2OneShots =
-        [ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView];
+    [
+        ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView,
+        ViewerAction.SwitchCameraMode, ViewerAction.CycleTargetForward, ViewerAction.CycleTargetReverse,
+    ];
 
     /// <summary>
     /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
@@ -779,7 +788,8 @@ public sealed class ConfigConsole
                 // current tick, behind what is queued for it, and its run adds the text where it stands. One command with
                 // no bytes stands for it here, so what runs before it, and at what tick, is the engine's.
                 Link(new Entry(
-                    now, 0, string.Empty, null, 0, _loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding, add));
+                    now, 0, string.Empty, null, 0, _loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer,
+                    _adding, add));
                 Processing(now, () => Pump(until: null));
             }
         }
@@ -842,10 +852,11 @@ public sealed class ConfigConsole
         _queuedBytes -= entry.Size;
         _tick = entry.Tick;
 
-        (bool loading, bool stuffing, bool viewerIssued, bool savedLayer, Budget budget, Answer? answer, int adding) =
-            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding);
-        (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-            (entry.Loading, entry.Stuffing, entry.ViewerIssued, entry.SavedLayer, entry.Budget, entry.Answer, entry.Adding);
+        (bool loading, bool stuffing, bool putOff, bool replaying, bool viewerIssued, bool savedLayer, Budget budget, Answer? answer,
+            int adding) = (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding);
+        (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+            (entry.Loading, entry.Stuffing, entry.PutOff, entry.Replaying, entry.ViewerIssued, entry.SavedLayer, entry.Budget,
+                entry.Answer, entry.Adding);
 
         try
         {
@@ -866,8 +877,8 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-                (loading, stuffing, viewerIssued, savedLayer, budget, answer, adding);
+            (_loading, _stuffing, _putOff, _replaying, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+                (loading, stuffing, putOff, replaying, viewerIssued, savedLayer, budget, answer, adding);
         }
     }
 
@@ -946,13 +957,16 @@ public sealed class ConfigConsole
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
     /// Each load says whether its one-shots fire, restored after it, so a config a handler loads inside the launch line
     /// fires none and the rest of the line still does (B829).
+    /// A load is put off by nothing yet, even run from a handler inside a command a `wait` put off (B841 review 1, Fable).
     /// </remarks>
     /// <param name="stuffing">Whether the text is the launch line run for its one-shots (B829).</param>
+    /// <param name="replaying">Whether the text is the viewer's replay of the launch line, whose one-shots never fire.</param>
     /// <param name="run">The load.</param>
-    private void AtStartup(bool stuffing, Action run)
+    private void AtStartup(bool stuffing, bool replaying, Action run)
     {
-        (bool loading, bool viewerIssued, bool wasStuffing) = (_loading, _viewerIssued, _stuffing);
-        (_loading, _viewerIssued, _stuffing) = (true, false, stuffing);
+        (bool loading, bool viewerIssued, bool wasStuffing, bool putOff, bool wasReplaying) =
+            (_loading, _viewerIssued, _stuffing, _putOff, _replaying);
+        (_loading, _viewerIssued, _stuffing, _putOff, _replaying) = (true, false, stuffing, false, replaying);
 
         try
         {
@@ -960,7 +974,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _viewerIssued, _stuffing) = (loading, viewerIssued, wasStuffing);
+            (_loading, _viewerIssued, _stuffing, _putOff, _replaying) = (loading, viewerIssued, wasStuffing, putOff, wasReplaying);
         }
     }
 
@@ -2175,6 +2189,11 @@ public sealed class ConfigConsole
                 later ? 0 : depth,
                 _loading,
                 _stuffing,
+
+                // Put off by its own `wait`, or added by a command that was (B841): the flag rides the command, so it acts
+                // at its tick whichever call takes it off the queue, a frame's run or a key's (B841 review 1, Fable).
+                _putOff || queued.Tick > _tick,
+                _replaying,
                 _viewerIssued,
                 _savedLayer,
                 later ? LaterBudget(laterBudgets ??= [], queued.Tick) : _budget,
@@ -2306,11 +2325,11 @@ public sealed class ConfigConsole
         // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
         // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
         // `exec`s' included (B829): `stuffcmds` runs every command it adds.
-        // **Unless a `wait` put it off to a frame's run, and TF2 has the command** (B841): there it runs at its tick, during
-        // the viewer's run, and acts (`screenshot` 500 ticks into the session takes one). The viewer's own names are
-        // unknown to TF2 and do nothing at any tick.
+        // **Unless a `wait` put it off, and TF2 has the command** (B841): `CCommandBuffer` runs it at its tick, whatever text
+        // added it, so it acts then (`screenshot` 500 ticks into the session takes one). The viewer's own names are unknown
+        // to TF2 and do nothing at any tick, and the viewer's replay of the launch line is no second launch (B829).
         if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
-            !(_inFrameRun && Tf2OneShots.Contains(shot)))
+            !(_putOff && !_replaying && Tf2OneShots.Contains(shot)))
         {
             return true;
         }
