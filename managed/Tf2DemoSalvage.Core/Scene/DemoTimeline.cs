@@ -2692,7 +2692,7 @@ public sealed class DemoTimeline
     /// The settings after each <c>net_SetConVar</c>, by the tick it holds from, in stream order and tick order. The stamp
     /// rule is stated once, at the builder's <c>SetConVarMessage</c> case, and recorded in RISKS B843 review 8.
     /// </summary>
-    private IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
+    internal IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
 
     /// <summary>Valve's defaults, what a tick before the first <c>net_SetConVar</c> runs under.</summary>
     private readonly ServerConVars _defaultConVars = new();

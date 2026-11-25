@@ -113,8 +113,9 @@ public sealed class ServerConVarsAtTests
     /// <remarks>
     /// **The history stays in tick order whatever the stream does** (B843 review 8, Fable, Sonnet): a packet that repeats
     /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8, and the search over the unsorted
-    /// history answers 50 at tick 7, before either set was read. Clamped, it takes 8, so tick 7 reads Valve's 800
-    /// (review 9: only the tick-7 read sees the clamp; tick 9 is 50 either way and stands as the value after both).
+    /// history answers 50 at tick 7, before either set was read. Clamped, it takes 8, so tick 7 reads the 300 set at 2
+    /// (review 9: only the tick-7 read sees the clamp; tick 9 is 50 either way and stands as the value after both). The set
+    /// at 2 makes a clamp to the FIRST stamp fail too (review 10, Fable).
     /// </remarks>
     [Test]
     public void ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder()
@@ -123,7 +124,9 @@ public sealed class ServerConVarsAtTests
             SyntheticDemo.DefaultProtocol,
             [
                 SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
-                .. Enumerable.Range(1, 7).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 1),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 2, SetConVar("sv_gravity", "300")),
+                .. Enumerable.Range(3, 5).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
                 SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 900, SetConVar("sv_gravity", "100")) with
                 {
                     Type = Core.Container.DemoCommandType.Signon,
@@ -132,7 +135,11 @@ public sealed class ServerConVarsAtTests
                 .. Enumerable.Range(8, 3).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
             ]));
 
-        (timeline.ServerConVarsAt(7).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity")).ShouldBe((800f, 50f));
+        (timeline.ServerConVarsAt(7).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity")).ShouldBe((300f, 50f));
+
+        // The stamps themselves (review 10): an unsorted tail is often answered the same by the search, so the order is
+        // read directly. A clamp to the first stamp instead of the last leaves the repeat at 7, behind the signon's 8.
+        timeline.ConVarChanges.Select(static change => change.Tick).ShouldBe([2, 8, 8]);
     }
 
     /// <summary>Sets of 300 at 2 and 200 at 5, packets on to 7, a signon setting 100 stamped 900, then packets 8 to 10.</summary>

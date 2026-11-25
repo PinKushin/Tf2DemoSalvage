@@ -46878,9 +46878,15 @@ unsorted history would blind the search for every later tick (Fable, Sonnet); tr
 answer moves, so the remark says the tick-7 read is the one that sees the clamp. `ConVarChanges`'s summary restated part
 of the stamp rule and is now a pointer to the builder and to review 8 (Sonnet); the resume test's remark no longer
 guesses the dropped field's default (Fable). The first signon test reads `int.MinValue` too, so a stamp of
-`int.MinValue + 1` reddens it (run, restored). Not taken: the clamp reading the first stamp instead of the last survives
-(Sonnet, low); with every stamp clamped the last is the largest, and no stream gives a different first. Core
-`ServerConVarsAtTests` 9 of 9.
+`int.MinValue + 1` reddens it (run, restored). The clamp reading the first stamp instead of the last survived (Sonnet);
+review 9 wrongly called it unreachable, and review 10 (Fable) gave the stream that tells them apart: a set at tick 2
+before the late signon, now in the repeat test. Core `ServerConVarsAtTests` 9 of 9.
+
+Review 10 (Fable, Gemini, Sonnet). No blocking finding. Fable predicted that a set at tick 2 would make a clamp to the
+first stamp read 50 at tick 7; **run, it did not**: the unsorted `[2, 8, 7]` is answered the same as the sorted history
+at every tick asked, as review 9 found for other layouts. So the order is read directly: `ConVarChanges` is internal and
+the repeat test asserts its stamps are `[2, 8, 8]`, which the first-stamp mutant reddens (run, restored). Also the
+handoff memory's round count and filed list. Core `ServerConVarsAtTests` 9 of 9.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
