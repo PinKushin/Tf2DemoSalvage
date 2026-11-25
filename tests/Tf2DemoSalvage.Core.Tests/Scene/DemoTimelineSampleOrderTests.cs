@@ -121,11 +121,10 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
-    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 300 over ticks 0 to 30 and rests;
-    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the sampler's target falls back to 16. This
-    /// holds only that the cache agrees with the sampler across the change, which a reader asleep since the slide settled
-    /// would not; what the ENGINE draws there is not this (a settled entity is not put back on the interpolation list):
-    /// B860.
+    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 480 over ticks 0 to 48 and rests;
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, while it is still moving (its target, 41, short of
+    /// 48), so its target falls back as far as the history the old delay kept (B860). This holds that the cache agrees
+    /// with the sampler across the change; what the sampler answers is `InterpolationRiseConformanceTests`'.
     /// </summary>
     [Test]
     public void PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere()
@@ -143,7 +142,7 @@ public sealed class DemoTimelineSampleOrderTests
                 Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
             };
 
-            for (int tick = 0; tick <= 30; tick += 3)
+            for (int tick = 0; tick <= 48; tick += 3)
             {
                 crate.Add(tick, new ScenePose { X = tick * 10f });
             }
@@ -162,9 +161,9 @@ public sealed class DemoTimelineSampleOrderTests
             ShouldMatch(props, Fresh(Sliding, tick), $"at tick {tick}");
         }
 
-        // Past 30 + 34 = 64 the target has re-reached the last changetime, so the track leaves the lerping set (review 3,
-        // Fable): `Motion` woke there, which answering the first reach ever (16 ticks after the slide) could not.
-        cast[0].Lerping.ShouldBeFalse("the re-reach at 64 settled it");
+        // Past 48 + 34 = 82 the target has re-reached the last changetime, so the track leaves the lerping set (B848 review
+        // 3, Fable): `Motion` woke there, which answering the first reach ever (56, before the rise) could not.
+        cast[0].Lerping.ShouldBeFalse("the re-reach at 82 settled it");
     }
 
     /// <summary>

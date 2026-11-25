@@ -102,6 +102,47 @@ public sealed class InterpolationSchedule
     /// hair short is not read as the one before (B848 review 2, Sonnet).</remarks>
     public double SecondsAtTime(double seconds) => TicksAt((seconds / Interval) + 1e-6d) * Interval;
 
+    /// <summary>The start of the last step at or before a tick whose delay is longer than the step before it (B860).</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The step's first tick, or null when the delay has not risen by then.</returns>
+    public int? LastRiseAtOrBefore(double tick)
+    {
+        for (int index = _from.Length - 1; index >= 1; index--)
+        {
+            if (_from[index] <= tick && _ticks[index] > _ticks[index - 1])
+            {
+                return _from[index];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The furthest the delayed target, <c>u − <see cref="TicksAt"/>(u)</c>, reached on any whole tick before this one: what
+    /// every earlier frame pruned its history against (B860).
+    /// </summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The target, or negative infinity before the first tick.</returns>
+    public double MaxTargetBefore(double tick)
+    {
+        double last = Math.Ceiling(tick) - 1d;
+        double most = double.NegativeInfinity;
+
+        for (int index = 0; index < _from.Length; index++)
+        {
+            double end = index + 1 < _from.Length ? _from[index + 1] : double.PositiveInfinity;
+            double latest = Math.Min(end - 1d, last);
+
+            if (latest >= _from[index])
+            {
+                most = Math.Max(most, latest - _ticks[index]);
+            }
+        }
+
+        return most;
+    }
+
     /// <summary>The first tick after this one at which the delay changes, or null when it never does again.</summary>
     /// <param name="tick">The tick.</param>
     /// <returns>The tick, or null.</returns>

@@ -609,6 +609,61 @@ public sealed class InterpolatedHistory
             ? _changeTimes[head]
             : null;
 
+    /// <summary>The tick the newest entry received by a tick arrived on — the last latch (B860).</summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>Its arrival tick, or null when nothing has arrived.</returns>
+    public int? LatestArrival(int arrivedBy) =>
+        LastReceivedAtOrBefore(arrivedBy) is var last && last >= 0 ? _received[last] : null;
+
+    /// <summary>
+    /// The changetime of the oldest entry a client still held after pruning before a threshold (B860).
+    /// </summary>
+    /// <param name="threshold">The prune cut: an earlier frame's target less the extra history kept.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>That changetime, or null when no live entry is older than the cut.</returns>
+    /// <remarks>
+    /// `RemoveEntriesPreviousTo` walks newest first, and at the first entry older than the cut keeps it and two more
+    /// (`m_VarHistory.Truncate( i + 3 )`, <c>interpolatedvar.h:782-795</c>): the third is the oldest the client holds.
+    /// The engine deletes; this keeps every entry for a scrub and answers the bound instead.
+    /// </remarks>
+    public int? PrunedFloor(double threshold, int arrivedBy)
+    {
+        int last = LastReceivedAtOrBefore(arrivedBy);
+
+        if (last < 0)
+        {
+            return null;
+        }
+
+        int floor = _generationStarts[last];
+
+        for (int index = last; index >= floor; index--)
+        {
+            if (_flushedAt[index] <= arrivedBy || _changeTimes[index] >= threshold)
+            {
+                continue;
+            }
+
+            int kept = index;
+
+            for (int more = 0; more < 2; more++)
+            {
+                int older = Older(kept, floor, arrivedBy);
+
+                if (older == kept)
+                {
+                    break;
+                }
+
+                kept = older;
+            }
+
+            return _changeTimes[kept];
+        }
+
+        return null;
+    }
+
     /// <summary>The newest entry the client still holds — the engine's <c>m_VarHistory.Head()</c>.</summary>
     /// <param name="floor">The generation boundary, so this is the same head the walk can reach.</param>
     /// <param name="arrivedBy">The tick being played.</param>

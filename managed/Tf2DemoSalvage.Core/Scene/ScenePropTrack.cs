@@ -1838,7 +1838,10 @@ public sealed class ScenePropTrack
 
         int born = _keyframes.FirstTick;
         int now = (int)Math.Floor(tick);
-        double target = tick - Interpolation.TicksAt(tick);
+
+        // The same targets `At` samples at, per history (B860).
+        double target = TargetFor(_simulation, tick);
+        double animationTarget = TargetFor(_animation, tick);
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
         // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
@@ -1868,8 +1871,8 @@ public sealed class ScenePropTrack
         // from where a scrub drew it, for the three ticks between its origin settling and `born + delay`.
         bool settled = target > born
             && Settled(_simulation, target, now)
-            && Settled(_animation, target, now)
-            && Settled(_poseParameters, target, now);
+            && Settled(_animation, animationTarget, now)
+            && Settled(_poseParameters, animationTarget, now);
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
         // none because the packet arriving IS the notification; a reader holding the whole recording has to
@@ -2328,6 +2331,53 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int EndTick => _endTick;
 
+    /// <summary>The target a history is sampled at for a tick: the delayed moment, as the engine has it after a rise (B860).</summary>
+    /// <param name="history">The variable's history.</param>
+    /// <param name="tick">The tick asked for.</param>
+    /// <returns>The target.</returns>
+    /// <remarks>
+    /// With the delay never having risen this is <c>tick − <see cref="InterpolationSchedule.TicksAt"/>(tick)</c>. After a
+    /// rise the engine differs in two ways, both because `CheckCLInterpChanged` only sets each variable's amount
+    /// (<c>c_baseentity.cpp:6443-6465</c>):
+    ///
+    /// - **A variable that had settled holds.** Once its target passed the newest entry it stopped being interpolated
+    ///   (`m_bNeedsToInterpolate`, <c>c_baseentity.cpp:887</c>) and nothing but an update's latch starts it again
+    ///   (<c>:2806-2836</c>), so with no arrival since the rise it keeps the value it had just before.
+    /// - **A variable still interpolating reaches no further back than its pruned history.** Every earlier frame cut
+    ///   its history at <c>currentTime − amount − EXTRA_INTERPOLATION_HISTORY_STORED</c> (<c>interpolatedvar.h:1057</c>),
+    ///   and a target older than every entry it kept answers the oldest (<c>:877-882</c>).
+    ///
+    /// The amount takes effect at the next `FRAME_START` (<c>cdll_client_int.cpp:2344</c>); this takes it at the tick,
+    /// a frame early (*interpolated*: where `FRAME_START` falls against the packet read is engine code, not read).
+    /// </remarks>
+    private double TargetFor(InterpolatedHistory history, double tick)
+    {
+        double target = tick - Interpolation.TicksAt(tick);
+
+        if (Interpolation.LastRiseAtOrBefore(tick) is not { } rise)
+        {
+            return target;
+        }
+
+        int now = (int)Math.Floor(tick);
+
+        if (history.LatestArrival(now) is { } arrived && arrived < rise)
+        {
+            double before = TargetFor(history, rise - 1);
+
+            if (history.Bracket(before, rise - 1) is { NoMoreChanges: true })
+            {
+                return before;
+            }
+        }
+
+        // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
+        double interval = Interpolation.IntervalPerTick > 0d ? Interpolation.IntervalPerTick : Tf2TickInterval;
+        double cut = Interpolation.MaxTargetBefore(tick) - (0.05d / interval);
+
+        return history.PrunedFloor(cut, now) is { } floor && target < floor ? floor : target;
+    }
+
     /// <summary>The pose to draw at a moment, interpolated between keyframes.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <returns>The pose, or <c>null</c> when the entity did not exist then.</returns>
@@ -2381,8 +2431,9 @@ public sealed class ScenePropTrack
             return null;
         }
 
-        // The moment being drawn, one interpolation window behind the moment being asked for.
-        double target = tick - Interpolation.TicksAt(tick);
+        // The moment being drawn, one interpolation window behind the moment being asked for, per history (B860).
+        double target = TargetFor(_simulation, tick);
+        double animationTarget = TargetFor(_animation, tick);
 
         if (target <= _keyframes.FirstTick)
         {
@@ -2492,7 +2543,7 @@ public sealed class ScenePropTrack
 
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
-            AnimationNeighbours(target, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops);
+            AnimationNeighbours(animationTarget, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -2709,7 +2760,7 @@ public sealed class ScenePropTrack
             // one `CInterpolatedVar`, and asking the cycle's pair for them was the merge B382 undoes.
             PoseParameters = PoseBetween(
                 from.PoseParameters,
-                _poseParameters.Bracket(target, (int)Math.Floor(tick)),
+                _poseParameters.Bracket(animationTarget, (int)Math.Floor(tick)),
                 animationFraction),
 
             // Discrete: a counter part-way between two values names neither.
