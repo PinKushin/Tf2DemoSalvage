@@ -198,6 +198,25 @@ public sealed class HitscanTracersConformanceTests
         tracers[0].End.Z.ShouldBe(0f, 0.001f);
     }
 
+    /// <remarks>
+    /// **Each shot reads `tf_use_fixed_weaponspreads` as of its own tick** (B848): the client fires a shot as its packet
+    /// is read, under every `net_SetConVar` read by then. The server turned the fixed pattern on at tick 2, so the blast
+    /// of tick 1 scatters its first pellet and the blast of tick 2 sends its first dead ahead.
+    /// </remarks>
+    [Test]
+    public void Trace_ABlastBeforeAndAfterTheServerTurnedFixedSpreadOn_ScattersOnlyTheFirst()
+    {
+        IReadOnlyList<ShotTracer> tracers = Tracers(Scattergun, "bullet_tracer01", pellets: 10, range: 1000f).Trace(
+            [Shot(Scattergun, tick: 1, spread: 0.1f), Shot(Scattergun, tick: 2, spread: 0.1f)],
+            (_, from, to) => Halfway(from, to),
+            fixedSpreadAt: static tick => tick >= 2);
+
+        (tracers.Count, tracers[0].Shot, tracers[5].Shot).ShouldBe((10, 0, 1));
+        (Math.Abs(tracers[0].End.Y) + Math.Abs(tracers[0].End.Z)).ShouldBeGreaterThan(1f, "tick 1: the random pattern");
+        tracers[5].End.Y.ShouldBe(0f, 0.001f);
+        tracers[5].End.Z.ShouldBe(0f, 0.001f);
+    }
+
     /// <summary>A tracer builder over one synthetic weapon script.</summary>
     private static HitscanTracers Tracers(int weaponId, string? tracer, int pellets = 1, float range = 8192f)
     {

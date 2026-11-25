@@ -16,6 +16,23 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class TimelineMomentsTests
 {
+    /// <remarks>
+    /// **The holiday vision reads the server's `tf_forced_holiday` as of its tick** (B848), as the client applies each
+    /// `net_SetConVar` as its packet is read: forced to Halloween at tick 10, so tick 15 sees the Halloween flag. Tick 5
+    /// runs on the watcher's calendar alone, the control computed by the same rule with nothing sent.
+    /// </remarks>
+    [Test]
+    public void HolidayVisionFlagsAt_BeforeAndAfterTheServerForcedHalloween_FollowsEachTick()
+    {
+        TimelineMoments moments = new(DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoWithMessagesAt(
+            (10, [new Core.Net.SetConVarMessage([new("tf_forced_holiday", "2")])]))));
+        int calendar = TfHolidays.IsHalloweenOrFullMoonActive(static _ => null, 0, TfHolidays.WatcherClock)
+            ? VisionVisibility.HalloweenFlag
+            : 0;
+
+        (moments.HolidayVisionFlagsAt(5), moments.HolidayVisionFlagsAt(15)).ShouldBe((calendar, VisionVisibility.HalloweenFlag));
+    }
+
     [Test]
     public void OnNewModel_ForAnEntityWithATrack_TeachesItWhichParametersWrap()
     {

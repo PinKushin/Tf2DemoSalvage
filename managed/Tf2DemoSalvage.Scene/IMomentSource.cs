@@ -386,7 +386,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public int HolidayVisionFlagsAt(double tick) =>
         TfHolidays.IsHalloweenOrFullMoonActive(
-            timeline.ServerConVars.Value, timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType, TfHolidays.WatcherClock)
+            timeline.ServerConVarsAt((int)Math.Floor(tick)).Value,
+            timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType,
+            TfHolidays.WatcherClock)
             ? VisionVisibility.HalloweenFlag
             : 0;
 

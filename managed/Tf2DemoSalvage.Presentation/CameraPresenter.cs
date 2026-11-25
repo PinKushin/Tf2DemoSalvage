@@ -654,7 +654,7 @@ public sealed class CameraPresenter
         // A demo whose timeline failed to build keeps Valve's defaults, which is what the engine
         // would use for a server that changed nothing — and the alternative, carrying the PREVIOUS
         // demo's server, would be silently wrong rather than merely vanilla.
-        _freeCamera.SetServer(_timeline?.ServerConVars ?? FreeFlightPath.Shipped);
+        _freeCamera.SetServer(_timeline?.ServerConVarsAt(_window().Tick) ?? FreeFlightPath.Shipped);
     }
 
     /// <summary>The demo's systems are open: a demo that refuses the free camera enters its recorder's eyes.</summary>
@@ -787,6 +787,14 @@ public sealed class CameraPresenter
         // **The old "nothing is held, so skip" guard is gone with it.** A key pressed and released
         // between two frames is up by the time anyone looks, so that guard would have thrown the
         // tap away; `Fly` returning false still costs nothing when genuinely idle.
+        // **The server's values as of this tick** (B848): `FullNoClipMove` reads `sv_maxspeed` and `sv_specspeed` on every
+        // move, and the client applies each `net_SetConVar` as its packet is read, so a mid-recording change flies at the
+        // new speed from its tick on, not over the whole demo.
+        if (_timeline is { } timeline)
+        {
+            _freeCamera.SetServer(timeline.ServerConVarsAt(_window().Tick));
+        }
+
         return _freeCamera.Fly(intent(), seconds, FreeLookCamera().Origin);
     }
 

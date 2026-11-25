@@ -184,6 +184,12 @@ public sealed class FreeCameraController(ILogger log)
     {
         ArgumentNullException.ThrowIfNull(server);
 
+        // Asked every frame (B848); `ServerConVarsAt` hands back one instance between two `net_SetConVar`s.
+        if (ReferenceEquals(server, Server))
+        {
+            return;
+        }
+
         Server = server;
 
         if (server.Changed is { Count: > 0 } moved)
