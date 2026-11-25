@@ -1312,8 +1312,9 @@ public sealed class ConfigConsole
         bool builtIn = _defaults.TryGetValue(key!, out string? fallback) && string.Equals(fallback, command, StringComparison.Ordinal);
 
         // **A key bound exactly to a spectator button runs the spectator's command and is swallowed** (B844,
-        // `HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): `return 0`, so `Key_Event` adds no text and the
-        // button is never set.
+        // `HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): `return 0`, which the SDK's contract says the engine
+        // does not process (`in_main.cpp:557`), so no text is added and the button is never set. `Key_Event` itself is not
+        // read for this path (findings 114, B854).
         if (Spectating?.Invoke() is true && SpectatorKeys.TryGetValue(command, out ViewerAction spectating))
         {
             Triggered?.Invoke(this, new ViewerActionEventArgs(spectating));

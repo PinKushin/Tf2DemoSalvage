@@ -2917,6 +2917,7 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("k", "+strafe", null, "0", false, 0)]
     [TestCase("k", "+STRAFE", true, "0", false, 0)]
     [TestCase("SPACE", "+strafe", true, "1", true, 0)]
+    [TestCase("SPACE", "+strafe", false, "0", false, 0)]
     [TestCase("SPACE", "+STRAFE", true, "0", true, 2)]
     public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(
         string key, string binding, bool? spectating, string expected, bool taken, int raisedCount)
@@ -2932,6 +2933,23 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown(key);
 
         (console.ConVar("spec_autodirector"), answered, raised.Count).ShouldBe((expected, taken, raisedCount));
+    }
+
+    /// <remarks>
+    /// **A key with no default bound to `spec_mode 5` does nothing and is not taken** (B844 review 15, Sonnet): the mode
+    /// TF2 would set is not implemented here (B851), so the key answers false as any command this viewer does not implement
+    /// does, and raises nothing. A clause after it still runs.
+    /// </remarks>
+    [TestCase("spec_mode 5", false, 0)]
+    [TestCase("spec_mode 5; spec_next", true, 1)]
+    public void KeyDown_AKeyWithNoDefaultBoundToSpecModeWithAnArgument_IsNotTakenAndRaisesNothing(string bind, bool taken, int raisedCount)
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k \"{bind}\"");
+
+        (console.KeyDown("k"), raised.Count).ShouldBe((taken, raisedCount));
     }
 
     /// <remarks>
@@ -2987,8 +3005,8 @@ public sealed class ConfigConsoleConformanceTests
 
         console.KeyDown("SPACE");
 
-        // The unbound report, not `Bindings().KeyFor`, which fills an unreached action from its default (B844 review 13,
-        // Fable; B858).
+        // The press carries the rule; the unbound report agrees with it, since `CommandFor` hands both the `+jump` fallback
+        // (B844 reviews 13 to 15, Fable). `Bindings().KeyFor` would fill the action from its default either way (B858).
         (string.Join(',', raised), console.Unbound().Contains(ViewerAction.SwitchCameraMode))
             .ShouldBe((nameof(ViewerAction.SwitchCameraMode), false));
     }

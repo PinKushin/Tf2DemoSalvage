@@ -46376,10 +46376,18 @@ viewer's own mode switch (`CameraPresenter.CycleCameraMode`) turns the director 
 Found in B844 review 1 (all three). `HandleSpectatorKeyInput` answers a key whose binding is exactly `+duck` by
 `m_pViewport->ShowPanel( PANEL_SPECMENU, true )` and swallows it (`clientmode_shared.cpp:742-746`). The viewer has no
 spectator menu, and `+duck` is no command it implements, so a key bound to it falls back to the viewer's default for that
-key (SHIFT's fly-fast, by `CommandFor`'s rule, D69) or does nothing. With `alias +duck …` the viewer runs the alias's
+key (SHIFT's fly-walk, by `CommandFor`'s rule, D69) or does nothing. With `alias +duck …` the viewer runs the alias's
 body and credits the key with it, where TF2 swallows the key before any alias (B844 review 12, Fable). *Read*, not
 measured. Fix shape: the spectator menu panel, then the key, answered exactly before any alias as the three buttons are.
 *Not fixed*.
+
+## B859 — a spectator key acts while the console is open, where TF2 lets the key through untouched (2026-11-25) — OPEN
+
+Found in B844 review 15 (Fable). `ClientModeShared::KeyInput` returns 1 before asking `HandleSpectatorKeyInput` when the
+console is visible (`clientmode_shared.cpp:664-665`), so a spectator key typed into the open console runs nothing of the
+spectator's. The viewer's `ConfigConsole.KeyDown` asks only `Spectating`. *Read*; not checked whether the viewer's own
+console window passes keys to `KeyDown` while it has focus. Fix shape: answer that, then gate the spectator keys on the
+console being closed. *Not fixed*.
 
 ## B858 — the settings projection names a default key for an action that key no longer fires (2026-11-25) — OPEN
 
@@ -46650,7 +46658,24 @@ learned (Fable: `docs/findings/` was untouched); B858's first example was wrong,
 remark names the spectator buttons as the one spelling rule (Fable). Not taken: review 13's `Unbound()` half of the
 SPACE test is redundant with its press, since `CommandFor` hands both the `+jump` fallback (Fable); the skip itself is
 held by the `CTRL+e` row and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. No test releases a swallowed exact
-key (Fable): that is B854's open question. Codex re-reported the no-demo credit (review 9's not-taken).
+key (Fable): that is B854's open question. Codex re-reported the no-demo credit (review 9's not-taken). Reviews 13 and
+14 changed one assertion and remarks: Presentation 2316 of 2316 after each (review 15, Fable).
+
+Review 15 (Fable, Sonnet, Codex). No code defect. Fixed: **findings 114's evidence classes** (Sonnet, Fable): that a
+swallowed key's text is never run is the SDK's contract for `return 0` (`clientmode_shared.cpp:660`, `in_main.cpp:557`),
+not engine code read, and is now marked so there and in `KeyDown`'s comment; `KeyInput`'s gates before the spectator is
+asked (the visible console, chat, the vote HUD, an observer past the death cam) and the commands' own gates are written
+down; "moves no camera" is scoped to the HLTV camera, which reads only `IN_SPEED`. B850 said SHIFT's fly-fast for its
+fly-walk (Fable). Tests: `bind SPACE +strafe` with no demo leaves SPACE to the config's `+strafe`, untaken, which a
+`Spectating` gate in `DoesSomething` survived (Fable); a key with no default bound to `spec_mode 5` is not taken and
+raises nothing, and a clause after it still runs (Sonnet): `KeyDown_AKeyWithNoDefaultBoundToSpecModeWithAnArgument_IsNotTakenAndRaisesNothing`
+(the `return true` Sonnet named as a candidate survivor is equivalent: `RunClause`'s one caller discards its answer); the SPACE
+test's comment no longer presents its redundant half as the instrument (Fable). Filed: **B859**, the visible-console
+gate (Fable). The no-demo SPACE change of review 14 has not been shown to the owner; it goes in the next release notes.
+Not taken: Codex's `alias +attack spec_prev` reading: `KeyDown` answers the exact binding before any alias, and
+`KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires` holds it. The branch lacks B843; main is merged before
+the gate. Sabotage, restored: a `Spectating` gate on `DoesSomething`'s `+strafe` reddens the SPACE not-spectating row.
+Presentation 2319 of 2319.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
