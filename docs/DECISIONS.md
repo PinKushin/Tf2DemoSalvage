@@ -11754,3 +11754,23 @@ mark would: the file's first command does not run.
 
 **How to apply.** Keep the strip in `Tf2ConfigFiles.Decode`; `Read_AConfigWithAUtf8ByteOrderMark_ReadsItsFirstCommandWhole`
 and `Exec_AFileWithAUtf8ByteOrderMark_RunsItsFirstCommand` hold it. A parity pass on the config reader must not remove it (D246).
+
+## D266 — an alias or compound bind that runs the spectator's buttons only sets the button, TF2's way (2026-11-25)
+
+**What was decided.** Only a key whose whole binding is exactly `+attack`, `+attack2` or `+jump` moves the spectator
+camera (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`, which compares the binding with
+`Q_strcmp`). An alias that runs `+attack` (a crosshair script's `bind MOUSE1 +m1` with `alias +m1 "+attack; ..."`), a
+compound bind, the launch line or a config runs the button command, which only sets the button the HLTV camera never
+reads. Before B844 the viewer cycled or switched the camera for every route, so a config that wraps `+attack` loses
+cycling on that key.
+
+**Provenance: voiced.** Shown the loss (B844 review 3, Sonnet; recorded under B845), the owner: *"thats correct, dop it
+tf2s way"* [do it TF2's way].
+
+**Why it follows.** The owner chose TF2's behaviour over the viewer's earlier one (D89: parity is the first principle).
+The feature lost was never listed in `docs/ABOVE-VALVE.md`, so D246's rule that parity never removes a feature is met by
+the owner deciding it here.
+
+**How to apply.** Keep the exact-binding rule in `ConfigConsole.KeyDown` and the button-only `Perform` for every other
+route; `KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding` holds it. The rest of B845 (the
+viewer's camera keys on a point-of-view demo, its screenshot key during playback) is not decided by this.

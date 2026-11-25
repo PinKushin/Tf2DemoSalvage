@@ -46357,8 +46357,7 @@ own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder 
 dead one they reach `ForwardSpecCmdToServer`, which returns while a demo plays (`:766-769`; only `engine->IsHLTV()`
 handles them client-side); the viewer's cycles and switches (B844 reviews 2 and 3, Fable). And from B844 review 3: an
 alias or compound bind that runs `+attack`, `+attack2` or `+jump` moved the camera on every demo before B844 and now only
-sets the button, as TF2's does; whether a crosshair-script config's wrapped `+attack` should still cycle is the owner's.
-*Not fixed*.
+sets the button, as TF2's does; **decided by the owner: TF2's way (D266)**. *Not fixed* (the rest of this entry).
 
 ## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
 
