@@ -2876,6 +2876,86 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **Each of the three exact bindings is the spectator's, and the key is taken** (B844 review 1, Fable, Sonnet): the key
+    /// answers true, raises its own action, and sets no button. With nobody wiring `Spectating` no key is the spectator's.
+    /// </remarks>
+    [TestCase("+attack", ViewerAction.CycleTargetForward)]
+    [TestCase("+attack2", ViewerAction.CycleTargetReverse)]
+    [TestCase("+jump", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_AKeyBoundExactlyToASpectatorButton_RaisesItsActionAndIsTaken(string button, ViewerAction expected)
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        ConfigConsole unwired = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        unwired.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k {button}");
+        unwired.Load($"bind k {button}");
+
+        (console.KeyDown("k"), console.IsHeld(expected)).ShouldBe((true, false));
+        unwired.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+        unwired.IsHeld(expected).ShouldBeTrue("nobody wired: the bind's text ran, which only sets the button");
+    }
+
+    /// <remarks>
+    /// **A key bound exactly to `+strafe` turns the auto-director on while spectating** (B844 review 1):
+    /// `SetAutoDirector( true )` (`clientmode_shared.cpp:762-769`) is `spec_autodirector.SetValue( 1 )`
+    /// (`hltvcamera.cpp:868-871`). It sets 1, it does not toggle, so a second press leaves it on. The control: with nobody
+    /// spectating the key runs its own `+strafe`, which this viewer does not implement, and the value stays 0.
+    /// </remarks>
+    [TestCase(true, "1")]
+    [TestCase(false, "0")]
+    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(bool spectating, string expected)
+    {
+        ConfigConsole console = new() { Spectating = () => spectating };
+        console.Load("spec_autodirector 0\nbind k +strafe");
+
+        console.KeyDown("k");
+        console.KeyUp("k");
+        console.KeyDown("k");
+
+        console.ConVar("spec_autodirector").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **A config's own `+attack` sets the button at load** (B844 review 1, Fable, Sonnet): run from the buffer it is the
+    /// button command, which the load's one-shot rule does not take.
+    /// </remarks>
+    [Test]
+    public void Load_PlusAttack_SetsTheButtonAndMovesNoCamera()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Load("+attack");
+
+        (raised, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((0, true));
+    }
+
+    /// <remarks>
+    /// **A spectator command bound to a key with a default replaces the default** (B844 review 1, Fable, Sonnet): MOUSE1's
+    /// default is `+attack`, and `bind MOUSE1 spec_prev` must cycle backwards. `spec_mode 5` sets a mode TF2 names, which
+    /// the viewer does not implement (B851), so it does nothing rather than cycle.
+    /// </remarks>
+    [TestCase("spec_prev", new[] { ViewerAction.CycleTargetReverse })]
+    [TestCase("spec_mode 5", new ViewerAction[0])]
+    public void KeyDown_AKeyWithADefaultBoundToASpectatorCommand_RunsTheCommand(string command, ViewerAction[] expected)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind MOUSE1 \"{command}\"");
+
+        console.KeyDown("MOUSE1");
+
+        raised.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **The launch line's `+attack` only sets the button** (B844): `stuffcmds` runs it as a command, never as a key.
     /// </remarks>
     [Test]
@@ -2915,6 +2995,8 @@ public sealed class ConfigConsoleConformanceTests
     /// </remarks>
     [TestCase("spec_next", 0)]
     [TestCase("wait; spec_next", 1)]
+    [TestCase("wait; spec_prev", 1)]
+    [TestCase("wait; spec_mode", 1)]
     public void Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff(string config, int expected)
     {
         ConfigConsole console = new();

@@ -830,6 +830,12 @@ public sealed class ConfigConsole
         ["+jump"] = ViewerAction.SwitchCameraMode,
     };
 
+    /// <summary>The binding whose key turns the auto-director on while spectating (`clientmode_shared.cpp:762`).</summary>
+    private const string AutoDirectorKey = "+strafe";
+
+    /// <summary>`spec_autodirector.SetValue( 1 )`, what that key does (`hltvcamera.cpp:868-871`).</summary>
+    private const string AutoDirectorOn = "spec_autodirector 1";
+
     /// <summary>
     /// The commands the spectator's keys run (B844): `spec_next`, `spec_prev`, `spec_mode` (`clientmode_shared.cpp:749-759`),
     /// TF2's own, so a config or alias that names one moves the camera as the key does. A console command's name is found
@@ -1304,6 +1310,15 @@ public sealed class ConfigConsole
         if (Spectating?.Invoke() is true && SpectatorKeys.TryGetValue(command, out ViewerAction spectating))
         {
             Triggered?.Invoke(this, new ViewerActionEventArgs(spectating));
+            return true;
+        }
+
+        // `+strafe` turns the auto-director on and is swallowed the same way (B844 review 1, Fable, Gemini, Sonnet):
+        // `HLTVCamera()->SetAutoDirector( true )` (`clientmode_shared.cpp:762-769`) is `spec_autodirector.SetValue( 1 )`
+        // (`hltvcamera.cpp:868-871`), run here as that set. `+duck`'s spectator menu is not implemented: B850.
+        if (Spectating?.Invoke() is true && string.Equals(command, AutoDirectorKey, StringComparison.Ordinal))
+        {
+            RunKey(AutoDirectorOn, key!);
             return true;
         }
 
@@ -2514,6 +2529,13 @@ public sealed class ConfigConsole
             return true;
         }
 
+        // **`spec_mode <n>` sets mode n rather than cycling** (`SpectatorGUI.cpp:847-851`, B844 review 1, Fable), which this
+        // viewer does not implement: B851. Cycling there would be the wrong mode, so it does nothing, as it did before B844.
+        if (tokens.Count > 1 && SpectatorCommands.TryGetValue(command, out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode)
+        {
+            return true;
+        }
+
         acted |= Perform(command, key);
         return true;
     }
@@ -2631,8 +2653,10 @@ public sealed class ConfigConsole
             //
             // Rejoined with single spaces rather than compared against the raw text, so
             // `mat_fullbright  1` and a tab both resolve.
+            // `spec_next` and its two siblings too (B844 review 1, Fable, Sonnet), or a key with a default bound to one counts as
+            // doing nothing and falls back to that default.
             ViewerAction? action =
-                KeyBindings.ActionOf(string.Join(' ', tokens)) ?? KeyBindings.ActionOf(tokens[0]);
+                KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
 
             if (action is { } named && !found.Contains(named))
             {

@@ -46350,7 +46350,25 @@ stand, and parity never removes a feature (D246): **the owner decides** whether 
 `+wait +screenshot` captures during playback and its `+thirdperson` acts on a SourceTV demo, exempt through the line's
 own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder is alive (observer mode at or below
 `OBS_MODE_DEATHCAM`), TF2 never hands a key to the spectator, so SPACE runs its `+jump` binding or alias and MOUSE1 its
-`+attack`; the viewer's camera still switches and cycles there. *Not fixed*.
+`+attack`; the viewer's camera still switches and cycles there. The launch line's `spec_next`, `spec_prev`, `spec_mode`
+(B844 review 1, Fable) act too, where TF2's `stuffcmds` runs them with no local player and they return
+(`SpectatorGUI.cpp:790`). *Not fixed*.
+
+## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
+
+Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling
+(`SpectatorGUI.cpp:847-851`); a recorded TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
+three modes (free, first person, third person), so the mapping from the engine's seven is a design question: in eye and
+chase map directly, roaming to free, fixed and point of interest have no counterpart. Until it is decided the command
+with an argument does nothing, as it did before B844. *Read*, not measured. *Not fixed*.
+
+## B850 — a key bound to `+duck` opens no spectator menu while spectating (2026-11-25) — OPEN
+
+Found in B844 review 1 (all three). `HandleSpectatorKeyInput` answers a key whose binding is exactly `+duck` by
+`m_pViewport->ShowPanel( PANEL_SPECMENU, true )` and swallows it (`clientmode_shared.cpp:742-746`). The viewer has no
+spectator menu, and `+duck` is no command it implements, so a key bound to it falls back to the viewer's default for that
+key (SHIFT's fly-fast, by `CommandFor`'s rule, D69) or does nothing. *Read*, not measured. Fix shape: the spectator
+menu panel, then the key. *Not fixed*.
 
 ## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
 
@@ -46379,6 +46397,27 @@ routes, with nobody spectating as the control), `Stuff_PlusAttack_SetsTheButtonA
 Sabotage, each restored: the button branch dropped reddens the four non-exact routes, the launch line and B841's three
 waited-button cases; the exact-key branch dropped reddens the exact case alone. (Run together the two masked the exact
 case: a grouped sabotage can redden for the wrong reason.) Presentation 2,271 of 2,271.
+
+Review 1 (Fable, Gemini, Sonnet). No engine divergence in the three branches; the release of a swallowed key runs
+`-attack <code>`, whose `KeyUp` finds no key holding the button and returns, as `in_main.cpp:417-418` does (Gemini read
+it; Fable's question whether `Key_Event` sends that text at all is not read). Fixed:
+
+- a `spec_*` bind on a key with a viewer default counted as doing nothing and fell back to the default, so
+  `bind MOUSE1 spec_prev` cycled forward (Fable, Sonnet): `Expand` asks `OneShotOf`;
+- `spec_mode 5` would cycle, where TF2 sets mode 5 (`SpectatorGUI.cpp:847-851`, Fable): with an argument it does
+  nothing, as before this branch, and setting a mode is filed as **B851**;
+- `+strafe`, in the same engine function, swallows the key and sets `spec_autodirector 1` (`clientmode_shared.cpp:762-769`,
+  `hltvcamera.cpp:868-871`; all three): done, with a test that a second press leaves it on. `+duck`'s spectator menu is
+  not implemented: filed as **B850**;
+- tests that could not fail (all three): `+attack2` and `+jump` exact, the key's answer, the unwired console, an
+  unwaited config `+attack` holding its button, and waited `spec_prev` and `spec_mode`.
+
+Not taken: the session's wiring of `Spectating` (`_presenter.HasDemo`, one line) has no session test (Fable, Gemini);
+the bindings projection still credits an alias that runs `+attack` to cycling (Fable, low): the alias does hold that
+action's button; the launch line's `spec_*` act with no local player where TF2's do nothing (Fable): recorded under B845
+with the line's other one-shots. Sabotage, each restored: no `+strafe` branch reddens its spectating case; `Expand`
+without the spectator commands reddens `bind MOUSE1 spec_prev`; the argument guard dropped reddens `spec_mode 5`.
+Presentation 376 of 376 in `ConfigConsoleConformanceTests`.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
