@@ -46485,6 +46485,9 @@ Review 1 (Fable, Sonnet; Gemini to follow; Grok out of credit) found, all taken 
   never announced to anything. A frame that crosses ticks without building the overlay hears them next frame as now
   (Fable), as before. The replicated ConVars an event reads are still the frame's end tick's: filed as **B843**.
 - 2,192 of 2,192 pass.
+- Gemini, after: the same test gaps, already closed above, and a closure and a delegate made for every tick a frame
+  played. `BeforeTick` now takes an `Action<int>`, and the session holds both delegates, so a played tick allocates
+  nothing. *Read, not measured*: no allocation count was taken.
 
 The original entry follows.
 

@@ -18,7 +18,7 @@ public sealed class ConVarsByTickTests
     {
         ConVarsByTick byTick = new();
         byTick.BeginFrame();
-        byTick.BeforeTick(10, () => byTick.Set("hud_deathnotice_time", "3"));
+        byTick.BeforeTick(10, _ => byTick.Set("hud_deathnotice_time", "3"));
 
         Func<string, string?> tenth = byTick.At(10, Now).ShouldNotBeNull();
 
@@ -35,8 +35,8 @@ public sealed class ConVarsByTickTests
     {
         ConVarsByTick byTick = new();
         byTick.BeginFrame();
-        byTick.BeforeTick(10, () => byTick.Set("x", "1"));
-        byTick.BeforeTick(11, () => byTick.Set("x", "2"));
+        byTick.BeforeTick(10, _ => byTick.Set("x", "1"));
+        byTick.BeforeTick(11, _ => byTick.Set("x", "2"));
 
         (byTick.At(10, Now)!("x"), byTick.At(11, Now)!("x"), byTick.At(12, Now)).ShouldBe(("1", "2", null));
     }
@@ -53,7 +53,7 @@ public sealed class ConVarsByTickTests
         byTick.Set("x", "1");
         byTick.At(0, Now).ShouldBeNull("outside a run");
 
-        byTick.BeforeTick(10, () => byTick.Set("x", "2"));
+        byTick.BeforeTick(10, _ => byTick.Set("x", "2"));
         byTick.At(10, Now).ShouldNotBeNull("the control: inside a run it is kept");
         byTick.BeginFrame();
 
@@ -67,7 +67,7 @@ public sealed class ConVarsByTickTests
         ConVarsByTick byTick = new();
         byTick.BeginFrame();
 
-        Should.Throw<InvalidOperationException>(() => byTick.BeforeTick(10, static () => throw new InvalidOperationException("run")));
+        Should.Throw<InvalidOperationException>(() => byTick.BeforeTick(10, static _ => throw new InvalidOperationException("run")));
         byTick.Set("x", "1");
 
         byTick.At(9, Now).ShouldBeNull();

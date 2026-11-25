@@ -22,26 +22,22 @@ public sealed class ConVarsByTick
     private int? _running;
 
     /// <summary>Starts a frame: the last frame's sets are all in force now.</summary>
-    public void BeginFrame()
-    {
-        _sets.Clear();
-        _running = null;
-    }
+    public void BeginFrame() => _sets.Clear();
 
     /// <summary>
     /// Runs one host tick's `Cbuf_Execute`, made while the clock is on <paramref name="tick"/>: the client step after it
     /// reads the next tick's packets, so the ticks from that one on read its sets.
     /// </summary>
     /// <param name="tick">The tick the clock is on when the run is made.</param>
-    /// <param name="run">The run.</param>
-    public void BeforeTick(int tick, Action run)
+    /// <param name="run">The run, handed the tick; a cached delegate, so a played tick allocates nothing (B839 review 1, Gemini).</param>
+    public void BeforeTick(int tick, Action<int> run)
     {
         ArgumentNullException.ThrowIfNull(run);
         _running = tick + 1;
 
         try
         {
-            run();
+            run(tick);
         }
         finally
         {

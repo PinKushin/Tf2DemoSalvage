@@ -824,7 +824,7 @@ public sealed partial class ViewerSession
             // **And the console once more before each host tick the frame runs** (B832, B838): `_Host_RunFrame_Input`
             // (FUN_1801a74d0) runs `Cbuf_Execute` in every tick of the loop, before the tick's client step, which reads
             // the next tick's packets — so what this run sets is first heard by that tick's events (B839).
-            _playback.Advance(tick => _conVarsByTick.BeforeTick(tick, () => ExecuteConsole(tick)));
+            _playback.Advance(_beforeEachTick ??= tick => _conVarsByTick.BeforeTick(tick, _executeConsole ??= ExecuteConsole));
         }
     }
 
@@ -836,6 +836,12 @@ public sealed partial class ViewerSession
     /// <param name="tick">The demo tick it runs at: the clock's, inside a frame's advance (B832 review 1, Fable).</param>
     private void ExecuteConsole(int tick) =>
         _console.Execute(ConfigConsole.WaitAllowed(_presenter.Timeline?.ServerConVarsAt(tick).Value(ConfigConsole.AllowWaitConVar)));
+
+    /// <summary>What runs before each tick a frame plays, made once so a played tick allocates nothing (B839 review 1, Gemini).</summary>
+    private Action<int>? _beforeEachTick;
+
+    /// <summary><see cref="ExecuteConsole"/> as a delegate, made once.</summary>
+    private Action<int>? _executeConsole;
 
     /// <summary>The client ConVars each demo tick of this frame reads, for the game events the HUD hears at its end (B839).</summary>
     private readonly ConVarsByTick _conVarsByTick = new();
