@@ -56,6 +56,9 @@ public readonly record struct Bracketing(int Older, int Newer, int Oldest, bool 
 /// bounded instead, by <c>arrivedBy</c> alone. The owner set that requirement: *"we
 /// should be able to get valve parity there and still scrub and rewind the demo, we just have to make it
 /// work in both directions."*
+///
+/// **After a delay rise the prune is visible, so it is answered too** (B860): the delayed target can fall below what the
+/// earlier frames' cuts left, and <see cref="PrunedFloor"/> answers the oldest entry the engine would still hold.
 /// </remarks>
 public sealed class InterpolatedHistory
 {
@@ -103,6 +106,10 @@ public sealed class InterpolatedHistory
     private int _lastGeneration = -1;
 
     /// <summary>The furthest any entry's changetime has run past its arrival, never below zero.</summary>
+    /// <remarks>
+    /// Kept across generations and trims and never lowered, so it can only widen a walk that stops by it: one outlier makes
+    /// the walk longer, never wrong (B860 review 11, Sonnet).
+    /// </remarks>
     private int _maxLead;
 
     /// <summary>A history whose entries carry a fixed number of components.</summary>
@@ -767,7 +774,25 @@ public sealed class InterpolatedHistory
         int changeTime = _changeTimes[index];
         int generation = _generationStarts[index];
 
-        for (int frame = cutAt - 1; frame >= _received[index]; frame--)
+        // **No frame before the third newer entry arrived held three** (B860 review 11, Sonnet): the walk starts there, so
+        // an entry at rest for a long time costs the frames since its third newer arrival, not every frame since its own.
+        int? third = null;
+
+        for (int other = index + 1, newer = 0; other < _received.Count && _received[other] < cutAt; other++)
+        {
+            if (_generationStarts[other] == generation && _changeTimes[other] > changeTime && ++newer == 3)
+            {
+                third = _received[other];
+                break;
+            }
+        }
+
+        if (third is not { } earliest)
+        {
+            return false;
+        }
+
+        for (int frame = cutAt - 1; frame >= earliest; frame--)
         {
             double cut = cutOf(frame);
 
@@ -813,6 +838,11 @@ public sealed class InterpolatedHistory
     /// below the kept three deletes them and is itself the oldest held. The three are chosen from what earlier frames'
     /// cuts left (B860 review 10, Fable): a late update arriving BEFORE the cutting frame flushes the entries after it, and
     /// the two older than it may already be gone.
+    /// </remarks>
+    /// <remarks>
+    /// **Not exact for entries arriving after the cut** (B860 review 11, Fable): frames after <paramref name="cutAt"/> prune
+    /// too, at their lower cuts, and can delete an old late arrival this still counts as held. No frame draws the difference,
+    /// because a frame's cut that reaches such an entry sits below that frame's own target, which is then above it.
     /// </remarks>
     public int? PrunedFloor(
         double threshold, int cutAt, int arrivedBy, Func<int, double> cutOf, Func<int, bool> prunes)

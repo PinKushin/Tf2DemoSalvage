@@ -47410,7 +47410,21 @@ Review 10 (Fable, Sonnet, Codex: no blocker). Fixed:
   0.312037 from `Hermite_Spline` (`mathlib_base.cpp:2535-2538`).
 - Records: findings 115 carries reviews 9 and 10's mechanisms; B865 counts its three bullets.
 
-Not taken (Sonnet): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
+Review 11 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **`CutBefore` walked every frame back to an old entry's arrival** (Sonnet, Fable): it now starts at the arrival of the
+  third newer entry, before which no frame could hold three; the answer is unchanged.
+- Records: `_maxLead` says it only widens; the class remark points at the floor after a rise; `PrunedFloor` says entries
+  arriving after the cut are counted as held when a later, lower cut could delete them — undrawable, since such a cut sits
+  below that frame's own target (Fable).
+
+Not taken: the camera sampling players before the frame start is announced (Fable) does not happen. While playing,
+`Simulate` advances the playback, whose `MomentChanged` shows the moment and announces the frame start before
+`PlaceCamera`; while paused the frame start reads its own tick, the camera's too. `was` in the player's motion window is
+an earlier frame, sampled as the stateless sampler models one (Sonnet). The angles share `TargetFor`'s floor and the
+engine's `QAngle` hermite is a lerp (`lerp_functions.h:104`), so the origin's tests cover the new path (Sonnet).
+Evidence class: findings 115 marks the frame order **disassembled** (Sonnet).
+
+Not taken (Sonnet, review 10): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
 same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
 anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
