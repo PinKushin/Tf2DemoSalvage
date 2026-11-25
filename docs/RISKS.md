@@ -46323,13 +46323,13 @@ viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+f
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
-## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — OPEN
+## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — CLOSED (2026-11-24), above Valve
 
 Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_1801683d0) skips the argument
 `ParmValueByIndex` gives after every `-flag`, known or not. The viewer's own flags that take no value (`--autoplay`,
 `--colours`, `--windows`, `--first-person`, `--third-person`; B828 review 2, Sonnet, Gemini) are matched before that
 rule, so `--autoplay 4 a.dem` tries to open a demo named `4`. These flags are the viewer's own (TF2 has none), so
-whether they follow TF2's grammar is the owner's to say. *Not fixed*.
+whether they follow TF2's grammar is the owner's to say. *Not fixed* (as filed).
 
 **Closed as above Valve, the owner's pick** (2026-11-24, asked whether these switches should follow TF2 and drop the
 word after them, or keep it; the owner picked "Keep them as they are", the recommended option, without words of their
@@ -46342,8 +46342,16 @@ own, D183): `--autoplay a.dem` keeps opening `a.dem`. Listed in `docs/ABOVE-VALV
 "TF2's meaning", the recommended option, without words of their own, D183). `-h` is no longer help (`--help`, `-?` and
 `/?` are, through one predicate, `ViewerHelp.IsHelp`, which `LaunchOptionsReader` now shares where it held its own
 copy); it is an unknown flag, so it drops `1080` as `stuffcmds` drops a `-flag`'s value (B828). The window size itself
-is not applied. Tests `Read_ATf2WindowSizeLine_OpensItsDemoAndShowsNoHelp` and `Wanted_WithoutOne_IsFalse`; both red
-before; sabotage: `-h` put back in `IsHelp` reddens both. The paragraph below is the entry as filed.
+is not applied. Tests `Read_ATf2WindowSizeLine_OpensItsDemoAndShowsNoHelp` and `Wanted_Tf2sWindowHeightFlag_IsFalse`;
+both red before; sabotage: `-h` put back in `IsHelp` reddens both.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: B837's heading still said OPEN (Fable, Gemini, Sonnet);
+the guide did not say `-h` is now a TF2 flag or that the viewer's switches keep the next word (Fable, Gemini); the help
+line names `/?` too and reads as a sentence (Fable, Gemini, Sonnet); the `-h` case has its own test name (Fable,
+Gemini). Checked, no change: the
+Cli program keeps `-h` as its own help, a different program with no TF2 launch line (Fable, Sonnet).
+
+The paragraph below is the entry as filed.
 
 Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so
 a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window

@@ -60,7 +60,7 @@ public static class ViewerHelp
           tf2demoview <demo.dem> [more.dem ...] [options]
 
         OPTIONS
-          --help, -?                 Print this and exit. (-h is TF2's window height, so not help.)
+          --help, -?, /?             Print this and exit. -h is TF2's window height, not this.
           --autoplay                 Start playing as soon as the demo is loaded.
           --first-person             Open in the recorder's view rather than the free camera.
           --third-person             Open over a player's shoulder, the chase camera.
