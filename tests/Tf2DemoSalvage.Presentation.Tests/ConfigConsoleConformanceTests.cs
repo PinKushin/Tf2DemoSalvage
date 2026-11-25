@@ -3038,6 +3038,60 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **The press agrees with that credit** (B844 review 9, Fable): `mat_fullbright 1 107` is a set whose value is read
+    /// up to its first space, so `j` sets `mat_fullbright` to 1, as `CvarCommand` hands `ArgS` to `SetValue`.
+    /// </remarks>
+    [Test]
+    public void KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Load("sv_cheats 1\nbind j \"+use; mat_fullbright 1\"");
+
+        console.KeyDown("j");
+
+        set.ShouldHaveSingleItem().Split(' ')[..2].ShouldBe(["mat_fullbright", "1"]);
+    }
+
+    /// <remarks>
+    /// **A bare toggle with the key's number after it is a set, not the toggle** (B844 review 9, Fable, Sonnet):
+    /// `bind j "+use; mat_wireframe"` runs `mat_wireframe 106`, which `CvarCommand` sets, so `j` is not the wireframe key
+    /// and pressing it raises no toggle.
+    /// </remarks>
+    [Test]
+    public void Unbound_APlusBindEndingInABareToggle_LeavesTheToggleUnbound()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("sv_cheats 1\nunbindall\nbind j \"+use; mat_wireframe\"");
+
+        console.KeyDown("j");
+
+        (console.Unbound().Contains(ViewerAction.Wireframe), raised.Contains(ViewerAction.Wireframe)).ShouldBe((true, false));
+    }
+
+    /// <remarks>
+    /// **An alias named `+strafe` is passed over as the three buttons' are** (B844 review 9, Fable): while spectating, a key
+    /// bound exactly to `+strafe` turns the auto-director on and is swallowed (`clientmode_shared.cpp:762-769`), so the
+    /// alias's `screenshot` never runs and the key is not credited with it.
+    /// </remarks>
+    [Test]
+    public void Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody()
+    {
+        ConfigConsole console = new();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nalias +strafe screenshot\nbind k +strafe");
+
+        console.KeyDown("k");
+
+        (console.Unbound().Contains(ViewerAction.Screenshot), raised.Contains(ViewerAction.Screenshot)).ShouldBe((true, false));
+    }
+
+    /// <remarks>
     /// **A default yields only to a bind that fires its action** (B844 review 6, Fable): with `alias +attack spec_prev`,
     /// MOUSE1's default `+attack` still cycles forward, so `bind k spec_prev` does not take MOUSE1's key away, and both
     /// keys work: k cycles back, MOUSE1 forward.

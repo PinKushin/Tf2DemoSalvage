@@ -46504,7 +46504,8 @@ Review 7 (Fable, Gemini, Sonnet). Review 6's key-number rule counted arguments a
 chord gets no number (`KeyText`, `ButtonCodeNames.CodeOf` null), and a trailing `;` or `//` comment puts the number in a
 clause of its own or in the comment, since it is appended to the raw text. Replaced: one `Credited(command, key)` answers
 a key's exact spectator binding first and otherwise expands the text the key really runs, `KeyText(command, key)`, for
-the claim, the fallback, the settings projection and the unbound report; `Expand` counts the clause as written again.
+the fallback and the unbound report (the claim and the settings projection followed in review 8, Fable, review 9);
+`Expand` counts the clause as written again.
 The two surviving mutants of the counting (`index` and `depth`) went with it. Tests:
 `Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns` (a trailing `;`, a chord either way, `spec_mode`
 first, an alias body). **B854 corrected** (Sonnet): every branch of `HandleSpectatorKeyInput` tests `down`, so a release
@@ -46532,6 +46533,25 @@ is older than B844 and unchanged here. Tests: `Load_APlusBindEndingInSpecMode_Le
 `Bindings_KeysWhose…`; `Expand` in place of `Credited` in `Bindings` reddens the same; in `Claimed`, it reddens
 `Load_APlusBindEndingInSpecMode…` and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. Presentation 402 of 402 in
 `ConfigConsoleConformanceTests`.
+
+Review 9 (Fable, Sonnet, Codex). Fixed: a key bound exactly to `+strafe` is credited with nothing (Fable): while
+spectating it turns the auto-director on and is swallowed, so an `alias +strafe` body never runs, which the credit had
+expanded as review 4 found for the three buttons. A client ConVar's name with any argument is a set, never its bare
+one-shot (Fable, Sonnet): `bind j "+use; mat_wireframe"` runs `mat_wireframe 106`, which `Run` sets, so the credit no
+longer falls back to the verb's Wireframe toggle; this was older than B844 for a written argument, and the key number
+made it reach a bare `+` bind ending in the toggle. Review 8's "a bare `mat_wireframe` toggle being credited is older"
+is narrowed by this: only a clause with no argument is the toggle. The fullbright row is pressed too (Fable): `j` sets
+`mat_fullbright` to `1`. `Fires`'s summary pointed at `Expand` for the exact-first step, which moved to `Credited` in
+review 7 (Fable); review 7's list of `Credited`'s readers named two that came in review 8 (Fable). Not taken: the credit
+is the spectator's reading with no demo open as well (Sonnet, Fable), now said in `Credited`'s remarks: the bindings are
+a settings screen's static answer, and the spectator's keys act only while a demo plays. The credit ignores a cheat
+refusal (`mat_fullbright 1` with `sv_cheats 0`, Fable), older than B844 and unchanged. Codex's two findings did not
+hold: `ActionOf`'s only names with an argument are `mat_fullbright 0`, `1` and `2` (`ViewerAction.cs:453-455`), so the
+first-value fallback can only credit a set, never `spec_mode 5`. The `tokens.Count > 2` bound surviving as `> 1` is an
+equivalent mutant (Sonnet): with two tokens the fallback string is the joined one already tried. Tests, red before the
+fix and green after: `Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody`,
+`Unbound_APlusBindEndingInABareToggle_LeavesTheToggleUnbound`; `KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue`
+held before. Presentation 2310 of 2310.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,

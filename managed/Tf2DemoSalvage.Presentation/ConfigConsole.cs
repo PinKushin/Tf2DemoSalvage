@@ -2613,7 +2613,7 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// Whether a clause fires its action (B844 review 3): a spectator button never as a clause — a key's whole, exact
-    /// binding is answered before any clause is read (`Expand`'s exact-first step, review 4) — and `spec_mode` only
+    /// binding is answered before any clause is read (<see cref="Credited"/>'s exact-first step, reviews 4 and 7) — and `spec_mode` only
     /// without exactly one argument.
     /// </summary>
     /// <param name="tokens">The clause as it runs (<see cref="Credited"/> hands in a key's real text).</param>
@@ -2635,9 +2635,21 @@ public sealed class ConfigConsole
     /// A key bound exactly to a spectator button: that button's action, before any alias of that name runs, as `KeyDown`
     /// answers it (review 4, Fable). Anything else: what the text the key really runs reaches — <see cref="KeyText"/>, with
     /// the key's number after a `+` bind and none for a chord (review 7, Fable), so `+use; spec_mode` runs `spec_mode 107`.
+    /// An exact `+strafe`: nothing, since it turns the auto-director on and no alias of that name runs (review 9, Fable).
     /// </returns>
-    private List<ViewerAction> Credited(string command, string key) =>
-        SpectatorKeys.TryGetValue(command, out ViewerAction exact) ? [exact] : Expand(KeyText(command, key), depth: 0, credit: true);
+    /// <remarks>
+    /// The spectator's reading whether or not a demo is open (review 9, Fable, Sonnet): the bindings are a settings screen's
+    /// static answer, and the spectator's keys act only while a demo plays, which is when the viewer has a camera to drive.
+    /// </remarks>
+    private List<ViewerAction> Credited(string command, string key)
+    {
+        if (SpectatorKeys.TryGetValue(command, out ViewerAction exact))
+        {
+            return [exact];
+        }
+
+        return string.Equals(command, AutoDirectorKey, StringComparison.Ordinal) ? [] : Expand(KeyText(command, key), depth: 0, credit: true);
+    }
 
     /// <summary>Every action a command reaches by expansion.</summary>
     /// <remarks>
@@ -2702,10 +2714,12 @@ public sealed class ConfigConsole
             // doing nothing and falls back to that default.
             // A set's value is its whole `ArgS`, read as a number up to the first space, so `mat_fullbright 1 107` (a `+`
             // bind's key number after it) is `mat_fullbright 1` (B844 review 8, Fable).
+            // A client ConVar's name with any argument is a set (`Run`'s `SetConVar`), never its bare one-shot, so the
+            // credit does not fall back to the verb for it: `mat_wireframe 106` sets 106 (B844 review 9, Fable, Sonnet).
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ??
                 (tokens.Count > 2 ? KeyBindings.ActionOf(string.Concat(tokens[0], " ", tokens[1])) : null) ??
-                OneShotOf(tokens[0]);
+                (credit && tokens.Count > 1 && IsClientConVar(tokens[0]) ? null : OneShotOf(tokens[0]));
 
             if (credit && !Fires(tokens))
             {
