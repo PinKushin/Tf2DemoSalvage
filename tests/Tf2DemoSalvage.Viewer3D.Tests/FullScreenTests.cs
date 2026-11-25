@@ -216,6 +216,27 @@ public sealed class FullScreenTests
             "entering full screen recreated the window handle, which drops the foreground");
     }
 
+    /// <remarks>
+    /// **A held menu chord fires once, through the form's own key path** (B827 review 1, Fable): the session's test
+    /// holds the decision, this holds the wiring, a `WM_KEYDOWN` whose lParam bit 30 marks it an auto-repeat. `CTRL+p` is
+    /// the Position item's shortcut. The control: the press ticks it.
+    /// </remarks>
+    [Test]
+    public void ProcessCmdKey_AHeldMenuChordRepeating_TicksItsItemOnce()
+    {
+        using EscapeProbe form = new();
+        ToolStripMenuItem position = (ToolStripMenuItem)form.MainMenuStrip!.Items.Find(MainForm.PositionReadoutItemId, true)[0];
+        bool before = position.Checked;
+
+        form.Press(Keys.Control | Keys.P, repeat: false);
+        position.Checked.ShouldNotBe(before, "the control: the press ticks it");
+
+        // One repeat: an even number would tick it back to where it was even if each one fired.
+        form.Press(Keys.Control | Keys.P, repeat: true);
+
+        position.Checked.ShouldNotBe(before, "a repeat does not tick it back");
+    }
+
     /// <summary>Exposes the protected key handler, which is otherwise unreachable from a test.</summary>
     private sealed class EscapeProbe : MainForm
     {
@@ -223,6 +244,13 @@ public sealed class FullScreenTests
         {
             Message message = default;
             return ProcessKey(ref message, Keys.Escape | modifiers);
+        }
+
+        /// <summary>A key down, with WM_KEYDOWN's lParam bit 30 set for an auto-repeat.</summary>
+        public void Press(Keys keys, bool repeat)
+        {
+            Message message = Message.Create(Handle, 0x0100, (int)(keys & Keys.KeyCode), repeat ? 1 << 30 : 0);
+            _ = ProcessKey(ref message, keys);
         }
     }
 

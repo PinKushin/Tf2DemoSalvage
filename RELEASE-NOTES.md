@@ -12,7 +12,7 @@
 
 - **`-h` is TF2's window height, not help (B836).** A pasted TF2 launch line such as `-w 1920 -h 1080 a.dem` now opens `a.dem`, where before it showed the help and tried to open a demo named `1080`. `--help`, `-?` and `/?` still show the help. The window size itself is not applied.
 
-- **A held menu shortcut fires once (B827).** Holding a CTRL or ALT chord such as `CTRL+w` (wireframe) repeated the menu action at the keyboard's repeat rate, so the view flickered and landed on whichever state the release caught. The press runs it once, as TF2 runs a bind on the press; the repeats do nothing.
+- **A held menu shortcut fires once (B827).** Holding a menu shortcut such as `CTRL+w` (wireframe) repeated the menu action at the keyboard's repeat rate, so the view flickered and landed on whichever state the release caught. The press runs it once, as TF2 runs a bind on the press; the repeats do nothing.
 
 ## Changes in 0.1.0-beta.71
 
