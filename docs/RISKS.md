@@ -46352,10 +46352,13 @@ own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder 
 `OBS_MODE_DEATHCAM`), TF2 never hands a key to the spectator, so SPACE runs its `+jump` binding or alias and MOUSE1 its
 `+attack`; the viewer's camera still switches and cycles there. The launch line's `spec_next`, `spec_prev`, `spec_mode`
 (B844 review 1, Fable) act too, where TF2's `stuffcmds` runs them with no local player and they return
-(`SpectatorGUI.cpp:790`). On every point-of-view demo, whatever the recorder's state, `spec_next`, `spec_prev` and
-`spec_mode` go to `ForwardSpecCmdToServer`, which returns while a demo plays (`SpectatorGUI.cpp:766-769`; only
-`engine->IsHLTV()` handles them client-side), so TF2's camera never moves from them there; the viewer's cycles and
-switches (B844 review 2, Fable). *Not fixed*.
+(`SpectatorGUI.cpp:790`). On every point-of-view demo TF2's camera never moves from `spec_next`, `spec_prev` and
+`spec_mode`: with a live recorder they return at `!pPlayer->IsObserver()` (`SpectatorGUI.cpp:790, 811, 832`), and with a
+dead one they reach `ForwardSpecCmdToServer`, which returns while a demo plays (`:766-769`; only `engine->IsHLTV()`
+handles them client-side); the viewer's cycles and switches (B844 reviews 2 and 3, Fable). And from B844 review 3: an
+alias or compound bind that runs `+attack`, `+attack2` or `+jump` moved the camera on every demo before B844 and now only
+sets the button, as TF2's does; whether a crosshair-script config's wrapped `+attack` should still cycle is the owner's.
+*Not fixed*.
 
 ## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
 
@@ -46439,6 +46442,21 @@ its default and cycle, which is worse than nothing until B851; the session's one
 Gemini). Sabotage, each restored: no `+strafe` in `DoesSomething` reddens the SPACE row; `IsCommand` without the three
 reddens the alias test; `ArgC() > 1` reddens `spec_mode 5 6`; the strafe branch answering false reddens both spectating
 rows. Presentation 381 of 381 in `ConfigConsoleConformanceTests`.
+
+Review 3 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: the claim, the settings projection and
+the unbound report credited a bind with an action it does not fire (Fable, Sonnet) — `spec_mode 5` claimed the camera
+switch, so after `unbindall` SPACE lost its `+jump` default and no key switched; an alias that runs `+attack` claimed
+cycling and named its key on the settings screen while it only sets the button. `Expand` takes a `credit` mode for those
+three readers, counting a spectator button only as a key's whole exact binding and `spec_mode` only without exactly one
+argument (`Load_BindsThatNameASpectatorActionWithoutFiringIt_LeaveTheDefaultsTheirKeys`); whether a key is the config's
+still asks what the bind names. The `+strafe` test asserts the key's answer on every row and has SPACE with `+STRAFE`
+falling back to its `+jump` (all three); two stale comments that called `+strafe` unimplemented (Fable). **For the owner
+(D246, recorded under B845):** an alias or compound bind that runs `+attack`, `+attack2` or `+jump` cycled or switched
+the camera before this branch on every demo and now only sets the button, which is TF2's behaviour; a config that wraps
+`+attack` in an alias for a crosshair script loses cycling on that key (Sonnet). Not taken: the record of
+`ForwardSpecCmdToServer`'s path for a live recorder (Fable) is corrected in B845; `Applied` counting `+strafe` with no
+demo open (Fable, Sonnet) matches the key being the config's; the user docs (Sonnet) are the release's pass. Sabotage,
+restored: the credit check dropped reddens the claim test. Presentation 383 of 383 in `ConfigConsoleConformanceTests`.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs

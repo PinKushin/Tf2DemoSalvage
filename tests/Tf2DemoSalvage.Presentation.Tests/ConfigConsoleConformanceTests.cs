@@ -1001,7 +1001,8 @@ public sealed class ConfigConsoleConformanceTests
     {
         // `resetspeed` is one of the viewer's own one-shots, which the host performs from the console's `Triggered` since
         // B825, so it takes the key: a menu shortcut on the same key must not fire it again. Until B825 it did not, and
-        // the host matched the key itself. `+strafe` is TF2's and means nothing here, so it may not take the key.
+        // the host matched the key itself. `+strafe` with nobody spectating is TF2's strafe button, which this viewer does not
+        // implement, so it may not take the key; spectating, it turns the auto-director on (B844).
         ConfigConsole console = new();
         console.Load($"bind k \"{command}\"");
 
@@ -2905,11 +2906,17 @@ public sealed class ConfigConsoleConformanceTests
     /// (`hltvcamera.cpp:868-871`). It sets 1, it does not toggle, so a second press leaves it on. The control: with nobody
     /// spectating the key runs its own `+strafe`, which this viewer does not implement, and the value stays 0.
     /// </remarks>
-    [TestCase("k", "+strafe", true, "1")]
-    [TestCase("k", "+strafe", false, "0")]
-    [TestCase("k", "+STRAFE", true, "0")]
-    [TestCase("SPACE", "+strafe", true, "1")]
-    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(string key, string binding, bool spectating, string expected)
+    /// <remarks>
+    /// The key's answer is asserted on every row (review 3, Fable, Gemini, Sonnet), and SPACE with `+STRAFE` falls back to
+    /// its own default: a binding in another case is not the spectator's, so it names nothing here and `+jump` runs.
+    /// </remarks>
+    [TestCase("k", "+strafe", true, "1", true, 0)]
+    [TestCase("k", "+strafe", false, "0", false, 0)]
+    [TestCase("k", "+STRAFE", true, "0", false, 0)]
+    [TestCase("SPACE", "+strafe", true, "1", true, 0)]
+    [TestCase("SPACE", "+STRAFE", true, "0", true, 2)]
+    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(
+        string key, string binding, bool spectating, string expected, bool taken, int raisedCount)
     {
         ConfigConsole console = ConfigConsole.WithDefaults();
         console.Spectating = () => spectating;
@@ -2917,14 +2924,31 @@ public sealed class ConfigConsoleConformanceTests
         console.Triggered += (_, e) => raised.Add(e.Action);
         console.Load($"spec_autodirector 0\nbind {key} {binding}");
 
-        bool taken = console.KeyDown(key);
+        bool answered = console.KeyDown(key);
         console.KeyUp(key);
         console.KeyDown(key);
 
-        console.ConVar("spec_autodirector").ShouldBe(expected);
+        (console.ConVar("spec_autodirector"), answered, raised.Count).ShouldBe((expected, taken, raisedCount));
+    }
 
-        // The swallowed key is the spectator's, and SPACE's default (`+jump`) does not run beside it (review 2, Fable, Sonnet).
-        (taken || expected == "0", raised.Count).ShouldBe((true, 0));
+    /// <remarks>
+    /// **The claim counts only what a bind fires** (B844 review 3, Fable, Sonnet): `spec_mode 5` sets a mode this viewer
+    /// does not implement, so it does not claim the camera switch and SPACE keeps its `+jump` default after `unbindall`; an
+    /// alias that runs `+attack` only sets the button, so MOUSE1 keeps cycling and the settings screen names MOUSE1.
+    /// </remarks>
+    [Test]
+    public void Load_BindsThatNameASpectatorActionWithoutFiringIt_LeaveTheDefaultsTheirKeys()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nbind k \"spec_mode 5\"\nalias +m2 +attack\nalias -m2 -attack\nbind MOUSE2 +m2");
+
+        console.KeyDown("SPACE");
+
+        raised.ShouldBe([ViewerAction.SwitchCameraMode]);
+        console.Bindings().KeyFor(ViewerAction.CycleTargetForward).ShouldBe("MOUSE1");
     }
 
     /// <remarks>

@@ -437,7 +437,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                foreach (ViewerAction action in Expand(command, depth: 0))
+                foreach (ViewerAction action in Expand(command, depth: 0, credit: true))
                 {
                     _claimed.Add(action);
                 }
@@ -1714,7 +1714,7 @@ public sealed class ConfigConsole
         // vanish from a report that is supposed to be the alarm for exactly this.
         foreach (string key in _binds.Keys.Union(_defaults.Keys, StringComparer.OrdinalIgnoreCase))
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
+            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0, credit: true))
             {
                 reachable.Add(action);
             }
@@ -1747,7 +1747,7 @@ public sealed class ConfigConsole
 
         foreach (string key in _binds.Keys)
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
+            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0, credit: true))
             {
                 bound.TryAdd(action, key);
             }
@@ -2609,6 +2609,21 @@ public sealed class ConfigConsole
         return true;
     }
 
+    /// <summary>
+    /// Whether a clause fires its action (B844 review 3): a spectator button only as a key's whole, exact binding, and
+    /// `spec_mode` only without exactly one argument.
+    /// </summary>
+    private static bool Fires(string commandLine, IReadOnlyList<string> tokens, int depth)
+    {
+        if (IsSpectatorButton(tokens[0]))
+        {
+            return depth == 0 && SpectatorKeys.ContainsKey(commandLine);
+        }
+
+        return !(tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
+                 moded == ViewerAction.SwitchCameraMode);
+    }
+
     /// <summary>Every action a command reaches by expansion.</summary>
     /// <remarks>
     /// Used only for the static projection and the applied count. The runtime expands as it goes,
@@ -2622,7 +2637,13 @@ public sealed class ConfigConsole
     /// of actions and the table does not change while it is read, so `alias a "a;a;a;a"` bound to a key costs at most
     /// <see cref="MaximumExpansion"/> walks of each alias rather than 4^20 calls (B820 review 3, Sonnet).
     /// </param>
-    private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null)
+    /// <param name="credit">
+    /// Whether to count only what the bind FIRES (B844 review 3, Fable, Sonnet), for the claim, the settings projection and
+    /// the unbound report: a spectator button reached any way but a key's exact binding only sets its button, and
+    /// `spec_mode n` sets a mode this viewer does not implement (B851). Without it, what a bind names, which decides
+    /// whether the key is the config's.
+    /// </param>
+    private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null, bool credit = false)
     {
         List<ViewerAction> found = [];
         walked ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -2648,7 +2669,7 @@ public sealed class ConfigConsole
                 if (!walked.TryGetValue(tokens[0], out int reached) || depth < reached)
                 {
                     walked[tokens[0]] = depth;
-                    found.AddRange(Expand(body, depth + 1, walked).Where(action => !found.Contains(action)));
+                    found.AddRange(Expand(body, depth + 1, walked, credit).Where(action => !found.Contains(action)));
                 }
 
                 continue;
@@ -2666,6 +2687,11 @@ public sealed class ConfigConsole
             // doing nothing and falls back to that default.
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
+
+            if (credit && !Fires(commandLine, tokens, depth))
+            {
+                continue;
+            }
 
             if (action is { } named && !found.Contains(named))
             {
