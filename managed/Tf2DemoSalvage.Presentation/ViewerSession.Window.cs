@@ -288,10 +288,13 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
 
         // The engine's demo player answers whether a demo plays back, which TF2's `screenshot` asks first (B841 review 9).
-        _console.PlayingBack = () => _presenter.HasDemo;
+        // From the open on: `playdemo` starts playback before the map loads (B841 review 10, Fable, Sonnet).
+        _console.PlayingBack = () => _presenter.HasDemo || _presenter.LoadsInFlight > 0;
 
         // A SourceTV demo draws through the HLTV camera, which TF2's first- and third-person commands do not reach.
-        _console.HltvPlayback = () => _presenter.Timeline is { HasRecordedView: false };
+        // `engine->IsHLTV()`, asked directly: a POV demo with no recorded view is still drawn through its local player
+        // (B841 review 10, Sonnet).
+        _console.HltvPlayback = () => _presenter.Timeline is { IsSourceTv: true };
 
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;

@@ -46346,7 +46346,17 @@ at 0, one at 1), whichever key or command runs it; the viewer's F5 captures duri
 `thirdperson` only flip the third-person flag, which a SourceTV demo's HLTV camera never reads (`view.cpp:660-662`,
 `hltvcamera.cpp:510-545`); the viewer's keys for them change its camera on any demo. Both are above Valve as they
 stand, and parity never removes a feature (D246): **the owner decides** whether each becomes a row in
-`docs/ABOVE-VALVE.md` with its test, or follows TF2. *Not fixed*.
+`docs/ABOVE-VALVE.md` with its test, or follows TF2. The launch line is the same (B841 review 10, Fable): its
+`+wait +screenshot` captures during playback and its `+thirdperson` acts on a SourceTV demo, exempt through the line's
+own one-shot rule (B829). *Not fixed*.
+
+## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
+
+Found in B841 review 10 (Fable). The viewer draws frames while a demo decodes and loads (`ViewerSession.Capture`), and
+each runs the console, so a config's `wait` counts loading frames. TF2's host frame does not run the command buffer
+while the level loads. *Read from memory*, not from the engine: which call holds the buffer during a load is not read.
+Fix shape: read the load path in `engine.dll`, then run no `Execute` while `LoadsInFlight` is above 0 if the engine
+holds it. *Not fixed*.
 
 ## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
 
@@ -46567,7 +46577,25 @@ Review 9 (Fable, Sonnet; Gemini after):
 - **Not taken:** the widened `ABOVE-VALVE.md` check still skips a malformed row or a non-`\w` name, and counts a mention
   as a test (Fable, Sonnet); it holds every row today. The `+jump`/`+attack`/`+attack2` zero cases have no control
   that the command was queued (Fable); the same template's other cases show it is.
-- Gemini's review 9 was still running when this was written. 2,236 of 2,236 pass.
+- Gemini, after: the screenshot gate, already made, and low items: a mutant skipping `autoexec.cfg` in the dot-slash
+  test's second read survived, as `config.cfg` replayed the file first; `config.cfg` now goes before that read.
+
+Review 10 (Fable, Sonnet):
+- **The SourceTV test asked the wrong question** (both): `HasRecordedView: false` is also a POV demo with no view
+  recorded, which TF2 draws through its local player. The session now asks `IsSourceTv`, the timeline's
+  `engine->IsHLTV()`.
+- **A demo still loading is already playing back** (both): `playdemo` starts playback before the map loads, where the
+  viewer's `HasDemo` waits for the decode. `PlayingBack` is now `HasDemo || LoadsInFlight > 0`;
+  `RenderFrame_AConfigsWaitedScreenshotDuringTheLoad_TakesNone`, which reddens without the in-flight half. *Not read in
+  the engine*: that `StartPlayback` sets the flag before the load (`cl_demo.cpp` is not in the SDK); both reviewers
+  read it so from memory. TF2 also runs no `Cbuf_Execute` while a map loads, where the viewer counts loading frames:
+  older than this branch, filed as **B847**.
+- **Known bounds:** at a demo's end TF2 stops playback, so a later `screenshot` acts, where the viewer keeps the demo
+  open and refuses a config's (Fable, Sonnet); `CAM_ToFirstPerson` first asks `CanUseFirstPersonCommand`, whose TF
+  override is unread, and a replay demo's `ReplayCamera()` (`view.cpp:664-668`) is not covered by `IsSourceTv` (Fable);
+  `cl_playback_screenshots 0.5` is off as `GetBool` is `!!GetInt`, untested.
+- B845 names the launch line too (Fable): its `+wait +screenshot` and `+thirdperson` are exempt through `_stuffing`.
+- 2,239 of 2,239 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text

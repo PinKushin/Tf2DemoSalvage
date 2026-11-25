@@ -487,6 +487,8 @@ public sealed class ConfigConsoleLoadFromTests
         LoadAndRun(console, game, NowhereFolder());
         triggered().ShouldBe(1, "the control: the dot-slash spelling reached the file");
 
+        // `config.cfg` goes, so only the new `autoexec.cfg` can reach the file the second time (B841 review 9, Gemini).
+        File.Delete(Path.Combine(game, "cfg", "config.cfg"));
         File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
         LoadAndRun(console, game, NowhereFolder());
 

@@ -2508,6 +2508,33 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A demo still loading is already playing back** (B841 review 10, Fable, Sonnet): `playdemo` starts playback before
+    /// the map loads, so a config's waited `screenshot` that comes due during the load takes none. The frames run while the
+    /// load is in flight; the control is that a load was in flight for them.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_AConfigsWaitedScreenshotDuringTheLoad_TakesNone()
+    {
+        string demo = WriteDemo("loading", ticks: 600);
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }, 0.5, demo)
+            .WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        rig.Session.Presenter.LoadsInFlight.ShouldBeGreaterThan(0, "the control: the load is in flight");
+
+        for (int frame = 0; frame < 3; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Device.Captured.Count.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A chosen folder's reread of a config already read is no second launch** (B841 reviews 2 to 4, Fable, Sonnet,
     /// Gemini; B829): a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or
     /// after the screenshot was taken. **A config the folder holds that no read saw is read as new** (review 4, Sonnet):
