@@ -46381,6 +46381,17 @@ body and credits the key with it, where TF2 swallows the key before any alias (B
 measured. Fix shape: the spectator menu panel, then the key, answered exactly before any alias as the three buttons are.
 *Not fixed*.
 
+## B858 — the settings projection names a default key for an action that key no longer fires (2026-11-25) — OPEN
+
+Found in B844 review 13 (Fable). `ConfigConsole.Bindings()` credits each key with what it fires, then hands the result
+to `KeyBindings`, whose constructor starts from `Defaults` (`ViewerAction.cs:217`). An action no key fires therefore
+keeps its default key in the projection even when the config rebound that key to something else: `bind SHIFT +duck`
+leaves fly-walk shown on SHIFT, `alias +m1 +attack; bind MOUSE1 +m1` leaves cycling on MOUSE1 though pressing it only
+sets the button, and `bind SPACE +strafe` leaves the camera switch on SPACE. `Unbound()` reports each correctly; only
+the projection disagrees. Not a parity question (TF2 has no such screen); the viewer's own settings screen is above
+Valve, so a change is shown to the owner first. Fix shape: the projection leaves an action whose default key no longer
+fires it without a key (`KeyFor` nullable, and its readers), or marks it unbound. *Not fixed*.
+
 ## B857 — a coach's POV demo answers every spectator key as a spectator's, where TF2 takes only `+jump` (2026-11-25) — OPEN
 
 Found in B844 review 12 (Fable). TF2 overrides `HandleSpectatorKeyInput`: `ClientModeTFNormal::HandleSpectatorKeyInput`
@@ -46613,6 +46624,19 @@ while a demo still loads (Sonnet), and a camera action then has no timeline to a
 each restored: the "names" reading skipping a spectator button reddens the `w` test; the button-only branch answering
 false reddens the unwired, compound and other-case rows (an alias row's key is taken by the alias's own run).
 Presentation 2316 of 2316.
+
+Review 13 (Fable, Sonnet, Codex). **Corrected records** (review 12's own text is left as written; these are what it
+should have said): "the unwired … rows" is the not-spectating row, `Spectating = () => false` (Fable); "a camera action
+then has no timeline to act on, so it does nothing" is *unread*, nothing traced `CycleTarget` or the mode switch with no
+timeline (Sonnet); review 11's "the SPACE test's projection already reads" the skip was wrong, since `Bindings().KeyFor`
+fills an unreached action from its default and so names SPACE either way (Fable): that test now asserts `Unbound()`;
+review 10's "had no test" for the `Spectating` wiring meant no unit or session test, as review 4 had recorded the UI
+test `FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer` (Sonnet). **Reviews 3 and 8's settings-screen claims need a
+caveat** (Fable): the projection credits only keys that fire, but fills any action no key fires from its default key,
+so `alias +m1 +attack` with `bind MOUSE1 +m1`, or `bind SPACE +strafe`, still shows MOUSE1 or SPACE for an action those
+keys no longer fire. That fill is older than B844 (`bind SHIFT +duck` leaves fly-walk named on SHIFT), and changing it
+changes what the settings screen shows: filed as **B858**. Not taken: Codex's reading of the launch line's `spec_*`
+against D266 (review 2's not-taken): those are commands, D266 is about the three buttons.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,

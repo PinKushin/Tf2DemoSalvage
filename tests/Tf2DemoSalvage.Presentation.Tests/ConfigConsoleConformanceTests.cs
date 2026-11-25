@@ -2987,8 +2987,10 @@ public sealed class ConfigConsoleConformanceTests
 
         console.KeyDown("SPACE");
 
-        (string.Join(',', raised), console.Bindings().KeyFor(ViewerAction.SwitchCameraMode))
-            .ShouldBe((nameof(ViewerAction.SwitchCameraMode), "SPACE"));
+        // The unbound report, not `Bindings().KeyFor`, which fills an unreached action from its default (B844 review 13,
+        // Fable; B858).
+        (string.Join(',', raised), console.Unbound().Contains(ViewerAction.SwitchCameraMode))
+            .ShouldBe((nameof(ViewerAction.SwitchCameraMode), false));
     }
 
     /// <remarks>
