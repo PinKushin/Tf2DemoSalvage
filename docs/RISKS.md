@@ -46338,9 +46338,17 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — OPEN
+## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — FIXED (2026-11-25)
 
-Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
+**Fixed.** The one-shot rule is now decided by when the command runs. A config's one-shot that runs during a frame's
+`Execute` acts, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson` and `thirdperson`. The same
+one-shot run at the load itself still does nothing (B820 review 1). The viewer's own names (`togglefullscreen`,
+`resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown to TF2, so they do nothing at any tick. The
+test is `Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt`: `screenshot; wait; screenshot` raises nothing
+at the load and one trigger after two `Execute` calls. The `togglefullscreen` case is the control and stays at zero.
+Sabotage: with the frame-run flag never set, the `screenshot` case reddens alone (1 of 2,179).
+
+The original entry follows. Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
 `demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup, before a demo plays. A
 command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
 `wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be playing.

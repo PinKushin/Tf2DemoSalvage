@@ -701,6 +701,7 @@ public sealed class ConfigConsole
 
         _waitEnabled = waitAllowed;
         int last = _tick;
+        _inFrameRun = true;
 
         try
         {
@@ -708,9 +709,20 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _tick = last + 1;
+            (_tick, _inFrameRun) = (last + 1, false);
         }
     }
+
+    /// <summary>Whether a frame's <see cref="Execute"/> is running, as against a load or a key run at once (B841).</summary>
+    private bool _inFrameRun;
+
+    /// <summary>
+    /// The one-shots that are TF2's own commands (`screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`), which a
+    /// config's `wait` can put off to a tick when they act (B841); every other one-shot is the viewer's own name, unknown to
+    /// TF2, or a bare ConVar, which TF2 only prints.
+    /// </summary>
+    private static readonly HashSet<ViewerAction> Tf2OneShots =
+        [ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView];
 
     /// <summary>
     /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
@@ -2294,7 +2306,11 @@ public sealed class ConfigConsole
         // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
         // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
         // `exec`s' included (B829): `stuffcmds` runs every command it adds.
-        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
+        // **Unless a `wait` put it off to a frame's run, and TF2 has the command** (B841): there it runs at its tick, during
+        // the viewer's run, and acts (`screenshot` 500 ticks into the session takes one). The viewer's own names are
+        // unknown to TF2 and do nothing at any tick.
+        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
+            !(_inFrameRun && Tf2OneShots.Contains(shot)))
         {
             return true;
         }

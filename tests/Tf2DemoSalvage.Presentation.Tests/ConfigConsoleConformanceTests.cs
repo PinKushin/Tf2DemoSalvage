@@ -2463,6 +2463,27 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar(Alpha).ShouldBe(adds);
     }
 
+    /// <remarks>
+    /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): `screenshot` waited a tick acts at the second
+    /// `Execute`, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The viewer's own
+    /// `togglefullscreen` is unknown to TF2 and does nothing at any tick.
+    /// </remarks>
+    [TestCase("screenshot", 1)]
+    [TestCase("togglefullscreen", 0)]
+    public void Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt(string command, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"{command}; wait; {command}");
+        triggered.ShouldBe(0, "the control: a config's one-shot does nothing at the load");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
     private static List<string> Recorded(ConfigConsole console)
     {
