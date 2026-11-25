@@ -46574,7 +46574,8 @@ frame speed and the key's tick order below). Fixed:
   summary and the labels say B832 review 1 (Fable, Sonnet).
 - Each fix sabotaged alone reddened its own test.
 
-**Review 3** (Fable, Gemini pending, Sonnet, Grok; no blocker). Fixed:
+**Review 3** (Fable, Gemini, Sonnet, Grok; Gemini called the first and third bullets below blockers; all five of its
+findings are among them). Fixed:
 - A key's whole text is linked into the queue by tick and run from it, so a command a key's own alias puts off to a
   tick its text also holds runs after the key's (Fable). Round 2's per-command drain ran it first. Test
   `KeyDown_AnAliasPuttingOffToATickItsKeyHolds_RunsAfterTheKeys`. The key is answered for its own commands only.
