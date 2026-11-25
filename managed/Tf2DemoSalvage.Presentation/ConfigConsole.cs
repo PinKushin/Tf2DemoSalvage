@@ -357,7 +357,12 @@ public sealed class ConfigConsole
     /// </summary>
     /// <remarks>One question for <see cref="CommandFor"/>, which keeps such a command over the viewer's default, and for
     /// <see cref="Applied"/>, which counts it.</remarks>
-    private bool DoesSomething(string command) => Expand(command, depth: 0).Count > 0 || SetsState(command);
+    /// <remarks>
+    /// An exact `+strafe` does something too (B844 review 2, Fable, Sonnet): the spectator's key turns the auto-director on,
+    /// so a config that binds it takes the key, as TF2's does, rather than falling back to the viewer's default.
+    /// </remarks>
+    private bool DoesSomething(string command) =>
+        Expand(command, depth: 0).Count > 0 || SetsState(command) || string.Equals(command, AutoDirectorKey, StringComparison.Ordinal);
 
     /// <summary>
     /// Whether a command line names a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
@@ -1784,7 +1789,7 @@ public sealed class ConfigConsole
     /// shadowed by an alias of its name here and is not in TF2; that alias's command does nothing here either way.
     /// </remarks>
     private static bool IsCommand(string name) =>
-        BuiltIns.Contains(name) || EngineConVars.TryByConsoleName(name, out _) || KeyBindings.ActionOf(name) is not null;
+        BuiltIns.Contains(name) || EngineConVars.TryByConsoleName(name, out _) || OneShotOf(name) is not null;
 
     /// <summary>Runs one of this console's own ConCommands: binds, aliases and `exec`.</summary>
     /// <returns>Whether the clause named one, whatever its arguments.</returns>
@@ -2423,6 +2428,9 @@ public sealed class ConfigConsole
 
         string command = tokens[0];
 
+        // `ArgC()`, before a set's arguments are joined into one below: `spec_mode` reads exactly two (B844 review 2).
+        int argumentCount = tokens.Count;
+
         // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
         // where the name is a `+`/`-` button, which an alias may replace.
         if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
@@ -2531,7 +2539,8 @@ public sealed class ConfigConsole
 
         // **`spec_mode <n>` sets mode n rather than cycling** (`SpectatorGUI.cpp:847-851`, B844 review 1, Fable), which this
         // viewer does not implement: B851. Cycling there would be the wrong mode, so it does nothing, as it did before B844.
-        if (tokens.Count > 1 && SpectatorCommands.TryGetValue(command, out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode)
+        // Exactly one argument (`ArgC() == 2`); with more it cycles, as TF2's does (review 2, Fable, Sonnet).
+        if (argumentCount == 2 && SpectatorCommands.TryGetValue(command, out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode)
         {
             return true;
         }

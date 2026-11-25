@@ -2905,18 +2905,62 @@ public sealed class ConfigConsoleConformanceTests
     /// (`hltvcamera.cpp:868-871`). It sets 1, it does not toggle, so a second press leaves it on. The control: with nobody
     /// spectating the key runs its own `+strafe`, which this viewer does not implement, and the value stays 0.
     /// </remarks>
-    [TestCase(true, "1")]
-    [TestCase(false, "0")]
-    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(bool spectating, string expected)
+    [TestCase("k", "+strafe", true, "1")]
+    [TestCase("k", "+strafe", false, "0")]
+    [TestCase("k", "+STRAFE", true, "0")]
+    [TestCase("SPACE", "+strafe", true, "1")]
+    public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(string key, string binding, bool spectating, string expected)
     {
-        ConfigConsole console = new() { Spectating = () => spectating };
-        console.Load("spec_autodirector 0\nbind k +strafe");
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = () => spectating;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"spec_autodirector 0\nbind {key} {binding}");
 
-        console.KeyDown("k");
-        console.KeyUp("k");
-        console.KeyDown("k");
+        bool taken = console.KeyDown(key);
+        console.KeyUp(key);
+        console.KeyDown(key);
 
         console.ConVar("spec_autodirector").ShouldBe(expected);
+
+        // The swallowed key is the spectator's, and SPACE's default (`+jump`) does not run beside it (review 2, Fable, Sonnet).
+        (taken || expected == "0", raised.Count).ShouldBe((true, 0));
+    }
+
+    /// <remarks>
+    /// **`spec_mode` takes a mode only with exactly one argument; the other two ignore theirs** (B844 review 2, Fable,
+    /// Sonnet): `args.ArgC() == 2` (`SpectatorGUI.cpp:847`), so `spec_mode 5 6` cycles as the bare command does, and
+    /// `spec_next x` reads no argument (`:786-805`).
+    /// </remarks>
+    [TestCase("spec_next x", ViewerAction.CycleTargetForward)]
+    [TestCase("spec_mode 5 6", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_ASpectatorCommandWithArgumentsItIgnores_StillActs(string command, ViewerAction expected)
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k \"{command}\"");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+    }
+
+    /// <remarks>
+    /// **An alias cannot take a spectator command's name** (B844 review 2, Fable): `Cmd_ExecuteCommand` finds the ConCommand
+    /// before any alias (`engine.dll` build 1007 FUN_1801678a0), so `spec_next` still cycles and the alias's body never runs.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasNamedLikeASpectatorCommand_RunsTheCommand()
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("alias spec_next \"cl_showfps 2\"\nbind k spec_next");
+
+        console.KeyDown("k");
+
+        (raised.Count, raised[0], console.ConVar("cl_showfps")).ShouldBe((1, ViewerAction.CycleTargetForward, null));
     }
 
     /// <remarks>

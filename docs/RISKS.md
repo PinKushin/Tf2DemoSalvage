@@ -46352,7 +46352,10 @@ own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder 
 `OBS_MODE_DEATHCAM`), TF2 never hands a key to the spectator, so SPACE runs its `+jump` binding or alias and MOUSE1 its
 `+attack`; the viewer's camera still switches and cycles there. The launch line's `spec_next`, `spec_prev`, `spec_mode`
 (B844 review 1, Fable) act too, where TF2's `stuffcmds` runs them with no local player and they return
-(`SpectatorGUI.cpp:790`). *Not fixed*.
+(`SpectatorGUI.cpp:790`). On every point-of-view demo, whatever the recorder's state, `spec_next`, `spec_prev` and
+`spec_mode` go to `ForwardSpecCmdToServer`, which returns while a demo plays (`SpectatorGUI.cpp:766-769`; only
+`engine->IsHLTV()` handles them client-side), so TF2's camera never moves from them there; the viewer's cycles and
+switches (B844 review 2, Fable). *Not fixed*.
 
 ## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
 
@@ -46360,7 +46363,10 @@ Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi
 (`SpectatorGUI.cpp:847-851`); a recorded TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
 three modes (free, first person, third person), so the mapping from the engine's seven is a design question: in eye and
 chase map directly, roaming to free, fixed and point of interest have no counterpart. Until it is decided the command
-with an argument does nothing, as it did before B844. *Read*, not measured. *Not fixed*.
+with an argument does nothing, as it did before B844. Exactly one argument (`ArgC() == 2`); with more it cycles, which the
+viewer does. Every `spec_mode` on SourceTV ends with `SetAutoDirector( false )` (`:868`), bare or not: whether the
+viewer's own mode switch (`CameraPresenter.CycleCameraMode`) turns the director off is not read. *Read*, not measured.
+*Not fixed*.
 
 ## B850 — a key bound to `+duck` opens no spectator menu while spectating (2026-11-25) — OPEN
 
@@ -46418,6 +46424,21 @@ action's button; the launch line's `spec_*` act with no local player where TF2's
 with the line's other one-shots. Sabotage, each restored: no `+strafe` branch reddens its spectating case; `Expand`
 without the spectator commands reddens `bind MOUSE1 spec_prev`; the argument guard dropped reddens `spec_mode 5`.
 Presentation 376 of 376 in `ConfigConsoleConformanceTests`.
+
+Review 2 (Fable, Gemini, Sonnet). No divergence in the exact-key branches. Fixed: `+strafe` on a key with a viewer
+default fell back to the default (all three): an exact `+strafe` now counts as doing something, so `bind SPACE +strafe`
+sets the auto-director and SPACE's `+jump` does not run; an alias named `spec_next` shadowed the command (Fable, Gemini):
+`IsCommand` knows the three, as `Cmd_ExecuteCommand` finds a ConCommand before an alias; `spec_mode 5 6` did nothing where
+TF2 cycles (Fable, Gemini, Sonnet): the guard reads `ArgC() == 2` before a set's arguments are joined; tests for the
+key's answer, `+STRAFE`, and `spec_next x` still cycling (all three). Recorded: on every point-of-view demo TF2's
+`spec_*` reach `ForwardSpecCmdToServer`, which returns while a demo plays (`SpectatorGUI.cpp:766-769`, Fable), so its
+camera never moves from them there, dead recorder included: added to B845. `spec_mode` turns the auto-director off,
+with or without an argument (`:868`): added to B851, whether the viewer's own mode switch does is unread. Not taken: the
+bindings projection credits `spec_mode 5` to the camera switch (Gemini) — taking it out would make the key fall back to
+its default and cycle, which is worse than nothing until B851; the session's one-line wiring of `Spectating` (Fable,
+Gemini). Sabotage, each restored: no `+strafe` in `DoesSomething` reddens the SPACE row; `IsCommand` without the three
+reddens the alias test; `ArgC() > 1` reddens `spec_mode 5 6`; the strafe branch answering false reddens both spectating
+rows. Presentation 381 of 381 in `ConfigConsoleConformanceTests`.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
