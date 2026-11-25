@@ -144,12 +144,12 @@ public sealed class ServerConVars
     /// A method, not a property: `TimelineFingerprint` walks public properties, and a delegate's `Target` leads back here
     /// without end — the test host died of the stack overflow while reporting a passing, truncated total.
     ///
-    /// **Ask it only of a set that is never applied again** (B843 review 2, Fable, Sonnet): `ServerConVarsAt`'s snapshots
-    /// and the defaults. `StateCopy` shares delegates, so a copy of a set whose lookup was made keeps one bound to the
-    /// original; on the walk's live set, an `Apply` to either would leave the other answering from it.
+    /// **A copy makes its own** (B843 review 3, Fable): the cache is `NotCopied`, so `StateCopy` neither shares a delegate
+    /// bound to the original nor counts a read of it as a change to the checkpoint's digest.
     /// </remarks>
     public Func<string, string?> Lookup() => _lookup ??= Value;
 
+    [Scene.StateCopy.NotCopied]
     private Func<string, string?>? _lookup;
 
     /// <summary>The value in force, as text.</summary>

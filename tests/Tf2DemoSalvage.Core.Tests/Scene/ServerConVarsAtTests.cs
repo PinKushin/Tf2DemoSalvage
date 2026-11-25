@@ -56,6 +56,7 @@ public sealed class ServerConVarsAtTests
 
         atTen.Lookup().ShouldBeSameAs(atTen.Lookup());
         timeline.ServerLookupAt().ShouldBeSameAs(timeline.ServerLookupAt());
+        timeline.ServerLookupAt()(10).ShouldBeSameAs(atTen.Lookup(), "a tick's lookup is its set's, not a new one (review 3, Fable)");
         timeline.ServerLookupAt()(10)!("sv_gravity").ShouldBe("400", "the control");
     }
 

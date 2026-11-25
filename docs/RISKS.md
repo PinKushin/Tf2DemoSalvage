@@ -46783,6 +46783,17 @@ argument, in one statement, and its remark names the D180 exception. Sabotage, e
 identity test; the in-force set dropped at the cut reddens the window test; no reset reddens both voice-icon cases.
 Presentation 2,267 of 2,267, Core 3,298 (40 skipped).
 
+Review 3 (Fable, Gemini, Sonnet): no engine divergence. Fixed: a tick's lookup built a fresh delegate each event and
+survived (Fable, Gemini): the identity test now asks `ServerLookupAt()(10)` to be the set's own `Lookup()`; `_lookup`
+was a cache a read wrote into on a set the checkpoints share, so a HUD read could change a checkpoint's digest, and the
+review-2 remark only warned of it (Fable, Gemini, Sonnet): it is `[StateCopy.NotCopied]`, so a copy makes its own and the
+digest skips it, and the remark says so; the frame's own tick had no boundary case (Fable):
+`HudStatesTests.For_AFrameAtASetsTick_ReadsItFromThatTickOn` (tick 9 reads the default, 10 the set). Answered: the HUD
+viewport releases a closed demo's timeline, as the HUD thinks with a default state when none is open (Fable, for
+Sonnet's question). Not taken: a sprite-count assertion through `HeadLabels` (Sonnet) needs the speech material only an
+install has. Sabotage, each restored: the tick's lookup as `.Value` reddens the identity test; the frame read a tick
+early reddens the tick-10 case. Presentation 2,269 of 2,269, Core 3,298 (40 skipped), Scene 5,421 of 5,421.
+
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
 tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an
