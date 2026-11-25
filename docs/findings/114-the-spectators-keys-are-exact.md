@@ -48,7 +48,8 @@ while the PVS is locked (`:796, 817`), and `spec_mode` swaps eye and chase while
 `:837-841`); unlocked, with exactly one argument (`ArgC() == 2`) it sets that mode (`:843-851`), and otherwise cycles (`:852-861`). Those gates are B845, B851 and B853.
 
 TF2 overrides the function: `ClientModeTFNormal::HandleSpectatorKeyInput` (`tf/clientmode_tf.cpp:1589-1618`, **read**)
-takes only an exact `+jump` while the local player is coaching, and passes every other key on (B857).
+takes only an exact `+jump` while the local player is coaching and lets every other key through to the engine
+(`return 1`, `:1612`); a player not coaching goes to the base's (`:1616`) (B857).
 
 ## What the owner decided above that
 

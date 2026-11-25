@@ -46689,6 +46689,13 @@ holding its button keeps the free-look idle awake until released (Sonnet), which
 `spec_mode 5` test returns before any clause runs (Sonnet), so the claim is held by row 2 and the default test. Codex:
 B845's wording (same gate) and a test whose expectations it proposed changing (that reddens it).
 
+Reviews 17 and 18 (Fable, Sonnet, Codex), after main (B843) was merged in without conflict. No code defect and no merge
+blocker. Corrected findings 114: `pszCurrentBinding` being the whole binding is the engine's side, interpolated;
+`ForwardSpecCmdToServer` returns before sending anything; the cycle is `SpectatorGUI.cpp:852-861`; the vote HUD gate
+needs it visible; `+strafe` also sets the replay camera's director under `REPLAY_ENABLED`; a coaching player's other
+keys go to the engine, a non-coaching player's to the base (Fable, Sonnet). The handoff memory's merged list no longer
+spans B842, which is open (Fable). Presentation 2319 of 2319 at the last code change; nothing since but documents.
+
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
 `clientmode_shared.cpp:747-761`): it runs `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same
