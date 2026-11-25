@@ -46367,10 +46367,10 @@ alone.
 
 The original entry follows. Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action
 such as `screenshot` or `demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup,
-before a demo plays. A command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
-`wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be playing.
-*Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or the
-startup run), not by whether its text came from a config. *Not fixed*.
+before a demo plays. A command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a
+config's `wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be
+playing. *Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or
+the startup run), not by whether its text came from a config. *Not fixed*.
 
 ## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
 
