@@ -452,13 +452,17 @@ public sealed partial class FramePresenter
     {
         if (_frame.Timeline is not { } timeline)
         {
+            // Its `FindAt` holds the timeline, which a closed demo must let go (B843 review 2, Fable).
+            VoiceIconConVars = default;
             return [];
         }
 
         ((float X, float Y, float Z) _, (float X, float Y, float Z) right, (float X, float Y, float Z) _) = viewing.Basis();
 
+        VoiceIconConVars = HudStates.ServerConVars(timeline, _frame.Tick);
+
         return _headLabels.For(
-            new Scene.Hud.HudConVars(timeline.ServerConVars.Value),
+            VoiceIconConVars,
             _frame.Speaking,
             _moments.PlayersShownAt(_frame.Tick),
             new System.Numerics.Vector3(right.X, right.Y, right.Z),
@@ -466,6 +470,14 @@ public sealed partial class FramePresenter
     }
 
     private readonly HeadLabels _headLabels = new();
+
+    /// <summary>
+    /// The ConVars the last frame's voice icons were gated by (`mp_tournament`, `mp_show_voice_icons`): a deliberate test seam
+    /// (B843 review 1), read by no production code (D180's exception, named here), recording the value handed to
+    /// `HeadLabels` rather than recomputing it. A mutant that hands `For` another value and keeps this one survives (review
+    /// 2, Fable, Gemini); the property is the argument, in the one statement.
+    /// </summary>
+    internal Scene.Hud.HudConVars VoiceIconConVars { get; private set; }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
     /// <param name="frame">What the window knows of the frame.</param>

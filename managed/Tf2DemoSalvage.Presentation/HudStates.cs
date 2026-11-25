@@ -92,9 +92,21 @@ public static class HudStates
             SpectatorGuiShown = timeline.SpectatorGuiShownAt(tick),
 
             // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).
-            ConVars = new HudConVars(timeline.ServerConVars.Value),
+            ConVars = ServerConVars(timeline, tick),
             KeyLookupBinding = bindings is null ? null : bindings.KeyForCommand,
         };
+    }
+
+    /// <summary>The server's replicated ConVars as the HUD reads them at a tick, and at each event's own tick (B843).</summary>
+    /// <param name="timeline">The demo.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <returns>Every `net_SetConVar` read by the tick (`DemoTimeline.ServerConVarsAt`), not the recording's last values.</returns>
+    public static HudConVars ServerConVars(DemoTimeline timeline, int tick)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        // Both delegates are made once per timeline and per ConVar set, so a frame allocates none (B843 review 1).
+        return new HudConVars(timeline.ServerConVarsAt(tick).Lookup(), FindAt: timeline.ServerLookupAt());
     }
 
     /// <summary>The state with every player where the frame drew him — his `GetAbsOrigin()` — and all else as newest recorded (B531).</summary>

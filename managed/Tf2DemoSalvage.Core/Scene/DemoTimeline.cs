@@ -2688,8 +2688,11 @@ public sealed class DemoTimeline
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
-    /// <summary>The settings after each <c>net_SetConVar</c>, by the tick it was read at, in stream order.</summary>
-    private IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
+    /// <summary>
+    /// The settings after each <c>net_SetConVar</c>, by the tick it holds from, in stream order and tick order. The stamp
+    /// rule is stated once, at the builder's <c>SetConVarMessage</c> case, and recorded in RISKS B843 review 8.
+    /// </summary>
+    internal IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
 
     /// <summary>Valve's defaults, what a tick before the first <c>net_SetConVar</c> runs under.</summary>
     private readonly ServerConVars _defaultConVars = new();
@@ -2723,6 +2726,12 @@ public sealed class DemoTimeline
 
         return low == 0 ? _defaultConVars : changes[low - 1].ConVars;
     }
+
+    /// <summary><see cref="ServerConVarsAt"/>'s lookup at a tick, one delegate made once per timeline (B843 review 1).</summary>
+    /// <returns>The same delegate on every call; a method for the reason on <see cref="ServerConVars.Lookup"/>.</returns>
+    public Func<int, Func<string, string?>?> ServerLookupAt() => _serverLookupAt ??= tick => ServerConVarsAt(tick).Lookup();
+
+    private Func<int, Func<string, string?>?>? _serverLookupAt;
 
     /// <summary>Every <c>dem_usercmd</c>, in stream order — the recorder's input, which prediction re-runs (D205).</summary>
     public IReadOnlyList<RecordedUserCommand> UserCommands { get; private init; } = [];
@@ -3738,6 +3747,9 @@ public sealed class DemoTimeline
         private IReadOnlyList<byte>? mapHash;
         private readonly ServerConVars serverConVars;
         private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
+
+        /// <summary>The tick of the last packet read, from which a signon read after it holds (B843 review 6, Fable).</summary>
+        private int lastPacketTick = int.MinValue;
         private readonly TailList<(int Tick, SceneViewmodel Weapon)> viewmodels;
         private readonly TailList<(int Tick, ViewFog Fog)> fogSamples;
         private int fogControllersSeen;
@@ -4191,6 +4203,7 @@ public sealed class DemoTimeline
             // The events due on frames between the last packet and this one, against the last packet (B437).
             if (command.Type == DemoCommandType.Packet)
             {
+                lastPacketTick = command.Tick;
                 FireGestures(
                     queuedGestures, command.Tick - 1, interval, entities, AlwaysLoser(serverConVars), classes, gestures);
             }
@@ -4267,7 +4280,29 @@ public sealed class DemoTimeline
                     // project read it correctly, and every reader used a baked constant instead.
                     case SetConVarMessage convars:
                         serverConVars.Apply(convars);
-                        conVarHistory.Add((command.Tick, serverConVars.Snapshot()));
+
+                        // A signon's tick is the server's when recording began, not a playback tick (`z1800`: 70,718
+                        // against a first packet at 6), and the set applies before any packet, so it holds from the start
+                        // (B843 review 4, Fable), as the light styles' does below. A signon after a packet (none is known)
+                        // is taken to apply when read, after that packet's events (*interpolated*: the demo player's command
+                        // loop is closed), so it holds from the tick after the last packet read (reviews 5 to 7, Fable,
+                        // Sonnet). Every stamp is at least the one before it, so `ServerConVarsAt`'s binary search holds
+                        // whatever the stream does (review 8, Fable, Gemini, Sonnet; a POV demo's packets can repeat a tick,
+                        // finding 106): a packet repeating a tick after a late signon
+                        // takes the signon's stamp, a recorded bound beside the same-tick one.
+                        int stamp = command.Tick;
+
+                        if (command.Type == DemoCommandType.Signon)
+                        {
+                            stamp = lastPacketTick == int.MinValue ? int.MinValue : lastPacketTick + 1;
+                        }
+
+                        if (conVarHistory.Count > 0)
+                        {
+                            stamp = Math.Max(stamp, conVarHistory[conVarHistory.Count - 1].Tick);
+                        }
+
+                        conVarHistory.Add((stamp, serverConVars.Snapshot()));
                         continue;
 
                     // **The director telling the camera how to frame this shot** — `hltv_chase`,

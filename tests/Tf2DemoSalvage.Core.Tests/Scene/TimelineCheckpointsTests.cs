@@ -474,5 +474,31 @@ public sealed class TimelineCheckpointsTests
         window.Roster.Keys.Order().ShouldBe([7, 9]);
     }
 
+    /// <remarks>
+    /// **A window cut far past a `net_SetConVar` still answers it at a tick** (B843 review 2, Fable): the HUD reads
+    /// `ServerConVarsAt` now, so the trim must keep the set in force at the cut (`TailList.DropBefore`). Set to 400 at tick
+    /// 1, against Valve's 800, and to 300 at 45; the window at 50 keeps 16 ticks of history, so tick 40 is answered and
+    /// still reads the first. The later set is what makes the test able to fail: the trim never drops the LAST element, so
+    /// with one set it survives any cut.
+    /// </remarks>
+    [Test]
+    public void Window_CutPastAConVarSet_AnswersTheSetAtItsTicks()
+    {
+        byte[] demo = SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new DemoSchema([], [])),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 1, Gravity("400")),
+                .. Enumerable.Range(2, 43).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 45, Gravity("300")),
+                .. Enumerable.Range(46, 15).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+            ]);
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, Lookback)!;
+
+        DemoTimeline window = checkpoints.Window(50, 51);
+
+        (window.ServerConVarsAt(40).Value("sv_gravity"), window.ServerConVarsAt(50).Value("sv_gravity")).ShouldBe(("400", "300"));
+    }
+
     private static SetConVarMessage Gravity(string value) => new([new KeyValuePair<string, string>("sv_gravity", value)]);
 }

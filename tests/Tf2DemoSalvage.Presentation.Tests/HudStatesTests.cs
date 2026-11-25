@@ -74,6 +74,60 @@ public sealed class HudStatesTests
                 ServerName: "synthetic",
                 IsReplay: false))));
 
+    /// <remarks>
+    /// **The HUD reads the server's ConVars as of its tick, and an event as of its own** (B843): the client applies each
+    /// `net_SetConVar` as its packet is read (`DemoTimeline.ServerConVarsAt`, B450), so a frame at tick 15 runs under the
+    /// 30 sent at tick 10, not the 20 the recording ends with; an event of tick 12 hears 30 and one of tick 25 hears 20.
+    /// The default before either is the control that the lookup reaches the start.
+    /// </remarks>
+    [Test]
+    public void For_ATickBetweenTwoSets_ReadsTheServersValueAtThatTick()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (10, [SetConVar("mp_timelimit", "30")]),
+            (20, [SetConVar("mp_timelimit", "20")])));
+        HudConVars conVars = HudStates.For(timeline, 15).ConVars;
+
+        (conVars.GetString("mp_timelimit"), conVars.At(12).GetString("mp_timelimit"), conVars.At(25).GetString("mp_timelimit"),
+            conVars.ServerAt(5).GetString("mp_timelimit")).ShouldBe(("30", "30", "20", "0"));
+    }
+
+    /// <remarks>
+    /// **The frame's own tick at a set's boundary** (B843 review 3, Fable): a set read at tick 10 is in force at 10 and not
+    /// at 9, so a frame asking a tick early or late reads the wrong side.
+    /// </remarks>
+    [TestCase(9, "0")]
+    [TestCase(10, "30")]
+    public void For_AFrameAtASetsTick_ReadsItFromThatTickOn(int tick, string expected)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt((10, [SetConVar("mp_timelimit", "30")])));
+
+        HudStates.For(timeline, tick).ConVars.GetString("mp_timelimit").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The window's override keeps the server's per-tick half** (B843 review 1, Fable): `HudStates.At` replaces the client
+    /// ConVars and must leave `FindAt`, or every event falls back to the frame's server values. The view's tick is 100,
+    /// between the sets at 10 and 200.
+    /// </remarks>
+    [Test]
+    public void At_AWindowOverAServerThatChangedMidRecording_KeepsEachEventsServerValues()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (10, [SetConVar("mp_timelimit", "30")]),
+            (200, [SetConVar("mp_timelimit", "20")])));
+        HudConVars conVars = HudStates.At(View(timeline), null, []).ConVars;
+
+        (conVars.GetString("mp_timelimit"), conVars.At(250).GetString("mp_timelimit")).ShouldBe(("30", "20"));
+    }
+
+    [Test]
+    public void ServerConVars_NoTimeline_Throws() =>
+        Should.Throw<System.ArgumentNullException>(() => HudStates.ServerConVars(null!, 0));
+
+    private static Core.Net.SetConVarMessage SetConVar(string name, string value) =>
+        new([new System.Collections.Generic.KeyValuePair<string, string>(name, value)]);
+
     [Test]
     public void From_ADeadLifeState_IsNotAlive() =>
         HudStates.From(Player() with { LifeState = 2 }, 0).Alive.ShouldBeFalse();
