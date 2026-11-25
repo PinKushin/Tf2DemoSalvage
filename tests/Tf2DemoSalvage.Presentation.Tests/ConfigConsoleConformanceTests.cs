@@ -1755,14 +1755,14 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **An alias body's refusal is no adder's to report** (B830 review 6, Fable): `alias` joins its words with spaces, and
-    /// `(` splits a word with no space in the line, so a 504-byte definition holds a 557-byte body, refused when `a` runs.
-    /// A handler that runs `a` while an exec'd file's line is running put that refusal at the file line's depth, and the
-    /// line said the overflow line for it. Alias bodies say nothing until their adder is read (B835). The control: the
-    /// body's command is refused.
+    /// **An alias body's refusal is its own adder's to report, once** (B835; B830 review 6, Fable): `alias` joins its words
+    /// with spaces, and `(` splits a word with no space in the line, so a 504-byte definition holds a 557-byte body, refused
+    /// when `a` runs. `Cmd_ExecuteCommand` (`engine.dll` build 1007 FUN_1801678a0) adds an alias's body through
+    /// FUN_180166e30, which says `Cbuf_AddText: buffer overflow` when `AddText` refuses; the exec'd file's line that a
+    /// handler ran it inside does not say it again. The control: the body's command is refused.
     /// </remarks>
     [Test]
-    public void Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_DoesNotSayTheBufferOverflowed()
+    public void Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_SaysTheBufferOverflowedOnce()
     {
         RecordingLogger log = new();
         ConfigConsole console = new()
@@ -1788,7 +1788,30 @@ public sealed class ConfigConsoleConformanceTests
 
         ran.ShouldBeTrue("the handler ran");
         log.Count("WARNING: Command too long... ignoring!").ShouldBe(1, "the control: the body's command is refused");
-        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A key whose bind runs an alias with a refused body says the overflow line once** (B835): the alias adds its body
+    /// through FUN_180166e30 (`engine.dll` build 1007), which says `Cbuf_AddText: buffer overflow` for it. The key's own
+    /// adder, FUN_180166500 from `Key_Event`, never refuses: no bind's text reaches 511 bytes. The control: a key whose
+    /// alias fits runs it and says nothing.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load("alias a " + string.Concat(Enumerable.Repeat(new string('w', 15) + "(", 31)));
+        console.Load($"alias b {Alpha} 1\nbind k a\nbind j b");
+
+        console.KeyDown("j").ShouldBeTrue("the control: the alias that fits ran");
+        console.ConVar(Alpha).ShouldBe("1", "the control: its body ran");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "the control: an alias that fits");
+
+        console.KeyDown("k");
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(1);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
     }
 
     /// <remarks>

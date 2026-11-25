@@ -497,7 +497,10 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>Runs an alias body with its refusals kept from every adder (B830 review 6): see <see cref="AddedAsOne"/>.</summary>
+    /// <summary>
+    /// Runs an alias body as its own `Cbuf_AddText` call (B835): `Cmd_ExecuteCommand` (`engine.dll` build 1007
+    /// FUN_1801678a0) adds the body through FUN_180166e30, which says the overflow line for the body's own refusals.
+    /// </summary>
     /// <param name="body">The alias body.</param>
     /// <param name="depth">The depth it runs at.</param>
     private void RunAliasBody(string body, int depth)
@@ -508,16 +511,7 @@ public sealed class ConfigConsole
             return;
         }
 
-        int heard = _refusalsAt[depth];
-
-        try
-        {
-            _ = Run(body, key: null, depth);
-        }
-        finally
-        {
-            _refusalsAt[depth] = heard;
-        }
+        AddedAsOne(depth, () => _ = Run(body, key: null, depth));
     }
 
     /// <summary>Commands refused for their length so far, by the depth they ran at (B830): see <see cref="AddedAsOne"/>.</summary>
@@ -784,6 +778,10 @@ public sealed class ConfigConsole
         {
             // The key travels with the command because a button tracks WHICH keys hold it — see
             // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
+            // `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds the bind through FUN_180166500, which would say the
+            // overflow line for it, but no bind's own text reaches 511 bytes (B835 reviews 1 and 2, Fable, Sonnet): `bind`
+            // stores its value from a statement under 511 whose prefix is at least 5 bytes (`bind'`), so the value is at most
+            // 505, and ` %i` adds at most 4 (509). An alias it runs is its own adder's (`RunAliasBody`).
             return RunCommand(command, key!);
         }
         finally
@@ -1789,8 +1787,8 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                // No key, deliberately — see the remark above. The body's own refusals are no adder's to report: its adder
-                // is not read (B835), and an exec'd file line at the next depth must not hear them (B830 review 6, Fable).
+                // No key, deliberately — see the remark above. The body is its own adder's call, so it says its own
+                // refusals and the line that ran it does not hear them (B835; B830 review 6, Fable).
                 RunAliasBody(body, depth + 1);
                 acted = true;
                 continue;

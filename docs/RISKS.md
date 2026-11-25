@@ -46392,7 +46392,42 @@ Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`,
 a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window
 height and takes `1080` as its value. *Not read*: which TF2 module reads `-h`. *Not fixed*.
 
-## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — OPEN
+## B835 — a key or an alias body cut for a long command does not say `Cbuf_AddText: buffer overflow` (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** Read in `engine.dll` build 1007 (Ghidra): `Key_Event` (FUN_1801b6090) adds a key's bind through
+FUN_180166500, either the bind itself and then `"\n"`, or a `+` bind as `"%s %i\n"` with the key number, formatted into
+a 1024-byte buffer; `Cmd_ExecuteCommand` (FUN_1801678a0) adds an alias's body through FUN_180166e30 when no command or
+ConVar takes the name. Both adders print `Cbuf_AddText: buffer overflow` when `CCommandBuffer::AddText` (FUN_1802952a0)
+refuses. So `RunAliasBody` runs the body as one `AddedAsOne` call at its own depth, where it had kept the body's
+refusals from every adder (B830 review 6): it says the line for the body's refusals, and the line or key that ran it
+does not hear them. The key's own adder, the press's and the release's (`"-%s %i\n"`) alike, never refuses: `bind`
+stores its value from a statement under 511 bytes whose prefix is at least 5 (`bind'`, `'` being a break character and
+a key name), so the value is at most 505, and ` %i` adds at most 4, a space and three digits (509); nothing else
+writes a bind but the viewer's defaults, `unbind` and `unbindall`'s empty strings and `ESCAPE`'s `cancelselect`
+(reviews 2 and 3, Fable). So `KeyDown` and `KeyUp` get no adder of their own; a wrap there was tried and no test
+could fail for it (review 1, Fable, Gemini, Sonnet).
+`Cbuf_AddTextWithMarkers` (FUN_1801666f0) is called only from the client's network code, not by a config, a key or an
+alias. Tests
+`KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits, run, as its control) and
+`Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_SaysTheBufferOverflowedOnce`
+(was `…DoesNotSay…`, expecting none); both red before.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok; Grok had no findings). No blocker. Fixed (Fable, Gemini, Sonnet): the
+`KeyDown` wrap had no test that could fail and is unreachable, so it is gone, with the release half recorded above; the
+release note and the comments named a key's bind as refusable, where only an alias body is; the test's control asserts
+its alias ran (Fable, Gemini).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, nits):
+the unreachability is stated with its arithmetic above; the control also asserts the alias body ran (its ConVar is `1`),
+since `KeyDown` returns true for a found alias whatever its body did.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini and Sonnet had no findings). Fixed (Fable, nit): the
+list of bind writers above names `unbindall` and `ESCAPE`'s `cancelselect`. Not taken (Grok): that the release text
+`"-%s %i\n"` is two bytes longer than the sum. FUN_1801b6090 formats the release from the value past its `+`, so the
+`-` takes the `+`'s byte, and `GetNextCommandLength` ends a command at the line feed before counting it
+(`commandbuffer.cpp:197-198`), so the release is 509 too (Fable, Gemini, Sonnet).
+
+The paragraph below is the entry as filed.
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
 FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever
