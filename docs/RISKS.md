@@ -46357,6 +46357,10 @@ the B837 example `--autoplay a.dem` showed nothing an unknown flag does not also
 kept where `-novid demos` drops it (B837, guide, release notes); B837 marks its filed text as B836 does; a stray line
 break above.
 
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker). Fixed (Fable, nit): the test's remark still used the retired
+`--autoplay a.dem` example (Gemini read the fix before it was committed). The "Cli keeps `-h`" credit names Gemini, who
+raised it in review 1.
+
 The paragraph below is the entry as filed.
 
 Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so

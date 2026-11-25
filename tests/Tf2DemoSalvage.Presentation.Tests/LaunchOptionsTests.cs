@@ -197,7 +197,7 @@ public sealed class LaunchOptionsTests
     /// <remarks>
     /// **The viewer's own switches keep the word after them** (B837, the owner's pick, "Keep them as they are"; above
     /// Valve, `docs/ABOVE-VALVE.md`): TF2 skips the word after any `-flag`, but these are the viewer's, so
-    /// `--autoplay a.dem` opens `a.dem`.
+    /// `--autoplay demos` keeps `demos` as a path, where `-novid demos` drops it.
     /// </remarks>
     [TestCase("--autoplay")]
     [TestCase("--colours")]
