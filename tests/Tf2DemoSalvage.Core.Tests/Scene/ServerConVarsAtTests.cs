@@ -68,9 +68,10 @@ public sealed class ServerConVarsAtTests
             ]));
 
         // A negative tick too (review 5, Fable, Sonnet): a stamp of 0 would answer every tick asked above.
-        (timeline.ServerConVarsAt(-1000).Number("sv_gravity"), timeline.ServerConVarsAt(1).Number("sv_gravity"),
-            timeline.ServerConVarsAt(5).Number("sv_gravity"), timeline.ServerConVarsAt(600).Number("sv_gravity"))
-            .ShouldBe((400f, 400f, 200f, 200f));
+        (timeline.ServerConVarsAt(int.MinValue).Number("sv_gravity"), timeline.ServerConVarsAt(-1000).Number("sv_gravity"),
+            timeline.ServerConVarsAt(1).Number("sv_gravity"), timeline.ServerConVarsAt(5).Number("sv_gravity"),
+            timeline.ServerConVarsAt(600).Number("sv_gravity"))
+            .ShouldBe((400f, 400f, 400f, 200f, 200f));
     }
 
     /// <remarks>
@@ -92,7 +93,7 @@ public sealed class ServerConVarsAtTests
     /// <remarks>
     /// **A builder resumed from any cut stamps the late signon the same** (B843 review 7, Fable, Sonnet): the last packet
     /// tick read is a builder field a snapshot must carry. The fingerprint cannot see the ConVar history, so the history is
-    /// read directly. A field the copy dropped would restart at 0 and stamp the signon from tick 1.
+    /// read directly. A field the copy dropped would restart at its default and stamp the signon from the wrong tick.
     /// </remarks>
     [Test]
     public void ServerConVarsAt_ALateSignonAfterAResumeFromAnyCut_IsStampedAsAStraightBuild()
@@ -111,8 +112,9 @@ public sealed class ServerConVarsAtTests
 
     /// <remarks>
     /// **The history stays in tick order whatever the stream does** (B843 review 8, Fable, Sonnet): a packet that repeats
-    /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8 and blind the binary search, so it
-    /// takes 8, and tick 8 on reads 50 where an unsorted history would read 100.
+    /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8, and the search over the unsorted
+    /// history answers 50 at tick 7, before either set was read. Clamped, it takes 8, so tick 7 reads Valve's 800
+    /// (review 9: only the tick-7 read sees the clamp; tick 9 is 50 either way and stands as the value after both).
     /// </remarks>
     [Test]
     public void ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder()

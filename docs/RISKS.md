@@ -46864,13 +46864,23 @@ full: Core 3,302 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269
 Review 8 (Fable, Gemini, Sonnet). No engine divergence. **The rule as it stands:** a packet's set holds from its tick; a
 signon's before any packet from the start; a signon's after packets from the tick after the last packet read; and every
 stamp is at least the one before it. Fixed: the `+1` put the history out of tick order when a later packet repeated the
-last tick (Fable, Sonnet), which would blind the binary search: each stamp is clamped to the one before it, so a packet
+last tick (Fable, Sonnet), so the search answered the repeated tick by the list's layout (review 9 measured the effect by
+trace: only the repeated tick's own answer moves): each stamp is clamped to the one before it, so a packet
 repeating a tick after a late signon takes the signon's stamp, a recorded bound beside the same-tick one
 (`ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder`). Review 7's sabotage line listed one
 run; these were run this round, each restored: the clamp dropped reddens the repeat test; the `+1` dropped reddens the
 late-signon, resume and repeat tests; user messages heard a tick late redden the chat case and three older cases.
 Review 4's parenthetical now points here (Sonnet). Not taken: the chat case keeps only the first sound (Fable), as one
 message makes one. Core `ServerConVarsAtTests` 9 of 9.
+
+Review 9 (Fable, Sonnet; Gemini pending). No engine finding. Corrected: the repeat test's remark and review 8's record said the
+unsorted history would blind the search for every later tick (Fable, Sonnet); traced, only the repeated tick's own
+answer moves, so the remark says the tick-7 read is the one that sees the clamp. `ConVarChanges`'s summary restated part
+of the stamp rule and is now a pointer to the builder and to review 8 (Sonnet); the resume test's remark no longer
+guesses the dropped field's default (Fable). The first signon test reads `int.MinValue` too, so a stamp of
+`int.MinValue + 1` reddens it (run, restored). Not taken: the clamp reading the first stamp instead of the last survives
+(Sonnet, low); with every stamp clamped the last is the largest, and no stream gives a different first. Core
+`ServerConVarsAtTests` 9 of 9.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a

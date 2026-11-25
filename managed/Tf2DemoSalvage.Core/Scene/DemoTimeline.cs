@@ -2689,8 +2689,8 @@ public sealed class DemoTimeline
     public ServerConVars ServerConVars { get; private init; } = new();
 
     /// <summary>
-    /// The settings after each <c>net_SetConVar</c>, by the tick it holds from, in stream order: a packet's at its tick, a
-    /// signon's before any packet at <see cref="int.MinValue"/>, a signon's after one at the tick after it (B843).
+    /// The settings after each <c>net_SetConVar</c>, by the tick it holds from, in stream order and tick order. The stamp
+    /// rule is stated once, at the builder's <c>SetConVarMessage</c> case, and recorded in RISKS B843 review 8.
     /// </summary>
     private IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
 
