@@ -47,11 +47,13 @@ public sealed class VguiHudTickConVarsTests
     /// <remarks>
     /// **The state a handler is passed carries its tick's ConVars too** (B839 review 1, Fable, Sonnet): the chat filters a
     /// name change by `cl_chatfilters` read off the state it is handed (`CHudChat::GetFilterFlags`). Tick 1000 read 0, which
-    /// filters it out; tick 1001 read the frame's 2, which lets it through.
+    /// filters it out; tick 1001 read the frame's 2, which lets it through. A replay after a seek hears the frame's 2
+    /// (review 2, Fable).
     /// </remarks>
-    [TestCase(1000, false)]
-    [TestCase(1001, true)]
-    public void Think_AFilteredMessage_IsFilteredByItsTicksConVars(int tick, bool printed)
+    [TestCase(1000, false, false)]
+    [TestCase(1001, false, true)]
+    [TestCase(1000, true, true)]
+    public void Think_AFilteredMessage_IsFilteredByItsTicksConVars(int tick, bool reset, bool printed)
     {
         VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
         VguiHud hud = new(host, new EntityModelSet());
@@ -61,7 +63,7 @@ public sealed class VguiHudTickConVarsTests
         byte[] nameChange = [1, 0, .. Encoding.UTF8.GetBytes("#TF_Name_Change"), 0, .. Encoding.UTF8.GetBytes("Renamed"), 0, 0, 0, 0];
 
         host.BeginFrame(640, 480);
-        hud.Think(state, userMessages: [new SceneUserMessage(tick, SceneUserMessage.SayText2, nameChange)]);
+        hud.Think(state, reset: reset, userMessages: [new SceneUserMessage(tick, SceneUserMessage.SayText2, nameChange)]);
 
         hud.Chat.History.Text.Contains("Name_Change", System.StringComparison.Ordinal).ShouldBe(printed);
     }

@@ -2148,7 +2148,14 @@ public sealed class ViewerSessionTests
         int end = rig.Transport.LastShownTick;
         (end - start).ShouldBeGreaterThanOrEqualTo(2, "the control: the frame played two ticks");
         rig.Session.ClientConVarsAt(end).ShouldBeNull("the tick landed on reads them as they are now");
-        rig.Session.ClientConVarsAt(end - 1).ShouldNotBeNull("the tick before it was read before the last run");
+
+        // **What the HUD is handed** (B839 review 2, Fable, Sonnet): the state the frame presenter builds for the tick
+        // landed on carries the per-tick ConVars, and the tick before reads one run's step behind the value now.
+        Scene.Hud.HudConVars handed = rig.Session.Presenter.Effects.HudStateAt(end).ConVars;
+        double now = handed.At(end).GetFloat("hud_deathnotice_time");
+        double before = handed.At(end - 1).GetFloat("hud_deathnotice_time");
+
+        (now - before).ShouldBe(1d);
     }
 
     /// <remarks>

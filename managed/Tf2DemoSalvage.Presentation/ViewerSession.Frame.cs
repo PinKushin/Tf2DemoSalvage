@@ -849,7 +849,10 @@ public sealed partial class ViewerSession
     /// <summary>The client ConVars a demo tick of this frame reads, or null where it reads them as they are now (B839).</summary>
     /// <param name="tick">The demo tick.</param>
     /// <returns>A lookup, or null.</returns>
-    internal Func<string, string?>? ClientConVarsAt(int tick) => _conVarsByTick.At(tick, ClientConVar);
+    internal Func<string, string?>? ClientConVarsAt(int tick) => _conVarsByTick.At(tick, _clientConVar ??= ClientConVar);
+
+    /// <summary><see cref="ClientConVar"/> as a delegate, made once (B839 review 2, Fable).</summary>
+    private Func<string, string?>? _clientConVar;
 
     /// <summary>`--measure`'s sun line, over the whole frame.</summary>
     private readonly SunMeter _sunMeter = new();

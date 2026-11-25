@@ -46489,6 +46489,18 @@ Review 1 (Fable, Sonnet; Gemini to follow; Grok out of credit) found, all taken 
   played. `BeforeTick` now takes an `Action<int>`, and the session holds both delegates, so a played tick allocates
   nothing. *Read, not measured*: no allocation count was taken.
 
+Review 2 (Fable, Sonnet; Gemini to follow): no engine fault, and no review-1 fix introduced one. Taken:
+- **The session-to-HUD wiring had no test that could fail** (Fable, Sonnet): each link was tested apart. The every-run
+  session test now reads the state the frame presenter builds for the HUD (`FramePresenter.HudStateAt`, internal for
+  it) and asserts the tick before the landed one reads one run's step behind the value now, which also pins `Before`
+  through the session (Fable). Handing the window `_ => null`, the presenter dropping the argument, and the session
+  recording `Before` as null each redden it.
+- **The message loop's reset** (Fable, Sonnet): the filtered-message test gains a replay case, which the reset ignored
+  reddens.
+- The `ClientConVar` delegate is made once (Fable).
+- Not taken: the other event handlers' `heard` stays equivalent while they read only replicated ConVars (both); a
+  throw in a handler skips that event's put-back while the frame aborts (Sonnet). 2,193 of 2,193 pass.
+
 The original entry follows.
 
 Found in B832 review 1 (Grok). `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs, for each host tick,
