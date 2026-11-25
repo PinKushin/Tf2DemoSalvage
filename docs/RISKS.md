@@ -46348,7 +46348,9 @@ at 0, one at 1), whichever key or command runs it; the viewer's F5 captures duri
 stand, and parity never removes a feature (D246): **the owner decides** whether each becomes a row in
 `docs/ABOVE-VALVE.md` with its test, or follows TF2. The launch line is the same (B841 review 10, Fable): its
 `+wait +screenshot` captures during playback and its `+thirdperson` acts on a SourceTV demo, exempt through the line's
-own one-shot rule (B829). *Not fixed*.
+own one-shot rule (B829). And from B844: on a point-of-view demo whose recorder is alive (observer mode at or below
+`OBS_MODE_DEATHCAM`), TF2 never hands a key to the spectator, so SPACE runs its `+jump` binding or alias and MOUSE1 its
+`+attack`; the viewer's camera still switches and cycles there. *Not fixed*.
 
 ## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
 
@@ -46359,15 +46361,32 @@ Fix shape: read the load path in `engine.dll`, then run no `Execute` while `Load
 holds it. One consequence (B841 review 12, Fable): a config's `wait; demo_togglepause` comes due while the demo still
 loads, finds no clock to play (`PlaybackPresenter.Play`), and is spent, so the demo stays paused. *Not fixed*.
 
-## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
+## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — FIXED (2026-11-25)
 
-Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
+**Fixed.** `ConfigConsole.KeyDown` answers a key whose whole binding is exactly `+attack`, `+attack2` or `+jump`
+(`Q_strcmp`, so in that case only) with the spectator's command and swallows it: the bind's text never runs, so the
+button is not set, as `return 0` leaves it. Every other route to those three is the button command, which `Perform` now
+answers by pressing the button and raising nothing: an alias, a longer binding, a binding in another case, the launch
+line, a config. `spec_next`, `spec_prev` and `spec_mode` are commands of their own (`clientmode_shared.cpp:749-759`), so a
+key or alias naming one moves the camera, and a config's waited one acts at its tick with B841's other TF2 one-shots.
+The key's gate, `pPlayer && GetObserverMode() > OBS_MODE_DEATHCAM` (`clientmode_shared.cpp:714-716`), is taken as "a
+demo is open" (`ConfigConsole.Spectating`, wired to `_presenter.HasDemo`): with none there is no local player. **Not
+followed, and the owner's under B845:** on a point-of-view demo whose recorder is alive TF2 hands the key on (the alias
+or the button), where the viewer's camera keys still answer; gating there would take SPACE's camera switch and MOUSE1's
+cycling away on POV demos. Tests: `KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding` (five
+routes, with nobody spectating as the control), `Stuff_PlusAttack_SetsTheButtonAndMovesNoCamera`,
+`KeyDown_AKeyBoundToASpectatorCommand_RaisesItsAction`, `Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff`.
+Sabotage, each restored: the button branch dropped reddens the four non-exact routes, the launch line and B841's three
+waited-button cases; the exact-key branch dropped reddens the exact case alone. (Run together the two masked the exact
+case: a grouped sabotage can redden for the wrong reason.) Presentation 2,271 of 2,271.
+
+The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
 `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch
 line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack` inside a longer binding) only sets the
 button, which the HLTV camera does not read. The viewer performs the camera action for every `+attack` that reaches
 `Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix shape: act on the spectator's three
-only for a key whose whole binding is that command; anything else sets the button. *Not fixed*.
+only for a key whose whole binding is that command; anything else sets the button.
 
 ## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
 

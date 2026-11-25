@@ -805,15 +805,58 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// The one-shots that are TF2's own commands, which a config's `wait` can put off to a tick when they act (B841):
-    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`. Not the spectator's `+jump`, `+attack`, `+attack2`
-    /// (review 1 added them, review 8 took them back, Fable): run from the buffer they only set their button, as the camera
-    /// answers a KEY bound exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`).
-    /// Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
+    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the spectator's `spec_next`, `spec_prev`,
+    /// `spec_mode` (B844). Not its `+jump`, `+attack`, `+attack2` (B841 review 1 added them, review 8 took them back, Fable):
+    /// run from the buffer they only set their button (<see cref="IsSpectatorButton"/>), as the camera answers a KEY bound
+    /// exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`). Every other one-shot
+    /// is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
     /// </summary>
     private static readonly HashSet<ViewerAction> Tf2OneShots =
     [
         ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView,
+        ViewerAction.CycleTargetForward, ViewerAction.CycleTargetReverse, ViewerAction.SwitchCameraMode,
     ];
+
+    /// <summary>
+    /// `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:739-772`, B844): a key event whose binding is
+    /// exactly one of these (`Q_strcmp`, so case and all) runs the spectator's command and swallows the key, so the bind's
+    /// own text never runs. Any other route to `+attack` (an alias, a longer binding, the launch line, a config) is the
+    /// button command, which only sets its button: the HLTV camera never reads it.
+    /// </summary>
+    private static readonly Dictionary<string, ViewerAction> SpectatorKeys = new(StringComparer.Ordinal)
+    {
+        ["+attack"] = ViewerAction.CycleTargetForward,
+        ["+attack2"] = ViewerAction.CycleTargetReverse,
+        ["+jump"] = ViewerAction.SwitchCameraMode,
+    };
+
+    /// <summary>
+    /// The commands the spectator's keys run (B844): `spec_next`, `spec_prev`, `spec_mode` (`clientmode_shared.cpp:749-759`),
+    /// TF2's own, so a config or alias that names one moves the camera as the key does. A console command's name is found
+    /// without regard to case.
+    /// </summary>
+    private static readonly Dictionary<string, ViewerAction> SpectatorCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["spec_next"] = ViewerAction.CycleTargetForward,
+        ["spec_prev"] = ViewerAction.CycleTargetReverse,
+        ["spec_mode"] = ViewerAction.SwitchCameraMode,
+    };
+
+    /// <summary>
+    /// Whether a key can reach the spectator (B844): `pPlayer &amp;&amp; ( pPlayer->GetObserverMode() &gt; OBS_MODE_DEATHCAM )`
+    /// (`clientmode_shared.cpp:714-716`), or null where nobody wired it: then no key is the spectator's. The session answers
+    /// whether a demo is open: with none there is no local player. On a point-of-view demo whose recorder is alive TF2 hands
+    /// the key on, where the viewer's camera keys still answer: B845, the owner's decision.
+    /// </summary>
+    public Func<bool>? Spectating { get; set; }
+
+    /// <summary>The one-shot a command raises: a spectator command's (B844), else the action the command names.</summary>
+    private static ViewerAction? OneShotOf(string command) =>
+        SpectatorCommands.TryGetValue(command, out ViewerAction spectator) ? spectator : KeyBindings.ActionOf(command);
+
+    /// <summary>Whether a command is one of the spectator's buttons run as a command, which sets only its button (B844).</summary>
+    private static bool IsSpectatorButton(string command) =>
+        SpectatorKeys.Keys.Any(button => string.Equals(button, command, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
@@ -1254,6 +1297,15 @@ public sealed class ConfigConsole
         // binds work whatever `sv_cheats` says. A bind the watcher's config made is TF2's command and meets TF2's refusal.
         // The defaults sit in the binds too (`WithDefaults`), so "built in" is the command being this key's default.
         bool builtIn = _defaults.TryGetValue(key!, out string? fallback) && string.Equals(fallback, command, StringComparison.Ordinal);
+
+        // **A key bound exactly to a spectator button runs the spectator's command and is swallowed** (B844,
+        // `HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): `return 0`, so `Key_Event` adds no text and the
+        // button is never set.
+        if (Spectating?.Invoke() is true && SpectatorKeys.TryGetValue(command, out ViewerAction spectating))
+        {
+            Triggered?.Invoke(this, new ViewerActionEventArgs(spectating));
+            return true;
+        }
 
         // Restored rather than cleared, so a key pressed from a handler inside a built-in key's command leaves that command
         // built in (B820 review 6, Fable).
@@ -2453,7 +2505,8 @@ public sealed class ConfigConsole
         // to TF2 and do nothing at any tick, and the viewer's replay of the launch line is no second launch (B829).
         // `thirdperson` is `FCVAR_CHEAT` (`in_camera.cpp:912`), which `Cmd_ExecuteCommand` (`engine.dll` build 1007
         // FUN_1801678a0) refuses with "Can't use cheat command" unless `sv_cheats` is on (B841 review 2, Fable).
-        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
+        if (_loading && !_stuffing && !command.StartsWith('-') && !IsSpectatorButton(command) && OneShotOf(command) is { } shot &&
+            !HeldActions.Contains(shot) &&
             !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn) &&
               (shot != ViewerAction.Screenshot || ScreenshotsTaken) &&
               (shot is not (ViewerAction.FirstPersonView or ViewerAction.ThirdPersonView) || HltvPlayback?.Invoke() is not true)))
@@ -2476,9 +2529,17 @@ public sealed class ConfigConsole
 
         // Stryker disable once : a mutant that empties the guard body leaves 'action'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (KeyBindings.ActionOf(command) is not { } action)
+        if (OneShotOf(command) is not { } action)
         {
             return false;
+        }
+
+        // **The spectator's button, run as a command, sets its button and nothing else** (B844): `+attack` is
+        // `IN_Attack`'s `KeyDown`, and only a key bound exactly to it reaches the camera (`KeyDown` above).
+        if (IsSpectatorButton(command))
+        {
+            Press(action, key ?? AliasIssued);
+            return true;
         }
 
         if (!HeldActions.Contains(action))

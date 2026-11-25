@@ -2851,6 +2851,84 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **Only a key bound exactly to a spectator button moves the camera** (B844): `HandleSpectatorKeyInput`
+    /// (`clientmode_shared.cpp:747-761`) compares the key's whole binding with `Q_strcmp` and swallows the key, so the
+    /// button is not set. Every other route to `+attack` is the button command, which only sets the button: an alias, a
+    /// longer binding, a binding in another case, the launch line. The control: the exact binding with nobody to spectate
+    /// sets the button too.
+    /// </remarks>
+    [TestCase("bind k +attack", true, true, false)]
+    [TestCase("bind k +attack", false, false, true)]
+    [TestCase("alias go +attack\nbind k go", true, false, true)]
+    [TestCase("bind k \"+attack; +use\"", true, false, true)]
+    [TestCase("bind k +ATTACK", true, false, true)]
+    public void KeyDown_ASpectatorButtonByEveryRoute_MovesTheCameraOnlyForAnExactBinding(
+        string config, bool spectating, bool cycles, bool held)
+    {
+        ConfigConsole console = new() { Spectating = () => spectating };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load(config);
+
+        console.KeyDown("k");
+
+        (raised.Contains(ViewerAction.CycleTargetForward), console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((cycles, held));
+    }
+
+    /// <remarks>
+    /// **The launch line's `+attack` only sets the button** (B844): `stuffcmds` runs it as a command, never as a key.
+    /// </remarks>
+    [Test]
+    public void Stuff_PlusAttack_SetsTheButtonAndMovesNoCamera()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Stuff("+attack");
+
+        (raised, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((0, true));
+    }
+
+    /// <remarks>
+    /// **`spec_next`, `spec_prev` and `spec_mode` are TF2's own commands** (B844, `clientmode_shared.cpp:749-759`), so a key
+    /// bound to one moves the camera as the spectator's key does, in any case.
+    /// </remarks>
+    [TestCase("spec_next", ViewerAction.CycleTargetForward)]
+    [TestCase("SPEC_PREV", ViewerAction.CycleTargetReverse)]
+    [TestCase("spec_mode", ViewerAction.SwitchCameraMode)]
+    public void KeyDown_AKeyBoundToASpectatorCommand_RaisesItsAction(string command, ViewerAction expected)
+    {
+        ConfigConsole console = new();
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load($"bind k {command}");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([expected]);
+    }
+
+    /// <remarks>
+    /// **A config's `spec_next` does nothing at load, and acts when a `wait` put it off** (B844 with B841): TF2 runs its
+    /// configs before a demo plays, and `CCommandBuffer` runs a put-off command at its tick.
+    /// </remarks>
+    [TestCase("spec_next", 0)]
+    [TestCase("wait; spec_next", 1)]
+    public void Execute_AConfigsSpectatorCommand_ActsOnlyWhenAWaitPutItOff(string config, int expected)
+    {
+        ConfigConsole console = new();
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        console.Load(config);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        raised.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **A config's waited one-shot still does nothing; the launch line's still runs** (B832 review 1, Fable): each runs at
     /// a later `Execute` as the text that added it, a config's at load (B820 review 1) and the launch line's as `stuffcmds`
     /// runs it (B829).
