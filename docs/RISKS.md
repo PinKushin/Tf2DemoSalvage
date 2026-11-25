@@ -46512,8 +46512,34 @@ is not swallowed and the viewer's `-attack` on release matches the client; what 
 engine-side. Review 6's line about review 5 points at a sentence this round's review-6 edit rewrote (Sonnet): review 5's
 "not taken" on the non-credit readers was withdrawn there. Not taken: `DoesSomething` stays the "names" reading, deciding
 whether a key is the config's, where `Credited` is the "fires" reading (Sonnet, Fable); a `mat_fullbright` last in a `+`
-bind runs `mat_fullbright 1 107`, older than B844, now credited by that text. Sabotage, restored: the credit reading the
-written bind reddens both `+use; spec_mode` rows. Presentation 399 of 399 in `ConfigConsoleConformanceTests`.
+bind runs `mat_fullbright 1 107`, older than B844 (review 8 corrects this: that text was not credited until review 8).
+Sabotage, restored: the credit reading the written bind reddens both `+use; spec_mode` rows. Presentation 399 of 399 in
+`ConfigConsoleConformanceTests`.
+
+Review 8 (Fable, Sonnet, Codex; Gemini's quota was spent, so Codex took its place). Fixed: the claim and the settings
+projection read the key's real text too (Sonnet), so `bind k "+use; spec_mode"`, which runs `spec_mode 107` and switches
+nothing, no longer takes SPACE's camera switch; and an alias running `+attack` only sets the button, so it is not the
+key for cycling (Fable). A set's value is read up to the first space, so `mat_fullbright 1 107`, the text of a `+` bind
+ending in `mat_fullbright 1`, is credited as `mat_fullbright 1` (Fable); review 7 said it already was, which was wrong.
+The key-number test now presses the key too and asserts the press agrees with the credit (Codex). Rows added: a
+`spec_mode` between two clauses, a `+` alias whose body ends in `spec_mode`, and a `//` comment after `spec_mode`.
+Not taken (Codex): the default `+strafe` key does reach the auto-director, since `builtIn` only marks the command
+the viewer's own and returns nothing; and a default bound to a spectator button is credited and pressed alike,
+since the defaults are binds as TF2's `config_default.cfg` binds are. A bare `mat_wireframe` toggle being credited
+is older than B844 and unchanged here. Tests: `Load_APlusBindEndingInSpecMode_LeavesSpaceItsCameraSwitch`,
+`Bindings_KeysWhoseTextGainsANumberOrRunsAnAlias_NameWhatTheyFire`. Sabotage, each run alone and restored: the runtime
+`spec_mode` one-argument guard reddens the `CTRL+e`, `spec_mode 5` row; removing the set's first-value fallback reddens
+`Bindings_KeysWhose…`; `Expand` in place of `Credited` in `Bindings` reddens the same; in `Claimed`, it reddens
+`Load_APlusBindEndingInSpecMode…` and `Load_BindsThatNameASpectatorActionWithoutFiringIt…`. Presentation 402 of 402 in
+`ConfigConsoleConformanceTests`.
+
+The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
+string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
+`clientmode_shared.cpp:747-761`): it runs `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same
+command reached any other way (the launch line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack`
+inside a longer binding) only sets the button, which the HLTV camera does not read. The viewer performs the camera
+action for every `+attack` that reaches `Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix
+shape: act on the spectator's three only for a key whose whole binding is that command; anything else sets the button.
 
 ## B854 — the release of a key the spectator swallowed still runs its binding's `-` half (2026-11-25) — OPEN
 
@@ -46543,14 +46569,6 @@ if the client registers `tv_transmitall` and holds it at 0 (B844 review 6, Sonne
 switches regardless, for the keys (older than B844) and for the three commands B844 made. *Read*, not measured: whether
 TF2's client registers `tv_transmitall`, and whether a SourceTV demo replicates it. Fix shape: answer that in
 `engine.dll` or the shipped client, then gate the camera actions on it. *Not fixed*.
-
-The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
-`+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
-`spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch
-line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack` inside a longer binding) only sets the
-button, which the HLTV camera does not read. The viewer performs the camera action for every `+attack` that reaches
-`Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix shape: act on the spectator's three
-only for a key whose whole binding is that command; anything else sets the button.
 
 ## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
 

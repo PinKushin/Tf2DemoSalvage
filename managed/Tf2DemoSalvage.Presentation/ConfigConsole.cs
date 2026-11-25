@@ -2700,8 +2700,12 @@ public sealed class ConfigConsole
             // `mat_fullbright  1` and a tab both resolve.
             // `spec_next` and its two siblings too (B844 review 1, Fable, Sonnet), or a key with a default bound to one counts as
             // doing nothing and falls back to that default.
+            // A set's value is its whole `ArgS`, read as a number up to the first space, so `mat_fullbright 1 107` (a `+`
+            // bind's key number after it) is `mat_fullbright 1` (B844 review 8, Fable).
             ViewerAction? action =
-                KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
+                KeyBindings.ActionOf(string.Join(' ', tokens)) ??
+                (tokens.Count > 2 ? KeyBindings.ActionOf(string.Concat(tokens[0], " ", tokens[1])) : null) ??
+                OneShotOf(tokens[0]);
 
             if (credit && !Fires(tokens))
             {

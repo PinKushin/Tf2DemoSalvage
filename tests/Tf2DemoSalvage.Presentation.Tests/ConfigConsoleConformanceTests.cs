@@ -2983,14 +2983,58 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("k", "\"+use; spec_mode;\"", true)]
     [TestCase("CTRL+e", "\"+use; spec_mode\"", true)]
     [TestCase("CTRL+e", "\"+use; spec_mode 5\"", false)]
-    [TestCase("k", "\"spec_mode; +use\"", true)]
-    [TestCase("k", "a\nalias a \"+use; spec_mode\"", true)]
+    [TestCase("k", "\"+use; spec_mode; +use\"", true)]
+    [TestCase("k", "+a\nalias +a \"+use; spec_mode\"", true)]
+    [TestCase("k", "\"+use; spec_mode // x\"", true)]
     public void Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns(string key, string bind, bool credited)
     {
         ConfigConsole console = new();
         console.Load($"unbindall\nbind {key} {bind}");
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
 
-        console.Unbound().Contains(ViewerAction.SwitchCameraMode).ShouldBe(!credited);
+        // The press, too (B844 review 8, Codex): the credit and what the key runs must agree.
+        console.KeyDown(key);
+
+        (console.Unbound().Contains(ViewerAction.SwitchCameraMode), raised.Contains(ViewerAction.SwitchCameraMode))
+            .ShouldBe((!credited, credited));
+    }
+
+    /// <remarks>
+    /// **The claim and the settings screen read the key's real text too** (B844 review 8, Sonnet): `bind k "+use; spec_mode"`
+    /// runs `spec_mode 107`, which switches nothing, so it does not claim the camera switch: SPACE keeps its `+jump` default
+    /// and the settings screen names SPACE for it.
+    /// </remarks>
+    [Test]
+    public void Load_APlusBindEndingInSpecMode_LeavesSpaceItsCameraSwitch()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nbind k \"+use; spec_mode\"");
+
+        console.KeyDown("SPACE");
+
+        raised.ShouldBe([ViewerAction.SwitchCameraMode]);
+        console.Bindings().KeyFor(ViewerAction.SwitchCameraMode).ShouldBe("SPACE");
+    }
+
+    /// <remarks>
+    /// **The settings screen credits only a key that fires the action** (B844 review 8, Fable): an alias that runs
+    /// `+attack` only sets the button, so `k` is not the key for cycling; and a `+` bind ending in `mat_fullbright 1` runs
+    /// `mat_fullbright 1 107`, which sets 1, so `j` is the key for it.
+    /// </remarks>
+    [Test]
+    public void Bindings_KeysWhoseTextGainsANumberOrRunsAnAlias_NameWhatTheyFire()
+    {
+        ConfigConsole console = new();
+        console.Load("alias +m1 +attack\nalias -m1 -attack\nbind k +m1\nbind j \"+use; mat_fullbright 1\"");
+
+        KeyBindings bindings = console.Bindings();
+
+        (bindings.KeyFor(ViewerAction.CycleTargetForward) == "k", bindings.KeyFor(ViewerAction.FullbrightNoLighting))
+            .ShouldBe((false, "j"));
     }
 
     /// <remarks>
