@@ -2187,6 +2187,299 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A throw drops what the load added that is due now, and keeps what it put off** (B840): `al` links its `1` (T-1)
+    /// ahead of the line's `2` (T), then its `fps_max` set throws. Both are the load's and due, so both go, their bytes with
+    /// them; the line's `3`, put off to T+3, stays queued and runs at its tick.
+    /// </remarks>
+    [Test]
+    public void Load_AThrowInsideAnAlias_DropsWhatTheLoadAddedDueNow()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"fps_max 1; wait; {Alpha} 1\"");
+        console.ReadSettingsFrom(_ => null);
+        List<string> alpha = [];
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == "fps_max")
+            {
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha.Add(set.Value);
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.Load($"wait -2; al; wait 2; {Alpha} 2; wait 3; {Alpha} 3"));
+        console.ConVarSet -= throwing;
+
+        for (int call = 0; call < 4; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        alpha.ShouldBe(["3"], "the 1 and 2 due now were dropped; the 3 put off ran at its tick");
+    }
+
+    /// <remarks>
+    /// **A command a running text's alias puts off is linked among that text's commands by tick** (B840, B832 review 3,
+    /// Fable): a config line is added while its `exec` processes, so `InsertImmediateCommand` puts `al` (T-2) and `2` (T)
+    /// at the queue's front, and `al`'s `1`, put off to T-1, is linked by `InsertCommandAtAppropriateTime` scanning from
+    /// the head: before `2`. So 1 runs, then 2, and 2 is left.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 1\"");
+        List<string> sets = Recorded(console);
+
+        console.Load($"wait -2; al; wait 2; {Alpha} 2");
+        console.Execute(waitAllowed: true);
+
+        sets.ShouldBe(["1", "2"], "both ran, 1 first (B840 review 1, Sonnet)");
+    }
+
+    /// <remarks>
+    /// **The innermost running text's commands come first in the queue** (B840 review 1, Sonnet): `InsertImmediateCommand`
+    /// puts a text added while a command runs before the outer text's commands left. The line runs `A` (T-4) before its
+    /// `3` (T); `A` runs `B` (T-6) before its `2` (T-4); `B`'s `1`, put off to T-5, is linked before `A`'s `2`, the first
+    /// later tick from the head, and not before the line's `3`. So 1, 2, 3; and every byte is released after.
+    /// </remarks>
+    [Test]
+    public void Load_ACommandPutOffInsideTwoRunningTexts_IsLinkedAmongTheInnermosts()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load($"alias B \"wait; {Alpha} 1\"\nalias A \"wait -2; B; wait 2; {Alpha} 2\"");
+        List<string> sets = Recorded(console);
+
+        console.Load($"wait -4; A; wait 4; {Alpha} 3");
+        console.Execute(waitAllowed: true);
+
+        sets.ShouldBe(["1", "2", "3"]);
+        console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength));
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "every queued byte was released");
+    }
+
+    /// <remarks>
+    /// **A command put off to a tick equal to a running command's goes past it** (B840 review 1, Sonnet):
+    /// `InsertCommandAtAppropriateTime` stops at the first LATER tick, so `al`'s `1` at T goes after the line's `2` at T.
+    /// </remarks>
+    [Test]
+    public void Load_ACommandPutOffToARunningCommandsTick_RunsAfterIt()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 1\"");
+        List<string> sets = Recorded(console);
+
+        console.Load($"wait -1; al; wait; {Alpha} 2");
+        console.Execute(waitAllowed: true);
+
+        sets.ShouldBe(["2", "1"]);
+    }
+
+    /// <remarks>
+    /// **A command put off ahead of the outer text's next sits ahead of its own text's later ones** (B840 review 1, Fable):
+    /// `InsertImmediateCommand` links before the next-command handle, which does not move while one text is added, so
+    /// `al`'s `x` and `y` (T-5) go before the line's `4` (T) and its `2`, put off to T-3, is linked from the head before
+    /// `4` too, between them. So 1, 2, 3, 4.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasPuttingOffBetweenItsOwnCommands_RunsInTheEnginesOrder()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"{Alpha} 1; wait 2; {Alpha} 2; wait -2; {Alpha} 3\"");
+        List<string> sets = Recorded(console);
+
+        console.Load($"wait -5; al; wait 5; {Alpha} 4");
+
+        sets.ShouldBe(["1", "2", "3", "4"]);
+    }
+
+    /// <remarks>
+    /// **Only the queue's head is taken, so a command put off at the head holds back the ones behind it** (B840 review 1,
+    /// Fable): `DequeueNextCommand` stops at the head when it is not due (`commandbuffer.cpp:302-305`). With nothing else
+    /// queued, `1; wait 2; 2; wait -2; 3` queues 1 (T), 2 (T+2) and 3 (T) in that order, so 1 runs now and 2 and 3 at T+2.
+    /// </remarks>
+    [Test]
+    public void Load_ACommandBehindOnePutOff_WaitsForIt()
+    {
+        ConfigConsole console = new();
+        List<string> sets = Recorded(console);
+
+        console.Load($"{Alpha} 1; wait 2; {Alpha} 2; wait -2; {Alpha} 3");
+        sets.ShouldBe(["1"], "the control: 3 is behind 2");
+
+        for (int call = 0; call < 3; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        sets.ShouldBe(["1", "2", "3"]);
+    }
+
+    /// <remarks>
+    /// **Aliases that put each other off run from the one queue, not one inside another** (B840 review 1, Fable): TF2's
+    /// queue is flat, so `r` and `s` taking turns never nest on the stack, and they end at the alias depth bound (B820)
+    /// where a run of each inside the last overflowed it. The control: the turns ran, setting `fps_max`.
+    /// </remarks>
+    [Test]
+    public void Load_TwoAliasesPuttingEachOtherOff_EndWithoutNesting()
+    {
+        ConfigConsole console = new();
+        console.Load("alias r \"wait -2; s; wait 2; fps_max 1\"\nalias s \"wait; r\"");
+
+        console.Load("r");
+
+        console.ConVar("fps_max").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A `wait` loop runs every tick for ever** (B840 review 2, Fable): `CCommandBuffer` has no depth or budget, so
+    /// `alias lp "x; wait; lp"` runs once a `Cbuf_Execute`; one put off past the run is a command of its own, at depth 0
+    /// with budgets of its own. It runs once at the load and once more for each call after the first: 5000 in 5000
+    /// calls, past the alias depth bound of 20 and the alias budget of 4096.
+    /// </remarks>
+    [Test]
+    public void Execute_AWaitLoop_RunsEveryTickPastTheDepthBound()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias lp \"incrementvar {Alpha} 0 100000 1; wait; lp\"");
+        console.Load($"{Alpha} 0\nlp");
+
+        // Past the alias budget too (B840 review 3, Sonnet): 5000 runs, beyond 4096 alias runs carried on one budget.
+        for (int call = 0; call < 5000; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("5000.000000", "incrementvar writes its result as %f");
+    }
+
+    /// <remarks>
+    /// **A load stands where TF2's `exec` stands: linked by tick behind what is queued, at the tick it runs at** (B840
+    /// review 2, Fable): with `2` (T+2) and `3` (T, held behind it) queued and the tick at T+2, the load's `wait 2; 4` is
+    /// added at T+2 after both run, so `4` waits for T+4. Added at the tick `3` left behind (T), it would land at T+2 and
+    /// run inside the load.
+    /// </remarks>
+    [Test]
+    public void Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt()
+    {
+        ConfigConsole console = new();
+        List<string> sets = Recorded(console);
+        console.Load($"{Alpha} 1; wait 2; {Alpha} 2; wait -2; {Alpha} 3");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.Load($"wait 2; {Alpha} 4");
+        sets.ShouldBe(["1", "2", "3"], "the control: 4 waits two more ticks");
+
+        // Not a tick early either (B840 review 3, Grok): the calls run T+2 and T+3 with nothing, then T+4.
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        sets.ShouldBe(["1", "2", "3"], "nothing at T+2 or T+3");
+        console.Execute(waitAllowed: true);
+        sets.ShouldBe(["1", "2", "3", "4"]);
+    }
+
+    /// <remarks>
+    /// **What an alias queued ahead of a load puts off is linked behind the load** (B840 review 2, Fable): TF2's queue is
+    /// `2`, `al`, then the `exec`; `al` links its `9` at T+2 after the `exec`, so 2, 3 (the load), 9.
+    /// </remarks>
+    [Test]
+    public void Load_BehindAnAliasThatPutsOff_RunsBeforeWhatItPutOff()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait 2; {Alpha} 9\"");
+        List<string> sets = Recorded(console);
+        console.Load($"{Alpha} 1; wait 2; {Alpha} 2; wait -2; al");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.Load($"{Alpha} 3");
+
+        sets.ShouldBe(["1", "2", "3", "9"]);
+    }
+
+    /// <remarks>
+    /// **A throw from a command queued ahead of a load drops the load with it** (B840 review 3, Fable): the command that
+    /// stands for the load is the load's, due now, so it goes; a later `Execute` does not run the load's text.
+    /// </remarks>
+    [Test]
+    public void Load_BehindACommandThatThrows_IsDroppedWithIt()
+    {
+        ConfigConsole console = new();
+        console.Load("bind k \"wait; fps_max 1\"");
+        List<string> sets = Recorded(console);
+        console.KeyDown("k");
+        console.Execute(waitAllowed: true);
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == "fps_max")
+            {
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.Load($"{Alpha} 5"));
+        console.ConVarSet -= throwing;
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        sets.ShouldBeEmpty("the load's text never ran");
+    }
+
+    /// <remarks>
+    /// **A text's commands put off to one tick share one set of budgets; each later tick has its own** (B840 reviews 3 and
+    /// 4, Fable): one `b` is 585 alias runs (73 of `b`, `c`, `d` and 512 of `e`, each of which adds 1). Eight put off to
+    /// one tick share the 4096 alias runs and are cut short of 4096 adds, as a text run at once is; eight each a tick apart
+    /// are eight runs, each within its budget, and add 4096 with no budget line. The engine has no budget; the viewer's is
+    /// per run (B820).
+    /// </remarks>
+    [TestCase("wait; b; b; b; b; b; b; b; b", 2, true, "3584.000000")]
+    [TestCase("wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b", 9, false, "4096.000000")]
+    public void Load_PutOffAliasesFanningOut_ShareABudgetPerTick(string text, int calls, bool cut, string adds)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load(
+            $"alias e \"incrementvar {Alpha} 0 100000 1\"\nalias d \"e;e;e;e;e;e;e;e\"\nalias c \"d;d;d;d;d;d;d;d\"\nalias b \"c;c;c;c;c;c;c;c\"\n{Alpha} 0");
+
+        console.Load(text);
+
+        for (int call = 0; call < calls; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        (log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs") > 0).ShouldBe(cut);
+        // Cut at run 4097, the eighth `b`'s first `c`: seven whole `b`s, 3584 adds (B840 review 5, Fable).
+        console.ConVar(Alpha).ShouldBe(adds);
+    }
+
+    /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
+    private static List<string> Recorded(ConfigConsole console)
+    {
+        console.ReadSettingsFrom(_ => null);
+        List<string> sets = [];
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                sets.Add(set.Value);
+            }
+        };
+
+        return sets;
+    }
+
+    /// <remarks>
     /// **A command runs at its own tick, so a `wait` in what it runs counts from there** (B832 review 2, Fable, Sonnet):
     /// `DequeueNextCommand` sets `m_nCurrentTick` to the command's tick (`commandbuffer.cpp:307`). A key's `wait -1; al`
     /// runs `al` a tick early, and its `wait` puts `2` back to the key's own tick, which the same `Cbuf_Execute` runs.

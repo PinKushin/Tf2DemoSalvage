@@ -46338,7 +46338,81 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — OPEN
+## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — OPEN
+
+Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
+`demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup, before a demo plays. A
+command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
+`wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be playing.
+*Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or the
+startup run), not by whether its text came from a config. *Not fixed*.
+
+## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** The console is now `CCommandBuffer`'s one queue (`src/tier1/commandbuffer.cpp`): every command is an
+`Entry` in one linked list (`m_Commands`), with a next-command handle (`m_hNextCommand`) set to the head at each
+dequeue. `Link` is `InsertCommand`: while processing, a command due now goes before the handle
+(`InsertImmediateCommand`), otherwise it is linked from the head before the first later tick
+(`InsertCommandAtAppropriateTime`). `Pump` is `DequeueNextCommand` in a loop: the head only, while it is due, stopping
+at a given command, which is how `Cmd_Exec_f` (`engine.dll` build 1007 FUN_1801672f0) runs a file line. An alias body
+is added and the loop runs it next, so aliases no longer nest on the stack. A key's text is added as while nothing
+processes; a config line, the launch line and a handler's text run where they stand. Each entry carries its context,
+its key's answer, and, while it is due within the current run, its alias depth and its command's budgets. A throw
+drops what the call from outside added that is due now.
+
+Review 1 (Fable, Gemini, Sonnet, Grok) found the first version, per-text lists on a stack, could not hold the engine's
+order: `wait -5; al; wait 5; b` with `al` = `x; wait 2; d; wait -2; y` runs al, x, d, y, b in TF2 (`d` sits before
+`b` and after `x`, and `y` goes before the handle, after `d`); only the head is taken, so `1; wait 2; 2; wait -2; 3`
+with nothing queued runs 1 now and 2 and 3 at T+2; and linked commands ran inside each other on the stack (Fable,
+Gemini, Grok). Tests `Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt`,
+`Load_ACommandPutOffInsideTwoRunningTexts_IsLinkedAmongTheInnermosts` (and its bytes released),
+`Load_ACommandPutOffToARunningCommandsTick_RunsAfterIt`,
+`Load_AnAliasPuttingOffBetweenItsOwnCommands_RunsInTheEnginesOrder`,
+`Load_ACommandBehindOnePutOff_WaitsForIt`, `Load_TwoAliasesPuttingEachOtherOff_EndWithoutNesting`,
+`Load_AThrowInsideAnAlias_DropsWhatTheLoadAddedDueNow`. Immediate commands sent to the tail reddened eight console
+tests; any due command taken instead of the head reddened `Load_ACommandBehindOnePutOff_WaitsForIt`.
+
+Review 2 (Fable, Gemini, Sonnet, Grok; Gemini's two blockers are the first two fixes below). Fixed:
+- A command put off past the current `Cbuf_Execute` keeps no alias depth or budgets: the engine has neither, so a
+  `wait` loop runs every tick for ever; such a command is a command of its own, at depth 0 with budgets of its own, as
+  before B840. One due within the run keeps them, which bounds a loop that never leaves it (Fable). Test
+  `Execute_AWaitLoop_RunsEveryTickPastTheDepthBound`, red with the carry kept.
+- Text from outside (a config load, the launch line) stands where TF2's `exec` or `stuffcmds` stands: one command with
+  no bytes is linked by tick at the current tick, behind what is queued, and its run adds the text where it stands, at
+  the tick it runs at (Fable). Tests `Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt`,
+  `Load_BehindAnAliasThatPutsOff_RunsBeforeWhatItPutOff`, both red with the old drain-then-add.
+- `RunClause`'s doc says what its false now means (Fable).
+Review 3 (Fable, Gemini, Sonnet, Grok; no blocker; Gemini no findings). Fixed: the load-behind test checks no tick
+early (Grok);
+the wait-loop test runs 5000 calls, past the alias budget, so it reddens with the budget carried as well as with the
+depth (Fable, Sonnet); a text's commands put off share one fresh set of budgets, as a text run at once shares one
+(Fable); a throw from a command queued ahead of a load drops the load with it, tested
+(`Load_BehindACommandThatThrows_IsDroppedWithIt`, red with the outer call's drop; Fable); a test remark and the `Entry`
+summary (Fable). *Known bound*, recorded in the code (Fable): a `wait` loop started from a command held about
+19 ticks behind its run (review 4) by a negative `wait` re-adds within that run and ends at the depth bound there,
+where TF2 runs it on; the alternative line, the current tick, lets `alias a "wait; b"` / `alias b "wait -1; a"` run
+for ever inside one run.
+
+Review 4 (Fable, Gemini, Sonnet, Grok; no blocker; Gemini found the one set across ticks too and read the fix, no
+blocker). Fixed: a text's commands put off share one fresh set per tick, not one across ticks, as each later tick is
+a run of its own; one set across ticks cut the eighth of eight `b`s a tick apart, which TF2 runs (Fable). Test
+`Load_PutOffAliasesFanningOut_ShareABudgetPerTick`: eight fanning-out aliases
+put off to one tick are cut at the alias budget, as one text is; eight a tick apart all run; red with one set for all
+ticks and with one per command (Fable, Grok). The known bound is about 19 ticks behind, fewer by its starting depth
+(Fable). A doubling loop, `alias a "wait; a; a"`, is bounded only by the 8192-byte buffer, as in TF2: each tick it
+fills the buffer and says `Cbuf_AddText: buffer overflow` for each add refused, a flood of lines each tick, not a hang
+(Fable, Sonnet, Grok). B841 was filed from review 3 (Fable).
+
+Review 5 (Fable, Sonnet, Grok; Gemini's round 4 read the fix; no blocker; Grok no findings). Fixed: the cut case
+asserts its
+exact count, 3584 adds (Fable, Sonnet); B841's timing claim and two stray line breaks (Fable); the log flood named
+(Sonnet).
+
+Not taken: that a load's or the launch line's text is linked by tick as if nothing were processing (Grok, Sonnet).
+TF2 adds them from `exec` and `stuffcmds`, commands the queue is running, so `InsertImmediateCommand` puts them before
+the next command; what is queued ahead of that command runs first. A key's text, from `Key_Event`, is linked by tick.
+
+The paragraph below is the entry as filed.
 
 Found in B832 review 3 (Fable). `InsertCommand` (`engine.dll` x64 build 1007 FUN_180295740;
 `src/tier1/commandbuffer.cpp:148-155`) puts text added while commands are processing at the front in order, but a
