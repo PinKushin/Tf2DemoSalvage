@@ -12,6 +12,8 @@
 
 - **`-h` is TF2's window height, not help (B836).** A pasted TF2 launch line such as `-w 1920 -h 1080 a.dem` now opens `a.dem`, where before it showed the help and tried to open a demo named `1080`. `--help`, `-?` and `/?` still show the help. The window size itself is not applied.
 
+- **A held menu shortcut fires once (B827).** Holding a menu shortcut such as `CTRL+w` (wireframe) repeated the menu action at the keyboard's repeat rate, so the view flickered and landed on whichever state the release caught. The press runs it once, as TF2 runs a bind on the press; the repeats do nothing.
+
 ## Changes in 0.1.0-beta.71
 
 None of these changes was verified by looking against a TF2 frame. Each follows TF2's published source or its binaries, read by disassembly, and is held by tests. Each merge in this release passed the merge gate: all twelve test assemblies at or above their floors with no failures, then the UI suite with none failed on its final run (see *What has been verified*). Most of this release is how your config and the command line are read, which now follows TF2's own code.
@@ -1289,7 +1291,6 @@ Each claim below is a measurement, not an expectation.
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
 - **Config, binds and the command line (beta.71), open:**
-  a held CTRL or ALT chord on a menu shortcut such as `CTRL+w` fires again on every auto-repeat, so wireframe flickers while the keys are held (B827);
   `wait` is not implemented, so a script that relies on it runs its commands without the pause (B832).
 - **Wireframe and the debug views (beta.70), open:**
   the other debug views (`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`) are not yet checked against TF2's cheat gate or its drawing (B806);

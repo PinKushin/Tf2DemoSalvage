@@ -215,6 +215,9 @@ public sealed partial class ViewerSession
         }
     }
 
+    /// <summary>Every action, read once rather than per auto-repeat (B827 review 1, Fable, Gemini, Sonnet, Grok).</summary>
+    private static readonly ViewerAction[] AllActions = Enum.GetValues<ViewerAction>();
+
     /// <summary>Decides what a key press does: which bound action it is, and whether the focused control keeps it.</summary>
     /// <param name="key">The press.</param>
     /// <returns>Whether the press was taken; false leaves it to the control that has the keyboard.</returns>
@@ -409,6 +412,15 @@ public sealed partial class ViewerSession
                 CaptureViewportToFile();
             }
 
+            return true;
+        }
+
+        // **The repeat of any other bound key or chord is taken too** (B827): its press is the menu shortcut's, and WinForms
+        // runs a shortcut on every key down, auto-repeats included, so a held CTRL+w flickered wireframe. Source binds the
+        // press (`Key_Event` runs a bind on the down transition), and no action a menu shortcut carries repeats while held:
+        // each is a toggle, a mode, a dialog or a one-shot. A key or chord bound to nothing is still the toolkit's.
+        if (!press && Array.Exists(AllActions, Chord))
+        {
             return true;
         }
 
