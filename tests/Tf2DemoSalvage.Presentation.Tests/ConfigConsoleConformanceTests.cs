@@ -2342,29 +2342,30 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **A `wait` loop runs every tick for ever** (B840 review 2, Fable): `CCommandBuffer` has no depth or budget, so
     /// `alias lp "x; wait; lp"` runs once a `Cbuf_Execute`; one put off past the run is a command of its own, at depth 0
-    /// with budgets of its own. It runs once at the load and once more for each call after the first: 50 in fifty calls,
-    /// past the alias depth bound of 20.
+    /// with budgets of its own. It runs once at the load and once more for each call after the first: 5000 in 5000
+    /// calls, past the alias depth bound of 20 and the alias budget of 4096.
     /// </remarks>
     [Test]
     public void Execute_AWaitLoop_RunsEveryTickPastTheDepthBound()
     {
         ConfigConsole console = new();
-        console.Load($"alias lp \"incrementvar {Alpha} 0 1000 1; wait; lp\"");
+        console.Load($"alias lp \"incrementvar {Alpha} 0 100000 1; wait; lp\"");
         console.Load($"{Alpha} 0\nlp");
 
-        for (int call = 0; call < 50; call++)
+        // Past the alias budget too (B840 review 3, Sonnet): 5000 runs, beyond 4096 alias runs carried on one budget.
+        for (int call = 0; call < 5000; call++)
         {
             console.Execute(waitAllowed: true);
         }
 
-        console.ConVar(Alpha).ShouldBe("50.000000", "incrementvar writes its result as %f");
+        console.ConVar(Alpha).ShouldBe("5000.000000", "incrementvar writes its result as %f");
     }
 
     /// <remarks>
     /// **A load stands where TF2's `exec` stands: linked by tick behind what is queued, at the tick it runs at** (B840
     /// review 2, Fable): with `2` (T+2) and `3` (T, held behind it) queued and the tick at T+2, the load's `wait 2; 4` is
-    /// added at T+2 after both run, so `4` waits for T+4. Run before them at T, it would land at T+2 and run inside the
-    /// load.
+    /// added at T+2 after both run, so `4` waits for T+4. Added at the tick `3` left behind (T), it would land at T+2 and
+    /// run inside the load.
     /// </remarks>
     [Test]
     public void Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt()
@@ -2378,8 +2379,10 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"wait 2; {Alpha} 4");
         sets.ShouldBe(["1", "2", "3"], "the control: 4 waits two more ticks");
 
+        // Not a tick early either (B840 review 3, Grok): the calls run T+2 and T+3 with nothing, then T+4.
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
+        sets.ShouldBe(["1", "2", "3"], "nothing at T+2 or T+3");
         console.Execute(waitAllowed: true);
         sets.ShouldBe(["1", "2", "3", "4"]);
     }
@@ -2401,6 +2404,35 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"{Alpha} 3");
 
         sets.ShouldBe(["1", "2", "3", "9"]);
+    }
+
+    /// <remarks>
+    /// **A throw from a command queued ahead of a load drops the load with it** (B840 review 3, Fable): the command that
+    /// stands for the load is the load's, due now, so it goes; a later `Execute` does not run the load's text.
+    /// </remarks>
+    [Test]
+    public void Load_BehindACommandThatThrows_IsDroppedWithIt()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"wait; fps_max 1\"");
+        List<string> sets = Recorded(console);
+        console.KeyDown("k");
+        console.Execute(waitAllowed: true);
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == "fps_max")
+            {
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.Load($"{Alpha} 5"));
+        console.ConVarSet -= throwing;
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        sets.ShouldBeEmpty("the load's text never ran");
     }
 
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>

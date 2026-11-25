@@ -46373,6 +46373,15 @@ Review 2 (Fable, Gemini, Sonnet, Grok; Gemini's two blockers are the first two f
   the tick it runs at (Fable). Tests `Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt`,
   `Load_BehindAnAliasThatPutsOff_RunsBeforeWhatItPutOff`, both red with the old drain-then-add.
 - `RunClause`'s doc says what its false now means (Fable).
+Review 3 (Fable, Gemini pending, Sonnet, Grok; no blocker). Fixed: the load-behind test checks no tick early (Grok);
+the wait-loop test runs 5000 calls, past the alias budget, so it reddens with the budget carried as well as with the depth (Fable, Sonnet); a text's commands put off share one fresh set of
+budgets, as a text run at once shares one (Fable); a throw from a command queued ahead of a load drops the load with
+it, tested (`Load_BehindACommandThatThrows_IsDroppedWithIt`, red with the outer call's drop; Fable); a test remark and
+the `Entry` summary (Fable). *Known bound*, recorded in the code (Fable): a `wait` loop started from a command held 20
+or more ticks behind its run by a negative `wait` re-adds within that run and ends at the depth bound there, where TF2
+runs it on; the alternative line, the current tick, lets `alias a "wait; b"` / `alias b "wait -1; a"` run for ever
+inside one run.
+
 Not taken: that a load's or the launch line's text is linked by tick as if nothing were processing (Grok, Sonnet).
 TF2 adds them from `exec` and `stuffcmds`, commands the queue is running, so `InsertImmediateCommand` puts them before
 the next command; what is queued ahead of that command runs first. A key's text, from `Key_Event`, is linked by tick.

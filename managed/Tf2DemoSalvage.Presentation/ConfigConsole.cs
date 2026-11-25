@@ -646,8 +646,8 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// A queued command (`Command_t`): its tick, its size with the terminator, its text, and what it runs with: the key
-    /// that added it, its alias depth, the context it was added in, its budgets, the key it answers to, and the call that
-    /// added it.
+    /// that added it, its alias depth, the context it was added in, its budgets, the key it answers to, the call that
+    /// added it, and, for the command that stands for text from outside (an `exec` or `stuffcmds`), the run that adds it.
     /// </summary>
     private sealed record Entry(
         int Tick,
@@ -2130,7 +2130,11 @@ public sealed class ConfigConsole
         // budget, so a `wait` loop (`alias lp "x; wait; lp"`) runs every tick for ever in TF2; the viewer's bounds (B820) are
         // per run, and one that runs in a later call is a command of its own, at depth 0 with budgets of its own, as it was
         // before B840. One due within this call keeps them, which bounds a loop that never leaves it.
+        // A text's commands put off share one fresh set, as a text run at once shares one (B840 review 3, Fable). *Known
+        // bound*: one run from a command held 20 or more ticks behind the run, by a negative `wait`, re-adds at or before
+        // the run's last tick and keeps its depth, so a `wait` loop started there ends at the depth bound inside that run.
         int lastThisRun = _processing ? _lastTick : _tick;
+        Budget? laterBudget = null;
         bool putOff = false;
 
         foreach (Added queued in added)
@@ -2148,7 +2152,7 @@ public sealed class ConfigConsole
                 _stuffing,
                 _viewerIssued,
                 _savedLayer,
-                later ? new Budget(new CommandBudget()) : _budget,
+                later ? laterBudget ??= new Budget(new CommandBudget()) : _budget,
                 _answer,
                 _adding,
                 Run: null));
