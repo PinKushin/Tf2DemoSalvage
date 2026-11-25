@@ -2856,7 +2856,8 @@ public sealed class ConfigConsoleConformanceTests
     /// (`clientmode_shared.cpp:747-761`) compares the key's whole binding with `Q_strcmp` and swallows the key, so the
     /// button is not set. Every other route to `+attack` is the button command, which only sets the button: an alias, a
     /// longer binding, a binding in another case, the launch line. The control: the exact binding with nobody to spectate
-    /// sets the button too.
+    /// sets the button too. Every route takes the key (B547): a set button is the bind's answer as the camera action is
+    /// (B844 review 12, Sonnet).
     /// </remarks>
     [TestCase("bind k +attack", true, true, false)]
     [TestCase("bind k +attack", false, false, true)]
@@ -2871,9 +2872,10 @@ public sealed class ConfigConsoleConformanceTests
         console.Triggered += (_, e) => raised.Add(e.Action);
         console.Load(config);
 
-        console.KeyDown("k");
+        bool taken = console.KeyDown("k");
 
-        (raised.Contains(ViewerAction.CycleTargetForward), console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((cycles, held));
+        (taken, raised.Contains(ViewerAction.CycleTargetForward), console.IsHeld(ViewerAction.CycleTargetForward))
+            .ShouldBe((true, cycles, held));
     }
 
     /// <remarks>
@@ -2930,6 +2932,24 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown(key);
 
         (console.ConVar("spec_autodirector"), answered, raised.Count).ShouldBe((expected, taken, raisedCount));
+    }
+
+    /// <remarks>
+    /// **A config's exact spectator binding takes a key that has a default of its own** (B844 review 12, Fable): `bind w
+    /// +attack` names `+attack`, so the config owns `w` and its default `+forward` does not run; spectating, the key cycles.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyWithAnotherDefaultBoundExactlyToASpectatorButton_CyclesAndDoesNotFly()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("bind w +attack");
+
+        console.KeyDown("w");
+
+        (string.Join(',', raised), console.IsHeld(ViewerAction.FlyForward)).ShouldBe((nameof(ViewerAction.CycleTargetForward), false));
     }
 
     /// <remarks>

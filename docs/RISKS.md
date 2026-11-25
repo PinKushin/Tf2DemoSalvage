@@ -46376,8 +46376,19 @@ viewer's own mode switch (`CameraPresenter.CycleCameraMode`) turns the director 
 Found in B844 review 1 (all three). `HandleSpectatorKeyInput` answers a key whose binding is exactly `+duck` by
 `m_pViewport->ShowPanel( PANEL_SPECMENU, true )` and swallows it (`clientmode_shared.cpp:742-746`). The viewer has no
 spectator menu, and `+duck` is no command it implements, so a key bound to it falls back to the viewer's default for that
-key (SHIFT's fly-fast, by `CommandFor`'s rule, D69) or does nothing. *Read*, not measured. Fix shape: the spectator
-menu panel, then the key. *Not fixed*.
+key (SHIFT's fly-fast, by `CommandFor`'s rule, D69) or does nothing. With `alias +duck …` the viewer runs the alias's
+body and credits the key with it, where TF2 swallows the key before any alias (B844 review 12, Fable). *Read*, not
+measured. Fix shape: the spectator menu panel, then the key, answered exactly before any alias as the three buttons are.
+*Not fixed*.
+
+## B857 — a coach's POV demo answers every spectator key as a spectator's, where TF2 takes only `+jump` (2026-11-25) — OPEN
+
+Found in B844 review 12 (Fable). TF2 overrides `HandleSpectatorKeyInput`: `ClientModeTFNormal::HandleSpectatorKeyInput`
+(`clientmode_tf.cpp:1589-1618`) asks the local player's `m_bIsCoaching` first, and while it is set takes only a key bound
+exactly to `+jump` (running `spec_mode`) and passes every other key on; otherwise it calls `ClientModeShared`'s. The
+viewer answers `+attack`, `+attack2` and `+strafe` as the base does whoever recorded. A SourceTV demo has no coaching
+local player, so only a coach's own POV demo differs. *Read*, not measured: whether `m_bIsCoaching` reaches a POV demo.
+Fix shape: read `m_bIsCoaching` off the recorder's player and pass the other keys on while it is set. *Not fixed*.
 
 ## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
 
@@ -46394,7 +46405,7 @@ loads, finds no clock to play (`PlaybackPresenter.Play`), and is spent, so the d
 (`Q_strcmp`, so in that case only) with the spectator's command and swallows it: the bind's text never runs, so the
 button is not set, as `return 0` leaves it. Every other route to those three is the button command, which `Perform` now
 answers by pressing the button and raising nothing: an alias, a longer binding, a binding in another case, the launch
-line, a config. `spec_next`, `spec_prev` and `spec_mode` are commands of their own (`clientmode_shared.cpp:749-759`), so a
+line, a config. `spec_next`, `spec_prev` and `spec_mode` are commands of their own (`SpectatorGUI.cpp:786, 807, 828`; called at `clientmode_shared.cpp:749-759`), so a
 key or alias naming one moves the camera, and a config's waited one acts at its tick with B841's other TF2 one-shots.
 The key's gate, `pPlayer && GetObserverMode() > OBS_MODE_DEATHCAM` (`clientmode_shared.cpp:714-716`), is taken as "a
 demo is open" (`ConfigConsole.Spectating`, wired to `_presenter.HasDemo`): with none there is no local player. **Not
@@ -46551,7 +46562,7 @@ first-value fallback can only credit a set, never `spec_mode 5`. The `tokens.Cou
 equivalent mutant (Sonnet): with two tokens the fallback string is the joined one already tried. Tests, red before the
 fix and green after: `Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody`,
 `Unbound_APlusBindEndingInABareToggle_LeavesTheToggleUnbound`; `KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue`
-held before. Presentation 2310 of 2310.
+(renamed `…AnnouncesTheSetWithTheKeysNumber` in review 11) held before. Presentation 2310 of 2310.
 
 Review 10 (Fable, Sonnet, Codex). Fixed: `spec_mode` with one argument counted as doing something in the "names" reading,
 so `bind SPACE "spec_mode 5"` dropped SPACE's `+jump` default while the key did nothing, which the fallback exists to
@@ -46589,6 +46600,20 @@ every reader, which the SPACE test's projection already reads. Sabotage, restore
 `AliasIssued` rather than its key reddens `KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt`. Presentation 2315
 of 2315.
 
+Review 12 (Fable, Sonnet, Codex: no findings). Fixed (tests): every route of `KeyDown_ASpectatorButtonByEveryRoute…`
+asserts the key is taken, which a button-only branch returning false survived (Sonnet); the session test's no-demo row
+proves its config loaded and its keys reach the console, a `j` that sets `spec_autodirector 2` (Sonnet); `bind w +attack`
+under the defaults cycles and does not fly, which the "names" reading skipping a spectator button survived (Fable):
+`KeyDown_AKeyWithAnotherDefaultBoundExactlyToASpectatorButton_CyclesAndDoesNotFly`. Filed: **B857**, TF2's
+`ClientModeTFNormal` override for a coaching local player (Fable). Corrected: B850 names the `alias +duck` case (Fable);
+B854 no longer leans either way, since the two recollections of `FilterKey` disagree and neither is read (Fable); the
+commands are cited where they are defined, `SpectatorGUI.cpp:786, 807, 828` (Fable); review 9's renamed test (Sonnet);
+the memory's claim that reviewers build despite the brief is marked unmeasured (Sonnet). Not taken: `Spectating` is true
+while a demo still loads (Sonnet), and a camera action then has no timeline to act on, so it does nothing. Sabotage,
+each restored: the "names" reading skipping a spectator button reddens the `w` test; the button-only branch answering
+false reddens the unwired, compound and other-case rows (an alias row's key is taken by the alias's own run).
+Presentation 2316 of 2316.
+
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
 `clientmode_shared.cpp:747-761`): it runs `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same
@@ -46601,11 +46626,12 @@ shape: act on the spectator's three only for a key whose whole binding is that c
 
 Found in B844 review 6 (Fable). A key bound exactly to `+attack` is swallowed on the press while spectating
 (`HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`), but the viewer's release still runs `-attack <code>`, and
-`ConsultsAlias` lets `alias -attack "…"` run its body then. **Likely not a divergence** (B844 review 7, Sonnet): every
-branch of `HandleSpectatorKeyInput` tests `down`, so the client does not swallow a release and the viewer running
-`-attack` matches it. What is left is whether `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) filters the release of a
-key whose press the client took; *recalled* that `FilterKey` does, *not read*. Fix shape: read the release path in
-`Key_Event`; close this if it sends the text. *Not fixed*.
+`ConsultsAlias` lets `alias -attack "…"` run its body then. **Undecided, and unread**: every branch of
+`HandleSpectatorKeyInput` tests `down`, so the client itself does not swallow a release (B844 review 7, Sonnet); whether
+`Key_Event` (`engine.dll` build 1007 FUN_1801b6090) still adds the release's text for a key whose press the client took
+is the question, and the two recollections of `FilterKey` disagree (Sonnet's that it does, Fable's in review 12 that the
+release goes to the client alone and no `-attack` is added). Neither is read. Fix shape: read the release path in
+`Key_Event`, then drop the viewer's release text for such a key or close this. *Not fixed*.
 
 ## B855 — `spec_next` and `spec_prev` leave the auto-director on, where SourceTV's turn it off (2026-11-25) — OPEN
 

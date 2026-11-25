@@ -16,6 +16,6 @@ by PID).
 beside `MSBUILDDISABLENODEREUSE=1`. The MSBuild server (`MSBuild.exe /nodemode:8`) outlives a build and keeps the
 environment it started with, so a later build's `UseSharedCompilation=false` never reaches it, and it starts
 `/nodeReuse:true` worker nodes and `VBCSCompiler` anyway (measured 2026-11-25: eight nodes and a compiler server, ~1.3
-GB, at 9:01). Reviewer delegates build too despite a "do not build" brief. After a gate, a review round or anything else
+GB, at 9:01). A reviewer delegate may build despite a "do not build" brief (not measured). After a gate, a review round or anything else
 that may have started them, list `MSBuild`/`VBCSCompiler` by start time and stop this session's by PID. See
 [[my-own-processes-are-mine]], [[delete-leftover-files-yourself]].
