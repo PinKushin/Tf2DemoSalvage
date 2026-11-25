@@ -2430,8 +2430,9 @@ public sealed class ConfigConsole
 
         string command = tokens[0];
 
-        // `ArgC()`, before a set's arguments are joined into one below: `spec_mode` reads exactly two (B844 review 2).
-        int argumentCount = tokens.Count;
+        // The clause as `ArgC()` sees it, before a set's arguments are joined into one below: `spec_mode` reads exactly two
+        // (B844 review 2).
+        IReadOnlyList<string> asTyped = tokens;
 
         // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
         // where the name is a `+`/`-` button, which an alias may replace.
@@ -2542,7 +2543,7 @@ public sealed class ConfigConsole
         // **`spec_mode <n>` sets mode n rather than cycling** (`SpectatorGUI.cpp:847-851`, B844 review 1, Fable), which this
         // viewer does not implement: B851. Cycling there would be the wrong mode, so it does nothing, as it did before B844.
         // Exactly one argument (`ArgC() == 2`); with more it cycles, as TF2's does (review 2, Fable, Sonnet).
-        if (argumentCount == 2 && SpectatorCommands.TryGetValue(command, out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode)
+        if (SetsASpectatorMode(asTyped))
         {
             return true;
         }
@@ -2612,17 +2613,6 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// Whether a clause fires its action (B844 review 3): a spectator button never as a clause — a key's whole, exact
-    /// binding is answered before any clause is read (<see cref="Credited"/>'s exact-first step, reviews 4 and 7) — and `spec_mode` only
-    /// without exactly one argument.
-    /// </summary>
-    /// <param name="tokens">The clause as it runs (<see cref="Credited"/> hands in a key's real text).</param>
-    private static bool Fires(IReadOnlyList<string> tokens)
-    {
-        return !IsSpectatorButton(tokens[0]) && !SetsASpectatorMode(tokens);
-    }
-
-    /// <summary>
     /// Whether a clause is `spec_mode` with exactly one argument (`ArgC() == 2`, `SpectatorGUI.cpp:847-851`), which sets a
     /// mode this viewer does not implement (B851) and so does nothing here, for every reader: a key bound to it keeps its
     /// default, as before B844 (review 10, Sonnet).
@@ -2668,9 +2658,10 @@ public sealed class ConfigConsole
     /// </param>
     /// <param name="credit">
     /// Whether to count only what the bind FIRES (B844 review 3, Fable, Sonnet), for the claim, the settings projection and
-    /// the unbound report: a spectator button reached any way but a key's exact binding only sets its button, and
-    /// `spec_mode n` sets a mode this viewer does not implement (B851). Without it, what a bind names, which decides
-    /// whether the key is the config's.
+    /// the unbound report: a spectator button as a clause only sets its button — a key's whole, exact binding is answered
+    /// before any clause is read (<see cref="Credited"/>, reviews 4 and 7). Without it, what a bind names, which decides
+    /// whether the key is the config's. `spec_mode n` sets a mode this viewer does not implement (B851), so it counts for
+    /// neither reading (review 10, Sonnet).
     /// </param>
     private List<ViewerAction> Expand(string commandLine, int depth, Dictionary<string, int>? walked = null, bool credit = false)
     {
@@ -2724,7 +2715,7 @@ public sealed class ConfigConsole
                 (tokens.Count > 2 ? KeyBindings.ActionOf(string.Concat(tokens[0], " ", tokens[1])) : null) ??
                 (tokens.Count > 1 && IsClientConVar(tokens[0]) ? null : OneShotOf(tokens[0]));
 
-            if ((credit && !Fires(tokens)) || SetsASpectatorMode(tokens))
+            if ((credit && IsSpectatorButton(tokens[0])) || SetsASpectatorMode(tokens))
             {
                 continue;
             }

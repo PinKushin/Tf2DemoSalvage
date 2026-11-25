@@ -46571,6 +46571,24 @@ only on a full buffer (Fable; review 4's not-taken). Sabotage, each restored: `S
 no-demo row and `() => false` the demo row; the `spec_mode` skip removed reddens the SPACE and MOUSE1 rows. Presentation
 2315 of 2315.
 
+Review 11 (Fable, Sonnet, Codex). **A reversal, both positions** (Fable): review 2 kept `spec_mode 5` in the "names"
+reading because taking it out "would make the key fall back to its default and cycle, which is worse than nothing until
+B851"; review 10 took it out. What changed: Sonnet's review 10 showed what "nothing" cost, a key's default dropped
+(SPACE losing its camera switch) for a bind this viewer cannot carry out, which is the case `CommandFor`'s fallback
+exists for and how the key behaved before B844; review 2 weighed a wrong mode against no mode and missed the lost
+default. So review 4's "`Applied` counts `spec_mode 5`" no longer holds either: `DoesSomething` is false for it, and
+`Applied` reads `DoesSomething` (Sonnet, Fable). Fixed: `Fires`'s `spec_mode` term was dead once `Expand` skipped the
+clause for every reader, so `Fires` is gone and the credit skips a spectator button as a clause (Fable, Sonnet); the
+runtime's `spec_mode` guard calls the one predicate, `SetsASpectatorMode`, on the clause as typed (Fable); `Expand`'s
+`credit` doc said the skip was credit-only (Fable). A spectator button pressed by a non-exact binding had no release
+test (Fable): `KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt`. The fullbright test is renamed to what it
+holds, the announced text; the value's read as 1 is B823's and not held here (Fable). The MOUSE1 `spec_mode 5` row
+duplicated the SPACE test under a name that said the command ran, and is removed (Fable). Not taken: Codex's credit with
+no demo open (review 9's not-taken), and an `Unbound` assertion on the SPACE test (Codex): the skip is one predicate for
+every reader, which the SPACE test's projection already reads. Sabotage, restored: the spectator button pressed under
+`AliasIssued` rather than its key reddens `KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt`. Presentation 2315
+of 2315.
+
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding
 string is exactly `+attack`, `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`,
 `clientmode_shared.cpp:747-761`): it runs `spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same

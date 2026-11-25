@@ -2933,6 +2933,25 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A spectator button pressed by a key whose binding is not exact is released by that key** (B844 review 11, Fable):
+    /// `bind k +ATTACK` is not the spectator's (`Q_strcmp`), so it sets `+attack`'s button with key 21, and the release
+    /// runs `-ATTACK 21`, which lets it go (`KeyUp( kbutton_t *b, const char *c )`, `in_main.cpp`).
+    /// </remarks>
+    [Test]
+    public void KeyUp_ASpectatorButtonPressedByANonExactBinding_ReleasesIt()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        console.Load("bind k +ATTACK");
+
+        console.KeyDown("k");
+        bool held = console.IsHeld(ViewerAction.CycleTargetForward);
+        console.KeyUp("k");
+
+        (held, console.IsHeld(ViewerAction.CycleTargetForward)).ShouldBe((true, false));
+    }
+
+    /// <remarks>
     /// **A key bound to `spec_mode 5` keeps its default** (B844 review 10, Sonnet): `spec_mode` with one argument sets a mode
     /// this viewer does not implement (B851), so the bind does nothing here and SPACE's `+jump` still switches the camera,
     /// as before B844, rather than SPACE falling silent.
@@ -3062,10 +3081,11 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **The press agrees with that credit** (B844 review 9, Fable): `j` runs `mat_fullbright 1 20`, a set of the whole
     /// `ArgS`, as `RunClause` hands `SourceConfig.ConVarValue` to `SetConVar`; the value is read as a number up to its first
-    /// space where it is used. The exact text announced is asserted (review 10, Fable).
+    /// space where it is used (B823, `SourceConfig`), which this test does not hold. The exact text announced is asserted
+    /// (reviews 10 and 11, Fable).
     /// </remarks>
     [Test]
-    public void KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue()
+    public void KeyDown_APlusBindEndingInAFullbrightSet_AnnouncesTheSetWithTheKeysNumber()
     {
         ConfigConsole console = new();
         List<string> set = [];
@@ -3211,12 +3231,10 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **A spectator command bound to a key with a default replaces the default** (B844 review 1, Fable, Sonnet): MOUSE1's
-    /// default is `+attack`, and `bind MOUSE1 spec_prev` must cycle backwards. `spec_mode 5` sets a mode TF2 names, which
-    /// the viewer does not implement (B851), so the bind does nothing here and MOUSE1 keeps its default, as before B844
-    /// (review 10, Sonnet: `CommandFor`'s fallback is for exactly a bind that does nothing in this viewer).
+    /// default is `+attack`, and `bind MOUSE1 spec_prev` must cycle backwards. `spec_mode 5` keeps the default instead:
+    /// `KeyDown_AKeyWithADefaultBoundToSpecModeWithAnArgument_RunsItsDefault` (review 11, Fable).
     /// </remarks>
     [TestCase("spec_prev", new[] { ViewerAction.CycleTargetReverse })]
-    [TestCase("spec_mode 5", new[] { ViewerAction.CycleTargetForward })]
     public void KeyDown_AKeyWithADefaultBoundToASpectatorCommand_RunsTheCommand(string command, ViewerAction[] expected)
     {
         ConfigConsole console = ConfigConsole.WithDefaults();
