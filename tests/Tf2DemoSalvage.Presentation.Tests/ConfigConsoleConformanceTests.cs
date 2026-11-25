@@ -2187,6 +2187,59 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A throw drops a running text's own rest, not a command another text linked among it** (B840): `al`'s text links
+    /// its `1` (T-1) ahead of the line's `2` (T) when it is added, then its `fps_max` set, first, throws. The line's `2` is dropped with it; the
+    /// alias's `1` is its own and stays queued, and the next `Execute` runs it.
+    /// </remarks>
+    [Test]
+    public void Load_AThrowAfterAnAliasLinkedAheadOfTheLine_KeepsTheAliassCommand()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"fps_max 1; wait; {Alpha} 1\"");
+        console.ReadSettingsFrom(_ => null);
+        List<string> alpha = [];
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == "fps_max")
+            {
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha.Add(set.Value);
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.Load($"wait -2; al; wait 2; {Alpha} 2"));
+        console.ConVarSet -= throwing;
+        console.Execute(waitAllowed: true);
+
+        alpha.ShouldBe(["1"], "the alias's command survived; the line's 2 was dropped with it");
+    }
+
+    /// <remarks>
+    /// **A command a running text's alias puts off is linked among that text's commands by tick** (B840, B832 review 3,
+    /// Fable): a config line is added while its `exec` processes, so `InsertImmediateCommand` puts `al` (T-2) and `2` (T)
+    /// at the queue's front, and `al`'s `1`, put off to T-1, is linked by `InsertCommandAtAppropriateTime` scanning from
+    /// the head: before `2`. So 1 runs, then 2, and 2 is left.
+    /// </remarks>
+    [Test]
+    public void Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 1\"");
+
+        console.Load($"wait -2; al; wait 2; {Alpha} 2");
+        console.Execute(waitAllowed: true);
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
     /// **A command runs at its own tick, so a `wait` in what it runs counts from there** (B832 review 2, Fable, Sonnet):
     /// `DequeueNextCommand` sets `m_nCurrentTick` to the command's tick (`commandbuffer.cpp:307`). A key's `wait -1; al`
     /// runs `al` a tick early, and its `wait` puts `2` back to the key's own tick, which the same `Cbuf_Execute` runs.

@@ -663,28 +663,58 @@ public sealed class ConfigConsole
         {
             Deferred due = _deferred[0];
             _deferred.RemoveAt(0);
-            _queuedBytes -= due.Size;
-            _tick = due.Tick;
-
-            (bool loading, bool stuffing, bool viewerIssued, bool savedLayer) = (_loading, _stuffing, _viewerIssued, _savedLayer);
-            (_loading, _stuffing, _viewerIssued, _savedLayer) = (due.Loading, due.Stuffing, due.ViewerIssued, due.SavedLayer);
-
-            try
-            {
-                // The key text being run shares the budgets its key's command began (B832 review 4, Sonnet), as it did when
-                // it ran as one text; any other queued command is a command of its own.
-                bool ownText = text != 0 && due.Text == text;
-                bool did = ownText ? Run(due.Command, due.Key, depth: 0) : RunCommand(due.Command, due.Key);
-                acted |= did && ownText;
-            }
-            finally
-            {
-                (_loading, _stuffing, _viewerIssued, _savedLayer) = (loading, stuffing, viewerIssued, savedLayer);
-            }
+            acted |= RunQueued(due, text);
         }
 
         return acted;
     }
+
+    /// <summary>Runs one queued command at its own tick, in the context it was added in (`DequeueNextCommand`).</summary>
+    /// <param name="due">The command, already taken off the queue.</param>
+    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
+    /// <returns>Whether it is that text's and did something.</returns>
+    private bool RunQueued(Deferred due, int text)
+    {
+        _queuedBytes -= due.Size;
+        _tick = due.Tick;
+
+        (bool loading, bool stuffing, bool viewerIssued, bool savedLayer) = (_loading, _stuffing, _viewerIssued, _savedLayer);
+        (_loading, _stuffing, _viewerIssued, _savedLayer) = (due.Loading, due.Stuffing, due.ViewerIssued, due.SavedLayer);
+
+        try
+        {
+            // The key text being run shares the budgets its key's command began (B832 review 4, Sonnet), as it did when
+            // it ran as one text; any other queued command is a command of its own.
+            bool ownText = text != 0 && due.Text == text;
+            bool did = ownText ? Run(due.Command, due.Key, depth: 0) : RunCommand(due.Command, due.Key);
+            return did && ownText;
+        }
+        finally
+        {
+            (_loading, _stuffing, _viewerIssued, _savedLayer) = (loading, stuffing, viewerIssued, savedLayer);
+        }
+    }
+
+    /// <summary>
+    /// A text added while commands are processing, running: its commands still to run, in the order
+    /// `InsertImmediateCommand` put them at the queue's front, and any command a deeper text put off and
+    /// `InsertCommandAtAppropriateTime` linked among them (B840).
+    /// </summary>
+    private sealed class Running
+    {
+        /// <summary>The commands left: the text's own (no <see cref="Pending.Linked"/>) and those linked among them.</summary>
+        public List<Pending> Left { get; } = [];
+
+        /// <summary>The next of <see cref="Left"/> to run.</summary>
+        public int Next { get; set; }
+    }
+
+    /// <summary>One command of a running text: its tick, its size, its text, and, for one linked in, the queued command.</summary>
+    private readonly record struct Pending(int Tick, int Size, string Command, Deferred? Linked);
+
+    /// <summary>The texts running now, outermost first: the front of the queue is the innermost's commands left, then
+    /// the next one out's, then <see cref="_deferred"/> (B840).</summary>
+    private readonly List<Running> _running = [];
 
     /// <summary>Drops a key text's queued commands due by a tick, releasing their bytes: what a throw left unrun.</summary>
     /// <param name="text">The key text.</param>
@@ -702,10 +732,32 @@ public sealed class ConfigConsole
     }
 
     /// <summary>Queues a command at its tick, after every one at its tick or before (`:95-105`).</summary>
-    private void Defer(Added command, string? key, int text)
+    /// <remarks>
+    /// **The scan starts at the queue's head** (B840): the commands left of every running text come first, innermost
+    /// first, so a command put off to a tick before one of theirs is linked ahead of it and runs before it; past them,
+    /// the queue proper.
+    /// </remarks>
+    private void Defer(Added command, string? key, int text) =>
+        Link(new Deferred(command.Tick, command.Size, command.Command, key, _loading, _stuffing, _viewerIssued, _savedLayer, text));
+
+    /// <summary>Links a queued command by its tick, from the queue's head (see <see cref="Defer"/>).</summary>
+    private void Link(Deferred deferred)
     {
-        int at = _deferred.FindIndex(queued => queued.Tick > command.Tick);
-        Deferred deferred = new(command.Tick, command.Size, command.Command, key, _loading, _stuffing, _viewerIssued, _savedLayer, text);
+        for (int level = _running.Count - 1; level >= 0; level--)
+        {
+            Running running = _running[level];
+
+            for (int left = running.Next; left < running.Left.Count; left++)
+            {
+                if (running.Left[left].Tick > deferred.Tick)
+                {
+                    running.Left.Insert(left, new Pending(deferred.Tick, deferred.Size, deferred.Command, deferred));
+                    return;
+                }
+            }
+        }
+
+        int at = _deferred.FindIndex(queued => queued.Tick > deferred.Tick);
 
         if (at < 0)
         {
@@ -1982,7 +2034,15 @@ public sealed class ConfigConsole
         bool keyText = key is not null && depth == 0 && !_processing && _commandsRunning == 1;
         int addedAt = _tick;
         int text = keyText ? ++_keyTexts : 0;
-        List<Added> now = [];
+
+        // **Text added while processing goes to the queue's front, and is part of the queue** (B840): its commands for now
+        // are what this run works through, and a command a deeper text puts off is linked among them by tick.
+        Running running = new();
+
+        if (!keyText)
+        {
+            _running.Add(running);
+        }
 
         foreach (Added queued in added)
         {
@@ -1999,7 +2059,7 @@ public sealed class ConfigConsole
             }
             else
             {
-                now.Add(queued);
+                running.Left.Add(new Pending(queued.Tick, queued.Size, queued.Command, Linked: null));
             }
         }
 
@@ -2018,13 +2078,19 @@ public sealed class ConfigConsole
             }
         }
 
-        int handled = 0;
-
         try
         {
-            while (handled < now.Count)
+            while (running.Next < running.Left.Count)
             {
-                Added queued = now[handled++];
+                Pending queued = running.Left[running.Next++];
+
+                // A command a deeper text put off and linked here runs here, as what added it (B840).
+                if (queued.Linked is { } linked)
+                {
+                    _ = RunQueued(linked, text: 0);
+                    continue;
+                }
+
                 _queuedBytes -= queued.Size;
 
                 // **It runs at its own tick** (`DequeueNextCommand` sets `m_nCurrentTick`, `commandbuffer.cpp:307`; B832
@@ -2039,10 +2105,20 @@ public sealed class ConfigConsole
         }
         finally
         {
-            // What a budget or a throw left unrun is dropped, and its bytes with it.
-            for (int left = handled; left < now.Count; left++)
+            _running.RemoveAt(_running.Count - 1);
+
+            // What a budget or a throw left unrun of this text is dropped, and its bytes with it; a command another text
+            // linked among it is that text's, and stays queued.
+            for (int left = running.Next; left < running.Left.Count; left++)
             {
-                _queuedBytes -= now[left].Size;
+                if (running.Left[left].Linked is { } linked)
+                {
+                    Link(linked);
+                }
+                else
+                {
+                    _queuedBytes -= running.Left[left].Size;
+                }
             }
         }
 

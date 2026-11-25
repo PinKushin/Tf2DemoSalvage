@@ -46338,7 +46338,19 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — OPEN
+## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** The queue's front is now part of the queue: each text added while processing (an alias body, a file line,
+the launch line, a queued command's text) runs from a `Running` record of its commands left, kept on a stack
+(`_running`), innermost last. `Defer` links a put-off command as `InsertCommandAtAppropriateTime` does, scanning from
+the head: the innermost running text's commands left first, then each outer one's, then `_deferred`; it goes before the
+first with a later tick, so `wait -2; al; wait 2; b` with `al` = `wait; d` runs al, d, b. A linked command runs where it
+sits, as what added it (`RunQueued`, split out of `RunDue`). When a budget or a throw stops a text, its own rest is
+dropped with its bytes and a command another text linked among it is linked again past it, so it stays queued. Tests
+`Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt` (red without the scan of running texts) and
+`Load_AThrowAfterAnAliasLinkedAheadOfTheLine_KeepsTheAliassCommand` (red with the linked command dropped).
+
+The paragraph below is the entry as filed.
 
 Found in B832 review 3 (Fable). `InsertCommand` (`engine.dll` x64 build 1007 FUN_180295740;
 `src/tier1/commandbuffer.cpp:148-155`) puts text added while commands are processing at the front in order, but a
