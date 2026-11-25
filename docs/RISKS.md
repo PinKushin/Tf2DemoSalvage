@@ -46356,7 +46356,8 @@ Found in B841 review 10 (Fable). The viewer draws frames while a demo decodes an
 each runs the console, so a config's `wait` counts loading frames. TF2's host frame does not run the command buffer
 while the level loads. *Read from memory*, not from the engine: which call holds the buffer during a load is not read.
 Fix shape: read the load path in `engine.dll`, then run no `Execute` while `LoadsInFlight` is above 0 if the engine
-holds it. *Not fixed*.
+holds it. One consequence (B841 review 12, Fable): a config's `wait; demo_togglepause` comes due while the demo still
+loads, finds no clock to play (`PlaybackPresenter.Play`), and is spent, so the demo stays paused. *Not fixed*.
 
 ## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
 
@@ -46600,7 +46601,7 @@ Review 10 (Fable, Sonnet):
 Review 11 (Fable, Sonnet, Gemini):
 - **The load test raced the decode** (both): the rig cannot hold a load open, so it could go red on a correct build
   and stay green on a broken one. Replaced by two pure rules the session calls, each tested apart:
-  `ViewerSession.PlaysBack(hasDemo, loadsInFlight)` (`PlaysBack_ADemoOpenOrLoading_PlaysBack`) and
+  `ViewerSession.PlaysBack(hasDemo, loadsInFlight)` (`PlaysBack_ADemoOpenOrLoading_IsTrueOnlyThen`) and
   `DrawsThroughHltv(timeline)` (`DrawsThroughHltv_ADemoWithNoRecordedView_IsHltvOnlyWhenSourceTv`, over two synthetic
   demos with no view recorded, SourceTV or not; Fable: round 10's `IsSourceTv` change had no test). Each reddens with
   its rule undone. The two wiring lines that call them are read, not tested. The count is read before the demo, as an
@@ -46611,7 +46612,13 @@ Review 11 (Fable, Sonnet, Gemini):
 - **Known bounds:** a load that fails counts as playing back until it fails (Fable), beside the unread `StartPlayback`
   bound above. While a SourceTV demo still loads its timeline is null, so the SourceTV gate cannot tell it from a POV
   one and a waited view command acts (Gemini); the demo's kind is unknown until it decodes, and on a POV demo TF2 would
-  keep the flag a load-time `thirdperson` set, so holding it back would be wrong there.
+  keep the flag a load-time `thirdperson` set, so holding it back would be wrong there. A demo opened over another
+  answers with the open one's kind until it decodes (review 12, Fable), within the same trade.
+
+Review 12 (Fable, Sonnet, Gemini after): no engine divergence. The wiring comment claimed a race the UI thread rules out
+(Fable): reworded. A test renamed for what its rows hold (Sonnet). A waited `demo_togglepause` that comes due during
+the load is spent on nothing, where TF2 holds the buffer (Fable): B847's consequence, added there. The handoff memory's
+"B841 open" is updated at the merge (Sonnet).
 - 2,244 of 2,244 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's

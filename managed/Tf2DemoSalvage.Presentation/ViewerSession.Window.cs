@@ -289,8 +289,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         // The engine's demo player answers whether a demo plays back, which TF2's `screenshot` asks first (B841 review 9).
         // From the open on: `playdemo` starts playback before the map loads (B841 review 10, Fable, Sonnet).
-        // The count read first: an open sets the demo before it counts down, so no read between them answers neither
-        // (B841 review 11, Fable).
+        // An open sets the demo and counts down on this thread, as the console runs, so the two reads cannot straddle it.
         _console.PlayingBack = () => PlaysBack(loadsInFlight: _presenter.LoadsInFlight, hasDemo: _presenter.HasDemo);
 
         // A SourceTV demo draws through the HLTV camera, which TF2's first- and third-person commands do not reach.

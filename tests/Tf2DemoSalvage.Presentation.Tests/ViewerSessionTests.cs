@@ -2516,7 +2516,7 @@ public sealed class ViewerSessionTests
     [TestCase(false, 1, true)]
     [TestCase(true, 0, true)]
     [TestCase(true, 1, true)]
-    public void PlaysBack_ADemoOpenOrLoading_PlaysBack(bool hasDemo, int loadsInFlight, bool expected) =>
+    public void PlaysBack_ADemoOpenOrLoading_IsTrueOnlyThen(bool hasDemo, int loadsInFlight, bool expected) =>
         ViewerSession.PlaysBack(hasDemo, loadsInFlight).ShouldBe(expected);
 
     /// <remarks>
