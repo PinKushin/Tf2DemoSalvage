@@ -1814,6 +1814,224 @@ public sealed class ConfigConsoleConformanceTests
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
     }
 
+    /// <summary>A command that queues <paramref name="size"/> bytes, its terminator included, and changes nothing seen.</summary>
+    private static string Filler(int size) => "alias f " + new string('x', size - 1 - "alias f ".Length);
+
+    /// <summary>Fillers that queue <paramref name="size"/> bytes in all, none over 400, one per line.</summary>
+    private static string Fillers(int size)
+    {
+        List<string> lines = [];
+
+        for (; size > 400; size -= 400)
+        {
+            lines.Add(Filler(400));
+        }
+
+        lines.Add(Filler(size));
+        return string.Join('\n', lines);
+    }
+
+    /// <remarks>
+    /// **The launch line fills the 8192-byte argument buffer, and the command that does not fit is refused with every
+    /// command after it** (B834): `CCommandBuffer::InsertCommand` refuses `m_nArgSBufferSize + nCommandSize + 1 &gt;
+    /// m_nMaxArgSBufferLength` (`src/tier1/commandbuffer.cpp:129-134`), 0x2000 in `engine.dll` x64 build 1007
+    /// (FUN_180294fb0, FUN_180295740), and `stuffcmds` (FUN_1801683d0) adds the whole line at once through FUN_180166e30,
+    /// which says `Cbuf_AddText: buffer overflow`. The control: the same line one byte shorter fills the buffer exactly and
+    /// sets `fps_max`.
+    /// </remarks>
+    [TestCase(0, "60", 0)]
+    [TestCase(1, null, 1)]
+    public void Stuff_ALaunchLineAtTheArgumentBuffersEdge_RunsWhatFits(int over, string? fpsMax, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string last = "fps_max 60";
+
+        console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength - (last.Length + 1) + over) + "\n" + last);
+
+        console.ConVar("fps_max").ShouldBe(fpsMax);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(0, "no command is too long");
+    }
+
+    /// <remarks>
+    /// **An alias body fits only beside the rest of the text that ran it** (B834): `AddText` queues the whole text before
+    /// any of it runs, so while `a` runs, the fillers after it still hold the buffer, and its body is refused when it does
+    /// not fit beside them; the rest of that text still runs. The control: with 100 bytes fewer of fillers, it fits.
+    /// </remarks>
+    [TestCase(100, "1", 0)]
+    [TestCase(0, null, 1)]
+    public void Stuff_AnAliasBodyThatDoesNotFitBesideTheRestOfItsText_IsRefused(int room, string? alpha, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string body = $"{Alpha} 1";
+        console.Load($"alias a \"{body}\"");
+
+        // `a` itself is dequeued before its body is added, so the fillers and `fps_max 60` are what is queued.
+        console.Stuff("a\n" + Fillers(ConfigConsole.ArgumentBufferLength - (body.Length + 1) - 11 + 1 - room) + "\nfps_max 60");
+
+        console.ConVar(Alpha).ShouldBe(alpha);
+        console.ConVar("fps_max").ShouldBe("60", "the rest of the launch line runs");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+    }
+
+    /// <remarks>
+    /// **`wait` puts the rest of its text off to the next tick** (B832): `AddText` (`src/tier1/commandbuffer.cpp:235-240`;
+    /// `engine.dll` x64 build 1007 FUN_1802952a0) adds `m_nWaitDelayTicks`, 1, to the tick of every command after it, and
+    /// `Cbuf_Execute` (FUN_180166a10) runs one tick's commands a call. Text run between calls is the next call's tick, so the
+    /// waited half runs at the second call after it. The control: before any call, only the first half has run.
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithAWait_RunsTheRestAtTheSecondExecute()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1; wait; {Alpha} 2");
+        console.ConVar(Alpha).ShouldBe("1", "the control: the first half runs at once");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1", "the waited half is a tick later");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **`wait N` waits N ticks, a bare `wait` one, and `wait 0` none** (`int nDelay = pArgS ? atoi( pArgS ) :
+    /// m_nWaitDelayTicks;`, `commandbuffer.cpp:237`), and the name is matched in any case (`Q_stricmp`).
+    /// </remarks>
+    [TestCase("wait 3", 4)]
+    [TestCase("WAIT", 2)]
+    [TestCase("wait 0", 0)]
+    [TestCase("wait x", 0)]
+    public void Load_AWaitWithAnArgument_WaitsThatManyTicks(string wait, int executes)
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1; {wait}; {Alpha} 2");
+
+        for (int call = 0; call < executes; call++)
+        {
+            console.ConVar(Alpha).ShouldBe("1", $"before call {call + 1}");
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **What waits goes after the rest of the text that ran it** (B832): an alias body is added while commands are
+    /// processing, its first half ahead of the rest of its caller's text, its waited half at the later tick
+    /// (`InsertCommand`, `commandbuffer.cpp:148-155`). So `w; tf_hud_target_id_alpha 3` leaves 3, then 2.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasWithAWait_RunsItsWaitedHalfAfterTheRestOfTheBind()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias w \"{Alpha} 1; wait; {Alpha} 2\"\nbind k \"w; {Alpha} 3\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+        console.ConVar(Alpha).ShouldBe("3");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **Waited commands run in tick order, not the order they were added** (B832): `InsertCommandAtAppropriateTime`
+    /// (`commandbuffer.cpp:95-105`) links each before the first with a later tick. So a set three ticks off, added first,
+    /// lands after one a tick off: 1 after two calls, 3 after four.
+    /// </remarks>
+    [Test]
+    public void Load_WaitsAddedOutOfTickOrder_RunInTickOrder()
+    {
+        ConfigConsole console = new();
+        console.Load($"wait 3; {Alpha} 3\nwait; {Alpha} 1");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **With <c>sv_allow_wait_command</c> off, `wait` is no wait** (B832): `Cbuf_Execute` (`engine.dll` x64 build 1007
+    /// FUN_180166a10) sets `m_bWaitEnabled` from it before each run, and `AddText` takes `wait` only when it is set. The
+    /// control: the same line with it on waits.
+    /// </remarks>
+    [TestCase(false, "2")]
+    [TestCase(true, "1")]
+    public void Load_AWaitAfterAnExecute_WaitsOnlyWhenTheServerAllowsIt(bool allowed, string alpha)
+    {
+        ConfigConsole console = new();
+        console.Execute(allowed);
+
+        console.Load($"{Alpha} 1; wait; {Alpha} 2");
+
+        console.ConVar(Alpha).ShouldBe(alpha);
+    }
+
+    /// <remarks>
+    /// **<c>sv_allow_wait_command</c> is read as its integer, and is 1 until a server sets it** (B832): `Cbuf_Execute`
+    /// (`engine.dll` x64 build 1007 FUN_180166a10) tests the ConVar's `m_nValue`, `(int)atof`, and its default string is
+    /// "1" (FUN_18000b680). So "0.5" is off and "1abc" on.
+    /// </remarks>
+    [TestCase(null, true)]
+    [TestCase("1", true)]
+    [TestCase("1abc", true)]
+    [TestCase("0", false)]
+    [TestCase("0.5", false)]
+    public void WaitAllowed_AServersValue_IsItsIntegerNotZero(string? value, bool allowed) =>
+        ConfigConsole.WaitAllowed(value).ShouldBe(allowed);
+
+    /// <remarks>
+    /// **A key pressed while a wait's commands are due runs after them** (B832): TF2 queues the key's text behind what is
+    /// already queued for its tick (`InsertCommandAtAppropriateTime`, `commandbuffer.cpp:95-105`), so the waited set lands
+    /// first and the key's set wins.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AfterAWaitsCommandsAreDue_RunsAfterThem()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 3\"\n{Alpha} 1; wait; {Alpha} 2");
+        console.Execute(waitAllowed: true);
+
+        console.KeyDown("k").ShouldBeTrue();
+        console.Execute(waitAllowed: true);
+
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **A waited command holds the argument buffer until it runs** (B832, B834): it is queued at its later tick, its
+    /// bytes counted, so a key whose bind does not fit beside them is refused and says `Cbuf_AddText: buffer overflow`
+    /// (`Key_Event`'s FUN_180166500). The control: once the waited commands have run, the same key acts.
+    /// </remarks>
+    [Test]
+    public void KeyDown_WhileWaitedCommandsFillTheBuffer_SaysTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string bind = $"{Alpha} 3";
+        console.Load($"bind k \"{bind}\"");
+        // As launch-line text: one `AddText`, where a config's line would be cut at 1023 bytes.
+        console.Stuff("wait\n" + Fillers(ConfigConsole.ArgumentBufferLength - bind.Length));
+
+        console.KeyDown("k");
+        console.ConVar(Alpha).ShouldBeNull();
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.KeyDown("k").ShouldBeTrue("the control: the waited commands ran and freed the buffer");
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
     /// <remarks>
     /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
     /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by

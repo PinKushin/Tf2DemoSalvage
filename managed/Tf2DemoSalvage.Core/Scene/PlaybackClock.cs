@@ -106,6 +106,29 @@ public sealed class PlaybackClock
             _position + (seconds * TimeScale / _intervalPerTick), 0, _lastTick);
     }
 
+    /// <summary>The real seconds until the position reaches the next whole tick it travels towards.</summary>
+    /// <returns>Infinity when it travels nowhere: stopped, or at the end it travels towards.</returns>
+    /// <remarks>A frame's host ticks are the whole ticks it crosses (B838), each run on its own.</remarks>
+    public double SecondsToNextTick()
+    {
+        if (TimeScale > 0 && !AtEnd)
+        {
+            return (Math.Floor(_position) + 1 - _position) * _intervalPerTick / TimeScale;
+        }
+
+        if (TimeScale < 0 && !AtStart)
+        {
+            return (_position - (Math.Ceiling(_position) - 1)) * _intervalPerTick / -TimeScale;
+        }
+
+        return double.PositiveInfinity;
+    }
+
+    /// <summary>Moves to the next whole tick it travels towards, exactly, where <see cref="Advance"/> by
+    /// <see cref="SecondsToNextTick"/> could land a rounding error short of it.</summary>
+    public void StepToNextTick() =>
+        _position = Math.Clamp(TimeScale > 0 ? Math.Floor(_position) + 1 : Math.Ceiling(_position) - 1, 0, _lastTick);
+
     /// <summary>Jumps to a tick, discarding any part-tick already accumulated.</summary>
     /// <param name="tick">Where to go; clamped to the demo.</param>
     /// <remarks>

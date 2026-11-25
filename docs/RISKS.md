@@ -46338,7 +46338,49 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — OPEN
+## B838 — a frame's per-tick `Cbuf_Execute` calls run after the frame's whole advance, not inside each tick (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed** on B832's branch. `PlaybackPresenter.Advance(beforeEachTick)` steps the clock one whole tick at a time
+(`PlaybackClock.SecondsToNextTick`, `StepToNextTick`), runs the console before each, and stops on the tick reached
+when a command it ran paused playback; the frame's last part-tick is advanced as before. `ViewerSession.Simulate` passes it the
+console's `Execute`. Tests `Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check
+removed), `SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
+`SecondsToNextTick_AtTheEndPlayingForward_IsInfinite`. *Not reproduced*: TF2 counts its host ticks from accumulated
+frame time before the loop; the viewer counts the demo ticks the frame crosses, which is the same count while a demo
+plays one tick per host tick.
+
+The paragraph below is the entry as filed.
+
+Found fixing B832. `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs each host tick's
+`_Host_RunFrame_Input` (FUN_1801a74d0, which calls `Cbuf_Execute`) before that tick's server and client steps, so a
+command a `wait` put off to the second tick of a frame acts before the demo reads its second tick: a waited
+`demo_pause` stops playback on that tick. `ViewerSession.Simulate` advances the playback clock by the whole frame
+first and then runs one `Execute` per tick it crossed, so the same `demo_pause` stops it at the frame's last tick, up to
+six ticks later at the 0.1-second frame clamp. *Inferred* from the order read; not measured. Fix shape: step the clock
+one tick at a time in `PlaybackPresenter.Advance`, running the console before each and stopping when it pauses.
+*Not fixed*.
+
+## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — FIXED (2026-11-25)
+
+**Fixed**, with B832 on one branch: both are `CCommandBuffer`'s queue. Read in `engine.dll` x64 build 1007 (Ghidra):
+the constructor (FUN_180294fb0) sets `m_nMaxArgSBufferLength` to 0x2000, and `InsertCommand` (FUN_180295740) and
+`AddText` (FUN_1802952a0) match `src/tier1/commandbuffer.cpp`. Both interpolations are answered: `stuffcmds`
+(FUN_1801683d0) pastes the launch line into a growable `CUtlBuffer` and adds it in one call, so nothing caps it first;
+and the buffer holds the queued commands, each with its terminator, since `Compact` keeps only those. `AddText` queues
+a whole text before any of it runs, so while one command runs, the rest of its text, of every text that ran it, and
+every command a `wait` put off hold the buffer. `Cmd_Exec_f` (FUN_1801672f0) adds a file one line at a time and runs
+each before reading the next. `ConfigConsole.Insert` is that `AddText`: it queues a text's commands, stops at one of 511
+bytes or more or at one that does not fit (`queued + size + 1 > 8192`), and `Run` keeps `_queuedBytes`, released as
+each command runs. Every adder (a key, a file line, an alias body, the launch line) says
+`Cbuf_AddText: buffer overflow`, now before the text's commands run, as TF2 prints it from the adder; the depth-keyed `AddedAsOne` is gone.
+`LaunchOptions` counts the same bytes across the launch line for its early store (`ConfigConsole.Adds`), with nothing
+else queued: a config's waited commands still queued when `stuffcmds` runs are not counted there. Tests
+`Stuff_ALaunchLineAtTheArgumentBuffersEdge_RunsWhatFits` (exactly 8192 fits, 8193 does not),
+`Stuff_AnAliasBodyThatDoesNotFitBesideTheRestOfItsText_IsRefused`,
+`KeyDown_WhileWaitedCommandsFillTheBuffer_SaysTheBufferOverflowed`, `Read_AConVarPastTheArgumentBuffer_IsNotStored`;
+each red with the limit doubled, and the first with `>=` for `>`.
+
+The paragraph below is the entry as filed.
 
 Found in B830 review 2 (Fable). `CCommandBuffer::InsertCommand` refuses a second way: when the argument buffer
 (`m_nMaxArgSBufferLength`, 8192 by `src/public/tier1/commandbuffer.h:92`) cannot take the command even after `Compact`
@@ -46436,7 +46478,29 @@ it for the launch line and for each config line (`Cmd_Exec_f` adds each line thr
 A key's bind and an alias body print only the first line. *Not read*: which adder each of those two reaches; the
 engine's strings also hold `Cbuf_AddTextWithMarkers: buffer overflow`, whose callers are not read either. *Not fixed*.
 
-## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
+## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — FIXED (2026-11-25)
+
+**Fixed**, with B834. Read in `engine.dll` x64 build 1007 (Ghidra): `AddText` (FUN_1802952a0) takes `wait`, any case,
+when `m_bWaitEnabled` is set, and adds `atoi( pArgS )` to the tick of every later command of its text, or
+`m_nWaitDelayTicks` (1, FUN_180166970) when nothing follows the word. `Cbuf_Execute` (FUN_180166a10) sets
+`m_bWaitEnabled` from `sv_allow_wait_command` (FUN_18000b680: replicated, default "1", read as its integer) unless
+commands are already processing, then runs one tick's commands (`BeginProcessingCommands(1)`). `_Host_RunFrame`
+(FUN_1801a5eb0) calls it at the top of every frame and `_Host_RunFrame_Input` (FUN_1801a74d0) once in each host tick,
+and no frame time is added while the demo player is paused. So the console keeps a tick (`_tick`) and a list of
+commands put off (`_deferred`, linked by tick as `InsertCommandAtAppropriateTime` links them, each with the context it
+was added in); `Execute(waitAllowed)` runs what is due and moves the tick on; `ViewerSession` calls it at the top of
+`RenderFrame` and before each demo tick `PlaybackPresenter.Advance` moves, with `sv_allow_wait_command` from the demo's
+server ConVars at the current tick. A key or a config line run between two calls first runs what is due, as TF2 queues
+it behind those. Tests (each red under its own sabotage):
+`Load_ALineWithAWait_RunsTheRestAtTheSecondExecute`, `Load_AWaitWithAnArgument_WaitsThatManyTicks` (`wait 3`, `WAIT`,
+`wait 0`, `wait x`), `KeyDown_AnAliasWithAWait_RunsItsWaitedHalfAfterTheRestOfTheBind`,
+`Load_WaitsAddedOutOfTickOrder_RunInTickOrder`, `Load_AWaitAfterAnExecute_WaitsOnlyWhenTheServerAllowsIt`,
+`WaitAllowed_AServersValue_IsItsIntegerNotZero`, `KeyDown_AfterAWaitsCommandsAreDue_RunsAfterThem`,
+`RenderFrame_AOneShotAfterAWaitOnTheLaunchLine_PerformsItAtTheSecondFrame`,
+`RenderFrame_AWaitOf30TicksWhilePlaying_IsReachedInSixFrames`, `Advance_AFrameOfThreeTicks_SaysItAdvancedThem`.
+The per-tick calls first ran after the frame's whole advance; filed and fixed as B838.
+
+The paragraph below is the entry as filed.
 
 Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's
 `Cbuf_AddText` consumes, is not implemented here, and B820 is closed, so it had no open entry. A script that relies on

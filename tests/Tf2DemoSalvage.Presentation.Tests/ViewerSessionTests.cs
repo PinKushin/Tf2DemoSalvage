@@ -2063,6 +2063,55 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A launch-line command after a `wait` runs at a later frame's `Cbuf_Execute`** (B832): `_Host_RunFrame` (`engine.dll`
+    /// build 1007 FUN_1801a5eb0) runs one at the top of every frame, and the waited command is a tick later than the line,
+    /// so it runs at the second frame. The control: nothing was performed when the window was shown, nor after one frame.
+    /// </remarks>
+    [Test]
+    public void RenderFrame_AOneShotAfterAWaitOnTheLaunchLine_PerformsItAtTheSecondFrame()
+    {
+        using Rig rig = Build("+wait", "+togglefullscreen").WithDevice();
+        const string Performed = "PerformMenuAction FullScreen";
+        rig.Session.WindowShown();
+        rig.Window.Told.ShouldNotContain(Performed, "the control: the wait put it off");
+
+        rig.Session.RenderFrame();
+        rig.Window.Told.ShouldNotContain(Performed, "the control: the first frame runs the line's own tick");
+
+        rig.Session.RenderFrame();
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A playing frame runs the buffer once more for each tick it played** (B832): `_Host_RunFrame_Input` (`engine.dll`
+    /// build 1007 FUN_1801a74d0) runs `Cbuf_Execute` in every host tick, and a frame here plays up to 0.1 s, six ticks, so
+    /// six frames run at least 31 calls and reach a `wait 30`. The control: paused, six frames run six, and it waits on.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public async Task RenderFrame_AWaitOf30TicksWhilePlaying_IsReachedInSixFrames(bool playing, int performed)
+    {
+        List<string> arguments = [WriteDemo("waits", ticks: 600), "+wait", "30", "+togglefullscreen"];
+
+        if (playing)
+        {
+            arguments.Add("--autoplay");
+        }
+
+        using Rig rig = Build([.. arguments]);
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 6; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Window.Told.Count(told => told == "PerformMenuAction FullScreen").ShouldBe(performed);
+    }
+
+    /// <remarks>
     /// **The line's one-shots come before the named demo opens, in the line's order** (B829 review 1, Sonnet), as
     /// `stuffcmds` runs before `playdemo` loads: the first things the window is told after it is shown are the two, in
     /// order, and the open tells it more after them.

@@ -31,6 +31,35 @@ public sealed class PlaybackClockTests
         clock.Tick.ShouldBe(66);
     }
 
+    /// <remarks>
+    /// **The next whole tick is a quarter tick off, at the scale's speed, either way it travels** (B838): at 0.25 forward
+    /// three quarters remain, 0.75 of 0.02 s at double speed; backward the quarter behind it, at half speed. Stepping lands on
+    /// that tick exactly. At an end it travels towards, there is none.
+    /// </remarks>
+    [TestCase(2.0, 0.0075, 1.0)]
+    [TestCase(-0.5, 0.01, 0.0)]
+    public void SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale(double scale, double seconds, double stepped)
+    {
+        PlaybackClock clock = new(intervalPerTick: 0.02f, lastTick: 100) { TimeScale = 1.0 };
+        clock.Advance(0.005);
+        clock.Position.ShouldBe(0.25, 1e-6, "the control: a quarter tick in");
+        clock.TimeScale = scale;
+
+        clock.SecondsToNextTick().ShouldBe(seconds, 1e-9);
+        clock.StepToNextTick();
+
+        clock.Position.ShouldBe(stepped);
+    }
+
+    [Test]
+    public void SecondsToNextTick_AtTheEndPlayingForward_IsInfinite()
+    {
+        PlaybackClock clock = new(intervalPerTick: 0.015f, lastTick: 10);
+        clock.Seek(10);
+
+        clock.SecondsToNextTick().ShouldBe(double.PositiveInfinity);
+    }
+
     [Test]
     public void Advance_AtThirtyThreeTick_MovesHalfAsFar()
     {

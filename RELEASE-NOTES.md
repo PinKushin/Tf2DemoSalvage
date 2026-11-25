@@ -16,6 +16,10 @@
 
 - **An alias whose command is too long says so, as in TF2 (B835).** When an alias's body holds a command of 511 bytes or more, running it, from a key, a config line or the command line, now prints `Cbuf_AddText: buffer overflow` after the `Command too long` warning, as TF2 does; before, only the warning was printed.
 
+- **`wait` works, as in TF2 (B832).** A `wait` in a config line, a bind, an alias or the command line now puts the commands after it off by one console run, or by its number (`wait 3`), where before they all ran at once. The console runs at the top of every frame and once more for each tick a playing demo moves, as TF2 runs it. A demo whose server set `sv_allow_wait_command 0` turns `wait` off while it plays, as joining that server turns it off in TF2.
+
+- **The console's buffer holds 8192 bytes, as TF2's (B834).** TF2 queues every command of a line before running any of them, in a buffer of 8192 bytes, so a command line or an alias that does not fit beside what is already waiting is refused with every command after it, and prints `Cbuf_AddText: buffer overflow`. The viewer now does the same; before, it had no such limit. The overflow line now also comes before the commands of the refused line run, as in TF2.
+
 ## Changes in 0.1.0-beta.71
 
 None of these changes was verified by looking against a TF2 frame. Each follows TF2's published source or its binaries, read by disassembly, and is held by tests. Each merge in this release passed the merge gate: all twelve test assemblies at or above their floors with no failures, then the UI suite with none failed on its final run (see *What has been verified*). Most of this release is how your config and the command line are read, which now follows TF2's own code.
@@ -1292,8 +1296,6 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Config, binds and the command line (beta.71), open:**
-  `wait` is not implemented, so a script that relies on it runs its commands without the pause (B832).
 - **Wireframe and the debug views (beta.70), open:**
   the other debug views (`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_leafvis`, `mat_showlowresimage`) are not yet checked against TF2's cheat gate or its drawing (B806);
   a map's own `Wireframe` material would draw the textures it names, where TF2's wireframe shader reads none (B807; TF2's own wireframe material names none, so nothing differs on screen);

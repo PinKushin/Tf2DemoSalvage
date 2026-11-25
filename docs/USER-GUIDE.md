@@ -111,6 +111,12 @@ A config's `exec` runs the named file from the same places (`exec comfig/comfig`
 config split across files, as mastercomfig's is, runs whole. Aliases work from a config line, a key and another alias
 alike, as in TF2.
 
+`wait` works as in TF2: the commands after it in the same line, bind or alias wait one console run (`wait 3`, three),
+and the console runs once a frame, plus once for each tick of a playing demo. A demo whose server set
+`sv_allow_wait_command 0` turns `wait` off, as joining that server would. The console holds 8192 bytes of commands
+waiting to run, as TF2's does: text that does not fit is refused with `Cbuf_AddText: buffer overflow`, with the rest of
+its line.
+
 Config text is read as TF2 reads it. A line is split into words by bytes, so a word ends at any byte of 0x80 or
 more. A number reads as C's `atof` reads it: `0x10` is 16, a word where a number belongs is 0, and `name 1 2` sets
 the value `1 2`. `bind <key> "<command>"` binds, and a command with spaces goes in quotes; `bind <key>` alone shows

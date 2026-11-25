@@ -325,3 +325,31 @@ moved to the viewer's own `--set name value`, which keeps the quoting and the de
 followed (B828): an unknown `-flag` drops the argument `ParmValueByIndex` would give it, so `-threads 4 a.dem` opens no
 demo named `4`. The owner chose to keep a `.dem` or an existing folder there opened, above Valve, so `-novid a.dem`
 still opens it where TF2 would not play it. A folder counts only when written as a path, so `-game tf` still drops `tf`.
+
+## The console is a queue: a text is queued whole, and `wait` is a tick (B832, B834, B838, 2026-11-25)
+
+**What was believed.** The viewer's console ran each command the moment it was read, depth first, with no buffer.
+B820 recorded `wait` as not implemented; B830 and B835 modelled only `AddText`'s first refusal, a command of 511 bytes
+or more. B834 left two questions open (*interpolated*): how full the buffer is when `stuffcmds` runs, and whether
+`stuffcmds` caps the launch line itself first.
+
+**What the binary says** (`engine.dll` x64 build 1007, *disassembly via the Ghidra MCP*). `CCommandBuffer` is the SDK's
+`src/tier1/commandbuffer.cpp`, unchanged: `AddText` (FUN_1802952a0) and `InsertCommand` (FUN_180295740) match it line
+for line, and the constructor (FUN_180294fb0) sets the argument buffer's limit to 0x2000 and the wait delay to 1.
+- **A text is queued whole before any of it runs.** `AddText` inserts every command of the text first. While one runs,
+  the rest of its text, and of every text that ran it, still hold the 8192 bytes, each with its terminator.
+- **`stuffcmds` has no cap of its own.** FUN_1801683d0 pastes the launch line into a growable `CUtlBuffer` and adds it
+  in one call. So the 8192 bytes are the launch line's limit.
+- **`Cmd_Exec_f` streams a file.** FUN_1801672f0 adds one line, runs the commands up to the one after `exec`, and only
+  then reads the next line. A file is never queued whole.
+- **`wait` is a tick.** `AddText` adds `atoi` of what follows the word, or 1 when nothing does, to the tick of every
+  later command of the same text. `Cbuf_Execute` (FUN_180166a10) runs one tick's commands a call. It takes `wait` only
+  when `sv_allow_wait_command` (replicated, default 1) is on, read at the start of each call.
+- **The frame runs the buffer more than once.** `_Host_RunFrame` (FUN_1801a5eb0) calls `Cbuf_Execute` at its top, then
+  once in each host tick's `_Host_RunFrame_Input` (FUN_1801a74d0), before that tick's client step. No frame time is
+  added while the demo player is paused, so a paused frame runs only the top call.
+
+**What it changed.** The console now queues a text before running it, counts its bytes, and keeps the commands a
+`wait` put off for a later tick, each in the context it was added in. The viewer calls it at the top of each frame and
+before each demo tick a playing frame crosses. A key or a config line run between two calls first runs what is due,
+because TF2 would queue it behind those. The overflow line now comes from the adder before the text runs.

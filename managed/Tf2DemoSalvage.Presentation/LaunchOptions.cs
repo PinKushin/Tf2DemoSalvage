@@ -123,6 +123,9 @@ public static class LaunchOptionsReader
         // Whether the console will refuse a command handed on so far, and so every later one (B830): see `Add`.
         bool refused = false;
 
+        // The argument buffer's bytes the line's commands queued so far (B834): see `Add`.
+        int queued = 0;
+
         LaunchOptions read = new(settings, paths);
 
         // A queue rather than an indexed loop: an option consumes the value after it, and moving a
@@ -453,10 +456,17 @@ public static class LaunchOptionsReader
         // quote and comment state cleared.
         // Returns whether the line's first command will run, which is the set the early store mirrors: the commands before a
         // refused one on the same line still run (B830 review 1, Sonnet).
+        // The buffer fills as the line goes, so a line past its 8192 bytes is refused too (B834).
         bool Add(string line)
         {
-            bool runs = !refused && ConfigConsole.AddsFirst(line);
-            refused |= !ConfigConsole.AddsWhole(line);
+            bool runs = false;
+
+            if (!refused)
+            {
+                runs = ConfigConsole.Adds(line, ref queued, out bool whole);
+                refused = !whole;
+            }
+
             afterConfigs.Add(line);
             return runs;
         }

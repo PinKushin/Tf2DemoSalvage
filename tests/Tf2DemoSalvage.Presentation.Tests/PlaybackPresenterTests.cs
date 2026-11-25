@@ -112,6 +112,52 @@ public sealed class PlaybackPresenterTests
         view.LastShownTick.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The ticks a frame moved over are its host ticks, each a `Cbuf_Execute`** (B832; `_Host_RunFrame_Input`,
+    /// `engine.dll` build 1007 FUN_1801a74d0): 0.05 seconds at 0.015 a tick crosses three, and a paused frame none. The
+    /// control: the same time paused moves nothing.
+    /// </remarks>
+    [TestCase(true, 3)]
+    [TestCase(false, 0)]
+    public void Advance_AFrameOfThreeTicks_SaysItAdvancedThem(bool playing, int ticks)
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+
+        view.PressPlayPause(playing);
+        time.Seconds = 0.05;
+        presenter.Advance();
+
+        presenter.TicksAdvanced.ShouldBe(ticks);
+    }
+
+    /// <remarks>
+    /// **The console runs before each tick, and a pause it makes stops the clock on the tick reached** (B838): `_Host_RunFrame`
+    /// (`engine.dll` build 1007 FUN_1801a5eb0) runs `_Host_RunFrame_Input`'s `Cbuf_Execute` before each host tick's client
+    /// step. A command that pauses before the third tick of 0.05 seconds leaves the demo on tick 2. The control: run
+    /// nothing, and it reaches tick 3, the callback called three times.
+    /// </remarks>
+    [TestCase(99, 3, 3)]
+    [TestCase(3, 2, 3)]
+    public void Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached(int pauseAt, int shown, int calls)
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.05;
+        presenter.Advance(() =>
+        {
+            if (++called == pauseAt)
+            {
+                view.Playing = false;
+            }
+        });
+
+        called.ShouldBe(calls);
+        view.LastShownTick.ShouldBe(shown);
+        presenter.TicksAdvanced.ShouldBe(shown);
+    }
+
     /// <remarks>A skip's frames spend no playback time (B708): the frame after its landing moves by that frame, not the walk.</remarks>
     [Test]
     public void HoldClock_WhilePlaying_RestartsTheElapsedTime()
