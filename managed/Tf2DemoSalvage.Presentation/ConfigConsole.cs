@@ -338,7 +338,9 @@ public sealed class ConfigConsole
             return command;
         }
 
-        foreach (ViewerAction action in Expand(fallback, depth: 0))
+        // What the default FIRES, as the claim it is compared with counts (B844 review 6, Fable): MOUSE1's `+attack` cycles
+        // forward whatever an alias of that name says.
+        foreach (ViewerAction action in Expand(fallback, depth: 0, credit: true))
         {
             if (Claimed.Contains(action))
             {
@@ -2614,14 +2616,16 @@ public sealed class ConfigConsole
     /// binding is answered before any clause is read (`Expand`'s exact-first step, review 4) — and `spec_mode` only
     /// without exactly one argument.
     /// </summary>
-    private static bool Fires(IReadOnlyList<string> tokens)
+    /// <param name="tokens">The clause.</param>
+    /// <param name="arguments">`ArgC()` as the clause runs, a key's number included.</param>
+    private static bool Fires(IReadOnlyList<string> tokens, int arguments)
     {
         if (IsSpectatorButton(tokens[0]))
         {
             return false;
         }
 
-        return !(tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
+        return !(arguments == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
                  moded == ViewerAction.SwitchCameraMode);
     }
 
@@ -2662,15 +2666,22 @@ public sealed class ConfigConsole
             return found;
         }
 
-        foreach (string clause in SourceConfig.Clauses(commandLine))
+        IReadOnlyList<string> clauses = [.. SourceConfig.Clauses(commandLine)];
+
+        for (int index = 0; index < clauses.Count; index++)
         {
-            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
+            IReadOnlyList<string> tokens = SourceConfig.Tokens(clauses[index]);
 
             if (tokens.Count == 0 ||
                 tokens[0].Equals("alias", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
+
+            // A key's `+` bind is run with its key's number after it (`KeyText`, `"%s %i"`), so its last clause has one
+            // argument more than it is written with (B844 review 6, Fable): `+use; spec_mode` runs `spec_mode 107`.
+            int arguments = tokens.Count +
+                (credit && depth == 0 && index == clauses.Count - 1 && commandLine.StartsWith('+') ? 1 : 0);
 
             // The dispatcher's order (B820): see `Run`.
             if (ConsultsAlias(tokens[0]) && _aliases.TryGetValue(tokens[0], out string? body))
@@ -2697,7 +2708,7 @@ public sealed class ConfigConsole
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
 
-            if (credit && !Fires(tokens))
+            if (credit && !Fires(tokens, arguments))
             {
                 continue;
             }

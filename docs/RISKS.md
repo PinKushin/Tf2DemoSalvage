@@ -46361,9 +46361,9 @@ sets the button, as TF2's does; **decided by the owner: TF2's way (D266)**. *Not
 
 ## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
 
-Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling, when
-SourceTV is not PVS-locked (locked, it only swaps in eye and chase: B853)
-(`SpectatorGUI.cpp:847-851`); a recorded TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
+Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling
+(`SpectatorGUI.cpp:847-851`), when SourceTV is not PVS-locked (locked, it only swaps in eye and chase: B853); a recorded
+TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
 three modes (free, first person, third person), so the mapping from the engine's seven is a design question: in eye and
 chase map directly, roaming to free, fixed and point of interest have no counterpart. Until it is decided the command
 with an argument does nothing, as it did before B844. Exactly one argument (`ArgC() == 2`); with more it cycles, which the
@@ -46481,19 +46481,50 @@ no longer be reached once the exact-first step answered first (Fable, Sonnet): i
 and its remark points to the step; dropping the step's early return credited cycling both ways and survived (Fable,
 Gemini): `KeyDown_AKeyBoundExactlyToAnAliasNamedPlusAttack_CyclesForwardAndIsCreditedSo` presses the key while
 spectating and asserts backward cycling stays unbound; a bare `spec_mode` row (Gemini). **Filed: B853** (Fable), the
-spectator commands ignoring `IsPVSLocked()`. Not taken: the two swallow branches run in the opposite order to the
-engine's, `spec_next` raised at once where `ClientCmd` queues it and `spec_autodirector` queued where the engine sets it
-(Fable, low): they differ only for a key pressed inside a running command or a full buffer; `credit` forced true on the
-non-credit readers (Gemini) answers the same for them. Presentation 391 of 391 in `ConfigConsoleConformanceTests`.
+spectator commands ignoring `IsPVSLocked()`. Not taken: the two swallow branches' timing is the reverse of the engine's,
+`spec_next` raised at once where `ClientCmd` queues it and `spec_autodirector` queued where the engine sets it (Fable,
+low): they differ only for a key pressed inside a running command or a full buffer. Presentation 391 of 391 in
+`ConfigConsoleConformanceTests`.
+
+Review 6 (Fable, Gemini, Sonnet). Fixed: the credit counted `bind k "+use; spec_mode"` as switching the camera, but the
+key runs `spec_mode 107` with its key number appended (`KeyText`, `"%s %i"`), which does nothing, and missed
+`"+use; spec_mode 5"`, which runs `spec_mode 5 107` and cycles (Fable): a `+` bind's last clause is credited with the
+argument the key adds; `CommandFor`'s fallback read its default without the credit and compared it with the credited
+claim, so `alias +attack spec_prev` with `bind k spec_prev` took MOUSE1's key away though its `+attack` still cycles
+forward (Fable): the fallback is credited too, which corrects review 5's "not taken" claim that the non-credit readers
+answer the same; B853 states how `IsPVSLocked` is decided, `!tv_transmitall` if the ConVar exists and `!IsPlayingDemo()`
+otherwise (Sonnet); B851's citation moved back to its claim (Sonnet). Filed: **B854** and **B855** (Fable). Not taken: the
+`credit &&` guard on the exact-first step (Sonnet) is equivalent for the non-credit readers, which name the same action.
+Sabotage, each restored: the appended argument dropped reddens both `+use; spec_mode` rows; the fallback without credit
+reddens `KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires`. Presentation 394 of 394 in
+`ConfigConsoleConformanceTests`.
+
+## B854 — the release of a key the spectator swallowed still runs its binding's `-` half (2026-11-25) — OPEN
+
+Found in B844 review 6 (Fable). A key bound exactly to `+attack` is swallowed on the press while spectating
+(`HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`), but the viewer's release still runs `-attack <code>`, and
+`ConsultsAlias` lets `alias -attack "…"` run its body then. Whether `Key_Event` sends the release text of a key the
+client swallowed on the press is in the closed engine (`engine.dll` build 1007 FUN_1801b6090); *recalled* that
+`FilterKey` filters it, *not read*. Fix shape: read the release path in `Key_Event`, then match it. *Not fixed*.
+
+## B855 — `spec_next` and `spec_prev` leave the auto-director on, where SourceTV's turn it off (2026-11-25) — OPEN
+
+Found in B844 review 6 (Fable). On SourceTV, cycling the target ends with `SetAutoDirector( false )`
+(`hltvcamera.cpp:646-647`), as `spec_mode` does (`SpectatorGUI.cpp:868`, B851). The viewer's `CameraPresenter.CycleTarget`
+leaves `spec_autodirector` as it was (it is set only from settings and `+strafe`). *Read*, not measured. Fix shape: the
+cycle and the mode switch turn the director off on a SourceTV demo, then a test of `spec_autodirector` after each. *Not
+fixed*.
 
 ## B853 — `spec_next`, `spec_prev` and `spec_mode` ignore SourceTV's PVS lock (2026-11-25) — OPEN
 
 Found in B844 review 5 (Fable). On SourceTV, `spec_next` and `spec_prev` do nothing while `HLTVCamera()->IsPVSLocked()`
 (`SpectatorGUI.cpp:796, 817`), and `spec_mode` then only swaps in eye and chase and ignores its argument (`:837-841`,
-`hltvcamera.cpp:843-866`). The lock holds when the relay did not transmit every entity (`tv_transmitall 0`). The
-viewer's camera cycles and switches regardless, for the keys (older than B844) and for the three commands B844 made.
-*Read*, not measured: whether a recording says it was locked, and where, is not read. Fix shape: read how
-`IsPVSLocked` is decided and whether the demo carries it, then gate the camera actions on it. *Not fixed*.
+`hltvcamera.cpp:843-866`). `IsPVSLocked` (`hltvcamera.cpp:855-866`) answers `!tv_transmitall->GetBool()` when a
+`tv_transmitall` ConVar is found, and `!engine->IsPlayingDemo()` when none is, so during demo playback it is locked only
+if the client registers `tv_transmitall` and holds it at 0 (B844 review 6, Sonnet). The viewer's camera cycles and
+switches regardless, for the keys (older than B844) and for the three commands B844 made. *Read*, not measured: whether
+TF2's client registers `tv_transmitall`, and whether a SourceTV demo replicates it. Fix shape: answer that in
+`engine.dll` or the shipped client, then gate the camera actions on it. *Not fixed*.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs

@@ -2961,6 +2961,8 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("+ATTACK", ViewerAction.CycleTargetForward, false)]
     [TestCase("\"spec_mode 5 6\"", ViewerAction.SwitchCameraMode, true)]
     [TestCase("spec_mode", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("\"+use; spec_mode\"", ViewerAction.SwitchCameraMode, false)]
+    [TestCase("\"+use; spec_mode 5\"", ViewerAction.SwitchCameraMode, true)]
     [TestCase("\"spec_next x\"", ViewerAction.CycleTargetForward, true)]
     [TestCase("+m1\nalias +m1 +attack", ViewerAction.CycleTargetForward, false)]
     [TestCase("+attack\nalias +attack spec_prev", ViewerAction.CycleTargetForward, true)]
@@ -2970,6 +2972,26 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"unbindall\nbind k {bind}");
 
         console.Unbound().Contains(action).ShouldBe(!credited);
+    }
+
+    /// <remarks>
+    /// **A default yields only to a bind that fires its action** (B844 review 6, Fable): with `alias +attack spec_prev`,
+    /// MOUSE1's default `+attack` still cycles forward, so `bind k spec_prev` does not take MOUSE1's key away, and both
+    /// keys work: k cycles back, MOUSE1 forward.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nalias +attack spec_prev\nbind k spec_prev");
+
+        console.KeyDown("k");
+        console.KeyDown("MOUSE1");
+
+        raised.ShouldBe([ViewerAction.CycleTargetReverse, ViewerAction.CycleTargetForward]);
     }
 
     /// <remarks>
