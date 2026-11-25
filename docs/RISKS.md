@@ -46597,7 +46597,7 @@ Review 10 (Fable, Sonnet):
 - B845 names the launch line too (Fable): its `+wait +screenshot` and `+thirdperson` are exempt through `_stuffing`.
 - 2,239 of 2,239 pass.
 
-Review 11 (Fable, Sonnet; Gemini after):
+Review 11 (Fable, Sonnet, Gemini):
 - **The load test raced the decode** (both): the rig cannot hold a load open, so it could go red on a correct build
   and stay green on a broken one. Replaced by two pure rules the session calls, each tested apart:
   `ViewerSession.PlaysBack(hasDemo, loadsInFlight)` (`PlaysBack_ADemoOpenOrLoading_PlaysBack`) and
@@ -46605,9 +46605,13 @@ Review 11 (Fable, Sonnet; Gemini after):
   demos with no view recorded, SourceTV or not; Fable: round 10's `IsSourceTv` change had no test). Each reddens with
   its rule undone. The two wiring lines that call them are read, not tested. The count is read before the demo, as an
   open sets the demo before it counts down (Fable).
-- **Not taken:** the dot-slash test's second read has no control that `autoexec.cfg` ran (Fable); its folding sabotage
-  reddens it, which is what it is for. A load that fails counts as playing back until it fails (Fable), beside the
-  unread `StartPlayback` bound above.
+- **The dot-slash test's second read had no control that it ran the file** (Fable, Gemini): `shots.cfg` now also steps
+  `cl_showfps`, and the test asserts 2 after the second read; `LoadFrom` skipping `autoexec.cfg` then reddens both
+  cases.
+- **Known bounds:** a load that fails counts as playing back until it fails (Fable), beside the unread `StartPlayback`
+  bound above. While a SourceTV demo still loads its timeline is null, so the SourceTV gate cannot tell it from a POV
+  one and a waited view command acts (Gemini); the demo's kind is unknown until it decodes, and on a POV demo TF2 would
+  keep the flag a load-time `thirdperson` set, so holding it back would be wrong there.
 - 2,244 of 2,244 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's

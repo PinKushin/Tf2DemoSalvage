@@ -482,7 +482,7 @@ public sealed class ConfigConsoleLoadFromTests
         string game = TempFolder();
         Directory.CreateDirectory(Path.Combine(game, "cfg"));
         File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), spelling);
-        File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "wait; screenshot\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "incrementvar cl_showfps 0 10 1\nwait; screenshot\n");
         (ConfigConsole console, Func<int> triggered) = Counting();
         LoadAndRun(console, game, NowhereFolder());
         triggered().ShouldBe(1, "the control: the dot-slash spelling reached the file");
@@ -492,7 +492,8 @@ public sealed class ConfigConsoleLoadFromTests
         File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
         LoadAndRun(console, game, NowhereFolder());
 
-        triggered().ShouldBe(1);
+        // The second read ran the file, its state set again, and replayed it, its one-shot not (review 11, Fable, Gemini).
+        (console.ConVar("cl_showfps"), triggered()).ShouldBe(("2.000000", 1));
     }
 
     /// <remarks>
