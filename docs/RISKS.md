@@ -47351,8 +47351,8 @@ Review 7 (Fable, Sonnet, Codex: no blocker). Fixed:
   `At_AHeldVariableWhoseChangingEntryWasFlushed_HoldsItsValue` (400) reddens without it.
 - **A pair starting on the pruned floor splined through an entry the engine had dropped** (Fable): `Truncate( i + 3 )`
   leaves nothing older (`interpolatedvar.h:782-795`), so there is no valid `oldestindex` (`:851`) and the origin runs
-  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. The cycle and pose parameters share
-  the simulation's spline choice, as before this branch.
+  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. *(Corrected in review 8: the cycle
+  takes its third sample from its own history, not the simulation's; the pose parameters are always linear.)*
 - The stateless `At` test asserted the rise tick, where the stateless sampler reads its own tick and the frame model the
   old delay; it asserts 51, where both agree (Sonnet).
 
@@ -47360,7 +47360,21 @@ Recorded (Fable, *read*): `Interp_Interpolate` re-arms every variable when the t
 (`c_baseentity.cpp:864-871`) — a second re-arm site besides a latch, unreachable for a network-interpolated entity in
 forward playback, and the mechanism of B862's prediction-off transition (the time drops from the predicted to `curtime`).
 A stepped test lagging the frame start each step is not added: the stepped tests sample with no frame start, and the
-frame's own lag is held by the two-frame test, which reddens when the steps are counted from the tick (Fable traced it). Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+frame's own lag is held by the two-frame test, which reddens when the steps are counted from the tick (Fable traced it).
+
+Review 8 (Fable, Sonnet, Codex: no blocker; Codex's first run read the wrong checkout and was repeated). Fixed (Fable):
+- **The cycle splined through an entry its own pruning dropped**: `m_iv_flCycle` is its own variable, pruned the same way;
+  `AnimationNeighbours` refuses the third sample when the pair starts on the cycle's floor.
+  `At_ACyclePairStartingOnThePrunedFloor_RunsLinear` (0.3033) reddens without it. Review 7's sentence that the cycle
+  shares the simulation's spline choice was wrong and is corrected.
+- **The floor counted an update that arrived after the cutting frame**: `Truncate( i + 3 )` ran on the history as that
+  frame held it, so `LastListedTarget` names the frame and `PrunedFloor` chooses from what had arrived by it.
+  `At_ALateUpdateBelowTheCut_DoesNotMoveTheFloor` (310; 330 counting the late entry) reddens without it.
+- Findings 115 gains the hold's held entry and the floor's linear pair.
+
+Not taken (Sonnet): the frame start persisting after its presenter goes away needs a later reader at exactly that tick
+with no presenter, and that reader would be asking for the shown moment; the motion window's two reads, recorded in
+review 1. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
 anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
 before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`

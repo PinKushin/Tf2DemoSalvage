@@ -242,6 +242,52 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **The cycle runs linear on its own floor too** (B860 review 8, Fable): `m_iv_flCycle` is its own variable, pruned the
+    /// same way. Cycle 0.25 at 27, 0.30 at 30, 0.31 at 33, then 0.01 a tick; the frame at 65 aims at 31 on the pair from the
+    /// floor at 30: 0.3033, not a spline through 27.
+    /// </summary>
+    [Test]
+    public void At_ACyclePairStartingOnThePrunedFloor_RunsLinear()
+    {
+        ScenePropTrack prop = new(entityIndex: 1, "models/props_farm/windmill_blades.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 27; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { Cycle = tick * 0.25f / 27f });
+        }
+
+        prop.Add(30, new ScenePose { Cycle = 0.30f });
+
+        for (int tick = 33; tick <= 99; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { Cycle = 0.31f + ((tick - 33) * 0.001f) });
+        }
+
+        prop.At(65)!.Value.Cycle.ShouldBe(0.30333f, 1e-4f);
+    }
+
+    /// <summary>
+    /// **The floor is chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )`
+    /// ran then. X is ten a tick, an update every 3 ticks to 48; the frame at 50 kept 36, 33 and 30. A late update stamped
+    /// 37 arrives at 52 and flushes 39 to 48 but is none of those three. The frame at 65 aims at 31 between 30 and 33,
+    /// linear: 310. Counting the late entry floored it at 33: 330.
+    /// </summary>
+    [Test]
+    public void At_ALateUpdateBelowTheCut_DoesNotMoveTheFloor()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 48; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(52, new ScenePose { X = 370f }, appliedAt: 37);
+
+        crate.At(65)!.Value.X.ShouldBe(310f, 0.01f);
+    }
+
+    /// <summary>
     /// **A young entity whose delay rose is floored above its birth** (B860 review 4, Fable): born at 30, an update a tick.
     /// The frame at 50 aimed at 42 and kept 38, 37 and 36; the frame at 51 aims at 17, older than all of them, and answers
     /// the oldest, 36: 360. Gated on the delayed moment alone, it drew the first pose, 300.

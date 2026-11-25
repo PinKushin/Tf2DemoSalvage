@@ -2459,16 +2459,18 @@ public sealed class ScenePropTrack
             return heldAt;
         }
 
-        if (LastListedTarget(history, tick, rise, schedule, variable) is not { } prunedAt)
+        if (LastListedTarget(history, tick, rise, schedule, variable) is not { } pruned)
         {
             return target;
         }
 
         // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
         double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
-        double cut = prunedAt - (0.05d / interval);
+        double cut = pruned.Target - (0.05d / interval);
 
-        floor = history.PrunedFloor(cut, now);
+        // **Chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )` ran then,
+        // so an update arriving later with a changetime below the cut is not one of its three.
+        floor = history.PrunedFloor(cut, pruned.Frame);
 
         return floor is { } oldest && target < oldest ? oldest : target;
     }
@@ -2489,17 +2491,17 @@ public sealed class ScenePropTrack
     /// on the frame that reads it, so its cut is that frame's target, which a listed frame no older already covers — except
     /// a latch that did not re-arm, which prunes on a frame the variable is not listed in. Those are counted too.
     /// </remarks>
-    private static double? LastListedTarget(
+    private static (double Target, int Frame)? LastListedTarget(
         InterpolatedHistory history, double tick, int rise, InterpolationSchedule schedule, HistoryVariable variable)
     {
         int last = (int)Math.Ceiling(tick) - 1;
-        double? most = null;
+        (double Target, int Frame)? most = null;
 
         for (int frame = last; frame > rise; frame--)
         {
             if (Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame)
             {
-                most = FrameTarget(frame, schedule);
+                most = (FrameTarget(frame, schedule), frame);
                 break;
             }
         }
@@ -2517,7 +2519,7 @@ public sealed class ScenePropTrack
             }
 
             double old = FrameTarget(settled, schedule);
-            most = most is { } newer ? Math.Max(newer, old) : old;
+            most = most is { } newer && newer.Target >= old ? newer : (old, settled);
         }
 
         return most;
@@ -2620,7 +2622,7 @@ public sealed class ScenePropTrack
         // The moment being drawn, one interpolation window behind the moment being asked for, per engine variable (B860).
         double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
-        double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable);
+        double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable, out int? animationFloor);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
         if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))
@@ -2755,7 +2757,8 @@ public sealed class ScenePropTrack
 
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
-            AnimationNeighbours(animationTarget, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops);
+            AnimationNeighbours(
+                animationTarget, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops, animationFloor);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -3271,8 +3274,13 @@ public sealed class ScenePropTrack
     /// last. Holding the caller's pair there gives the behaviour this had before the second clock
     /// existed, which is the right thing for an entity whose animation is not moving.
     /// </remarks>
+    /// <param name="oldestHeld">
+    /// The changetime of the oldest cycle entry a rise's pruning left, or null: a pair starting on it has no third sample
+    /// (B860 review 8, Fable).
+    /// </param>
     private (CycleSample From, CycleSample To, CycleSample? Previous, float Fraction) AnimationNeighbours(
-        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops)
+        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops,
+        int? oldestHeld = null)
     {
         if (_animation.Bracket(target, arrivedBy) is not { } pair)
         {
@@ -3308,9 +3316,10 @@ public sealed class ScenePropTrack
         // The respacing's blend follows the same flag (`TimeFixup2_Hermite`, `interpolatedvar.h:1393-1400`); the
         // sequence component never wraps.
         bool[] flags = cycleLoops ? LoopingCycle : StraightCycle;
-        CycleSample? older = _animation.TimeFixup(pair, oldestCycle, flags)
-            ? Animated(pair.Oldest, oldestCycle[0])
-            : null;
+        CycleSample? older =
+            (oldestHeld is not { } floor || fromTick > floor) && _animation.TimeFixup(pair, oldestCycle, flags)
+                ? Animated(pair.Oldest, oldestCycle[0])
+                : null;
 
         return (
             Animated(pair.Older, _animation.ValuesAt(pair.Older)[0]),
