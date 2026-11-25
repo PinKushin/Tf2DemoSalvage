@@ -37,9 +37,9 @@ public sealed class ViewerHelpTests
     }
 
     [Test]
-    public void Wanted_AnyOfTheFourSpellingsAnywhere_IsTrue()
+    public void Wanted_AnyOfTheThreeSpellingsAnywhere_IsTrue()
     {
-        foreach (string spelling in (string[])["--help", "-h", "-?", "/?"])
+        foreach (string spelling in (string[])["--help", "-?", "/?"])
         {
             ViewerHelp.Wanted(["a.dem", spelling]).ShouldBeTrue(spelling);
         }
@@ -50,5 +50,15 @@ public sealed class ViewerHelpTests
     {
         ViewerHelp.Wanted([]).ShouldBeFalse();
         ViewerHelp.Wanted(["a.dem", "--shot", "help.png", "-help"]).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **`-h` is TF2's window height, not help** (B836, the owner's pick, "TF2's meaning"): a pasted TF2 line
+    /// `-w 1920 -h 1080` must open its demo, not stop at this page.
+    /// </remarks>
+    [Test]
+    public void Wanted_Tf2sWindowHeightFlag_IsFalse()
+    {
+        ViewerHelp.Wanted(["-w", "1920", "-h", "1080", "a.dem"]).ShouldBeFalse();
     }
 }

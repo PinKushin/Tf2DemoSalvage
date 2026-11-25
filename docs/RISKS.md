@@ -46323,7 +46323,13 @@ viewer's console has no such buffer, so twenty `+alias aN <450 bytes>` and a `+f
 stops adding near the eighteenth. *Interpolated*: how full the buffer already is when `stuffcmds` runs, and whether
 FUN_1801683d0's own paste buffer caps the line first; both need reading before a fix. *Not fixed*.
 
-## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — OPEN
+## B837 — a known viewer flag that takes no value keeps the next word as a demo path, where `stuffcmds` skips it (2026-11-24) — CLOSED (2026-11-24), above Valve
+
+**Closed as above Valve, the owner's pick** (2026-11-24, asked whether these switches should follow TF2 and drop the
+word after them, or keep it; the owner picked "Keep them as they are", the recommended option, without words of their
+own, D183): `--autoplay demos` keeps `demos` as a path, where `-novid demos` drops it. Listed in
+`docs/ABOVE-VALVE.md`, held by `Read_AViewerSwitchBeforeAWord_KeepsTheWordAsADemo` (one case per switch). The
+paragraph below is the entry as filed.
 
 Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_1801683d0) skips the argument
 `ParmValueByIndex` gives after every `-flag`, known or not. The viewer's own flags that take no value (`--autoplay`,
@@ -46331,7 +46337,31 @@ Found in B828 review 1 (Fable). `stuffcmds` (`engine.dll` x64 build 1007 FUN_180
 rule, so `--autoplay 4 a.dem` tries to open a demo named `4`. These flags are the viewer's own (TF2 has none), so
 whether they follow TF2's grammar is the owner's to say. *Not fixed*.
 
-## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — OPEN
+## B836 — `-h` on the launch line shows the help, where TF2's `-h` is the window height (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed, the owner's pick** (2026-11-24, asked whether `-h` should take TF2's meaning or stay help; the owner picked
+"TF2's meaning", the recommended option, without words of their own, D183). `-h` is no longer help (`--help`, `-?` and
+`/?` are, through one predicate, `ViewerHelp.IsHelp`, which `LaunchOptionsReader` now shares where it held its own
+copy); it is an unknown flag, so it drops `1080` as `stuffcmds` drops a `-flag`'s value (B828). The window size itself
+is not applied. Tests `Read_ATf2WindowSizeLine_OpensItsDemoAndShowsNoHelp` and `Wanted_Tf2sWindowHeightFlag_IsFalse`;
+both red before; sabotage: `-h` put back in `IsHelp` reddens both.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). No blocker. Fixed: B837's heading still said OPEN (Fable, Gemini, Sonnet);
+the guide did not say `-h` is now a TF2 flag or that the viewer's switches keep the next word (Fable, Gemini); the help
+line names `/?` too and reads as a sentence (Fable, Gemini, Sonnet); the `-h` case has its own test name (Fable,
+Gemini). Checked, no change: the Cli program keeps `-h` as its own help, a different program with no TF2 launch line
+(Fable, Gemini, Sonnet).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini and Grok had no findings). Fixed (Fable, Sonnet, nits):
+the B837 example `--autoplay a.dem` showed nothing an unknown flag does not also do, so it is `--autoplay demos` now,
+kept where `-novid demos` drops it (B837, guide, release notes); B837 marks its filed text as B836 does; a stray line
+break above.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker). Fixed (Fable, nit): the test's remark still used the retired
+`--autoplay a.dem` example (Gemini read the fix before it was committed). The "Cli keeps `-h`" credit names Gemini, who
+raised it in review 1.
+
+The paragraph below is the entry as filed.
 
 Found in B828 review 1 (Fable). `LaunchOptionsReader` reads `-h` (with `--help`, `-?`, `/?`) as a request for help, so
 a pasted TF2 line `-w 1920 -h 1080 a.dem` shows the help and takes `1080` as a demo path; in TF2 `-h` sets the window
