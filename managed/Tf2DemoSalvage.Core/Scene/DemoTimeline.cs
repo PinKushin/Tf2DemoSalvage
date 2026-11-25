@@ -3744,6 +3744,9 @@ public sealed class DemoTimeline
         private IReadOnlyList<byte>? mapHash;
         private readonly ServerConVars serverConVars;
         private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
+
+        /// <summary>The tick of the last packet read, from which a signon read after it holds (B843 review 6, Fable).</summary>
+        private int lastPacketTick = int.MinValue;
         private readonly TailList<(int Tick, SceneViewmodel Weapon)> viewmodels;
         private readonly TailList<(int Tick, ViewFog Fog)> fogSamples;
         private int fogControllersSeen;
@@ -4197,6 +4200,7 @@ public sealed class DemoTimeline
             // The events due on frames between the last packet and this one, against the last packet (B437).
             if (command.Type == DemoCommandType.Packet)
             {
+                lastPacketTick = command.Tick;
                 FireGestures(
                     queuedGestures, command.Tick - 1, interval, entities, AlwaysLoser(serverConVars), classes, gestures);
             }
@@ -4276,14 +4280,14 @@ public sealed class DemoTimeline
 
                         // A signon's tick is the server's when recording began, not a playback tick (`z1800`: 70,718
                         // against a first packet at 6), and the set applies before any packet, so it holds from the start
-                        // (B843 review 4, Fable), as the light styles' does below. A signon after a packet's set (none is
-                        // known) is applied when read, so it takes the last stamp and the history stays in tick order
-                        // (review 5, Fable, Sonnet).
+                        // (B843 review 4, Fable), as the light styles' does below. A signon after a packet (none is known)
+                        // is applied when read, so it holds from the last packet read, and never before the last set, so the
+                        // history stays in tick order (reviews 5 and 6, Fable, Sonnet).
                         int stamp = command.Tick;
 
                         if (command.Type == DemoCommandType.Signon)
                         {
-                            stamp = conVarHistory.Count > 0 ? conVarHistory[conVarHistory.Count - 1].Tick : int.MinValue;
+                            stamp = Math.Max(lastPacketTick, conVarHistory.Count > 0 ? conVarHistory[conVarHistory.Count - 1].Tick : int.MinValue);
                         }
 
                         conVarHistory.Add((stamp, serverConVars.Snapshot()));

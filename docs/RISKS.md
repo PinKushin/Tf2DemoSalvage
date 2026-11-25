@@ -46731,9 +46731,10 @@ each tick the frame plays, on the state after the tick before it. *Not fixed*.
 ## B852 — histories other than the ConVars still stamp a signon's message with the signon's tick (2026-11-25) — OPEN
 
 Found in B843 review 5 (Fable, Sonnet). A signon command's tick is the server's when recording began, far above the
-packets' (`z1800`: 70,718 against 6). Sounds, light styles, voice inits and now the ConVar history allow for it; these
-still stamp `command.Tick` and so would put a signon message after every packet in time, and out of tick order in lists
-read by binary search or `TailList.DropBefore`: `gameEvents`, `touchChanges`, `director`, `userMessages`,
+packets' (`z1800`: 70,718 against 6). Sounds, light styles and now the ConVar history allow for it, and voice inits are
+safe only because they are read by stream index though they stamp `command.Tick`; these still stamp `command.Tick` and
+so would put a signon message after every packet in time, and out of tick order in lists read by binary search or
+`TailList.DropBefore`: `voice`, `gameEvents`, `touchChanges`, `director`, `userMessages`,
 `spectatorGuiChanges`, viewmodels, soundscapes, tonemap, shadow control, suns, point cameras, fog, gestures and frames
 (`DemoTimeline`). Whether any signon carries such a message is **not measured**. Fix shape: a probe counting message
 types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
@@ -46811,7 +46812,8 @@ began, not a playback tick (container ticks, measured by Fable: `z1800` signon 7
 2011 POV 3,212 against 0; live STV 13,923 against 4). `ServerConVarsAt` answered Valve's defaults for every tick below it,
 about the first seventeen minutes of `z1800`, and the history fell out of tick order once a packet set followed. The HUD
 read the recording's last value before this branch, so it never showed; now it reads per tick. Fixed as the light
-styles already are (`DemoTimeline`, the signon's update holds from the start): a signon's set is stamped `int.MinValue`.
+styles already are (`DemoTimeline`, the signon's update holds from the start): a signon's set is stamped `int.MinValue`
+(narrowed in reviews 5 and 6 to a signon read before any packet).
 `ServerConVarsAtTests.ServerConVarsAt_ASetFromTheSignon_HoldsFromTheFirstTick` failed before the fix; the output-level
 control `CorpusServerConVarTests.ServerConVarsAt_TheFirstTick_IsWhatTheSignonSent` reads `sv_turbophysics` at tick 0 of
 `tf2-2011-build4604-spec-stv-cp_granary` and reddens with the old stamp (measured, real bytes). This is also B450's
@@ -46833,7 +46835,17 @@ styles below. **Corrected:** the corpus test's demo is the 2011 SourceTV granary
 above tick 0 is shown by the test reddening under the old stamp, not by a stated tick. **Softened:** prediction's
 `ServerConVarsAt` readers (`RecorderPrediction`) now read the signon's values at the opening, which no test asserts.
 Filed: the other histories stamped by a signon's tick, as **B852**. Sabotage, each restored: a stamp of 0 reddens the
-first signon test; the late-signon branch dropped reddens the second.
+first signon test; the late-signon branch dropped reddens the second. Core 3,301 (40 skipped), Scene 5,421 of 5,421,
+Presentation 2,269 of 2,269.
+
+Review 6 (Fable, Gemini, Sonnet). No blocking finding. Fixed: review 5's late signon took the last SET's stamp, so with
+packets after that set it held from before it was read (Fable), and a stamp from the first set survived (Fable,
+Sonnet): the builder keeps the last packet tick read (`lastPacketTick`, a builder field the snapshot carries) and a late
+signon holds from the later of it and the last set; the test has two sets before the signon and packets between.
+`HudConVars.FindAt`'s remark claimed stream order within a tick, which the history does not carry (Sonnet): it names the
+recorded bound. The corpus test's remark now says which demo it reads. B852 corrected: voice inits stamp `command.Tick`
+too and are safe only because they are referred to by stream index, and `voice` joins the list (Fable). Sabotage,
+restored: without the last packet tick the late-signon test reddens.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a

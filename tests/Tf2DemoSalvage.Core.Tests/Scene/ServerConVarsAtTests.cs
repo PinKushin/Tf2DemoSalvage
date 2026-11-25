@@ -75,8 +75,9 @@ public sealed class ServerConVarsAtTests
 
     /// <remarks>
     /// **A signon after a packet's set is applied when read, not from the start** (B843 review 5, Fable, Sonnet): it takes
-    /// the stamp before it, so the history stays in tick order. Set to 200 by a packet at 5, then 100 by a signon stamped
-    /// 900: tick 4 still reads Valve's 800 and tick 5 on reads 100.
+    /// the tick of the last packet read (review 6, Fable), so the history stays in tick order. Sets of 300 at 2 and 200 at
+    /// 5, packets on to 7, then 100 by a signon stamped 900: tick 4 reads 300, tick 6 still reads 200, and tick 7 on reads
+    /// 100. Two sets before it and packets between catch a stamp from the first set or from the last set.
     /// </remarks>
     [Test]
     public void ServerConVarsAt_ASignonAfterAPacketsSet_HoldsFromWhereItWasRead()
@@ -85,17 +86,21 @@ public sealed class ServerConVarsAtTests
             SyntheticDemo.DefaultProtocol,
             [
                 SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
-                .. Enumerable.Range(1, 4).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 1),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 2, SetConVar("sv_gravity", "300")),
+                .. Enumerable.Range(3, 2).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
                 SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 5, SetConVar("sv_gravity", "200")),
+                .. Enumerable.Range(6, 2).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
                 SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 900, SetConVar("sv_gravity", "100")) with
                 {
                     Type = Core.Container.DemoCommandType.Signon,
                 },
-                .. Enumerable.Range(6, 5).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                .. Enumerable.Range(8, 3).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
             ]));
 
-        (timeline.ServerConVarsAt(4).Number("sv_gravity"), timeline.ServerConVarsAt(5).Number("sv_gravity"),
-            timeline.ServerConVarsAt(8).Number("sv_gravity")).ShouldBe((800f, 100f, 100f));
+        (timeline.ServerConVarsAt(4).Number("sv_gravity"), timeline.ServerConVarsAt(6).Number("sv_gravity"),
+            timeline.ServerConVarsAt(7).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity"))
+            .ShouldBe((300f, 200f, 100f, 100f));
     }
 
     /// <remarks>

@@ -118,9 +118,9 @@ public sealed class CorpusServerConVarTests
     /// <summary>That what the signon sent is in force from the first tick, as the HUD now reads it per tick.</summary>
     /// <remarks>
     /// **The output-level control for B843 review 4 (Fable)**: a signon command's tick is the server's when recording
-    /// began, far above the packets' (`z1800`: 70,718 against 6), so a per-tick reader asked at the opening saw Valve's
-    /// defaults until the stamp. `sv_turbophysics` is one this recording's signon sends and nothing declares, so a
-    /// default cannot stand in for it.
+    /// began, far above the packets' (`z1800`: 70,718 against 6; this demo's is above 0, shown by this test reddening
+    /// under the old stamp), so a per-tick reader asked at the opening saw Valve's defaults until the stamp.
+    /// `sv_turbophysics` is one this recording's signon sends and nothing declares, so a default cannot stand in for it.
     /// </remarks>
     [Test]
     public void ServerConVarsAt_TheFirstTick_IsWhatTheSignonSent()
