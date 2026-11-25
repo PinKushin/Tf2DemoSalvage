@@ -55,6 +55,24 @@ public sealed class InterpolationSchedule
     /// <summary>Seconds per tick the delays were converted at.</summary>
     public double IntervalPerTick { get; }
 
+    /// <summary>The delay of a predicted entity: one tick, whatever the amount (B860).</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>The schedule.</returns>
+    /// <remarks>
+    /// <c>GetInterpolationAmount</c> returns <c>TICK_INTERVAL * serverTickMultiple</c> for an entity that
+    /// <c>GetPredictable()</c> or <c>IsClientCreated()</c> (<c>c_baseentity.cpp:5925-5928</c>), before it reads
+    /// <c>GetClientInterpAmount</c> at all. The multiple is 2 only on alternate ticks, which need <c>maxClients == 1</c>
+    /// (<c>baseentity_shared.cpp:2544-2552</c>), and a TF2 server is never one: <c>GetPlayerLimits</c> sets the minimum to 2
+    /// (<c>tf_gameinterface.cpp:22</c>) and the engine clamps <c>maxplayers</c> to it (<c>engine.dll</c>'s maxplayers setter).
+    /// The amount it reports is that tick's seconds.
+    /// </remarks>
+    public static InterpolationSchedule Predicted(double intervalPerTick)
+    {
+        double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
+
+        return new([int.MinValue], [interval], [1], intervalPerTick);
+    }
+
     /// <summary>One delay for every tick: Valve's defaults, or a track built for a test.</summary>
     /// <param name="intervalPerTick">Seconds per tick.</param>
     /// <param name="amount">`GetClientInterpAmount()` in seconds.</param>

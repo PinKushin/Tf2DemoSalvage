@@ -2832,6 +2832,9 @@ internal static class SyntheticPlayer
     /// Team and life state ride on the entering update and are retained, which is the delta behaviour a
     /// viewer depends on.
     /// </remarks>
+    /// <summary>The SourceTV client's slot in a single-subject recording: no entity this writer sends (B860).</summary>
+    private const byte SourceTvSlot = 32;
+
     private static byte[] DemoOfSnapshots(
         DemoSchema schema,
         float intervalPerTick,
@@ -2843,8 +2846,11 @@ internal static class SyntheticPlayer
 
         List<DemoCommand> commands =
         [
+            // **A SourceTV recording's local player is the SourceTV client, not the one it films** (B860): the client
+            // predicts its local player (`C_BasePlayer::ShouldPredict`), so a subject in that slot would be drawn as the
+            // engine draws a predicted player. Slot 32 is where the SourceTV client sits on a full server.
             SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick, playerSlot: SourceTvSlot)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -2993,7 +2999,8 @@ internal static class SyntheticPlayer
 
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            // The SourceTV client's slot, so neither occupant of slot 1 is the predicted local player (B860).
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick, playerSlot: SourceTvSlot)),
             SyntheticDemo.DataTables(schema),
         ];
 

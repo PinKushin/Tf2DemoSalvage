@@ -47123,7 +47123,48 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
-## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
+## B862 — the recorder's predicted entities are interpolated from the network history at the network's time, where the engine uses prediction's history at the predicted time (2026-11-25) — OPEN
+
+Found on B860's branch, by the read that settled its predictable part. In a point-of-view demo the recorder and every TF
+weapon he owns are predicted (findings 115). For a predicted entity `BaseInterpolatePart1` replaces the frame's time with
+`localplayer->GetFinalPredictedTime() − TICK_INTERVAL + interpolation_amount × TICK_INTERVAL` (`c_baseentity.cpp:2853-2862`,
+*read*), and its interpolated variables are latched by prediction after each predicted command
+(`entity->OnLatchInterpolatedVariables`, `prediction.cpp:1276`, *read*), not by the network: `PostDataUpdate` only stores
+the last networked value for a predictable (`c_baseentity.cpp:2593-2598`). Since B860 the viewer samples those entities
+one tick behind (the amount `GetInterpolationAmount` gives them), but along the NETWORK history at the frame's tick. The
+recorder is drawn where the demo's view put him (B56) whenever there is a view, so this reaches his weapons' own animated
+variables — a bone-merged weapon draws its merged bones from his skeleton, and only the rest from its own cycle — and the
+recorder on a frame with no view. Fix shape: run the recorded user commands through the weapons' prediction as D205 does
+the recorder's movement, keep the history it latches, and sample it at the predicted time; a conformance test predicting a
+weapon's cycle at a frame first. *Not fixed*.
+
+## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed**, every part this entry names (the evidence is findings 115):
+
+- *A settled entity holds; a moving one is floored at the history the old amount kept* (part 1): `ScenePropTrack.TargetFor`
+  per history, through `InterpolationSchedule.LastRiseAtOrBefore`/`MaxTargetBefore` and
+  `InterpolatedHistory.LatestArrival`/`PrunedFloor`; `ActorFace` already kept the engine's per-frame state.
+- *The frame-start lag* (part 2, disassembled): `CEngine::Frame` sends `FRAME_START` before the host frame reads its
+  packets. `InterpolationSchedule.AsOf`, `DemoTimeline.FrameStart`, `IMomentSource.FrameStart` called by
+  `MomentPresenter` with the tick the last frame showed, `ActorFace` lagging its own amount; `MaxTargetBefore` takes each
+  whole-tick frame's starting delay; a step resyncs the sample.
+- *Predictable entities* (part 3): in a point-of-view demo the recorder and his TF weapons are predicted and take
+  `InterpolationSchedule.Predicted`, one tick, whatever the amount; `sv_client_predict` (declared, default −1) at 0
+  predicts nothing. That they draw from prediction's history at the predicted time is **B862**. Client-created entities
+  (corpses, gibs) are simulated by the viewer and never sampled under the schedule.
+- *Alternate ticks* and *`cl_interp_npcs`* (read, no code): neither can apply to TF2 — `maxClients` is at least 2, and no
+  TF2 client class is an NPC (findings 115).
+
+The synthetic single-subject SourceTV demos now put the SourceTV client in slot 32, as a real one does, so their subject
+is not the (now predicted) local player. Tests: `InterpolationRiseConformanceTests` (held, floored, settled on the rise's
+frame, the frame that reads a rise and the next, a frame started at the rise, the recorder's weapon, somebody else's, the
+weapon with prediction forced off, the player with no viewpoint with and without being the recorder),
+`InterpolationScheduleTests` (`AsOf`; `MaxTargetBefore` across a rise and a fall), `FaceFlexTests` (the frame that reads
+a fall), `MomentPresenterTests` (the frame starts announced). Each reddened under a sabotage of its own fix, each
+restored: the frame read as the tick, the face's frame read as now, the presenter's frame read as the tick,
+`MaxTargetBefore` unlagged, the hold taken a tick early, the weapon's owner never the recorder, the player never the
+recorder, prediction never off. *Not verified by looking*: no gcor demo changes its interp bounds mid-recording.
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

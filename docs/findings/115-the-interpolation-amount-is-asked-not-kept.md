@@ -37,7 +37,11 @@ Each interpolated variable keeps its OWN amount (`SetInterpolationAmount` only s
 entity's variables to the new amount (`Interp_UpdateInterpolationAmounts`, `:837-849`). Neither puts an entity back on
 the interpolation list, so one that had settled holds its value until its next update (**read**: no re-listing in
 either; that nothing else re-lists it on an amount change is **interpolated**). A variable therefore takes a new amount
-at the next frame start, not when the packet is read; where that falls against the packet read is engine code, not read.
+at the next frame start, not when the packet is read. And the frame start comes BEFORE the frame's packets
+(**disassembled**, the x64 `engine.dll`): `CEngine::Frame` calls the `ClientDLL_FrameStageNotify` wrapper with 0 —
+the only caller that passes `FRAME_START`; the wrapper calls `g_ClientDLL` slot `0x118`, slot 35 of `IBaseClientDLL`,
+`FrameStageNotify` — and only then runs the host frame, whose per-tick `_Host_RunFrame_Client` calls `CL_ReadPackets`.
+So the frame that reads a change still draws under the old amount, and the next one draws under the new.
 And `Interpolate` prunes each history by the amount it was run with (`interpolatedvar.h:1057`, **read**), so after a rise
 the entries the new, longer delay would reach may already be gone.
 
@@ -49,8 +53,33 @@ once, where the variables switch at the next frame start.
 
 `InterpolationSchedule` is the amount by tick, built from the same ConVar history `ServerConVarsAt` reads; tracks, the
 demo player's rollback and the faces read it at their own tick, and the checkpoint walk keeps enough history for the
-widest delay anywhere in the recording (B849). A falling delay should match the engine, to within the frame-start lag,
-for entities on the `:5937` path (**interpolated** from the code above; no test predicts an engine value for it;
-predictable, client-created and locally recorded every-tick entities take a tick interval whatever the amount: B860,
-B861). A rising one does not yet: the sampler
-re-blends a settled entity and reads history the engine pruned (B860, open).
+widest delay anywhere in the recording (B849). Since B860 a rise and the frame start are the engine's too:
+
+- **A frame samples under the schedule its frame start knew** (`InterpolationSchedule.AsOf`): the presenter tells the
+  timeline the tick the previous frame showed (`FrameStart`), and a step read since is not used until the next frame.
+  The face lags its own `m_iv_flexWeight` amount the same way.
+- **A rise holds what had settled**, including an entity that settles on the very frame that reads the rise, and
+  **floors what is still moving** at the oldest entry the earlier frames' pruning kept, taking frames a tick apart (the
+  sampler is stateless; the face, which keeps its history frame by frame, prunes at the real frame times).
+- **What a point-of-view demo predicts takes one tick whatever the amount.** `CheckInitPredictable`
+  (`c_baseentity.cpp:2674-2712`, **read**) needs `cl_predict`, a local player, eligibility and `ShouldPredict()`.
+  `cl_predict` reads `sv_client_predict` unless that is −1 (`cdll_bounded_cvars.cpp:36-48`, **read**), whose registered
+  default is `"-1"` with `FCVAR_REPLICATED` (**disassembled**, `engine.dll` `0x18000a290`), and the client forces its own
+  to 1 on a level of more than one client (`cdll_client_int.cpp:1645-1652`, **read**). `CL_RunPrediction` skips only while
+  the demo skips (**disassembled**, the `0x48` slot of the demo player, which `_Host_RunFrame` uses beside the timedemo
+  one to pull packets on a frame of no ticks). So in a point-of-view demo the recorder (`C_BasePlayer::ShouldPredict`,
+  `IsLocalPlayer()`) and every TF weapon he owns (`CTFWeaponBase::ShouldPredict`, `tf_weaponbase.cpp:3433-3441`) are
+  predicted; the recorder is drawn where the demo's view put him (B56) whenever there is a view, and his weapons, and he
+  when there is none, take `InterpolationSchedule.Predicted`. A SourceTV recording's local player is the SourceTV client,
+  never drawn. The predicted branch also moves the target to the predicted time and fills the history from prediction
+  rather than the network (`BaseInterpolatePart1`, `:2853-2862`, **read**): that is B862.
+- **Alternate ticks never apply to TF2**: `IsSimulatingOnAlternateTicks` needs `maxClients == 1`
+  (`baseentity_shared.cpp:2544-2552`, **read**), TF2's `GetPlayerLimits` sets the minimum to 2 ("Force multiplayer",
+  `tf_gameinterface.cpp:22`, **read**) and the engine clamps `maxplayers` between the limits (**disassembled**, the
+  setter that prints `maxplayers set to %i`; the only way under the minimum is the retail HL2 and Portal demo builds).
+- **`cl_interp_npcs` moves nothing in TF2**: `AdjustInterpolationAmount` raises only an entity that `IsNPC()` or rides
+  one (`c_baseentity.cpp:5893-5913`, **read**), and no TF2 client class answers true: only `C_AI_BaseNPC` overrides it,
+no file under `client/tf` or `shared/tf` names that class, and TF2's bosses and robots are `C_NextBotCombatCharacter`
+(`C_NextBot.h:33`), a `C_BaseCombatCharacter` that does not override it (**read**).
+
+The locally recorded every-tick path is still the open question of B861.

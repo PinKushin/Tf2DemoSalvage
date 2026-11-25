@@ -140,6 +140,9 @@ public static class EngineConVars
         new("sv_minupdaterate", "10", Replicated: true, Cheat: false),
         new("sv_maxupdaterate", "66", Replicated: true, Cheat: false),
 
+        // engine.dll 0x18000a290: "-1", FCVAR_REPLICATED — what `cl_predict` reads unless it is -1 (B860).
+        new("sv_client_predict", "-1", Replicated: true, Cheat: false),
+
         // **The sound curve's parameters** (`SoundGain`). All four read out of `engine.dll`'s own
         // ConVar registrations, which is the only source that has them: the engine-side sound
         // cvars are absent from the whole SDK checkout.

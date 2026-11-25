@@ -143,6 +143,102 @@ public sealed class InterpolationRiseConformanceTests
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(300f, 0.01f);
     }
 
+    /// <summary>A rocket launcher, entity 2, updated every tick at ten units a tick, owned by <paramref name="owner"/>.</summary>
+    private static ScenePropTrack Launcher(int? owner)
+    {
+        ScenePropTrack weapon = new(entityIndex: 2, "models/weapons/w_models/w_rocketlauncher.mdl")
+        {
+            Interpolation = RiseAtFifty(),
+            PredictsForItsOwner = true,
+            OwnedBy = owner,
+        };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            weapon.Stamp(tick);
+            weapon.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        return weapon;
+    }
+
+    /// <summary>
+    /// **The local player's weapon takes one tick, whatever the amount** (B860): `GetInterpolationAmount` returns
+    /// `TICK_INTERVAL * serverTickMultiple` for a predictable entity before it reads `GetClientInterpAmount`
+    /// (`c_baseentity.cpp:5925-5928`), and `CTFWeaponBase::ShouldPredict` holds while the local player owns it
+    /// (`tf_weaponbase.cpp:3433-3441`); `sv_client_predict` at its default -1 leaves `cl_predict` at the client's 1. So
+    /// the recorder's launcher at 60 aims at 59, 590, across the rise to 34 ticks that puts anyone else's further back.
+    /// </summary>
+    [Test]
+    public void PropsAt_TheRecordersOwnWeapon_IsOneTickBehindWhateverTheDelay()
+    {
+        DemoTimeline timeline = DemoTimeline.ForTracks([Launcher(owner: 1)], recorder: 1);
+        List<SceneProp> props = [];
+
+        timeline.PropsAt(60, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(590f, 0.01f);
+    }
+
+    /// <summary>
+    /// The control: the same launcher owned by somebody else is not predicted. It aims at 60 − 34 = 26, floored at the
+    /// oldest entry the frame at 50 kept: that frame aimed at 42 and cut at 42 − 3.33 = 38.67, keeping 38 and the two
+    /// before it, so 36, 360.
+    /// </summary>
+    [Test]
+    public void PropsAt_SomebodyElsesWeapon_TakesTheSchedulesDelay()
+    {
+        DemoTimeline timeline = DemoTimeline.ForTracks([Launcher(owner: 3)], recorder: 1);
+        List<SceneProp> props = [];
+
+        timeline.PropsAt(60, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A server that forces `cl_predict` off predicts nothing** (B860): `sv_client_predict 0` is what `cl_predict` reads
+    /// (`cdll_bounded_cvars.cpp:36-48`), and `CheckInitPredictable` returns at `!cl_predict->GetInt()` (`c_baseentity.cpp:2678`).
+    /// The recorder's own launcher then draws the schedule's delay, 360, as anyone else's does.
+    /// </summary>
+    [Test]
+    public void PropsAt_TheRecordersWeaponWithPredictionForcedOff_TakesTheSchedulesDelay()
+    {
+        ServerConVars off = new();
+        off.Apply(new SetConVarMessage([new KeyValuePair<string, string>("sv_client_predict", "0")]));
+        DemoTimeline timeline = DemoTimeline.ForTracks([Launcher(owner: 1)], recorder: 1, conVarChanges: [(0, off)]);
+        List<SceneProp> props = [];
+
+        timeline.PropsAt(60, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
+    }
+
+    /// <summary>
+    /// **The local player no view placed is predicted too** (B860): `C_BasePlayer::ShouldPredict` is `IsLocalPlayer()`
+    /// (`c_baseplayer.cpp:2324-2333`), and he is eligible once his data arrives as the local player (`:1017-1020`). With no
+    /// viewpoint for the frame his own track draws, one tick behind: 590 at 60. Anyone else's player track: 360.
+    /// </summary>
+    [TestCase(1, 590f)]
+    [TestCase(null, 360f)]
+    public void PlayersAt_ThePlayerWithNoViewpoint_IsOneTickBehindOnlyWhenHeIsTheRecorder(int? recorder, float expected)
+    {
+        ScenePropTrack soldier = new(entityIndex: 1, "models/player/soldier.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            soldier.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForPlayerTracks(
+            [soldier], [new ScenePlayer(EntityIndex: 1, X: 0f, Y: 0f, Z: 0f, Team: 2, Health: 100, PlayerClass: 3)], recorder);
+        List<ScenePlayer> players = [];
+
+        timeline.PlayersAt(60d, players);
+
+        players.ShouldHaveSingleItem().X.ShouldBe(expected, 0.01f);
+    }
+
     /// <summary>The control: with the delay constant the same crate is drawn at its target, 50 − 8 = 42, so 420.</summary>
     [Test]
     public void At_AMovingEntityAtAConstantDelay_IsDrawnAtItsTarget()

@@ -1682,6 +1682,15 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int? OwnedBy { get; internal set; }
 
+    /// <summary>
+    /// Whether its class predicts while its owner is the local player — <c>CTFWeaponBase::ShouldPredict</c>
+    /// (<c>tf_weaponbase.cpp:3433-3441</c>), any class reaching <c>DT_TFWeaponBase</c> (B860).
+    /// </summary>
+    public bool PredictsForItsOwner { get; internal set; }
+
+    /// <summary>The delay schedule the timeline's last derivation sampled this track under (B860); null before one.</summary>
+    internal InterpolationSchedule? SampledUnder { get; set; }
+
     /// <summary>The wire's attribute inputs, or null for an entity that carries none.</summary>
     /// <remarks>
     /// **A track scalar by the B244 test — can it change while the entity stays itself?** — and it
