@@ -8,10 +8,16 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// <summary>Every feature above the engine names a test, and that test exists (D246): the parity rule cannot see a loss here.</summary>
 public sealed partial class AboveValveConformanceTests
 {
-    private const int KnownFeatures = 9;
+    /// <summary>The test names the table holds, counted 2026-11-25 once every name in a cell is read (B841 review 8).</summary>
+    private const int KnownFeatures = 34;
 
-    [GeneratedRegex(@"^\|[^|]+\|[^|]+\|\s*`(\w+)`\s*\|\s*$", RegexOptions.Multiline)]
+    /// <summary>A row's third cell, its tests: every one it names is read, not only a lone one (B841 review 8, Fable, Sonnet).</summary>
+    [GeneratedRegex(@"^\|[^|\r\n]+\|[^|\r\n]+\|([^|\r\n]+)\|\s*$", RegexOptions.Multiline)]
     private static partial Regex TestColumn();
+
+    /// <summary>One backticked name in a test cell.</summary>
+    [GeneratedRegex(@"`(\w+)`")]
+    private static partial Regex TestName();
 
     [Test]
     public void Table_EveryFeatureAboveValve_NamesATestThatExists()
@@ -23,7 +29,12 @@ public sealed partial class AboveValveConformanceTests
             root = root.Parent ?? throw new InvalidOperationException("no repository root above the test directory");
         }
 
-        string[] named = [.. TestColumn().Matches(File.ReadAllText(Path.Combine(root.FullName, "docs", "ABOVE-VALVE.md"))).Select(match => match.Groups[1].Value)];
+        string[] named =
+        [
+            .. TestColumn().Matches(File.ReadAllText(Path.Combine(root.FullName, "docs", "ABOVE-VALVE.md")))
+                .SelectMany(row => TestName().Matches(row.Groups[1].Value))
+                .Select(name => name.Groups[1].Value),
+        ];
 
         // The control: a table that stopped parsing would otherwise find nothing missing.
         named.Length.ShouldBeGreaterThanOrEqualTo(KnownFeatures);

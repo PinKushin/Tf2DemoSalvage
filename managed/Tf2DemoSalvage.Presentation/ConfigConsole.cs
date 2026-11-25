@@ -449,7 +449,13 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) => AtStartup(stuffing: false, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
+    /// <param name="replaying">
+    /// Whether this is the viewer's reread of a config it already read, unchanged, after a game folder is chosen, whose
+    /// one-shots never fire, waited or not: like the launch line's replay it is no second launch (B829, B841 review 3,
+    /// Fable). The first read's waited one-shots fire once, from the first read.
+    /// </param>
+    public void Load(string? text, bool replaying = false) =>
+        AtStartup(stuffing: false, replaying, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
 
     /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
     /// <param name="text">The commands.</param>
@@ -468,7 +474,8 @@ public sealed class ConfigConsole
     /// second launch.
     /// </param>
     public void Stuff(string? text, bool oneShots) =>
-        AtStartup(oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0))));
+        InPass(() => AtStartup(
+            oneShots, replaying: !oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0)))));
 
     /// <summary>
     /// Runs one command typed with budgets of its own (B820 review 5, Fable): a key, each line of a config
@@ -657,6 +664,9 @@ public sealed class ConfigConsole
         int Depth,
         bool Loading,
         bool Stuffing,
+        bool PutOff,
+        bool Replaying,
+        int Pass,
         bool ViewerIssued,
         bool SavedLayer,
         Budget Budget,
@@ -713,6 +723,99 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
+    /// Every config file a read of the configs or the launch line ran to its end, itself or by `exec`, by path and text,
+    /// with the first pass that ran it: one run unchanged by a LATER pass is a replay (B841). Only an earlier pass makes
+    /// it one, as TF2 runs a file `exec`'d twice at one startup twice.
+    /// </summary>
+    private readonly Dictionary<(string Path, string Text), int> _firstPass = [];
+
+    /// <summary>
+    /// The read the command running now belongs to (a <see cref="LoadFrom"/> or a launch line), or 0 for none — a key, a
+    /// load made directly. It rides the queued command, so a waited `exec` is judged by the read that queued it, whenever
+    /// it runs, and a key's run while a read is in progress is not (B841 review 6, Fable).
+    /// </summary>
+    private int _pass;
+
+    /// <summary>The last pass numbered.</summary>
+    private int _passes;
+
+    /// <summary>Runs one read of the configs or the launch line as a pass of its own.</summary>
+    private void InPass(Action run)
+    {
+        int pass = _pass;
+        _pass = ++_passes;
+
+        try
+        {
+            run();
+        }
+        finally
+        {
+            _pass = pass;
+        }
+    }
+
+    /// <summary>Whether an earlier pass ran this file, unchanged, to its end.</summary>
+    private bool ReadBefore(string path, string text) =>
+        _firstPass.TryGetValue((RecordPath(path), text), out int first) && first < _pass;
+
+    /// <summary>Notes that this pass ran this file to its end, unless an earlier one did.</summary>
+    private void ReadThrough(string path, string text) => _firstPass.TryAdd((RecordPath(path), text), _pass);
+
+    /// <summary>
+    /// A config path as the file it names, as the finder reads it: `V_RemoveDotSlashes` (`tier1/strtools.cpp:2315`,
+    /// <see cref="Content.Assets.GameArchives.RemoveDotSlashes"/>) unifies the slashes and drops empty and `.` segments
+    /// (B841 review 7, Fable), and the search path ignores case on Windows (review 6), so `exec Shots`, `exec ./shots` and
+    /// `exec shots` are one file.
+    /// </summary>
+    private static string RecordPath(string path) =>
+        (Content.Assets.GameArchives.RemoveDotSlashes(path) ?? path).ToUpperInvariant();
+
+    /// <summary>Whether a demo is playing back (the demo player's `IsPlayingBack`), or null where nothing says.</summary>
+    public Func<bool>? PlayingBack { get; set; }
+
+    /// <summary>
+    /// Whether TF2's `screenshot` takes one now: `engine.dll` build 1007 FUN_180091070 returns at once while a demo plays
+    /// back (the demo player's slot `+0x30`, which `demo_togglepause`, FUN_180076910, also asks) unless
+    /// `cl_playback_screenshots` (FUN_180004960, default 0, "Allows the client to playback screenshot and jpeg commands in
+    /// demos.") is set (B841 review 9, Fable).
+    /// </summary>
+    private bool ScreenshotsTaken =>
+        PlayingBack?.Invoke() is not true || ConVarNumber.GetBool(ConVar(PlaybackScreenshotsConVar) ?? "0");
+
+    /// <summary>
+    /// Whether the demo playing back is a SourceTV one, or null where nothing says. TF2 then draws through the HLTV camera
+    /// alone (`CViewRender::SetUpViews`, `view.cpp:660-662`; `C_HLTVCamera::CalcView`, `hltvcamera.cpp:510-545`, which no
+    /// branch of reads the third-person flag), so `firstperson` and `thirdperson`, which only flip that flag
+    /// (`in_camera.cpp:59-118, 676-711`), change nothing on screen (B841 review 9, Fable, Sonnet).
+    /// </summary>
+    public Func<bool>? HltvPlayback { get; set; }
+
+    /// <summary>The client ConVar that lets a demo's `screenshot` act.</summary>
+    public const string PlaybackScreenshotsConVar = "cl_playback_screenshots";
+
+    /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
+    private bool _putOff;
+
+    /// <summary>
+    /// Whether the command running now came from the viewer's replay of the launch line or its reread of a config it already
+    /// read, neither of which is a second launch (B829, B841).
+    /// </summary>
+    private bool _replaying;
+
+    /// <summary>
+    /// The one-shots that are TF2's own commands, which a config's `wait` can put off to a tick when they act (B841):
+    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`. Not the spectator's `+jump`, `+attack`, `+attack2`
+    /// (review 1 added them, review 8 took them back, Fable): run from the buffer they only set their button, as the camera
+    /// answers a KEY bound exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`).
+    /// Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
+    /// </summary>
+    private static readonly HashSet<ViewerAction> Tf2OneShots =
+    [
+        ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView,
+    ];
+
+    /// <summary>
     /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
     /// 376-381`): commands processing, the last tick set, the next-command handle at the head.
     /// </summary>
@@ -767,7 +870,8 @@ public sealed class ConfigConsole
                 // current tick, behind what is queued for it, and its run adds the text where it stands. One command with
                 // no bytes stands for it here, so what runs before it, and at what tick, is the engine's.
                 Link(new Entry(
-                    now, 0, string.Empty, null, 0, _loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding, add));
+                    now, 0, string.Empty, null, 0, _loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget,
+                    _answer, _adding, add));
                 Processing(now, () => Pump(until: null));
             }
         }
@@ -830,10 +934,12 @@ public sealed class ConfigConsole
         _queuedBytes -= entry.Size;
         _tick = entry.Tick;
 
-        (bool loading, bool stuffing, bool viewerIssued, bool savedLayer, Budget budget, Answer? answer, int adding) =
-            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding);
-        (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-            (entry.Loading, entry.Stuffing, entry.ViewerIssued, entry.SavedLayer, entry.Budget, entry.Answer, entry.Adding);
+        (bool loading, bool stuffing, bool putOff, bool replaying, int pass, bool viewerIssued, bool savedLayer, Budget budget,
+            Answer? answer, int adding) =
+            (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding);
+        (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+            (entry.Loading, entry.Stuffing, entry.PutOff, entry.Replaying, entry.Pass, entry.ViewerIssued, entry.SavedLayer,
+                entry.Budget, entry.Answer, entry.Adding);
 
         try
         {
@@ -854,8 +960,8 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
-                (loading, stuffing, viewerIssued, savedLayer, budget, answer, adding);
+            (_loading, _stuffing, _putOff, _replaying, _pass, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+                (loading, stuffing, putOff, replaying, pass, viewerIssued, savedLayer, budget, answer, adding);
         }
     }
 
@@ -934,13 +1040,19 @@ public sealed class ConfigConsole
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
     /// Each load says whether its one-shots fire, restored after it, so a config a handler loads inside the launch line
     /// fires none and the rest of the line still does (B829).
+    /// A load is put off by nothing yet, even run from a handler inside a command a `wait` put off (B841 review 1, Fable).
     /// </remarks>
     /// <param name="stuffing">Whether the text is the launch line run for its one-shots (B829).</param>
+    /// <param name="replaying">
+    /// Whether the text is the viewer's replay of the launch line or its reread of a config it already read, whose one-shots
+    /// never fire.
+    /// </param>
     /// <param name="run">The load.</param>
-    private void AtStartup(bool stuffing, Action run)
+    private void AtStartup(bool stuffing, bool replaying, Action run)
     {
-        (bool loading, bool viewerIssued, bool wasStuffing) = (_loading, _viewerIssued, _stuffing);
-        (_loading, _viewerIssued, _stuffing) = (true, false, stuffing);
+        (bool loading, bool viewerIssued, bool wasStuffing, bool putOff, bool wasReplaying) =
+            (_loading, _viewerIssued, _stuffing, _putOff, _replaying);
+        (_loading, _viewerIssued, _stuffing, _putOff, _replaying) = (true, false, stuffing, false, replaying);
 
         try
         {
@@ -948,7 +1060,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _viewerIssued, _stuffing) = (loading, viewerIssued, wasStuffing);
+            (_loading, _viewerIssued, _stuffing, _putOff, _replaying) = (loading, viewerIssued, wasStuffing, putOff, wasReplaying);
         }
     }
 
@@ -1453,19 +1565,27 @@ public sealed class ConfigConsole
             // **TF2's saved configs rank below the viewer's own saved settings** (D264): their ConVars stay in this console's
             // list, which the attached settings shadow, rather than reaching the settings as a run-time set. Their binds
             // and aliases count as always. `autoexec.cfg` reaches the settings, as the player's hand-written layer.
-            foreach ((string path, string text) in configs)
+            InPass(() =>
             {
-                _savedLayer = Tf2ConfigFiles.IsSaved(path);
+                foreach ((string path, string text) in configs)
+                {
+                    _savedLayer = Tf2ConfigFiles.IsSaved(path);
 
-                try
-                {
-                    Load(text);
+                    // **A file an earlier read ran, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or
+                    // are queued, from that read, so the reread is no second launch (B829). A file read for the first time
+                    // here is not: with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read now (Sonnet).
+                    // Noted only once run to its end (review 6, Fable): a throw partway leaves its later lines unrun.
+                    try
+                    {
+                        Load(text, replaying: ReadBefore(path, text));
+                        ReadThrough(path, text);
+                    }
+                    finally
+                    {
+                        _savedLayer = false;
+                    }
                 }
-                finally
-                {
-                    _savedLayer = false;
-                }
-            }
+            });
 
             // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
             // `CheatRefused` handler has printed it already (B811 review 5, Sonnet): only a console nobody listens to prints here.
@@ -1825,7 +1945,29 @@ public sealed class ConfigConsole
             return;
         }
 
-        RunFile(Tf2ConfigFiles.Decode(bytes), depth + 1);
+        string text = Tf2ConfigFiles.Decode(bytes);
+
+        if (_pass == 0)
+        {
+            RunFile(text, depth + 1);
+            return;
+        }
+
+        // **A file a read `exec`s is on the record too** (B841 reviews 5 and 6, Fable): it is a replay only if an earlier pass
+        // ran it, unchanged, whatever file reached it and whenever a `wait` lets it run, so a file the chosen folder adds
+        // under a replayed `autoexec.cfg` is read as new, and one a new file reaches that an earlier pass ran is not.
+        bool replaying = _replaying;
+        _replaying = ReadBefore(path, text);
+
+        try
+        {
+            RunFile(text, depth + 1);
+            ReadThrough(path, text);
+        }
+        finally
+        {
+            _replaying = replaying;
+        }
     }
 
     /// <summary>A typed ConVar name as the ConVar spells it, or as typed when nothing declares it (B791 review 9).</summary>
@@ -2163,6 +2305,14 @@ public sealed class ConfigConsole
                 later ? 0 : depth,
                 _loading,
                 _stuffing,
+
+                // Put off past this run by its own `wait`, or added by a command that was (B841): the flag rides the
+                // command, so it acts at its tick whichever call takes it off the queue, a frame's run or a key's (B841
+                // review 1, Fable). Past the RUN, not the tick it was added at (review 2, Fable): one a negative `wait`
+                // brought back inside the load still runs in it, where a one-shot does nothing.
+                _putOff || later,
+                _replaying,
+                _pass,
                 _viewerIssued,
                 _savedLayer,
                 later ? LaterBudget(laterBudgets ??= [], queued.Tick) : _budget,
@@ -2298,7 +2448,15 @@ public sealed class ConfigConsole
         // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
         // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
         // `exec`s' included (B829): `stuffcmds` runs every command it adds.
-        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
+        // **Unless a `wait` put it off, and TF2 has the command** (B841): `CCommandBuffer` runs it at its tick, whatever text
+        // added it, so it acts then (`screenshot` 500 ticks into the session takes one). The viewer's own names are unknown
+        // to TF2 and do nothing at any tick, and the viewer's replay of the launch line is no second launch (B829).
+        // `thirdperson` is `FCVAR_CHEAT` (`in_camera.cpp:912`), which `Cmd_ExecuteCommand` (`engine.dll` build 1007
+        // FUN_1801678a0) refuses with "Can't use cheat command" unless `sv_cheats` is on (B841 review 2, Fable).
+        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
+            !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn) &&
+              (shot != ViewerAction.Screenshot || ScreenshotsTaken) &&
+              (shot is not (ViewerAction.FirstPersonView or ViewerAction.ThirdPersonView) || HltvPlayback?.Invoke() is not true)))
         {
             return true;
         }

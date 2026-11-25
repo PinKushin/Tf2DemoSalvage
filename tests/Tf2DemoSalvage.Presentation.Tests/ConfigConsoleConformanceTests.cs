@@ -2464,6 +2464,295 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): waited two ticks, it acts at the third
+    /// `Execute` and not before, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The
+    /// viewer's own names are unknown to TF2, and TF2 only prints a bare ConVar, so they do nothing at any tick.
+    /// `thirdperson` is a cheat command, refused without `sv_cheats` (B841 review 2, Fable). A buffered `+jump`, `+attack`
+    /// or `+attack2` only sets its button: the spectator's camera answers a KEY whose binding is exactly that, in
+    /// `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:747-761`), and moves nothing for a config's
+    /// (review 8, Fable).
+    /// </remarks>
+    [TestCase("screenshot", 1)]
+    [TestCase("demo_togglepause", 1)]
+    [TestCase("firstperson", 1)]
+    [TestCase("+jump", 0)]
+    [TestCase("+attack", 0)]
+    [TestCase("+attack2", 0)]
+    [TestCase("sv_cheats 1; thirdperson", 1)]
+    [TestCase("thirdperson", 0)]
+    [TestCase("togglefullscreen", 0)]
+    [TestCase("resetcamera", 0)]
+    [TestCase("opendemo", 0)]
+    [TestCase("resetspeed", 0)]
+    [TestCase("mat_surfacecolours", 0)]
+    [TestCase("cl_showfps", 0)]
+    public void Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt(string command, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"{command}; wait 2; {command}");
+        triggered.ShouldBe(0, "the control: a config's one-shot does nothing at the load");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(0, "not before its tick");
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A config's waited `screenshot` takes none while a demo plays back, unless `cl_playback_screenshots` allows it**
+    /// (B841 review 9, Fable): `engine.dll` build 1007 FUN_180091070 returns at once while the demo player plays back and
+    /// the ConVar is 0, its default. The control: with no demo, it takes one.
+    /// </remarks>
+    [TestCase(false, "", 1)]
+    [TestCase(true, "", 0)]
+    [TestCase(true, "cl_playback_screenshots 1; ", 1)]
+    public void Execute_AWaitedScreenshotWhileADemoPlaysBack_IsTakenOnlyWhenAllowed(bool playingBack, string allow, int raised)
+    {
+        ConfigConsole console = new() { PlayingBack = () => playingBack };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"{allow}wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A config's waited `firstperson` or `thirdperson` changes nothing on a SourceTV demo** (B841 review 9, Fable,
+    /// Sonnet): TF2 draws it through the HLTV camera, which no branch of reads the third-person flag those two commands
+    /// flip (`view.cpp:660-662`, `hltvcamera.cpp:510-545`). The control: on a POV demo they act.
+    /// </remarks>
+    [TestCase("firstperson", false, 1)]
+    [TestCase("firstperson", true, 0)]
+    [TestCase("sv_cheats 1; thirdperson", false, 1)]
+    [TestCase("sv_cheats 1; thirdperson", true, 0)]
+    public void Execute_AWaitedViewCommandOnASourceTvDemo_ChangesNothing(string command, bool hltv, int raised)
+    {
+        ConfigConsole console = new() { HltvPlayback = () => hltv };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"wait; {command}");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A key's run takes a waited config command off the queue at its tick, and it still acts** (B841 review 1, Fable):
+    /// `Key_Event` only adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`), so whichever
+    /// call runs it, the `screenshot` is the config's put-off one. A load after it is put off by nothing, and does nothing.
+    /// </remarks>
+    [Test]
+    public void KeyDown_BetweenFramesAtAWaitedConfigOneShotsTick_RunsItAndItActs()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("bind w +forward; wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.KeyDown("w");
+        triggered.ShouldBe(1);
+
+        console.Execute(waitAllowed: true);
+        console.Load("screenshot");
+
+        triggered.ShouldBe(1, "a later load's one-shot still does nothing");
+    }
+
+    /// <remarks>
+    /// **What a put-off command adds is put off too** (B841 review 2, Fable, Sonnet): an alias body and an `exec`'s lines run
+    /// at the waited command's tick, so their one-shot acts there. Not before: nothing at the load, nor at the first run.
+    /// </remarks>
+    [TestCase("alias x screenshot; wait 2; x")]
+    [TestCase("wait 2; exec shot")]
+    public void Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTick(string text)
+    {
+        ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "screenshot"u8.ToArray() : null };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load(text);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(0, "not before its tick");
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A one-shot that runs inside the load does nothing, however it got there** (B841 review 2, Fable, Sonnet): a `wait 0`
+    /// or a negative `wait` does not put it past the load's run, and nor does a `wait` inside an alias that a negative one
+    /// brought back into it. `CCommandBuffer` runs all three while the load is processing.
+    /// </remarks>
+    [TestCase("wait 0; screenshot")]
+    [TestCase("wait -1; screenshot")]
+    [TestCase("alias x \"wait; screenshot\"; wait -3; x")]
+    public void Load_AOneShotRunInsideTheLoadAfterAWait_DoesNothing(string text)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load(text);
+
+        for (int run = 0; run < 5; run++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        triggered.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A reread of the configs fires no one-shot, waited or not** (B841 reviews 2 and 3, Fable, Sonnet): like the launch
+    /// line's replay it is no second launch (B829), so the first read's waited one-shot fires once. The control: read twice
+    /// as two loads, it fires twice.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 2)]
+    public void Load_ARereadOfAWaitedOneShot_FiresOnlyTheFirstReads(bool reread, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("wait; screenshot");
+        console.Load("wait; screenshot", replaying: reread);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A reread after the first read's waited one-shot ran does not run it again** (B841 review 3, Fable): a folder chosen
+    /// late in the session reads the configs again, and the one-shot it queues is the reread's.
+    /// </remarks>
+    [Test]
+    public void Load_ARereadAfterTheWaitedOneShotRan_DoesNotFireItAgain()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(1, "the control: the first read's fired");
+
+        console.Load("wait; screenshot", replaying: true);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A load from a handler leaves the waited command's later lines put off** (B841 review 3, Sonnet): the waited
+    /// `exec`'s second line still acts, though a handler loaded a config at the first. Two restores hold it, `AtStartup`'s
+    /// and `RunEntry`'s, so it reddens only with both removed (review 4, Fable).
+    /// </remarks>
+    [Test]
+    public void Load_FromAHandlerInsideAWaitedExecsFirstLine_TheSecondLineStillActs()
+    {
+        ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "screenshot\nscreenshot"u8.ToArray() : null };
+        int triggered = 0;
+        console.Triggered += (_, _) =>
+        {
+            if (++triggered == 1)
+            {
+                console.Load("cl_showfps 0");
+            }
+        };
+
+        console.Load("wait; exec shot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **`thirdperson`'s cheat check is made when it runs** (B841 review 3, Sonnet), as `Cmd_ExecuteCommand` (`engine.dll`
+    /// build 1007 FUN_1801678a0) makes it: cheats on at the load and off by its tick refuse it. The control: left on, it
+    /// acts.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Execute_AWaitedThirdPersonWithCheatsTurnedOffBeforeItsTick_IsRefused(bool turnedOff, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("sv_cheats 1; wait 2; thirdperson");
+        console.Execute(waitAllowed: true);
+
+        if (turnedOff)
+        {
+            console.Load("sv_cheats 0");
+        }
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A config a handler loads inside a waited command is put off by nothing** (B841 review 1, Fable, Gemini): its own
+    /// one-shot does nothing at its load, though the command whose handler loaded it was put off.
+    /// </remarks>
+    [Test]
+    public void Load_FromAHandlerInsideAWaitedOneShot_ItsOneShotsDoNothing()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) =>
+        {
+            if (++triggered == 1)
+            {
+                console.Load("screenshot");
+            }
+        };
+
+        console.Load("wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The viewer's replay of the launch line fires no one-shot, waited or not** (B829, B841 review 1, Sonnet): it is no
+    /// second launch. The launch itself fires both.
+    /// </remarks>
+    [TestCase(true, 2)]
+    [TestCase(false, 0)]
+    public void Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay(bool oneShots, int raised)
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Stuff("screenshot\nwait\nscreenshot", oneShots);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
     /// **A set announces the value it replaced** (B839, review 1, Sonnet), as the console read it just before, under the
     /// ConVar's own name whatever case it was typed in: the first set replaced nothing (its default), the second the
     /// first's 3.
