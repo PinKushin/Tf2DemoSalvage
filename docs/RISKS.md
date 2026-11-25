@@ -46845,7 +46845,18 @@ signon holds from the later of it and the last set; the test has two sets before
 `HudConVars.FindAt`'s remark claimed stream order within a tick, which the history does not carry (Sonnet): it names the
 recorded bound. The corpus test's remark now says which demo it reads. B852 corrected: voice inits stamp `command.Tick`
 too and are safe only because they are referred to by stream index, and `voice` joins the list (Fable). Sabotage,
-restored: without the last packet tick the late-signon test reddens.
+restored: without the last packet tick the late-signon test reddens. Core 3,301 (40 skipped), Scene 5,421 of 5,421,
+Presentation 2,269 of 2,269.
+
+Review 7 (Fable, Gemini, Sonnet). No blocking finding. Fixed: a late signon stamped with the last packet's own tick
+held at that packet, whose events the engine runs before the signon is read (Gemini, Sonnet): it holds from the tick
+after, and the arm reading the last set's stamp, dead while packet ticks rise, is gone (Fable, Gemini, Sonnet); no test
+carried `lastPacketTick` across a resume (Fable, Sonnet):
+`ServerConVarsAt_ALateSignonAfterAResumeFromAnyCut_IsStampedAsAStraightBuild` resumes from every cut and reads the
+history directly, since the fingerprint cannot see it; the user-message path had no server-tick case (Fable): the chat
+heard at tick 1000 reads that tick's value; "applied when read" is marked *interpolated* (the demo player's command loop
+is closed, Fable); `ConVarChanges`'s summary said "the tick it was read at" (Fable). Sabotage, each restored: the field
+not copied reddens the resume test. Presentation `VguiHudTickConVarsTests` 10 of 10, Core `ServerConVarsAtTests` 8 of 8.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a

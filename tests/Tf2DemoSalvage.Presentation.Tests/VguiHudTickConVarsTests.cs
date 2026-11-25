@@ -139,10 +139,19 @@ public sealed class VguiHudTickConVarsTests
         HudState state = new(
             true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1, Players: [new ScenePlayer(1, 0f, 0f, 0f, 2, 100, 3)], ConVars: conVars);
 
+        // A user message takes the same path (review 7, Fable): the chat heard at 1000 reads that tick's server value.
+        string? chatHeard = null;
+        hud.Chat.SoundEmitter = _ => chatHeard ??= HudViewport.ConVarsOf(hud.Chat).GetString("mp_timelimit");
+
         host.BeginFrame(640, 480);
-        hud.Think(state, events: [Death(1000), Death(1001)], reset: reset);
+        hud.Think(
+            state,
+            events: [Death(1000), Death(1001)],
+            userMessages: [new SceneUserMessage(1000, SceneUserMessage.SayText, (byte[])[0, .. Encoding.UTF8.GetBytes("hi"), 0, 1])],
+            reset: reset);
 
         heard.ShouldBe([("3", reset ? "9" : "3"), ("5", "9")]);
+        chatHeard.ShouldBe("3");
         HudViewport.ConVarsOf(hud.DeathNotice).GetString("mp_timelimit").ShouldBe("9", "the frame's own, put back after");
     }
 

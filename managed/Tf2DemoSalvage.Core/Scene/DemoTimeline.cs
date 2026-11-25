@@ -2688,7 +2688,10 @@ public sealed class DemoTimeline
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
-    /// <summary>The settings after each <c>net_SetConVar</c>, by the tick it was read at, in stream order.</summary>
+    /// <summary>
+    /// The settings after each <c>net_SetConVar</c>, by the tick it holds from, in stream order: a packet's at its tick, a
+    /// signon's before any packet at <see cref="int.MinValue"/>, a signon's after one at the tick after it (B843).
+    /// </summary>
     private IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
 
     /// <summary>Valve's defaults, what a tick before the first <c>net_SetConVar</c> runs under.</summary>
@@ -4281,13 +4284,14 @@ public sealed class DemoTimeline
                         // A signon's tick is the server's when recording began, not a playback tick (`z1800`: 70,718
                         // against a first packet at 6), and the set applies before any packet, so it holds from the start
                         // (B843 review 4, Fable), as the light styles' does below. A signon after a packet (none is known)
-                        // is applied when read, so it holds from the last packet read, and never before the last set, so the
-                        // history stays in tick order (reviews 5 and 6, Fable, Sonnet).
+                        // is taken to apply when read, after that packet's events (*interpolated*: the demo player's command
+                        // loop is closed), so it holds from the tick after the last packet read (reviews 5 to 7, Fable,
+                        // Sonnet); packet ticks rise, so the history stays in tick order.
                         int stamp = command.Tick;
 
                         if (command.Type == DemoCommandType.Signon)
                         {
-                            stamp = Math.Max(lastPacketTick, conVarHistory.Count > 0 ? conVarHistory[conVarHistory.Count - 1].Tick : int.MinValue);
+                            stamp = lastPacketTick == int.MinValue ? int.MinValue : lastPacketTick + 1;
                         }
 
                         conVarHistory.Add((stamp, serverConVars.Snapshot()));

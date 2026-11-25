@@ -75,14 +75,43 @@ public sealed class ServerConVarsAtTests
 
     /// <remarks>
     /// **A signon after a packet's set is applied when read, not from the start** (B843 review 5, Fable, Sonnet): it takes
-    /// the tick of the last packet read (review 6, Fable), so the history stays in tick order. Sets of 300 at 2 and 200 at
-    /// 5, packets on to 7, then 100 by a signon stamped 900: tick 4 reads 300, tick 6 still reads 200, and tick 7 on reads
-    /// 100. Two sets before it and packets between catch a stamp from the first set or from the last set.
+    /// the tick after the last packet read (reviews 6 and 7, Fable, Sonnet), since it applies after that packet's events.
+    /// Sets of 300 at 2 and 200 at 5, packets on to 7, then 100 by a signon stamped 900: tick 4 reads 300, tick 7 still
+    /// reads 200, and tick 8 on reads 100. Two sets before it and packets between catch a stamp from either set.
     /// </remarks>
     [Test]
     public void ServerConVarsAt_ASignonAfterAPacketsSet_HoldsFromWhereItWasRead()
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticDemo.From(
+        DemoTimeline timeline = DemoTimeline.Build(LateSignonDemo());
+
+        (timeline.ServerConVarsAt(4).Number("sv_gravity"), timeline.ServerConVarsAt(7).Number("sv_gravity"),
+            timeline.ServerConVarsAt(8).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity"))
+            .ShouldBe((300f, 200f, 100f, 100f));
+    }
+
+    /// <remarks>
+    /// **A builder resumed from any cut stamps the late signon the same** (B843 review 7, Fable, Sonnet): the last packet
+    /// tick read is a builder field a snapshot must carry. The fingerprint cannot see the ConVar history, so the history is
+    /// read directly. A field the copy dropped would restart at 0 and stamp the signon from tick 1.
+    /// </remarks>
+    [Test]
+    public void ServerConVarsAt_ALateSignonAfterAResumeFromAnyCut_IsStampedAsAStraightBuild()
+    {
+        byte[] demo = LateSignonDemo();
+        int commands = DemoTimeline.CommandCount(demo);
+
+        for (int at = 0; at <= commands; at++)
+        {
+            DemoTimeline resumed = DemoTimeline.BuildThroughSnapshot(demo, at, commands);
+
+            (resumed.ServerConVarsAt(7).Number("sv_gravity"), resumed.ServerConVarsAt(8).Number("sv_gravity"))
+                .ShouldBe((200f, 100f), $"resumed after command {at} of {commands}");
+        }
+    }
+
+    /// <summary>Sets of 300 at 2 and 200 at 5, packets on to 7, a signon setting 100 stamped 900, then packets 8 to 10.</summary>
+    private static byte[] LateSignonDemo() =>
+        SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
             [
                 SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
@@ -96,12 +125,7 @@ public sealed class ServerConVarsAtTests
                     Type = Core.Container.DemoCommandType.Signon,
                 },
                 .. Enumerable.Range(8, 3).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
-            ]));
-
-        (timeline.ServerConVarsAt(4).Number("sv_gravity"), timeline.ServerConVarsAt(6).Number("sv_gravity"),
-            timeline.ServerConVarsAt(7).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity"))
-            .ShouldBe((300f, 200f, 100f, 100f));
-    }
+            ]);
 
     /// <remarks>
     /// **A copy makes its own lookup, and making one changes no digest** (B843 review 4, Fable, Sonnet): the cache is
