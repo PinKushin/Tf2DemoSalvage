@@ -340,7 +340,7 @@ public sealed class ConfigConsole
 
         // What the default FIRES, as the claim it is compared with counts (B844 review 6, Fable): MOUSE1's `+attack` cycles
         // forward whatever an alias of that name says.
-        foreach (ViewerAction action in Expand(fallback, depth: 0, credit: true))
+        foreach (ViewerAction action in Credited(fallback, key))
         {
             if (Claimed.Contains(action))
             {
@@ -439,7 +439,7 @@ public sealed class ConfigConsole
                     continue;
                 }
 
-                foreach (ViewerAction action in Expand(command, depth: 0, credit: true))
+                foreach (ViewerAction action in Credited(command, key))
                 {
                     _claimed.Add(action);
                 }
@@ -1716,7 +1716,7 @@ public sealed class ConfigConsole
         // vanish from a report that is supposed to be the alarm for exactly this.
         foreach (string key in _binds.Keys.Union(_defaults.Keys, StringComparer.OrdinalIgnoreCase))
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0, credit: true))
+            foreach (ViewerAction action in Credited(CommandFor(key) ?? string.Empty, key))
             {
                 reachable.Add(action);
             }
@@ -1749,7 +1749,7 @@ public sealed class ConfigConsole
 
         foreach (string key in _binds.Keys)
         {
-            foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0, credit: true))
+            foreach (ViewerAction action in Credited(CommandFor(key) ?? string.Empty, key))
             {
                 bound.TryAdd(action, key);
             }
@@ -2616,18 +2616,28 @@ public sealed class ConfigConsole
     /// binding is answered before any clause is read (`Expand`'s exact-first step, review 4) — and `spec_mode` only
     /// without exactly one argument.
     /// </summary>
-    /// <param name="tokens">The clause.</param>
-    /// <param name="arguments">`ArgC()` as the clause runs, a key's number included.</param>
-    private static bool Fires(IReadOnlyList<string> tokens, int arguments)
+    /// <param name="tokens">The clause as it runs (<see cref="Credited"/> hands in a key's real text).</param>
+    private static bool Fires(IReadOnlyList<string> tokens)
     {
         if (IsSpectatorButton(tokens[0]))
         {
             return false;
         }
 
-        return !(arguments == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
+        return !(tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
                  moded == ViewerAction.SwitchCameraMode);
     }
+
+    /// <summary>What a key's bind FIRES, for the claim, the settings projection and the unbound report (B844).</summary>
+    /// <param name="command">The key's bind.</param>
+    /// <param name="key">The key.</param>
+    /// <returns>
+    /// A key bound exactly to a spectator button: that button's action, before any alias of that name runs, as `KeyDown`
+    /// answers it (review 4, Fable). Anything else: what the text the key really runs reaches — <see cref="KeyText"/>, with
+    /// the key's number after a `+` bind and none for a chord (review 7, Fable), so `+use; spec_mode` runs `spec_mode 107`.
+    /// </returns>
+    private List<ViewerAction> Credited(string command, string key) =>
+        SpectatorKeys.TryGetValue(command, out ViewerAction exact) ? [exact] : Expand(KeyText(command, key), depth: 0, credit: true);
 
     /// <summary>Every action a command reaches by expansion.</summary>
     /// <remarks>
@@ -2658,30 +2668,15 @@ public sealed class ConfigConsole
             return found;
         }
 
-        // A key bound exactly to a spectator button fires its action before any alias of that name runs, as `KeyDown` does
-        // (B844 review 4, Fable): `alias +attack spec_prev` with `bind k +attack` cycles forward.
-        if (credit && depth == 0 && SpectatorKeys.TryGetValue(commandLine, out ViewerAction exact))
+        foreach (string clause in SourceConfig.Clauses(commandLine))
         {
-            found.Add(exact);
-            return found;
-        }
-
-        IReadOnlyList<string> clauses = [.. SourceConfig.Clauses(commandLine)];
-
-        for (int index = 0; index < clauses.Count; index++)
-        {
-            IReadOnlyList<string> tokens = SourceConfig.Tokens(clauses[index]);
+            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
 
             if (tokens.Count == 0 ||
                 tokens[0].Equals("alias", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
-
-            // A key's `+` bind is run with its key's number after it (`KeyText`, `"%s %i"`), so its last clause has one
-            // argument more than it is written with (B844 review 6, Fable): `+use; spec_mode` runs `spec_mode 107`.
-            int arguments = tokens.Count +
-                (credit && depth == 0 && index == clauses.Count - 1 && commandLine.StartsWith('+') ? 1 : 0);
 
             // The dispatcher's order (B820): see `Run`.
             if (ConsultsAlias(tokens[0]) && _aliases.TryGetValue(tokens[0], out string? body))
@@ -2708,7 +2703,7 @@ public sealed class ConfigConsole
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
 
-            if (credit && !Fires(tokens, arguments))
+            if (credit && !Fires(tokens))
             {
                 continue;
             }

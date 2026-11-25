@@ -46497,15 +46497,33 @@ otherwise (Sonnet); B851's citation moved back to its claim (Sonnet). Filed: **B
 `credit &&` guard on the exact-first step (Sonnet) is equivalent for the non-credit readers, which name the same action.
 Sabotage, each restored: the appended argument dropped reddens both `+use; spec_mode` rows; the fallback without credit
 reddens `KeyDown_ADefaultWhoseNameAnAliasTakes_StillAnswersForWhatItFires`. Presentation 394 of 394 in
-`ConfigConsoleConformanceTests`.
+`ConfigConsoleConformanceTests`. (`spec_mode 107` does nothing in the viewer; in TF2 it calls `SetMode( 107 )`, which
+stores a mode `CalcView` has no case for, and turns the director off: B851.)
+
+Review 7 (Fable, Gemini, Sonnet). Review 6's key-number rule counted arguments and was wrong both ways (Fable, Sonnet): a
+chord gets no number (`KeyText`, `ButtonCodeNames.CodeOf` null), and a trailing `;` or `//` comment puts the number in a
+clause of its own or in the comment, since it is appended to the raw text. Replaced: one `Credited(command, key)` answers
+a key's exact spectator binding first and otherwise expands the text the key really runs, `KeyText(command, key)`, for
+the claim, the fallback, the settings projection and the unbound report; `Expand` counts the clause as written again.
+The two surviving mutants of the counting (`index` and `depth`) went with it. Tests:
+`Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns` (a trailing `;`, a chord either way, `spec_mode`
+first, an alias body). **B854 corrected** (Sonnet): every branch of `HandleSpectatorKeyInput` tests `down`, so a release
+is not swallowed and the viewer's `-attack` on release matches the client; what is left is whether `Key_Event` filters it
+engine-side. Review 6's line about review 5 points at a sentence this round's review-6 edit rewrote (Sonnet): review 5's
+"not taken" on the non-credit readers was withdrawn there. Not taken: `DoesSomething` stays the "names" reading, deciding
+whether a key is the config's, where `Credited` is the "fires" reading (Sonnet, Fable); a `mat_fullbright` last in a `+`
+bind runs `mat_fullbright 1 107`, older than B844, now credited by that text. Sabotage, restored: the credit reading the
+written bind reddens both `+use; spec_mode` rows. Presentation 399 of 399 in `ConfigConsoleConformanceTests`.
 
 ## B854 — the release of a key the spectator swallowed still runs its binding's `-` half (2026-11-25) — OPEN
 
 Found in B844 review 6 (Fable). A key bound exactly to `+attack` is swallowed on the press while spectating
 (`HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`), but the viewer's release still runs `-attack <code>`, and
-`ConsultsAlias` lets `alias -attack "…"` run its body then. Whether `Key_Event` sends the release text of a key the
-client swallowed on the press is in the closed engine (`engine.dll` build 1007 FUN_1801b6090); *recalled* that
-`FilterKey` filters it, *not read*. Fix shape: read the release path in `Key_Event`, then match it. *Not fixed*.
+`ConsultsAlias` lets `alias -attack "…"` run its body then. **Likely not a divergence** (B844 review 7, Sonnet): every
+branch of `HandleSpectatorKeyInput` tests `down`, so the client does not swallow a release and the viewer running
+`-attack` matches it. What is left is whether `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) filters the release of a
+key whose press the client took; *recalled* that `FilterKey` does, *not read*. Fix shape: read the release path in
+`Key_Event`; close this if it sends the text. *Not fixed*.
 
 ## B855 — `spec_next` and `spec_prev` leave the auto-director on, where SourceTV's turn it off (2026-11-25) — OPEN
 

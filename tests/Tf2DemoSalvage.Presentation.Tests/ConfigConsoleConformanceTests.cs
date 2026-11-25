@@ -2975,6 +2975,25 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **The credit reads the text the key really runs** (B844 review 7, Fable, Sonnet): a `+` bind gets the key's number
+    /// after its RAW text (`KeyText`), so a trailing `;` puts the number in a clause of its own and `spec_mode` keeps one
+    /// argument and cycles; a chord gets no number, so its `spec_mode` cycles too; an alias body gets none; and a
+    /// `spec_mode` that is not last keeps its own count.
+    /// </remarks>
+    [TestCase("k", "\"+use; spec_mode;\"", true)]
+    [TestCase("CTRL+e", "\"+use; spec_mode\"", true)]
+    [TestCase("CTRL+e", "\"+use; spec_mode 5\"", false)]
+    [TestCase("k", "\"spec_mode; +use\"", true)]
+    [TestCase("k", "a\nalias a \"+use; spec_mode\"", true)]
+    public void Unbound_ABindWhoseKeyAddsOrWithholdsANumber_CreditsTheTextItRuns(string key, string bind, bool credited)
+    {
+        ConfigConsole console = new();
+        console.Load($"unbindall\nbind {key} {bind}");
+
+        console.Unbound().Contains(ViewerAction.SwitchCameraMode).ShouldBe(!credited);
+    }
+
+    /// <remarks>
     /// **A default yields only to a bind that fires its action** (B844 review 6, Fable): with `alias +attack spec_prev`,
     /// MOUSE1's default `+attack` still cycles forward, so `bind k spec_prev` does not take MOUSE1's key away, and both
     /// keys work: k cycles back, MOUSE1 forward.
