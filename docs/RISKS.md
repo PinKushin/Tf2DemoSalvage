@@ -46434,16 +46434,43 @@ the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick f
 the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
 each tick the frame plays, on the state after the tick before it. *Not fixed*.
 
-## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — OPEN
+## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — OPEN
 
-Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last `net_SetConVar`; the client
-applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole: `CameraPresenter` (`SetServer`, the
-free camera's movement limits), `EffectEntities` and `IMomentSource` (`TfHolidays.IsChristmasActive`'s
-`tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the interpolation window
-(`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`). A server that sets
-one mid-recording plays the whole demo under its last value. *Read*, not measured. Fix shape: each reader asks
-`ServerConVarsAt` its moment; the interpolation window needs the widest reach over the recording, which is a separate
-question from the value at a tick. *Not fixed*.
+Split from B848 when it was filed, before any fix, because it is a different mechanism: not a value read at a moment
+but a delay every track samples behind. `DemoTimeline` sets every track's `InterpolationDelayTicks` once, from
+`client.Amount(end.ServerConVars)`, and the checkpoint walk's reach from `WindowReach.For(…, _end.ServerConVars, …)`.
+The engine's `GetClientInterpAmount` is computed when asked, clamping `cl_interp_ratio` by the replicated
+`sv_client_min_interp_ratio` and `sv_client_max_interp_ratio` as they stand, so a server that changes them mid-recording
+changes the delay from that tick on. *Read*, not measured; such a change is rare, since a server's bounds arrive at
+sign-on. Fix shape: a delay schedule by tick from the ConVar history, read by `ScenePropTrack.At` and `Motion` (whose
+wakes add the delay to changetimes), and a walk reach that covers the widest delay over the recording. *Not fixed*.
+
+## B848 — the free camera, the holiday check and the weapon spread read the recording's last replicated ConVars, not the moment's (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** Each reader asks `DemoTimeline.ServerConVarsAt` at its own moment:
+
+- the free camera, every frame it flies (`CameraPresenter.Fly`): `FullNoClipMove` reads `sv_maxspeed` and
+  `sv_specspeed` on each move (`gamemovement.cpp:2260`). `FreeCameraController.SetServer` returns at once for the
+  instance it already holds, so its log line still fires only on a change;
+- the Halloween vision flag (`TimelineMoments.HolidayVisionFlagsAt`) and the ropes' Christmas check
+  (`EffectEntities.RopeHolidayStyle`, the tick its rules are read at): `TF_IsHolidayActive` reads `tf_forced_holiday`
+  when asked (`tf_gamerules.cpp:1030-1060`);
+- each shot's fixed spread (`HitscanTracers.Trace`'s `fixedSpreadAt`, called with the shot's tick from `LoadedMap`):
+  `IsFixedWeaponSpreadEnabled` is read as `FX_FireBullets` runs, when the shot's packet is read.
+
+Tests: `CameraPresenterTests.Fly_BeforeAndAfterTheServerRaisedItsSpeeds_MovesAtEachTicksSpeed` (96, 384, then 96 again
+units a frame), `TimelineMomentsTests.HolidayVisionFlagsAt_BeforeAndAfterTheServerForcedHalloween_FollowsEachTick`,
+`HitscanTracersConformanceTests.Trace_ABlastBeforeAndAfterTheServerTurnedFixedSpreadOn_ScattersOnlyTheFirst`. Sabotage,
+each restored: the camera on the whole-recording value, the holiday flag on it, and every shot read at one tick each
+redden their own test. **Not tested:** the Christmas call site in `EffectEntities` and the `LoadedMap` call site, which
+need a rope and a map the unit rigs do not build. The interpolation delay: B849.
+
+The original entry follows. Found in B843. `DemoTimeline.ServerConVars` is the value after the whole recording's last
+`net_SetConVar`; the client applies each as its packet is read (B450, `ServerConVarsAt`). Still read whole:
+`CameraPresenter` (`SetServer`, the free camera's movement limits), `EffectEntities` and `IMomentSource`
+(`TfHolidays.IsChristmasActive`'s `tf_forced_holiday`), `LoadedMap` (`tf_use_fixed_weaponspreads`), and the
+interpolation window (`DemoTimeline`'s `WindowReach.For(…, _end.ServerConVars, …)`, `client.Amount(end.ServerConVars)`).
+A server that sets one mid-recording plays the whole demo under its last value. *Read*, not measured.
 
 ## B843 — a game event reads the replicated ConVars of the frame's last tick, not its own (2026-11-25) — FIXED (2026-11-25)
 
