@@ -216,7 +216,8 @@ if ( bPlayingMultiplayer || bPlayingNonLocallyRecordedDemo )
 ```
 
 A **non-locally-recorded** demo — an STV recording — takes the full `cl_interp` path. A **locally
-recorded** one — a POV — falls through to the tick-based branches below it, where anything both
+recorded** one — a POV, *interpolated*: what `IsPlayingDemoALocallyRecordedDemo` answers is engine code not read (B861)
+— falls through to the tick-based branches below it, where anything both
 animated and simulated every tick gets `TICK_INTERVAL * expandedServerTickMultiple` instead: about
 one tick rather than a whole interp window.
 
@@ -225,9 +226,9 @@ was recorded locally", while the condition fires for demos that were **not** rec
 code is what runs; recorded here because a reader checking only the comment would conclude the
 opposite.
 
-**What this means for this project.** The delay itself is a streaming artefact and is not
-reproduced — see the `cl_interp` note below — but the *shape* of it matters when comparing our
-output against what a player saw: a POV and an STV recording of the same moment were displayed by
+**What this means for this project.** The delay is reproduced since B267 (eight ticks at TF2's
+defaults; per tick since B849), on the non-local path for every demo (B861 questions that). The *shape* of it matters when
+comparing our output against what a player saw: a POV and an STV recording of the same moment were displayed by
 the engine with different amounts of smoothing, so neither is "what really happened". The stored
 positions are the server's either way, which is what this project interpolates, and that is the
 closer thing to truth.

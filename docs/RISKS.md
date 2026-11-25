@@ -46742,12 +46742,14 @@ signon game event matters more now that it hears the ConVars of its tick (B843).
 
 ## B861 — a locally recorded demo's every-tick entities take one tick of interpolation, where the viewer takes the full amount for every demo (2026-11-25) — OPEN
 
-Found in B848 review 4 (Sonnet), split from B860 in review 5 (Fable): it does not need a rise. `GetInterpolationAmount`
-takes the amount (`c_baseentity.cpp:5937`) only in multiplayer or for a demo that is not locally recorded
+Found in B848 review 4 (Sonnet), split from B860 in review 5 (Fable): it does not need a rise. `GetInterpolationAmount`'s
+`:5937` return (`c_baseentity.cpp`) is reached only in multiplayer or for a demo that is not locally recorded
 (`:5932-5935`); a locally recorded demo falls through to `:5940-5960`, where an entity animated and simulated every tick,
-or latched for the one it is, takes `TICK_INTERVAL ×` the tick multiple whatever the amount (`g_nThreadModeTicks` is 0
-in the SDK, `:60`). B267 (and findings 20) chose the non-local path for every demo on purpose, on the reasoning that a
-third-party viewer holds no prediction history; that is a reading of WHY the branch exists, not of what TF2 does when
+or latched for the one it is, takes `TICK_INTERVAL ×` the tick multiple whatever the amount, and only the rest reach the
+amount at `:5960` (`g_nThreadModeTicks`, a file-scope static declared 0 at `:60` and only read, adds nothing). B267 chose the non-local path for every demo on purpose, on the reasoning that a third-party viewer
+holds no prediction history (findings 20 supplies only the reading that a POV demo is locally recorded), and recorded
+the magnitude: `SetMoveType` sets both flags for `MOVETYPE_WALK`, so every player would be drawn one tick behind instead
+of eight, about 105 ms by arithmetic (seven ticks of 15 ms, as B267 reasons it); that is a reading of WHY the branch exists, not of what TF2 does when
 it plays the same file. *Read* in the SDK; what `IsPlayingDemoALocallyRecordedDemo` answers for a POV demo is engine
 code, not read, and decides whether this is a divergence at all. `m_bAnimatedEveryTick` and `m_bSimulatedEveryTick`
 are networked, so the viewer could decide per entity. Fix shape: read `IsPlayingDemoALocallyRecordedDemo` in
@@ -46843,6 +46845,15 @@ deliberate choice and findings 20's reading that a POV demo is locally recorded,
 `g_nThreadModeTicks` is 0 and never written in the SDK (Fable); findings 115 declares its "disassembled" class and that
 the two addresses' builds are unrecorded, qualifies the falling-delay claim to the `:5937` path, and states the bounded
 wrappers exactly (Fable). The `(95, 99)` test comment names the mutant it kills (Sonnet; Fable traced it to `TicksAt(at)`).
+
+Review 6 of B848 (Fable, Sonnet, Codex: no merge blocker). Records: findings 20's "a POV is locally recorded" is marked
+interpolated with a pointer to B861, and its "the delay is not reproduced" is out of date since B267 (Fable); B861
+attributes the choice to B267 alone and carries B267's magnitude, one tick against eight for every player (Fable);
+B861's first sentence says the `:5937` return, the amount being reached at `:5960` too for the rest (Sonnet); the
+`cl_interp` and `cl_interp_ratio` wrapper lines are `:108-121` and `:74-86` (Sonnet, Fable); findings 115's title and
+index row name B861 (Sonnet, Fable); `g_nThreadModeTicks` is a file-scope static only read, so nothing in the SDK can
+write it (Codex asked); a test comment's 95 is the asked tick for changetime 90 (Fable). Lead for B861, *recalled* not
+read (Fable): the engine may decide "locally recorded" by the demo header's server name being `localhost`.
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay

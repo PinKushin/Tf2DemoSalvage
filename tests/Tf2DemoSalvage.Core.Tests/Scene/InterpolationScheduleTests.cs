@@ -80,7 +80,7 @@ public sealed class InterpolationScheduleTests
     public void Reaches_AfterARiseThatDropsTheTargetBack_IsTheReachAfterTheAskedTick(int changeTime, double after, double? expected)
     {
         // Review 3 (Fable, Sonnet): a fractional tick asked from, as `Motion` asks; a tick inside a step whose changetime the
-        // target had passed (95: passed at 92, and still past at 100); and the reach tick itself (102), already reached.
+        // target had passed (changetime 90 asked from 95: passed at 92, still past at 100); and the reach tick itself (102), already reached.
         // Review 4 (Sonnet): 95 asked after 99 is no new reach (the target at 99 is 97, past it), which `TicksAt(at)` for
         // the tick before answered 100 (review 5, Fable); 98 would be met at 100 under the old delay, but the step starts
         // there, so it is 98 + 5 = 103, which `<=` against the step's end answered 100.
