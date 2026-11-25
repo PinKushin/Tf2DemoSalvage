@@ -47174,9 +47174,14 @@ the last networked value for a predictable (`c_baseentity.cpp:2593-2598`). Since
 one tick behind (the amount `GetInterpolationAmount` gives them), but along the NETWORK history at the frame's tick. The
 recorder is drawn where the demo's view put him (B56) whenever there is a view, so this reaches his weapons' own animated
 variables — a bone-merged weapon draws its merged bones from his skeleton, and only the rest from its own cycle — and the
-recorder on a frame with no view. Fix shape: run the recorded user commands through the weapons' prediction as D205 does
-the recorder's movement, keep the history it latches, and sample it at the predicted time; a conformance test predicting a
-weapon's cycle at a frame first. *Not fixed*.
+recorder on a frame with no view. **And prediction turning off is a delay rise B860 does not see** (B860 review 6, Fable):
+when `sv_client_predict` goes to 0 an entity's schedule swaps from one tick to the plain one, which holds no rise, so a
+settled weapon re-blends where `SetPredictable(false)` only stores the amount (`Interp_UpdateInterpolationAmounts`,
+`c_baseentity.cpp:4596`, *read*) and the engine holds it until its next latch; and a young one can be sent back before
+birth, bringing back its birth state. Scenario: updates at 5, 15, …, `sv_client_predict 0` at 50: the engine holds X = 450
+from frame 46 to the latch at 55; the viewer blends 35 to 45 at 51-54. Fix shape: model the swap as a step of the
+entity's own schedule, which B860's hold then sees; and run the recorded user commands through the weapons' prediction as D205 does the recorder's movement, keep the history it latches,
+and sample it at the predicted time; a conformance test predicting a weapon's cycle at a frame first. *Not fixed*.
 
 ## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25; predicted entities' drawn values interim, B862)
 
@@ -47192,7 +47197,8 @@ weapon's cycle at a frame first. *Not fixed*.
 - *Predictable entities* (part 3): in a point-of-view demo the recorder and his TF weapons are predicted and take
   `InterpolationSchedule.Predicted`, one tick, whatever the amount; `sv_client_predict` (declared, default −1) at 0
   predicts nothing. **What they then draw is an interim**: the engine also samples them at the predicted time from
-  prediction's history, which is **B862**, so the values `PredictedEntityInterimTests` holds are no engine frame's.
+  prediction's history, which is **B862**, so the values `PredictedEntityInterimTests` holds are no engine frame's; and
+  prediction turning off mid-recording is a step this branch's hold does not see (B862, review 6).
   Client-created entities (corpses, gibs) are simulated by the viewer and never sampled under the schedule.
 - *Alternate ticks* and *`cl_interp_npcs`* (read, no code): neither can apply to TF2 — `maxClients` is at least 2, and no
   TF2 client class is an NPC (findings 115).
@@ -47315,8 +47321,8 @@ Review 5 (Fable, Sonnet, Codex: no blocker). Fixed (Fable):
   `PropsAt_SteppedAcrossPredictionTurningOff_MatchesAFreshTimelineEverywhere` (updates off the flip's tick, so no arrival
   wakes the track there) and `PropsAt_AJumpOnATimelineWithNoPackets_ReadsItsOwnTick` (360; 520 under the first step), each
   reddened by its sabotage.
-- **`LatestChange` compared a latch with the entry before it, flushed or not**, where `NoteChanged` compares with the head
-  it met; `LatestChange_ALatchAfterAFlush_ComparesWithTheHeadStillHeld` reddens without the skip.
+- *(Withdrawn in review 6.)* `LatestChange` was changed to skip an entry the latch flushes; `NoteChanged` compares before
+  it flushes, so the entry appended before is the head it met, as the original code had it.
 - The born clause `Motion` gained in review 4 is the same first-pose test, now one helper (`FirstPoseAnswers`).
 
 Recorded, not modelled (Fable, *read*): `FRAME_START` is not the only place a variable takes a new amount —
@@ -47325,6 +47331,16 @@ Recorded, not modelled (Fable, *read*): `FRAME_START` is not the only place a va
 and their setters (`baseentity_shared.h:151-171`). An entity that gains or loses a move parent in the rise's own packet
 takes the new amount one frame before the viewer has it — one frame, on one tick, only there; in **B865**'s neighbourhood
 of first-window and per-frame state, filed with it.
+
+Review 6 (Fable, Sonnet: one blocker, the same; Codex: none). Fixed: **review 5's `LatestChange` change was wrong
+and its test asserted it** (Sonnet, Fable). `NoteChanged` `memcmp`s against `m_VarHistory[0]` and only then `AddToHead` flushes
+the newer entries (`interpolatedvar.h:633-649`, *read*), so an entry this latch flushes is the head it compares with; and
+no earlier-appended entry can have been flushed before a later one arrives. Restored to the entry appended before;
+`LatestChange_ALatchThatFlushesItsHead_ComparesWithItFirst` asserts 11, which the review-5 code answered 12. Not taken:
+re-asking `ScheduleFor` per lerping frame — `SampledUnder` changes only at a wake or a resync, which re-derives it
+(Sonnet); `_predicted` built off the lock is two equal immutable instances at worst (Sonnet); a foreign sample costs a
+resync (performance only, Sonnet). The `engine.dll` reads were not re-read in this round (Sonnet). Filed under B862
+(Fable): prediction turning off is a delay rise the hold does not see.
 
 Not taken, each with its reason:
 - *The end of the hold is no wake* (Sonnet). After the window a held variable is sampled at the plain target, and that

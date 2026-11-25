@@ -657,21 +657,16 @@ public sealed class InterpolatedHistory
 
     /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
     /// <remarks>
-    /// Compared with the head it was latched against — the newest entry still held when it arrived, so one a clock
-    /// correction had flushed by then is skipped (`memcmp` against `m_VarHistory[0]`, B860 review 5, Fable).
+    /// Compared with the entry appended before it, which is the head it met: `NoteChanged` `memcmp`s against
+    /// `m_VarHistory[0]` BEFORE its `AddToHead` flushes the newer entries (<c>interpolatedvar.h:633-649</c>), so an entry
+    /// this latch flushes is still the head it compares with; and an entry appended earlier cannot have been flushed before
+    /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
         for (int index = LastReceivedAtOrBefore(arrivedBy); index >= 0; index--)
         {
-            int head = index - 1;
-
-            while (head >= _generationStarts[index] && _flushedAt[head] <= _received[index])
-            {
-                head--;
-            }
-
-            if (head < _generationStarts[index] || !Same(index, head, first, count))
+            if (index == _generationStarts[index] || !Same(index, index - 1, first, count))
             {
                 return index;
             }
