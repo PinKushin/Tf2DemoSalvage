@@ -644,17 +644,29 @@ public sealed class InterpolatedHistory
     /// variables (origin and angles share an entry), so the caller names which components are the one variable. An entry
     /// that starts a generation re-arms, as the first entry of an empty history does.
     /// </remarks>
-    public int? LatestChange(int arrivedBy, int first, int count)
+    public int? LatestChange(int arrivedBy, int first, int count) =>
+        LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _received[index] : null;
+
+    /// <summary>The changetime of the entry <see cref="LatestChange"/> names: the value a held variable keeps (B860 review 3).</summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">How many components; negative for the whole entry.</param>
+    /// <returns>Its changetime, or null when nothing has arrived.</returns>
+    public int? LatestChangeTime(int arrivedBy, int first, int count) =>
+        LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _changeTimes[index] : null;
+
+    /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
+    private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
         for (int index = LastReceivedAtOrBefore(arrivedBy); index >= 0; index--)
         {
             if (index == _generationStarts[index] || !Same(index, index - 1, first, count))
             {
-                return _received[index];
+                return index;
             }
         }
 
-        return null;
+        return -1;
     }
 
     /// <summary>

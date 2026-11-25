@@ -47214,9 +47214,8 @@ Review 2 (Fable, Sonnet, Codex: no blocker). Fixed:
   that variable's value changed (`NoteChanged`, `interpolatedvar.h:633-639`; `c_baseentity.cpp:2828-2829`, read). The
   hold, the listed-frame pruning and the settle test now run per variable (`InterpolatedHistory.LatestChange`,
   `BracketVariable`; `ScenePropTrack.HistoryVariable`), and `At` samples the angles and the pose parameters at their own
-  targets. The hold is "settled on or before the frame that read the rise, and not re-armed since", holding its settle
-  frame's target, where it asked whether the variable was settled AT the rise — a question about a variable nobody
-  interpolates. The first-pose answer waits for every variable's target. Tests:
+  targets. The hold is "settled on or before the frame that read the rise, and not re-armed since", where it asked
+  whether the variable was settled AT the rise — a question about a variable nobody interpolates. Tests:
   `At_AnOriginSettledBeforeTheRiseAndALatchThatOnlyTurned_HoldsWhereItRested` (400; 360 as one variable) and
   `At_APoseParameterStillBlendingWhenTheCycleSettled_IsFlooredOnItsOwn` (0.5; 0 at the cycle's target), each reddened by
   its sabotage.
@@ -47238,6 +47237,25 @@ tested one by one (Sonnet). The recorder's view models are predicted too (`CTFVi
 `tf_viewmodel.h:40-46`, Fable); they are drawn from the per-tick viewmodel list, not under the schedule — B862 names them.
 Found while checking: `BaseInterpolatePart1` stops before any variable is interpolated for an entity that
 `IsFollowingEntity()` (`c_baseentity.cpp:2845-2850`), where `Interpolates` has no such clause — **B863**.
+
+Review 3 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A jump inside the first hundred packets forgot the signon** (Sonnet): the signon's `net_SetConVar`s are read when
+  playback starts or restarts, before a skip counts a call, so the batch is floored at the first packet's tick;
+  `PropsAt_AJumpInsideTheFirstHundredPackets_KnowsWhatTheFirstPacketStated` (660; 920 under defaults) reddens without it.
+- **The first-pose answer, gated on every variable's target, brought back the birth state of an entity held at its first
+  entry** (Fable): it is gated on the delayed moment itself again, as before the branch, so state fields come from the
+  latest update; `At_AnEntityHeldAtItsFirstEntryAfterTheRise_KeepsItsLatestState` (skin 1) reddens without it. Review 2's
+  "the first-pose answer waits for every variable's target" is withdrawn.
+- **A held variable was re-sampled at its settle target against today's history** (Fable), where a later latch that left
+  it alone could become `newer` and bend a spline: it is sampled at exactly the changetime of the entry that last changed
+  it (`InterpolatedHistory.LatestChangeTime`), a fraction of zero.
+- **Unpausing on the paused tick read as a skip** (Fable): a paused frame has read to its own tick, so the next playing
+  frame starts there; the presenter test asserts it.
+
+Not taken, recorded: Codex's follower clause is B863, filed. `SoundOrigins` and `TimelineAnswers` sample through the
+stateless `At(tick)` — readers that name no frame, as recorded in review 1 (Fable). `_predicted ??=` from the lock-free
+player path makes at worst two equal immutable instances (Fable). `LatestChange` walks back to the last change, bounded to
+the frames after a rise by `TargetFor`'s early return (Sonnet).
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

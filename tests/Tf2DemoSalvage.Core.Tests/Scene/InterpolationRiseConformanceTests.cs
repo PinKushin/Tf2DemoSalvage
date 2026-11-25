@@ -138,6 +138,22 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A held variable does not bring back the first pose's state** (B860 review 3, Fable): an entity that never moved
+    /// holds every variable at its first entry after the rise, but its skin is a plain networked member, set on receipt.
+    /// Born at 20, skin 1 from 40: at 60 it draws skin 1.
+    /// </summary>
+    [Test]
+    public void At_AnEntityHeldAtItsFirstEntryAfterTheRise_KeepsItsLatestState()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        crate.Add(20, new ScenePose());
+        crate.Add(40, new ScenePose { Skin = 1 });
+
+        crate.At(60)!.Value.Skin.ShouldBe(1);
+    }
+
+    /// <summary>
     /// **A moving entity cannot reach history the old delay pruned.** The crate slides on, an update every three ticks
     /// at ten units a tick. At 49 the target was 41 and the frame pruned before 41 − 3.33 = 37.67 (0.05 s at 0.015 s a
     /// tick): the first entry older than that is 36, kept with the two before it, 33 and 30. At 50 the new delay aims
@@ -217,8 +233,9 @@ public sealed class InterpolationRiseConformanceTests
     /// </summary>
     /// <remarks>
     /// A rewind or a scrub is a jump too, read the same way (B860 review 2, Sonnet): from negative infinity the frame at
-    /// 180 still starts at 80, 1460. A jump landing inside the first hundred packets started having read none of them, so
-    /// the frame at 60 runs under the first delay: 60 − 8 = 52, 520.
+    /// 180 still starts at 80, 1460. A jump landing inside the first hundred packets started having read the signon and
+    /// the first packet at most (*interpolated*: where the skip's first batch ends is frame timing), so the frame at 60,
+    /// whose first packet is at 0, runs under the first delay: 60 − 8 = 52, 520.
     /// </remarks>
     [TestCase(10d, 180, 1460f)]
     [TestCase(double.NegativeInfinity, 180, 1460f)]
@@ -241,6 +258,36 @@ public sealed class InterpolationRiseConformanceTests
         timeline.PropsAt(frameTick, props);
 
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(expected, 0.01f);
+    }
+
+    /// <summary>
+    /// **A jump never forgets the signon** (B860 review 3, Sonnet): the settings the recording states at its first packet
+    /// are read when playback starts or restarts, before any skip counts a call. Packets from 50, where the delay already
+    /// rose to 34; a jump to 100, fifty packets in, aims at 100 − 34 = 66, 660 — not at 100 − 8 = 92 under defaults, 920.
+    /// </summary>
+    [Test]
+    public void PropsAt_AJumpInsideTheFirstHundredPackets_KnowsWhatTheFirstPacketStated()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+        List<TimelineFrame> frames = [];
+
+        for (int tick = 0; tick <= 249; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+
+            if (tick >= 50)
+            {
+                frames.Add(new TimelineFrame(tick, []));
+            }
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate], frames);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(double.NegativeInfinity, 100);
+        timeline.PropsAt(100, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(660f, 0.01f);
     }
 
     /// <summary>

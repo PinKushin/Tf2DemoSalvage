@@ -8227,8 +8227,20 @@ public sealed class DemoTimeline
         // within a hundred packets of it, however far the jump began. Where in that batch it began depends on where the
         // skip started and on how many ticks each frame ran: taken as the batch's far end, the most the engine can lag
         // (*interpolated*).
+        // **Never before the first packet** (B860 review 3, Sonnet): the signon, its `net_SetConVar`s among it, is read when
+        // playback starts or restarts, before any skip counts a call; this timeline holds those settings from the first
+        // packet's tick (B843). With no packets at all there is nothing to place the batch by, and the caller's start stands.
         int frame = FrameIndexAt((int)Math.Floor(frameTick));
-        double batch = frame >= SkipBatchPackets ? _frames.TickAt(frame - SkipBatchPackets) : double.NegativeInfinity;
+        double batch = double.NegativeInfinity;
+
+        if (frame >= SkipBatchPackets)
+        {
+            batch = _frames.TickAt(frame - SkipBatchPackets);
+        }
+        else if (_frames.Count > 0)
+        {
+            batch = Math.Min(_frames.TickAt(0), frameTick);
+        }
 
         _frameStartState = new FrameStartState(Math.Max(lastRead, batch), frameTick);
     }

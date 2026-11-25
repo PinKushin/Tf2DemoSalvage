@@ -255,12 +255,18 @@ public sealed class MomentPresenter
         // the host frame's `CL_ReadPackets`, so a delay change read this frame is interpolated under from the next. While
         // playing forward the frame start had read what the last frame showed. A second build at the same tick is the
         // same frame, with the same frame start.
-        // Anything else is a jump — a rewind, a scrub, the first frame of a demo opened part-way — which the engine reads
-        // as a skip, a hundred packets a frame: negative infinity hands that to the source (B860 review 2, Sonnet). A
-        // paused frame interpolates nothing (B399), so its frame start changes no pose.
-        if (_framedAt is not { } shown || shown < tick || shown > tick)
+        // A paused frame has read everything to its tick — a scrub while paused is a skip its own frames finish — and
+        // interpolates nothing (B399); so playing on from it starts there (B860 review 3, Fable). Anything else is a jump — a
+        // rewind, the first frame of a demo opened part-way — which the engine reads as a skip, a hundred packets a frame:
+        // negative infinity hands that to the source (review 2, Sonnet).
+        if (!view.Playing)
         {
-            _frameRead = view.Playing && _framedAt is { } previous && previous < tick ? previous : double.NegativeInfinity;
+            _frameRead = tick;
+            _framedAt = tick;
+        }
+        else if (_framedAt is not { } shown || shown < tick || shown > tick)
+        {
+            _frameRead = _framedAt is { } previous && previous < tick ? previous : double.NegativeInfinity;
             _framedAt = tick;
         }
 
