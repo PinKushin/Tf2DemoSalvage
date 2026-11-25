@@ -601,7 +601,10 @@ public sealed class ConfigConsole
     /// <summary>The last key text queued, numbering each so its commands can be told from others' (B832 review 3).</summary>
     private int _keyTexts;
 
-    /// <summary>The commands queued for a later tick, in the order `InsertCommandAtAppropriateTime` links them.</summary>
+    /// <summary>
+    /// The commands queued by tick, in the order `InsertCommandAtAppropriateTime` links them: those put off to a later tick,
+    /// and a key's whole text until it runs.
+    /// </summary>
     private readonly List<Deferred> _deferred = [];
 
     /// <summary>Commands a <see cref="RunCommand"/> is inside, so only the outermost runs what is due first.</summary>
@@ -668,8 +671,11 @@ public sealed class ConfigConsole
 
             try
             {
-                bool did = RunCommand(due.Command, due.Key);
-                acted |= did && text != 0 && due.Text == text;
+                // The key text being run shares the budgets its key's command began (B832 review 4, Sonnet), as it did when
+                // it ran as one text; any other queued command is a command of its own.
+                bool ownText = text != 0 && due.Text == text;
+                bool did = ownText ? Run(due.Command, due.Key, depth: 0) : RunCommand(due.Command, due.Key);
+                acted |= did && ownText;
             }
             finally
             {
@@ -680,7 +686,22 @@ public sealed class ConfigConsole
         return acted;
     }
 
-    /// <summary>Queues a command for its later tick, after every one at its tick or before (`:95-105`).</summary>
+    /// <summary>Drops a key text's queued commands due by a tick, releasing their bytes: what a throw left unrun.</summary>
+    /// <param name="text">The key text.</param>
+    /// <param name="upTo">The last tick it was to run now.</param>
+    private void DropUnrun(int text, int upTo)
+    {
+        for (int at = _deferred.Count - 1; at >= 0; at--)
+        {
+            if (_deferred[at].Text == text && _deferred[at].Tick <= upTo)
+            {
+                _queuedBytes -= _deferred[at].Size;
+                _deferred.RemoveAt(at);
+            }
+        }
+    }
+
+    /// <summary>Queues a command at its tick, after every one at its tick or before (`:95-105`).</summary>
     private void Defer(Added command, string? key, int text)
     {
         int at = _deferred.FindIndex(queued => queued.Tick > command.Tick);
@@ -1983,8 +2004,17 @@ public sealed class ConfigConsole
 
         if (keyText)
         {
-            bool ran = RunDueOutside(addedAt, text);
-            return ran || acted;
+            try
+            {
+                bool ran = RunDueOutside(addedAt, text);
+                return ran || acted;
+            }
+            finally
+            {
+                // What a throw left unrun of the key's text now is dropped, and its bytes with it, as a run text's rest is
+                // (B832 review 4, Sonnet), rather than left to fire at some later run.
+                DropUnrun(text, addedAt);
+            }
         }
 
         int handled = 0;

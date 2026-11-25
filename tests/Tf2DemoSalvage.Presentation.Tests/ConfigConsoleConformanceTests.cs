@@ -2029,10 +2029,125 @@ public sealed class ConfigConsoleConformanceTests
     {
         ConfigConsole console = new();
         console.Load($"alias al \"wait; {Alpha} 2\"\nbind k \"wait -1; al; wait; {Alpha} 9\"");
+        List<string> sets = [];
+        console.ConVarSet += (_, set) => sets.Add(set.Value);
 
         console.KeyDown("k").ShouldBeTrue();
 
-        console.ConVar(Alpha).ShouldBe("2");
+        sets.ShouldBe(["9", "2"], "both ran, 9 first (B832 review 4, Grok)");
+    }
+
+    /// <remarks>
+    /// **A key a handler presses inside a command runs inside it, in order** (B832 review 4, Fable, Sonnet): only a key
+    /// pressed from outside every command is linked by tick, as `Key_Event`'s is. Inside a config line, `1; wait -1; 2`
+    /// runs in order and leaves 2. The control: the same key pressed on its own leaves 1.
+    /// </remarks>
+    [Test]
+    public void KeyDown_FromAHandlerInsideACommand_RunsInOrder()
+    {
+        ConfigConsole control = new();
+        control.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+        control.KeyDown("k");
+        control.ConVar(Alpha).ShouldBe("1", "the control: on its own, by tick");
+
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+        console.ReadSettingsFrom(_ => null);
+        bool pressed = false;
+        string? alpha = null;
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha = set.Value;
+            }
+            else if (!pressed && set.Name == "fps_max")
+            {
+                pressed = true;
+                console.KeyDown("k");
+            }
+        };
+
+        console.Load("fps_max 60");
+
+        pressed.ShouldBeTrue("the control: the handler ran");
+        alpha.ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **`Execute` does nothing inside a command the console runs** (B832 review 4, Fable, Sonnet): that command stands in
+    /// for one `Cbuf_Execute` already running, and `IsProcessingCommands` guards the call. A handler inside a config line
+    /// calling it twice leaves a set waited a tick unrun. The control: two calls after the line run it.
+    /// </remarks>
+    [Test]
+    public void Execute_FromAHandlerInsideACommand_DoesNothing()
+    {
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(_ => null);
+        console.Load($"wait; {Alpha} 2");
+        bool called = false;
+        string? alpha = null;
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha = set.Value;
+            }
+            else if (!called && set.Name == "fps_max")
+            {
+                called = true;
+                console.Execute(waitAllowed: true);
+                console.Execute(waitAllowed: true);
+            }
+        };
+
+        console.Load("fps_max 60");
+        called.ShouldBeTrue("the control: the handler ran");
+        alpha.ShouldBeNull();
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        alpha.ShouldBe("2", "the control: two calls after the line run it");
+    }
+
+    /// <remarks>
+    /// **A throw drops the rest of a key's text due now** (B832 review 4, Fable, Sonnet): as a run text's rest is, rather
+    /// than left queued to fire at some later run. The control: its first command ran.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 1; {Alpha} 2\"");
+        List<string> sets = [];
+        EventHandler<ConVarSetEventArgs> throwing = (_, _) => throw new InvalidOperationException("a handler failed");
+        console.ConVarSet += (_, set) => sets.Add(set.Value);
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.KeyDown("k"));
+        console.ConVarSet -= throwing;
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.KeyDown("unbound");
+
+        sets.ShouldBe(["1"], "the control: its first command ran; the rest was dropped");
+    }
+
+    /// <remarks>
+    /// **A key's commands share one set of budgets** (B832 review 4, Fable, Sonnet): run from the queue one by one, they
+    /// still run under the budget the key's command began, as when they ran as one text, so a bind of many fanning-out
+    /// aliases says the alias budget's line once.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ABindOfManyFanningOutAliases_SpendsOneBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load("alias a \"a;a;a;a\"\nbind k \"a;a;a\"");
+
+        console.KeyDown("k");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs").ShouldBe(1);
     }
 
     /// <remarks>

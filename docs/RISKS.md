@@ -46590,6 +46590,17 @@ Not taken (Grok): that a key's future-tick commands ran at once (they were never
 `KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder` should leave 2 (its `Execute` moves the tick on, so `9` is
 due). Filed as B840 (Fable): a negative `wait` in text added while processing.
 
+**Review 4** (Fable, Sonnet, Grok; Gemini pending; no blocker). Fixed:
+- Review 3's second bullet had no test that could fail, so its "each fix reddened its own test" was wrong for it
+  (Fable, Sonnet). Tests `KeyDown_FromAHandlerInsideACommand_RunsInOrder` and
+  `Execute_FromAHandlerInsideACommand_DoesNothing`, each red with its guard loosened.
+- A key's commands, run from the queue one by one, share the budgets its key's command began, as one text did
+  (Fable, Sonnet). Test `KeyDown_ABindOfManyFanningOutAliases_SpendsOneBudget`, red with a budget per command.
+- A throw drops what of the key's text was to run now, and its bytes, as a run text's rest is (Fable, Sonnet). Test
+  `KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText`, red with the drop disabled.
+- The tie test checks that both sets ran, in order (Grok); stale comments on the queue and an unasserted "control"
+  in a presenter test's remark are fixed (Fable, Sonnet).
+
 The paragraph below is the entry as filed.
 
 Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's

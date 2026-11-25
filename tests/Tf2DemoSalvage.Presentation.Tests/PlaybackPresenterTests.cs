@@ -216,7 +216,7 @@ public sealed class PlaybackPresenterTests
     /// <remarks>
     /// **A frame that reaches the end stops there, whatever speed a command inside it set** (B832 review 3, Sonnet): the
     /// frame played towards the end at its own speed, so a `demo_timescale 0` from its console does not leave playback
-    /// claiming to play at the last tick. The control: the speed is 0 for the next frame.
+    /// claiming to play at the last tick.
     /// </remarks>
     [Test]
     public void Advance_AFrameThatReachesTheEndWithASpeedSetToZero_Stops()
