@@ -652,8 +652,25 @@ public sealed class InterpolatedHistory
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">How many components; negative for the whole entry.</param>
     /// <returns>Its changetime, or null when nothing has arrived.</returns>
-    public int? LatestChangeTime(int arrivedBy, int first, int count) =>
-        LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _changeTimes[index] : null;
+    /// <remarks>
+    /// The entry that changed it may since have been flushed by a later same-valued latch (B860 review 7, Fable): the first
+    /// entry from it on that is still held carries the same value — nothing changed the variable since — and a live
+    /// changetime, so sampling there is a fraction of zero on a real entry.
+    /// </remarks>
+    public int? LatestChangeTime(int arrivedBy, int first, int count)
+    {
+        int last = LastReceivedAtOrBefore(arrivedBy);
+
+        for (int index = LatestChangeIndex(arrivedBy, first, count); index >= 0 && index <= last; index++)
+        {
+            if (_flushedAt[index] > arrivedBy)
+            {
+                return _changeTimes[index];
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
     /// <remarks>

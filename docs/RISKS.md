@@ -47137,6 +47137,9 @@ Found in B860 review 5 (Fable). Two small divergences of the frame's state, both
   `LinkChild`/`UnlinkChild`, `c_baseentity.cpp:2239`, `:2268`), one frame before `FRAME_START` hands it to everything else
   (B860); so does a predictable's `SetPredictable` (`:4596`) and an every-tick flag flip (`recvproxy.cpp:139-150`). The
   viewer gives every variable the amount at the frame start.
+- **The face's frame start ignores jumps** (B860 review 7, Sonnet): `ActorFace.BeginFrame` takes the previous step's time
+  for any forward step, where the timeline takes the skip batch's after a jump and its own tick when paused; a scrub across
+  a rise runs the face under the old delay for one frame while the props run under the new.
 *Not fixed*.
 
 ## B864 — a settled variable re-blends toward a latch that changed nothing, where the engine leaves it settled (2026-11-25) — OPEN
@@ -47341,6 +47344,30 @@ re-asking `ScheduleFor` per lerping frame — `SampledUnder` changes only at a w
 (Sonnet); `_predicted` built off the lock is two equal immutable instances at worst (Sonnet); a foreign sample costs a
 resync (performance only, Sonnet). The `engine.dll` reads were not re-read in this round (Sonnet). Filed under B862
 (Fable): prediction turning off is a delay rise the hold does not see.
+
+Review 7 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The hold sampled the changetime of an entry a later same-valued latch had flushed** (Fable): `LatestChangeTime` takes
+  the first entry from the change on that is still held, same value by construction;
+  `At_AHeldVariableWhoseChangingEntryWasFlushed_HoldsItsValue` (400) reddens without it.
+- **A pair starting on the pruned floor splined through an entry the engine had dropped** (Fable): `Truncate( i + 3 )`
+  leaves nothing older (`interpolatedvar.h:782-795`), so there is no valid `oldestindex` (`:851`) and the origin runs
+  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. The cycle and pose parameters share
+  the simulation's spline choice, as before this branch.
+- The stateless `At` test asserted the rise tick, where the stateless sampler reads its own tick and the frame model the
+  old delay; it asserts 51, where both agree (Sonnet).
+
+Recorded (Fable, *read*): `Interp_Interpolate` re-arms every variable when the time goes backwards
+(`c_baseentity.cpp:864-871`) — a second re-arm site besides a latch, unreachable for a network-interpolated entity in
+forward playback, and the mechanism of B862's prediction-off transition (the time drops from the predicted to `curtime`).
+A stepped test lagging the frame start each step is not added: the stepped tests sample with no frame start, and the
+frame's own lag is held by the two-frame test, which reddens when the steps are counted from the tick (Fable traced it). Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+`ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
+anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
+before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`
+reads prop tracks only because only props are cached (Sonnet). Codex's "a fall after a rise returns a target before the
+floor": `TargetFor` returns the floor for any target before it, and the rise is still the last one. Records: alternate
+ticks and `cl_interp_npcs` are closed by reading, not measuring; TF weapons are prediction-eligible from
+`CTFWeaponBase`'s constructor (`SetPredictionEligible( true )`, `tf_weaponbase.cpp`, *read*).
 
 Not taken, each with its reason:
 - *The end of the hold is no wake* (Sonnet). After the window a held variable is sampled at the plain target, and that

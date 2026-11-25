@@ -2413,8 +2413,23 @@ public sealed class ScenePropTrack
     /// Which engine variable of the history (B860 review 2, Fable): each has its own `m_bNeedsToInterpolate`, set at a
     /// latch only where that variable's value changed (<c>c_baseentity.cpp:2828-2829</c>).
     /// </param>
-    private static double TargetFor(InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable)
+    private static double TargetFor(InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable) =>
+        TargetFor(history, tick, schedule, variable, out _);
+
+    /// <summary><see cref="TargetFor(InterpolatedHistory, double, InterpolationSchedule, HistoryVariable)"/>, and the oldest entry still held.</summary>
+    /// <param name="history">The variable's history.</param>
+    /// <param name="tick">The tick asked for.</param>
+    /// <param name="schedule">The delay schedule the frame interpolates under.</param>
+    /// <param name="variable">Which engine variable of the history.</param>
+    /// <param name="floor">
+    /// The changetime of the oldest entry the pruning left, or null when no rise's pruning reaches the target: nothing older
+    /// is held, so a pair starting there has no third sample (B860 review 7, Fable).
+    /// </param>
+    /// <returns>The target.</returns>
+    private static double TargetFor(
+        InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable, out int? floor)
     {
+        floor = null;
         double target = tick - schedule.TicksAt(tick);
 
         // **A target at or past every earlier frame's ends the rise's effect**: nothing pruned is that recent, and from here
@@ -2453,7 +2468,9 @@ public sealed class ScenePropTrack
         double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
         double cut = prunedAt - (0.05d / interval);
 
-        return history.PrunedFloor(cut, now) is { } floor && target < floor ? floor : target;
+        floor = history.PrunedFloor(cut, now);
+
+        return floor is { } oldest && target < oldest ? oldest : target;
     }
 
     /// <summary>
@@ -2601,7 +2618,7 @@ public sealed class ScenePropTrack
         }
 
         // The moment being drawn, one interpolation window behind the moment being asked for, per engine variable (B860).
-        double target = TargetFor(_simulation, tick, schedule, OriginVariable);
+        double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
         double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
@@ -2708,7 +2725,13 @@ public sealed class ScenePropTrack
         // per-component loop. `null` is its empty-older-interval case and means linear.
         Span<float> oldestEntry = stackalloc float[SimulationComponents];
 
-        HistoryEntry? previous = _simulation.TimeFixup(pair, oldestEntry) ? new HistoryEntry(oldestEntry) : null;
+        // **No third sample older than the pruned floor** (B860 review 7, Fable): `Truncate( i + 3 )` left nothing before it
+        // (`interpolatedvar.h:782-795`), so a pair starting on it has no valid `oldestindex` and runs linear (`:851`).
+        HistoryEntry? previous =
+            (originFloor is not { } oldestHeld || _simulation.ChangeTimeAt(pair.Older) > oldestHeld) &&
+            _simulation.TimeFixup(pair, oldestEntry)
+                ? new HistoryEntry(oldestEntry)
+                : null;
 
         // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).
         // `OnLatchInterpolatedVariables` is called once per latch group and stamps each with its own

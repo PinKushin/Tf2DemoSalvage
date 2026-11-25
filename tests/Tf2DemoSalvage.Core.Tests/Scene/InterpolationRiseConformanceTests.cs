@@ -193,6 +193,55 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A held variable whose changing entry was flushed holds the value it changed to** (B860 review 7, Fable): X slides
+    /// to 300 by 30, moves to 400 stamped 40 (arriving 41), and a same-valued latch stamped 39 (arriving 42) flushes it
+    /// without re-arming; a turn at 49. The origin settled on the frame at 47 and is held: 400 at 51, where sampling at the
+    /// flushed entry's changetime fell between 39 and 49 on a spline through 300.
+    /// </summary>
+    [Test]
+    public void At_AHeldVariableWhoseChangingEntryWasFlushed_HoldsItsValue()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 30; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(41, new ScenePose { X = 400f }, appliedAt: 40);
+        crate.Add(42, new ScenePose { X = 400f }, appliedAt: 39);
+        crate.Add(49, new ScenePose { X = 400f, Yaw = 90f });
+
+        crate.At(51)!.Value.X.ShouldBe(400f);
+    }
+
+    /// <summary>
+    /// **A pair starting on the pruned floor runs linear** (B860 review 7, Fable): the frame at 50 kept 36, 33 and 30 and
+    /// dropped everything older, so between 30 and 33 there is no third sample (`interpolatedvar.h:782-795`, `:851`). X is
+    /// 250 at 27, 300 at 30, 310 at 33, then 10 a tick. The frame at 65 aims at 31: one third of the way from 300 to 310,
+    /// 303.33 — where a spline through 27's 250 overshoots.
+    /// </summary>
+    [Test]
+    public void At_APairStartingOnThePrunedFloor_RunsLinear()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 27; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 250f / 27f });
+        }
+
+        crate.Add(30, new ScenePose { X = 300f });
+
+        for (int tick = 33; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = 310f + ((tick - 33) * 10f) });
+        }
+
+        crate.At(65)!.Value.X.ShouldBe(303.333f, 0.01f);
+    }
+
+    /// <summary>
     /// **A young entity whose delay rose is floored above its birth** (B860 review 4, Fable): born at 30, an update a tick.
     /// The frame at 50 aimed at 42 and kept 38, 37 and 36; the frame at 51 aims at 17, older than all of them, and answers
     /// the oldest, 36: 360. Gated on the delayed moment alone, it drew the first pose, 300.
@@ -212,9 +261,10 @@ public sealed class InterpolationRiseConformanceTests
 
     /// <summary>
     /// **A moving entity cannot reach history the old delay pruned.** The crate slides on, an update every three ticks
-    /// at ten units a tick. At 49 the target was 41 and the frame pruned before 41 − 3.33 = 37.67 (0.05 s at 0.015 s a
-    /// tick): the first entry older than that is 36, kept with the two before it, 33 and 30. At 50 the new delay aims
-    /// at 16; the oldest entry the engine still holds is 30, so it draws that entry, 300, not 160.
+    /// at ten units a tick. Frames a tick apart: the frame at 50 read the rise but still ran under the old delay, aiming at
+    /// 42 and pruning before 42 − 3.33 = 38.67 (0.05 s at 0.015 s a tick): the first entry older than that is 36, kept with
+    /// the two before it, 33 and 30. At 51 the new delay aims at 17; the oldest entry the engine still holds is 30, so it
+    /// draws that entry, 300, not 170. (At 51 the stateless sampler and the frame model agree — B860 review 7, Sonnet.)
     /// </summary>
     [Test]
     public void At_AMovingEntityAfterTheDelayRises_ReachesNoFurtherBackThanTheOldDelayKept()
@@ -226,7 +276,7 @@ public sealed class InterpolationRiseConformanceTests
             crate.Add(tick, new ScenePose { X = tick * 10f });
         }
 
-        crate.At(50)!.Value.X.ShouldBe(300f);
+        crate.At(51)!.Value.X.ShouldBe(300f);
     }
 
     /// <summary>
