@@ -92,6 +92,39 @@ public sealed class HudStatesTests
             conVars.ServerAt(5).GetString("mp_timelimit")).ShouldBe(("30", "30", "20", "0"));
     }
 
+    /// <remarks>
+    /// **The frame's own tick at a set's boundary** (B843 review 3, Fable): a set read at tick 10 is in force at 10 and not
+    /// at 9, so a frame asking a tick early or late reads the wrong side.
+    /// </remarks>
+    [TestCase(9, "0")]
+    [TestCase(10, "30")]
+    public void For_AFrameAtASetsTick_ReadsItFromThatTickOn(int tick, string expected)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt((10, [SetConVar("mp_timelimit", "30")])));
+
+        HudStates.For(timeline, tick).ConVars.GetString("mp_timelimit").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The window's override keeps the server's per-tick half** (B843 review 1, Fable): `HudStates.At` replaces the client
+    /// ConVars and must leave `FindAt`, or every event falls back to the frame's server values. The view's tick is 100,
+    /// between the sets at 10 and 200.
+    /// </remarks>
+    [Test]
+    public void At_AWindowOverAServerThatChangedMidRecording_KeepsEachEventsServerValues()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (10, [SetConVar("mp_timelimit", "30")]),
+            (200, [SetConVar("mp_timelimit", "20")])));
+        HudConVars conVars = HudStates.At(View(timeline), null, []).ConVars;
+
+        (conVars.GetString("mp_timelimit"), conVars.At(250).GetString("mp_timelimit")).ShouldBe(("30", "20"));
+    }
+
+    [Test]
+    public void ServerConVars_NoTimeline_Throws() =>
+        Should.Throw<System.ArgumentNullException>(() => HudStates.ServerConVars(null!, 0));
+
     private static Core.Net.SetConVarMessage SetConVar(string name, string value) =>
         new([new System.Collections.Generic.KeyValuePair<string, string>(name, value)]);
 

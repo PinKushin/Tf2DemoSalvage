@@ -138,6 +138,20 @@ public sealed class ServerConVars
     /// <returns>A copy sharing this one's immutable snapshot.</returns>
     public ServerConVars Snapshot() => new() { _state = _state };
 
+    /// <summary><see cref="Value"/> as one delegate made once, for a reader asked every frame (B843 review 1).</summary>
+    /// <returns>The same delegate on every call.</returns>
+    /// <remarks>
+    /// A method, not a property: `TimelineFingerprint` walks public properties, and a delegate's `Target` leads back here
+    /// without end — the test host died of the stack overflow while reporting a passing, truncated total.
+    ///
+    /// **A copy makes its own** (B843 review 3, Fable): the cache is `NotCopied`, so `StateCopy` neither shares a delegate
+    /// bound to the original nor counts a read of it as a change to the checkpoint's digest.
+    /// </remarks>
+    public Func<string, string?> Lookup() => _lookup ??= Value;
+
+    [Scene.StateCopy.NotCopied]
+    private Func<string, string?>? _lookup;
+
     /// <summary>The value in force, as text.</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>

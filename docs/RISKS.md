@@ -46338,14 +46338,308 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — OPEN
+## B845 — the viewer's screenshot key works while a demo plays, and its view keys move a SourceTV camera, where TF2's do not (2026-11-25) — OPEN
 
-Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
-`demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup, before a demo plays. A
-command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
-`wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be playing.
-*Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or the
-startup run), not by whether its text came from a config. *Not fixed*.
+Found in B841 review 9 (Fable, Sonnet). TF2's `screenshot` takes none while a demo plays back unless
+`cl_playback_screenshots` is set (`engine.dll` build 1007 FUN_180091070; **measured on live TF2, 2026-11-25**: no file
+at 0, one at 1), whichever key or command runs it; the viewer's F5 captures during playback. `firstperson` and
+`thirdperson` only flip the third-person flag, which a SourceTV demo's HLTV camera never reads (`view.cpp:660-662`,
+`hltvcamera.cpp:510-545`); the viewer's keys for them change its camera on any demo. Both are above Valve as they
+stand, and parity never removes a feature (D246): **the owner decides** whether each becomes a row in
+`docs/ABOVE-VALVE.md` with its test, or follows TF2. The launch line is the same (B841 review 10, Fable): its
+`+wait +screenshot` captures during playback and its `+thirdperson` acts on a SourceTV demo, exempt through the line's
+own one-shot rule (B829). *Not fixed*.
+
+## B847 — the console runs while a demo's map loads, where TF2 runs no `Cbuf_Execute` then (2026-11-25) — OPEN
+
+Found in B841 review 10 (Fable). The viewer draws frames while a demo decodes and loads (`ViewerSession.Capture`), and
+each runs the console, so a config's `wait` counts loading frames. TF2's host frame does not run the command buffer
+while the level loads. *Read from memory*, not from the engine: which call holds the buffer during a load is not read.
+Fix shape: read the load path in `engine.dll`, then run no `Execute` while `LoadsInFlight` is above 0 if the engine
+holds it. One consequence (B841 review 12, Fable): a config's `wait; demo_togglepause` comes due while the demo still
+loads, finds no clock to play (`PlaybackPresenter.Play`), and is spent, so the demo stays paused. *Not fixed*.
+
+## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
+
+Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
+`+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
+`spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch
+line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack` inside a longer binding) only sets the
+button, which the HLTV camera does not read. The viewer performs the camera action for every `+attack` that reaches
+`Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix shape: act on the spectator's three
+only for a key whose whole binding is that command; anything else sets the button. *Not fixed*.
+
+## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
+
+Found in B841 review 3 (Fable). When a game folder is chosen with no install open, the viewer reads the configs again
+and replays the launch line (`ViewerSession.GameFolderChosen`, B811, B816), and both queue their waited commands again
+beside the first copies still queued. One-shots are guarded (B829, B841: the replay and the reread fire none), but a
+state command runs twice: a launch line `+wait +"toggle cl_showfps"` with the folder picked before the first frame
+toggles twice and ends where it began; `incrementvar` steps twice. A waited loop (`alias lp "incrementvar x; wait; lp"`)
+restarts on the reread, and both copies run every tick for the rest of the session. The copies hold bytes in the
+8192-byte argument buffer beside the first ones, so a config heavy with waited commands can overflow on the reread and
+lose its sets. A first read's waited `exec`, still queued, resolves through the new folder's files (B841 review 4,
+Fable). *Read*, not measured. TF2 has no reread, so the
+engine has no answer here; the viewer's own rule (one launch) decides it. Fix shape: the replay's and the reread's
+copies replace the first copies still queued, or run only where no first copy remains. *Not fixed*.
+
+## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** `CCommandBuffer` runs a command a `wait` put off at its tick, whatever text added it, so the one-shot rule
+now rides the queued command. Each entry carries `PutOff`: set when its own `wait` put it past the run it was added in,
+or inherited from the command that added it (an alias body, an `exec`'s lines). A config's one-shot that is put off acts
+at its tick, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson` (with
+`sv_cheats` on, as it is `FCVAR_CHEAT`); not the spectator's `+jump`, `+attack`, `+attack2`, which only set their
+button when buffered (review 8). The same one-shot at the load itself still does nothing (B820 review 1). The
+viewer's own names (`togglefullscreen`, `resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown
+to TF2, so they do nothing at any tick. A load is put off
+by nothing, even one a handler runs inside a put-off command. The viewer's replay of the launch line
+(`Stuff(text, oneShots: false)`) and its reread of a config file it already read, unchanged, when a game folder is
+chosen carry `Replaying` and fire no one-shot, waited or not, as neither is a second launch (B829). A config file first
+read at the folder choice is read as new.
+
+Review 1 (Fable, Gemini, Sonnet, Grok) found the first version decided the rule by the
+CALLER, a flag set only inside a frame's `Execute`. Fable and Gemini: a key pressed between two frames pumps the queue
+(`FromOutside`), takes the waited `screenshot` off at its tick outside `Execute`, and drops it, though `Key_Event` only
+adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`); and a `Load` or replay from a
+handler inside `Execute` fired its un-waited one-shots. All three: `+jump`, `+attack` and `+attack2` were missing from
+the set. Sonnet and Grok: a waited one-shot in the launch-line replay would act a second time. All taken.
+
+Review 2 (Fable, Gemini, Sonnet; Grok's run stopped at a permission prompt with no verdict) found four more, all taken:
+- **The reload doubled it** (Fable, Sonnet). A chosen game folder reads the configs again "as a fresh start is" (B811
+  review 3), but the first read's waited commands stayed queued, so a `wait 500; screenshot` ran twice and a waited
+  `demo_togglepause` cancelled itself. The first fix, a drop of every queued config command before the second read,
+  was replaced in review 3 (below).
+- **Put off past the run, not the tick it was added at** (Fable). `alias x "wait; screenshot"; wait -3; x` brings the
+  body back inside the load's run, where `CCommandBuffer` runs it while the load processes; it was marked put off and
+  acted. The flag is now `later` (past the run's last tick).
+- **`thirdperson` is a cheat command** (Fable). `in_camera.cpp:912` flags it `FCVAR_CHEAT`, and `Cmd_ExecuteCommand`
+  (`engine.dll` build 1007 FUN_1801678a0, read for this) prints "Can't use cheat command %s in multiplayer, unless the
+  server has sv_cheats set to 1." and returns, unless `sv_cheats` is on (`Host_IsSinglePlayerGame` is false while a demo
+  plays). A config's waited `thirdperson` now acts only with cheats on. A key's `thirdperson` is the viewer's camera
+  and is untouched (D246).
+- **Coverage** (all four): no test ran an alias body or an `exec` inside a put-off command, a `wait 0` or a negative
+  `wait`, or `mat_surfacecolours` and a bare ConVar among the zero cases; and nothing read the output through the
+  session (Fable).
+
+Not taken: a `Load` run from a ConVar handler inside the launch-line replay resets `Replaying` (Sonnet). No handler
+loads a config, so the path has no caller to test.
+
+Tests added in review 2: `Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTick`,
+`Load_AOneShotRunInsideTheLoadAfterAWait_DoesNothing` (`wait 0`, `wait -1`, the negative-`wait` alias),
+two tests of the drop (removed in review 3), the `thirdperson` cases with and without `sv_cheats 1`, and the session's
+`RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemo` (named `..._PlaysTheDemoOnce` then, with folder cases that moved
+to the screenshot test in review 3): a config's `wait; demo_togglepause` plays the paused demo. Sabotage, each
+restored: the reload
+not dropping reddens its session case alone; `PutOff` not inherited reddens the alias and `exec` cases; `PutOff`
+measured against the added tick reddens the negative-`wait` alias case alone; the cheat gate removed reddens the
+`thirdperson` case alone. 2,205 of 2,205 pass.
+
+Review 3 (Fable, Gemini, Sonnet; Grok to follow on the result):
+- **The drop could not stop a second fire** (Fable, Gemini). A folder chosen late in a session, with no install open,
+  rereads the configs after the waited one-shot already ran; nothing is queued to drop, and the reread queues it again
+  to act a second time. The drop also discarded a queued non-one-shot set the new folder's configs might not repeat
+  (Gemini). Replaced, as Gemini recommended: the reread is a replay, `Load(text, replaying: true)`, so its one-shots
+  never fire, waited or not, as the launch line's replay fires none (B829: no second launch). The first read's waited
+  one-shot, still queued or already run, is the one that acts, once. The round-3 trade, a config only the chosen
+  folder holds never firing, was taken back in review 4 (below).
+- **Coverage** (Sonnet, Gemini): no test showed `AtStartup` putting back the waited command's flags, nor a cheat check
+  made at the tick rather than the load. `Load_FromAHandlerInsideAWaitedExecsFirstLine_LeavesTheSecondLinePutOff` and
+  `Execute_AWaitedThirdPersonAfterCheatsTurnedOff_IsRefused` added. The `AtStartup` restore of `_putOff` stays an
+  equivalent mutant: every command runs inside `RunEntry`, which puts the flag back after it, so a handler's load
+  cannot leave it changed for the next command (Fable, Sonnet).
+- **Not taken:** `CheatsOn` reads the console's own `sv_cheats`, not the demo server's replicated value (Fable,
+  Sonnet). `RefuseCheat` reads the same (B718), so the gate is consistent with every other cheat; whether TF2's client
+  follows the demo's `net_SetConVar` for `sv_cheats` was not read, and applies to all cheats, not to this bug.
+- Waited state commands (`toggle`, `incrementvar`) doubling across the replay and the reread predate this branch and
+  touch the launch line too (Fable): filed as B842.
+
+Tests after review 3: `Load_ARereadOfAWaitedOneShot_FiresOnlyTheFirstReads`,
+`Load_ARereadAfterTheWaitedOneShotRan_DoesNotFireItAgain`, and the session's
+`RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce` (no folder, a folder before the first frame, a
+folder after the screenshot: one capture each), replacing the drop's tests. Sabotage: the reread not marked a replay
+reddens both folder cases (two captures) and leaves the control at one. 2,209 of 2,209 pass.
+
+Review 4 (Fable, Gemini, Sonnet, Grok):
+- **The reread is the FIRST read on the prompt's path** (Sonnet, Fable). With no TF2 found at startup, the first read
+  sees only the program's own `custom/`, which is the case that opens the folder prompt; the chosen folder's
+  `autoexec.cfg` is first read at the choice, and marking the whole reread a replay dropped its waited one-shots for the
+  session. No first copy of that file ever ran, so B829's rule does not reach it, and the engine's answer is plain: a
+  config's first `exec` runs its waited commands. Now `LoadFrom` keeps every file it reads, by path and text, and only a
+  file read before, unchanged, is a replay. `RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce` gains
+  the cases with no folder found at startup (one capture each). Sabotage: every read a replay reddens all six folder and
+  toggle cases; no read a replay reddens the two duplicate-reread cases alone. 2,212 of 2,212 pass.
+- **Stale text** (Fable): this entry's summary and the `Replaying` and `AtStartup` documentation now name the reread and
+  the run-based `PutOff`; the handler test is renamed for what it holds, as it reddens only with both restores removed.
+- **B842 widened** (Fable): a waited loop restarts on the reread and both copies run every tick; the copies' bytes can
+  overflow the 8192-byte buffer; a first-read waited `exec` resolves through the new folder.
+- `thirdperson` refused with cheats turned off before its tick now carries its control in the same test (Sonnet).
+
+Review 5 (Fable, Gemini, Sonnet; Grok's account is out of credit, "Grok Build usage balance exhausted", so it could
+not review rounds 4 and 5):
+- **A file `exec`'d from the configs was off the record** (Fable, Gemini). It took the replay flag of the file that
+  reached it: a replayed `autoexec.cfg` exec'ing a `gameshots.cfg` the chosen folder first holds suppressed it, and a
+  new or edited parent exec'ing a file an earlier read ran fired it again. `Exec` now decides per file too, against the
+  same record, while `LoadFrom` reads. Only an EARLIER read makes a file a replay: TF2 runs a file `exec`'d twice at one
+  startup twice, so the files of the read running now are kept apart until it ends.
+- **Known bound, the viewer's own rule** (Fable, Gemini, Sonnet): a config edited between reads is a new file, and its
+  waited one-shots run again, beside a first copy still queued. TF2 has no reread; its next launch would run the edited
+  file whole, which is what this does. Not filed.
+- **Coverage** (Sonnet, Gemini): nothing pinned either half of the record's key, nor `exec` on it.
+  `ConfigConsoleLoadFromTests` gains `LoadFrom_ReadAgain_ReplaysOnlyAFileAnEarlierReadRanUnchanged` (unchanged and
+  edited), `LoadFrom_TwoFilesWithTheSameText_EachRunsItsOwn`, `LoadFrom_ANewFileWithAnEarlierFilesText_RunsAsNew`,
+  `LoadFrom_AFileExecdTwiceInOneRead_RunsTwiceAndIsAReplayAfter`,
+  `LoadFrom_AReplayedConfigExecingAFileFirstFoundNow_RunsItAsNew` and
+  `LoadFrom_ANewConfigExecingAFileAnEarlierReadRan_ReplaysIt`, against real files. Sabotage, each restored: `exec`
+  off the record reddens the two `exec` reread tests; one read making its own files replays reddens the twice-`exec`'d
+  test alone; the key on the path alone reddens the edited case alone; on the text alone, the new-file case alone.
+  2,219 of 2,219 pass.
+- Equivalent mutants kept: `AtStartup`'s restore of `_replaying`, as of `_putOff` (`RunEntry` restores both around every
+  command), and the stand-in entry's `_putOff`, false whenever `FromOutside` builds one.
+
+Review 6 (Fable, Gemini, Sonnet):
+- **"While the configs are read" was a time window, not a property of the command** (Fable, Gemini). A waited `exec`
+  runs after the read and took its parent's flag unjudged, so both round-5 faults came back behind a `wait`; a key's
+  `exec` run inside the window landed on the record. Now each read of the configs and each launch line is a numbered
+  pass that rides the queued `Entry` like the other context, and the record maps a file to the first pass that ran
+  it. Every `exec` inside a pass is judged against it whenever it runs; a key's (pass 0) is not.
+- **A file is noted only once run to its end** (Fable, Gemini): a throw partway left its later lines unrun, yet the
+  next read replayed it. Sonnet's form of this, that the queue drops the throw's waited commands, does not hold:
+  `DropUnrun` drops only what is due by then, so a waited command queued before the throw stays and fires.
+- **The record names the file, not its case** (Fable, Gemini): Windows' search path ignores case, so `exec Shots` is
+  `shots.cfg`. Slashes and `./` are not folded: no finder here resolves them to a file, so a test of them could only
+  pass empty, and the first one written did.
+- **The launch line's replay judges what it `exec`s too** (Fable): `+exec shots` that found nothing at launch, found by
+  the replay, is run as new. *Known bound*: its waited one-shots fire, its plain ones do not, as a config's; the
+  launch itself would fire both (B829).
+- Tests: `LoadFrom_AWaitedExecAcrossAReread_IsJudgedByItsOwnRead` (both directions),
+  `LoadFrom_AWaitedExecReadAgain_FiresOnlyTheFirstReads`,
+  `LoadFrom_AReplayedConfigsLineAfterAnExecOfANewFile_IsStillAReplay` (Sonnet: the line after an `exec` is its own
+  file's again), `LoadFrom_AnotherCaseOfAFileAnEarlierReadRan_ReplaysIt`,
+  `LoadFrom_AFileWhoseRunThrew_IsReadAsNewNextTime`, `Stuff_AReplayExecingAFileFirstFoundNow_RunsItAsNew`.
+  Sabotage, each restored: `exec` always taking its parent's flag reddens six tests; a file noted before its run
+  reddens the throw test alone; no case folding reddens the case test alone; the launch line without a pass reddens
+  its replay test alone. 2,226 of 2,226 pass.
+
+Review 7 (Fable, Gemini: no findings, Sonnet):
+- **The finder folds `./` and `\`, so the record must** (Fable): `GameArchives` reads through `V_RemoveDotSlashes`
+  (`tier1/strtools.cpp:2315`), so `exec ./shots` reaches `cfg/shots.cfg` under the game folder. Round 6's "no finder
+  resolves them" came from a file in the flat own folder, which refuses any separator. The key is now
+  `RemoveDotSlashes` upper-cased: `LoadFrom_ADotSlashSpellingOfAFileAnEarlierReadRan_ReplaysIt` (both slashes), which
+  reddens both cases without the folding.
+- **Pass 0 was unpinned** (Fable): `LoadFrom_AFileOnlyAKeyRanBefore_RunsAsNew` — a key's `exec` leaves no mark, so a
+  later read's first `exec` of the file takes its screenshot; reddens with the `_pass == 0` guard removed.
+- **`ABOVE-VALVE.md` gains the reread's row** (Sonnet): it is the viewer's own rule.
+- **Known bounds, recorded not changed:** "earlier" is by pass number, not by time, so a pass-1 waited `exec` that runs
+  after a later pass first ran the same file runs it as new, as TF2 runs both queued `exec`s (Fable). A waited one-shot
+  queued before a throw stays queued and fires, and the unrecorded file runs as new next read, so it fires twice
+  (Fable). A key pressed by a handler inside a pass takes that pass (Sonnet); nested passes number by allocation
+  (Sonnet); no production handler presses a key or loads inside a pass. The record keeps each file version's text
+  (Sonnet); a session reads a handful.
+- 2,229 of 2,229 pass.
+
+Review 8 (Fable, Sonnet; Gemini after):
+- **Review 1's `+jump`, `+attack`, `+attack2` were wrong, and are taken back** (Fable). TF2's spectator camera does not
+  answer those commands: `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:747-761`, read for this)
+  sends `spec_next`, `spec_prev` or `spec_mode` on a KEY whose binding is exactly that string and swallows the key, so
+  a config's buffered `+attack` only sets the button, which the HLTV camera never reads but for `IN_SPEED`
+  (`hltvcamera.cpp:387`). Out of `Tf2OneShots`; their cases now expect nothing, and putting them back reddens the
+  three. Review 1's "TF2 has the command" was true and beside the point: the effect is the button's. The same root in
+  the launch line and in a key bound to an alias of `+attack` predates this branch: filed as **B844**.
+- **`ABOVE-VALVE.md`'s check read a row only when it named one test** (Fable, Sonnet), so this row and B829's were
+  unchecked. `AboveValveConformanceTests` now reads every backticked name in the test cell, its floor raised from 9 to
+  the 34 it reads; a name that does not exist reddens it. The row also names
+  `Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay`, which holds its launch-line half (Fable).
+- **The dot-slash test had no control inside it** (Fable): reversed, so the first read reaches the file through the
+  dot-slash spelling and asserts it took the screenshot; without the folding both cases still redden.
+- **Known bound** (Fable): a trailing dot or space (`exec shots.cfg.`) reaches the same loose file on Windows and is
+  keyed apart. `RecordPath`'s `?? path` is unreachable, as `exec` refuses `..` first (Sonnet, Fable); kept as the
+  engine's own null return handled.
+- Gemini, after: the same `ABOVE-VALVE.md` blind spot, already closed above; nothing else. 2,229 of 2,229 pass.
+
+Review 9 (Fable, Sonnet; Gemini after):
+- **TF2 takes no `screenshot` while a demo plays back** (Fable). `engine.dll` build 1007 FUN_180091070 returns at once
+  when the demo player's slot `+0x30` answers true and `cl_playback_screenshots` (FUN_180004960, flags 0, default 0,
+  "Allows the client to playback screenshot and jpeg commands in demos.") is 0; `demo_togglepause` (FUN_180076910) asks
+  the same slot to need playback. **Measured on live TF2, 2026-11-25** (`f12.dem` playing): `screenshot` wrote no file
+  with the ConVar at 0, and `cp_process_f120002.tga` with it at 1. A config's waited `screenshot` now acts only with no
+  demo open or the ConVar set; the session tells the console whether a demo is open (`PlayingBack`).
+  `Execute_AWaitedScreenshotWhileADemoPlaysBack_IsTakenOnlyWhenAllowed`,
+  `RenderFrame_AConfigsWaitedScreenshotWithADemoOpen_IsTakenOnlyWhenAllowed`; the gate dropped reddens the unit case,
+  the session's wiring inverted reddens all six screenshot session cases. `cl_playback_screenshots` is declared.
+- **`firstperson` and `thirdperson` change nothing on a SourceTV demo** (Fable, Sonnet). They only flip
+  `CInput::m_fCameraInThirdPerson` (`in_camera.cpp:59-118, 676-711`), and an HLTV demo draws through
+  `HLTVCamera()->CalcView` alone (`view.cpp:660-662`), no branch of which reads that flag (`hltvcamera.cpp:510-545`,
+  read whole). A config's waited one now acts only on a POV demo (`HltvPlayback`).
+  `Execute_AWaitedViewCommandOnASourceTvDemo_ChangesNothing`; the gate dropped reddens all four cases. *Not covered at
+  the session*: the `HltvPlayback` wiring line, as the rig's synthetic demo cannot show a camera change.
+- The same two readings reach the viewer's own keys (F5's screenshot while a demo plays; the first- and third-person
+  keys on a SourceTV demo), which go beyond TF2's and predate this branch: filed as **B845**.
+- **Not taken:** the widened `ABOVE-VALVE.md` check still skips a malformed row or a non-`\w` name, and counts a mention
+  as a test (Fable, Sonnet); it holds every row today. The `+jump`/`+attack`/`+attack2` zero cases have no control
+  that the command was queued (Fable); the same template's other cases show it is.
+- Gemini, after: the screenshot gate, already made, and low items: a mutant skipping `autoexec.cfg` in the dot-slash
+  test's second read survived, as `config.cfg` replayed the file first; `config.cfg` now goes before that read.
+
+Review 10 (Fable, Sonnet):
+- **The SourceTV test asked the wrong question** (both): `HasRecordedView: false` is also a POV demo with no view
+  recorded, which TF2 draws through its local player. The session now asks `IsSourceTv`, the timeline's
+  `engine->IsHLTV()`.
+- **A demo still loading is already playing back** (both): `playdemo` starts playback before the map loads, where the
+  viewer's `HasDemo` waits for the decode. `PlayingBack` is now `HasDemo || LoadsInFlight > 0`;
+  `RenderFrame_AConfigsWaitedScreenshotDuringTheLoad_TakesNone`, which reddens without the in-flight half. *Not read in
+  the engine*: that `StartPlayback` sets the flag before the load (`cl_demo.cpp` is not in the SDK); both reviewers
+  read it so from memory. TF2 also runs no `Cbuf_Execute` while a map loads, where the viewer counts loading frames:
+  older than this branch, filed as **B847**.
+- **Known bounds:** at a demo's end TF2 stops playback, so a later `screenshot` acts, where the viewer keeps the demo
+  open and refuses a config's (Fable, Sonnet); `CAM_ToFirstPerson` first asks `CanUseFirstPersonCommand`, whose TF
+  override is unread, and a replay demo's `ReplayCamera()` (`view.cpp:664-668`) is not covered by `IsSourceTv` (Fable);
+  `cl_playback_screenshots 0.5` is off as `GetBool` is `!!GetInt`, untested.
+- B845 names the launch line too (Fable): its `+wait +screenshot` and `+thirdperson` are exempt through `_stuffing`.
+- 2,239 of 2,239 pass.
+
+Review 11 (Fable, Sonnet, Gemini):
+- **The load test raced the decode** (both): the rig cannot hold a load open, so it could go red on a correct build
+  and stay green on a broken one. Replaced by two pure rules the session calls, each tested apart:
+  `ViewerSession.PlaysBack(hasDemo, loadsInFlight)` (`PlaysBack_ADemoOpenOrLoading_IsTrueOnlyThen`) and
+  `DrawsThroughHltv(timeline)` (`DrawsThroughHltv_ADemoWithNoRecordedView_IsHltvOnlyWhenSourceTv`, over two synthetic
+  demos with no view recorded, SourceTV or not; Fable: round 10's `IsSourceTv` change had no test). Each reddens with
+  its rule undone. The two wiring lines that call them are read, not tested. The count is read before the demo, as an
+  open sets the demo before it counts down (Fable).
+- **The dot-slash test's second read had no control that it ran the file** (Fable, Gemini): `shots.cfg` now also steps
+  `cl_showfps`, and the test asserts 2 after the second read; `LoadFrom` skipping `autoexec.cfg` then reddens both
+  cases.
+- **Known bounds:** a load that fails counts as playing back until it fails (Fable), beside the unread `StartPlayback`
+  bound above. While a SourceTV demo still loads its timeline is null, so the SourceTV gate cannot tell it from a POV
+  one and a waited view command acts (Gemini); the demo's kind is unknown until it decodes, and on a POV demo TF2 would
+  keep the flag a load-time `thirdperson` set, so holding it back would be wrong there. A demo opened over another
+  answers with the open one's kind until it decodes (review 12, Fable), within the same trade.
+
+Review 12 (Fable, Sonnet, Gemini after): no engine divergence. The wiring comment claimed a race the UI thread rules out
+(Fable): reworded. A test renamed for what its rows hold (Sonnet). A waited `demo_togglepause` that comes due during
+the load is spent on nothing, where TF2 holds the buffer (Fable): B847's consequence, added there. The handoff memory's
+"B841 open" is updated at the merge (Sonnet). Gemini, on `d2a277342`: no findings; each round-11 test checked for
+the mutation that reddens it.
+- 2,244 of 2,244 pass; after main (B839) merged in, 2,260 of 2,260.
+
+The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
+behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
+(`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.
+
+Tests: `Execute_AConfigsOneShotPutOffByWait_RunsAtItsTickWhenTf2HasIt` (every member of the set acts once, at the third
+`Execute` of a `wait 2` and not before; four viewer-only names stay at zero),
+`KeyDown_BetweenFramesAtAWaitedConfigOneShotsTick_RunsItAndItActs`,
+`Load_FromAHandlerInsideAWaitedOneShot_ItsOneShotsDoNothing`, `Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay`.
+Sabotage, each restored: `PutOff` never set by a `wait` reddens the seven TF2 cases and the two path tests (9 of 2,192);
+a load keeping its caller's `PutOff` reddens the handler test alone; the replay guard dropped reddens the replay case
+alone.
+
+The original entry follows. Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action
+such as `screenshot` or `demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup,
+before a demo plays. A command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a
+config's `wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, when a demo may be
+playing. *Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or
+the startup run), not by whether its text came from a config. *Not fixed*.
 
 ## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
 
@@ -46434,6 +46728,18 @@ the frame's second-to-last tick: a local player who dies on tick 3 of a 6-tick f
 the thinks of ticks 4 to 6, and the viewer hides them a frame later. *Read*, not measured. Fix shape: think before
 each tick the frame plays, on the state after the tick before it. *Not fixed*.
 
+## B852 — histories other than the ConVars still stamp a signon's message with the signon's tick (2026-11-25) — OPEN
+
+Found in B843 review 5 (Fable, Sonnet). A signon command's tick is the server's when recording began, far above the
+packets' (`z1800`: 70,718 against 6). Sounds, light styles and now the ConVar history allow for it, and voice inits are
+safe only because they are read by stream index though they stamp `command.Tick`; these still stamp `command.Tick` and
+so would put a signon message after every packet in time, and out of tick order in lists read by binary search or
+`TailList.DropBefore`: `voice`, `gameEvents`, `touchChanges`, `director`, `userMessages`,
+`spectatorGuiChanges`, viewmodels, soundscapes, tonemap, shadow control, suns, point cameras, fog, gestures and frames
+(`DemoTimeline`). Whether any signon carries such a message is **not measured**. Fix shape: a probe counting message
+types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
+signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
+
 ## B849 — the interpolation delay is one number for the whole recording, under the server's last ratio bounds (2026-11-25) — OPEN
 
 Split from B848 when it was filed, before any fix, because it is a different mechanism: not a value read at a moment
@@ -46488,6 +46794,126 @@ Tests: `HudStatesTests.For_ATickBetweenTwoSets_ReadsTheServersValueAtThatTick`,
 `VguiHudTickConVarsTests.Think_AnEvent_HearsTheServersConVarsOfItsTick`. Sabotage, each restored: the whole-recording
 value back in `ServerConVars` reddens the first; the replay without `ServerAt` reddens the second's replay case; `At`
 not calling `ServerAt` reddens the first and the second's live case. The rest of the whole-recording readers: B848.
+
+Review 1 (Fable, Gemini, Sonnet): no engine divergence. Fixed: the voice icons' call site had no test (all three):
+`FramePresenter.VoiceIconConVars` records what `HeadLabels` was handed,
+`FramePresenterTests.DrawOver_AFrameBetweenTwoSets_GatesTheVoiceIconsByItsTicksValues`; `HudStates.At` dropping
+`FindAt` survived (Fable): `HudStatesTests.At_AWindowOverAServerThatChangedMidRecording_KeepsEachEventsServerValues`; an
+event heard at the wrong tick survived, the fixture answering one value below 1001 (Sonnet): it now answers each tick
+exactly, over two events; the null guard (Gemini): `ServerConVars_NoTimeline_Throws`; a closure and two delegates per
+frame (Fable, Sonnet): `ServerConVars.Lookup()` and `DemoTimeline.ServerLookupAt()` make each once. Sabotage, each
+restored: the voice icons on the whole recording, `At` rebuilding the ConVars without `FindAt`, and the replay at a fixed
+tick each redden their own test. **An instrument trap on the way:** the two cached delegates were first public
+PROPERTIES, and `TimelineFingerprint` walks public properties, so a delegate's `Target` led back into the timeline and
+the test host died of a stack overflow while `dotnet test` printed "Passed!" over 2,156 of 2,200. Both are methods.
+Not taken: the same-tick order (Sonnet's recollection that reliable messages precede unreliable ones in a packet) is
+unread; the bound stands as stated. Presentation 2,200 of 2,200, Core 3,296 (40 skipped), Scene 5,421 of 5,421.
+
+Review 2 (Fable, Gemini, Sonnet): no engine divergence; the `??=` races are benign (equal delegates either way). Fixed:
+the delegate caching had no test (Gemini, Sonnet): `ServerConVarsAtTests.Lookup_AskedTwice_IsTheSameDelegate`; no test
+read `ServerConVarsAt` on a trimmed window, which the HUD now depends on (Fable):
+`TimelineCheckpointsTests.Window_CutPastAConVarSet_AnswersTheSetAtItsTicks`, whose first form could not fail because
+the trim never drops the LAST element, so it carries a second set inside the window's history; the voice icons' tick-25
+case read the default (Sonnet): the sets are now 1 then 2; `VoiceIconConVars` held the last timeline after the demo
+closed (Fable): reset with no demo, asserted; `Lookup()` on a set that is applied again would answer from a copy's
+original (Fable, Sonnet): a remark restricts it to snapshots; `HudConVars.At` written as a block (Sonnet). Not taken: a
+mutant handing `HeadLabels.For` another value while keeping the recorded one survives (Fable, Gemini); the seam is the
+argument, in one statement, and its remark names the D180 exception. Sabotage, each restored: no cache reddens the
+identity test; the in-force set dropped at the cut reddens the window test; no reset reddens both voice-icon cases.
+Presentation 2,267 of 2,267, Core 3,298 (40 skipped).
+
+Review 3 (Fable, Gemini, Sonnet): no engine divergence. Fixed: a tick's lookup built a fresh delegate each event and
+survived (Fable, Gemini): the identity test now asks `ServerLookupAt()(10)` to be the set's own `Lookup()`; `_lookup`
+was a cache a read wrote into on a set the checkpoints share, so a HUD read could change a checkpoint's digest, and the
+review-2 remark only warned of it (Fable, Gemini, Sonnet): it is `[StateCopy.NotCopied]`, so a copy makes its own and the
+digest skips it, and the remark says so; the frame's own tick had no boundary case (Fable):
+`HudStatesTests.For_AFrameAtASetsTick_ReadsItFromThatTickOn` (tick 9 reads the default, 10 the set). Answered: the HUD
+viewport releases a closed demo's timeline, as the HUD thinks with a default state when none is open (Fable, for
+Sonnet's question). Not taken: a sprite-count assertion through `HeadLabels` (Sonnet) needs the speech material only an
+install has. Sabotage, each restored: the tick's lookup as `.Value` reddens the identity test; the frame read a tick
+early reddens the tick-10 case. Presentation 2,269 of 2,269, Core 3,298 (40 skipped), Scene 5,421 of 5,421.
+
+Review 4 (Fable, Gemini, Sonnet). **A blocking divergence, older than this branch and made visible by it** (Fable,
+Gemini): a `net_SetConVar` the signon carries was stamped with the signon's tick, which is the server's when recording
+began, not a playback tick (container ticks, measured by Fable: `z1800` signon 70,718 against a first packet at 6; the
+2011 POV 3,212 against 0; live STV 13,923 against 4). `ServerConVarsAt` answered Valve's defaults for every tick below it,
+about the first seventeen minutes of `z1800`, and the history fell out of tick order once a packet set followed. The HUD
+read the recording's last value before this branch, so it never showed; now it reads per tick. Fixed as the light
+styles already are (`DemoTimeline`, the signon's update holds from the start): a signon's set is stamped `int.MinValue`
+(narrowed in reviews 5 to 8 to a signon read before any packet; see review 8 for the rule as it stands).
+`ServerConVarsAtTests.ServerConVarsAt_ASetFromTheSignon_HoldsFromTheFirstTick` failed before the fix; the output-level
+control `CorpusServerConVarTests.ServerConVarsAt_TheFirstTick_IsWhatTheSignonSent` reads `sv_turbophysics` at tick 0 of
+`tf2-2011-build4604-spec-stv-cp_granary` and reddens with the old stamp (measured, real bytes). This is also B450's
+defect; prediction's `ServerConVarsAt` readers get the fix. Fixed too: `NotCopied` had no test (all three):
+`Lookup_OfACopiedSet_IsTheCopysOwnAndChangesNoDigest`, red without the attribute. **A correction to review 3's record**
+(Fable): a window copies its checkpoint with only its inputs shared, so no set the HUD reads is a checkpoint's object; the
+attribute is a guard against a copy keeping the original's delegate, not the fix of a live fault. Not taken: a voice-icon
+case at the set's own tick (Sonnet); `HudStates.ServerConVars` is the one call both sites make, and its boundary is
+tested. Sabotage, each restored: the old stamp reddens the synthetic and the corpus tests; no attribute reddens the copy
+test. Core 3,300 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269, Corpus 151 passed and 93 skipped of
+244 with gcor alone in this worktree (no lcor junction).
+
+Review 5 (Fable, Gemini, Sonnet). No blocking finding. Fixed: a signon after a packet's set would have appended
+`int.MinValue` behind a higher tick and unsorted the history (Fable, Sonnet): a signon set takes `int.MinValue` only while
+the history is empty, else the stamp before it, so it holds from where it was read
+(`ServerConVarsAt_ASignonAfterAPacketsSet_HoldsFromWhereItWasRead`; no corpus demo is known to have one); a stamp of 0
+would have passed every tick asked (Fable, Sonnet): the test reads tick -1000; the comment said "above" for the light
+styles below. **Corrected:** the corpus test's demo is the 2011 SourceTV granary, not `z1800`; that its signon is stamped
+above tick 0 is shown by the test reddening under the old stamp, not by a stated tick. **Softened:** prediction's
+`ServerConVarsAt` readers (`RecorderPrediction`) now read the signon's values at the opening, which no test asserts.
+Filed: the other histories stamped by a signon's tick, as **B852**. Sabotage, each restored: a stamp of 0 reddens the
+first signon test; the late-signon branch dropped reddens the second. Core 3,301 (40 skipped), Scene 5,421 of 5,421,
+Presentation 2,269 of 2,269.
+
+Review 6 (Fable, Gemini, Sonnet). No blocking finding. Fixed: review 5's late signon took the last SET's stamp, so with
+packets after that set it held from before it was read (Fable), and a stamp from the first set survived (Fable,
+Sonnet): the builder keeps the last packet tick read (`lastPacketTick`, a builder field the snapshot carries) and a late
+signon holds from the later of it and the last set; the test has two sets before the signon and packets between.
+`HudConVars.FindAt`'s remark claimed stream order within a tick, which the history does not carry (Sonnet): it names the
+recorded bound. The corpus test's remark now says which demo it reads. B852 corrected: voice inits stamp `command.Tick`
+too and are safe only because they are referred to by stream index, and `voice` joins the list (Fable). Sabotage,
+restored: without the last packet tick the late-signon test reddens. Core 3,301 (40 skipped), Scene 5,421 of 5,421,
+Presentation 2,269 of 2,269.
+
+Review 7 (Fable, Gemini, Sonnet). No blocking finding. Fixed: a late signon stamped with the last packet's own tick
+held at that packet, whose events the engine runs before the signon is read (Gemini, Sonnet): it holds from the tick
+after, and the arm reading the last set's stamp was removed as dead while packet ticks rise (Fable, Gemini, Sonnet) —
+**wrong premise, corrected in review 8** (Gemini): a POV demo's packets can repeat a tick
+(`docs/findings/106-a-pov-packet-is-stamped-on-arrival.md`), and the clamp came back as review 8's; no test
+carried `lastPacketTick` across a resume (Fable, Sonnet):
+`ServerConVarsAt_ALateSignonAfterAResumeFromAnyCut_IsStampedAsAStraightBuild` resumes from every cut and reads the
+history directly, since the fingerprint cannot see it; the user-message path had no server-tick case (Fable): the chat
+heard at tick 1000 reads that tick's value; "applied when read" is marked *interpolated* (the demo player's command loop
+is closed, Fable); `ConVarChanges`'s summary said "the tick it was read at" (Fable). Sabotage, each restored: the field
+not copied reddens the resume test. Presentation `VguiHudTickConVarsTests` 10 of 10, Core `ServerConVarsAtTests` 8 of 8;
+full: Core 3,302 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269.
+
+Review 8 (Fable, Gemini, Sonnet). No engine divergence. **The rule as it stands:** a packet's set holds from its tick; a
+signon's before any packet from the start; a signon's after packets from the tick after the last packet read; and every
+stamp is at least the one before it. Fixed: the `+1` put the history out of tick order when a later packet repeated the
+last tick (Fable, Sonnet), so the search answered the repeated tick by the list's layout (review 9 measured the effect by
+trace: only the repeated tick's own answer moves): each stamp is clamped to the one before it, so a packet
+repeating a tick after a late signon takes the signon's stamp, a recorded bound beside the same-tick one
+(`ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder`). Review 7's sabotage line listed one
+run; these were run this round, each restored: the clamp dropped reddens the repeat test; the `+1` dropped reddens the
+late-signon, resume and repeat tests; user messages heard a tick late redden the chat case and three older cases.
+Review 4's parenthetical now points here (Sonnet). Not taken: the chat case keeps only the first sound (Fable), as one
+message makes one. Core `ServerConVarsAtTests` 9 of 9.
+
+Review 9 (Fable, Gemini, Sonnet). No engine finding; Gemini found the same remark, already corrected. Corrected: the repeat test's remark and review 8's record said the
+unsorted history would blind the search for every later tick (Fable, Sonnet); traced, only the repeated tick's own
+answer moves, so the remark says the tick-7 read is the one that sees the clamp. `ConVarChanges`'s summary restated part
+of the stamp rule and is now a pointer to the builder and to review 8 (Sonnet); the resume test's remark no longer
+guesses the dropped field's default (Fable). The first signon test reads `int.MinValue` too, so a stamp of
+`int.MinValue + 1` reddens it (run, restored). Not taken at the time: the clamp reading the first stamp instead of the
+last, which survived (Sonnet), called unreachable. *(Correction added in review 10: it is reachable, and is now killed
+by the stored-stamps assertion; see review 10.)* Core `ServerConVarsAtTests` 9 of 9.
+
+Review 10 (Fable, Gemini, Sonnet). No blocking finding. Fable predicted that a set at tick 2 would make a clamp to the
+first stamp read 50 at tick 7; **run, it did not**: the unsorted `[2, 8, 7]` is answered the same as the sorted history
+at every tick asked, as review 9 found for other layouts. So the order is read directly: `ConVarChanges` is internal and
+the repeat test asserts its stamps are `[2, 8, 8]`, which the first-stamp mutant reddens (run, restored). Also the
+handoff memory's round count and filed list. Core `ServerConVarsAtTests` 9 of 9.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
@@ -51285,7 +51711,12 @@ before any connection, and a demo recorded with `sv_cheats 1`.
 3. `sv_cheats 0` reverts every cheat ConVar to its default (`r_screenfademinsize` 12 → 0).
 4. A new `playdemo` after `sv_cheats 1` left it 1.
 **So the reading below was wrong.** The vtable `+0x30` slot on the global at `0x180524e88` is not `IsPlayingBack` (it was
-named by its use in `ProcessServerInfo` alone, with no control); during playback it answered false. **The viewer diverges:**
+named by its use in `ProcessServerInfo` alone, with no control); during playback it answered false. *Corrected
+2026-11-25 (B841 review 9, Fable):* that slot does answer true during playback — `screenshot` (FUN_180091070) and
+`demo_togglepause` (FUN_180076910) both gate on it, and live TF2 refused a playback `screenshot` with
+`cl_playback_screenshots` 0 and took one at 1. So the cheat refusal measured above comes from another condition in
+that check than the slot, which is not yet read; the measurement stands, the slot's naming here does not.
+**The viewer diverges:**
 it applies a config's cheat ConVar with `sv_cheats` 0, and its console refuses `sv_cheats` itself as replicated, where TF2
 takes it during playback. *Not yet measured:* a fresh launch's main menu before any connection (`Host_IsSinglePlayerGame` may
 allow it there), and a demo recorded with `sv_cheats 1`.

@@ -216,6 +216,7 @@ public static class EngineConVars
         new("engine_no_focus_sleep", "50", Replicated: false, Cheat: false),                 // engine; help
         new("mat_vsync", "0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),            // engine; help
         new("cl_showfps", "0", Replicated: false, Cheat: false),                             // vgui_fpspanel.cpp:27
+        new("cl_playback_screenshots", "0", Replicated: false, Cheat: false),                // engine.dll 1007 FUN_180004960 (B841)
         new("r_3dsky", "1", Replicated: false, Cheat: false),                                // viewrender.cpp:113
         new("cl_detaildist", "1200", Replicated: false, Cheat: false),                       // detailobjectsystem.cpp:52
         new("cl_detailfade", "400", Replicated: false, Cheat: false),                        // detailobjectsystem.cpp:53

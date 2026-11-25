@@ -17,7 +17,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </param>
 /// <param name="FindAt">
 /// The server's values as of one demo tick, every `net_SetConVar` read by then (B843), or null where that tick reads
-/// <paramref name="Find"/>: the client applies the message as its packet is parsed, before the events read after it.
+/// <paramref name="Find"/>: the client applies the message as its packet is parsed. By tick, not by stream position: an
+/// event read before a set in the same packet hears the set too (the recorded bound, B843).
 /// </param>
 public readonly record struct HudConVars(
     Func<string, string?>? Find,
@@ -28,7 +29,12 @@ public readonly record struct HudConVars(
     /// <summary>The values as a demo tick reads them: the server's (<see cref="ServerAt"/>) and <see cref="ClientAt"/>'s for it.</summary>
     /// <param name="tick">The demo tick whose packet is read.</param>
     /// <returns>The ConVars that tick reads.</returns>
-    public HudConVars At(int tick) => ServerAt(tick) is var server && ClientAt?.Invoke(tick) is { } client ? server with { Client = client } : server;
+    public HudConVars At(int tick)
+    {
+        HudConVars server = ServerAt(tick);
+
+        return ClientAt?.Invoke(tick) is { } client ? server with { Client = client } : server;
+    }
 
     /// <summary>The values with the server's as a demo tick reads them (<see cref="FindAt"/>), the client's unchanged.</summary>
     /// <param name="tick">The demo tick whose packet is read.</param>
