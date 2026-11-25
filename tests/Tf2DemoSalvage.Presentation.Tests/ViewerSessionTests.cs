@@ -2534,6 +2534,140 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A config's one-shot put off by `wait` reaches the playback at its frame, once** (B841, and review 2, Fable,
+    /// Sonnet): `CCommandBuffer` runs it at its tick, so `demo_togglepause` plays the paused demo. The control: paused
+    /// before the frames, as no `--autoplay` was given.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemo()
+    {
+        string demo = WriteDemo("toggles", ticks: 600);
+        using Rig rig = BuildWithAutoexec("wait; demo_togglepause\n", demo);
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Transport.Playing.ShouldBeFalse("the control: paused before the frames");
+
+        for (int frame = 0; frame < 3; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Transport.Playing.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A config's waited `screenshot` takes none while a demo plays back, unless `cl_playback_screenshots` is set**
+    /// (B841 review 9, Fable): `engine.dll` build 1007 FUN_180091070 asks the demo player first. The session tells the
+    /// console a demo is open. The control: the same config with `cl_playback_screenshots 1` takes one.
+    /// </remarks>
+    [TestCase("", 0)]
+    [TestCase("cl_playback_screenshots 1\n", 1)]
+    public async Task RenderFrame_AConfigsWaitedScreenshotWithADemoOpen_IsTakenOnlyWhenAllowed(string allow, int captured)
+    {
+        string demo = WriteDemo("shots", ticks: 600);
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), allow + "wait 3; screenshot\n").ConfigureAwait(false);
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }, 0.5, demo)
+            .WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 6; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Device.Captured.Count.ShouldBe(captured);
+    }
+
+    /// <remarks>
+    /// **A demo still loading is already playing back** (B841 review 10, Fable, Sonnet): `playdemo` starts playback before
+    /// the map loads, so the console is told a demo plays back from the open on, until it is closed or failed. A pure rule,
+    /// tested apart from a load whose length the rig cannot hold (review 11, Sonnet).
+    /// </remarks>
+    [TestCase(false, 0, false)]
+    [TestCase(false, 1, true)]
+    [TestCase(true, 0, true)]
+    [TestCase(true, 1, true)]
+    public void PlaysBack_ADemoOpenOrLoading_IsTrueOnlyThen(bool hasDemo, int loadsInFlight, bool expected) =>
+        ViewerSession.PlaysBack(hasDemo, loadsInFlight).ShouldBe(expected);
+
+    /// <remarks>
+    /// **A demo is drawn through the HLTV camera when its ServerInfo says SourceTV, not when it recorded no view** (B841
+    /// review 10, Sonnet, Fable): both synthetic demos here record no view; only the SourceTV one is HLTV. No demo is not.
+    /// </remarks>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void DrawsThroughHltv_ADemoWithNoRecordedView_IsHltvOnlyWhenSourceTv(bool sourceTv, bool expected)
+    {
+        Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticDemo.From(
+            Core.Tests.SyntheticDemo.DefaultProtocol,
+            Core.Tests.SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            Core.Tests.SyntheticDemo.Packet(Core.Tests.SyntheticDemo.DefaultProtocol, 0, Info(sourceTv))));
+        timeline.HasRecordedView.ShouldBeFalse("the control: neither demo recorded a view");
+
+        (ViewerSession.DrawsThroughHltv(timeline), ViewerSession.DrawsThroughHltv(null)).ShouldBe((expected, false));
+    }
+
+    /// <summary>A ServerInfo, SourceTV or not.</summary>
+    private static Core.Net.ServerInfoMessage Info(bool sourceTv) => new(
+        NetworkProtocol: Core.Tests.SyntheticDemo.DefaultProtocol,
+        ServerCount: 7,
+        IsSourceTv: sourceTv,
+        IsDedicated: true,
+        MapCrc: 0,
+        MaxClasses: 9,
+        MapHash: new byte[16],
+        PlayerSlot: 1,
+        MaxPlayers: 24,
+        IntervalPerTick: 0.015f,
+        Platform: 'w',
+        GameDirectory: "tf",
+        Map: Map,
+        Skybox: "sky_tf2_04",
+        ServerName: "synthetic",
+        IsReplay: false);
+
+    /// <remarks>
+    /// **A chosen folder's reread of a config already read is no second launch** (B841 reviews 2 to 4, Fable, Sonnet,
+    /// Gemini; B829): a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or
+    /// after the screenshot was taken. **A config the folder holds that no read saw is read as new** (review 4, Sonnet):
+    /// with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read at the choice, and its screenshot is
+    /// taken. The control: no folder chosen, it captures once.
+    /// </remarks>
+    [TestCase(true, null)]
+    [TestCase(true, 0)]
+    [TestCase(true, 3)]
+    [TestCase(false, 0)]
+    [TestCase(false, 3)]
+    public async Task RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce(bool foundAtStartup, int? folderChosenBeforeFrame)
+    {
+        string tf = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(tf, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
+        _gameFolder = foundAtStartup ? tf : null;
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }).WithDevice();
+        rig.Session.WindowShown();
+
+        for (int frame = 0; frame < 6; frame++)
+        {
+            if (frame == folderChosenBeforeFrame)
+            {
+                await File.WriteAllTextAsync(Path.Combine(tf, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
+                _gameFolder = tf;
+                rig.Session.GameFolderChosen(tf);
+            }
+
+            rig.Session.RenderFrame();
+        }
+
+        rig.Device.Captured.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **The folder's configs and the line run from `sv_cheats 0`, as a fresh start does** (B811 review 3, Fable, Sonnet):
     /// `+mat_fullbright 1 +sv_cheats 1` refuses the fullbright and leaves cheats on; a chosen folder whose autoexec sets no
     /// `sv_cheats` must refuse it again, as the next launch would. The control: the same cheat after the line's

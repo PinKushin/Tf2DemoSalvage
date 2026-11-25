@@ -288,6 +288,16 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         _console.Triggered += OnConsoleAction;
 
+        // The engine's demo player answers whether a demo plays back, which TF2's `screenshot` asks first (B841 review 9).
+        // From the open on: `playdemo` starts playback before the map loads (B841 review 10, Fable, Sonnet).
+        // An open sets the demo and counts down on this thread, as the console runs, so the two reads cannot straddle it.
+        _console.PlayingBack = () => PlaysBack(loadsInFlight: _presenter.LoadsInFlight, hasDemo: _presenter.HasDemo);
+
+        // A SourceTV demo draws through the HLTV camera, which TF2's first- and third-person commands do not reach.
+        // `engine->IsHLTV()`, asked directly: a POV demo with no recorded view is still drawn through its local player
+        // (B841 review 10, Sonnet).
+        _console.HltvPlayback = () => DrawsThroughHltv(_presenter.Timeline);
+
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
 
@@ -423,6 +433,23 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <param name="path">The row's path, or null when nothing is selected.</param>
     public void Activate(string? path) => Loading = LoadSelected(path);
 
+    /// <summary>
+    /// Whether the engine's demo player plays back: from `playdemo` on, so while the demo still loads too, until it is
+    /// closed or failed to open (B841 review 10, Fable, Sonnet).
+    /// </summary>
+    /// <param name="hasDemo">Whether a demo is open.</param>
+    /// <param name="loadsInFlight">How many opens are in progress.</param>
+    /// <returns>Whether a demo plays back.</returns>
+    internal static bool PlaysBack(bool hasDemo, int loadsInFlight) => hasDemo || loadsInFlight > 0;
+
+    /// <summary>
+    /// `engine->IsHLTV()` for the open demo: whether TF2 draws it through the HLTV camera alone (`view.cpp:660-662`), as
+    /// its ServerInfo says, whatever views it recorded (B841 review 10, Sonnet, Fable).
+    /// </summary>
+    /// <param name="timeline">The open demo, or null.</param>
+    /// <returns>Whether it is a SourceTV demo.</returns>
+    internal static bool DrawsThroughHltv(Core.Scene.DemoTimeline? timeline) => timeline is { IsSourceTv: true };
+
     /// <summary>Whether the startup prompt for a missing install should open, saying what discovery found.</summary>
     /// <returns>Whether to ask.</returns>
     /// <remarks>
@@ -468,6 +495,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             // launch. Set without reverting (review 4, all four): a typed `sv_cheats 0` put back every cheat the saved
             // settings or the menu held, which a fresh start keeps.
             _console.StartCheatsOff();
+
+            // A file the first read read, unchanged, is a replay whose one-shots never fire: no second launch, as the line's
+            // replay below is not (B829, B841 reviews 3 and 4). A file first read now is read as new (`LoadFrom`).
             LoadUserConfig();
 
             // The configs ran again, so the whole line runs after them again, as `stuffcmds` follows `exec` (B811 review 2,
