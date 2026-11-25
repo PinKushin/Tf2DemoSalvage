@@ -12,22 +12,24 @@ an alias, a longer binding, the launch line) cycled the camera. That is not wher
 ## What the client does
 
 `ClientModeShared::KeyInput` (`clientmode_shared.cpp:662-734`) is the client's say over a key event (**read**). With
-the console visible it lets every key through untouched (`return 1`, `:664-665`); a chat bind starts message mode and is
-swallowed (`return 0`, `:668-697`); with voting compiled in (`#ifdef VOTING_ENABLED`, `:700`) a key the vote HUD takes
-is swallowed (`:704-707`). Only then is `HandleSpectatorKeyInput` asked, and only when there is a local player whose
+the console visible it lets every key through untouched (`return 1`, `:664-665`); a chat bind is swallowed (`return 0`,
+`:668-697`), starting message mode on the press, the party bind even when party chat cannot be sent (`:692-696`); with
+voting compiled in (`#ifdef VOTING_ENABLED`, `:700`) and the vote HUD visible (`:702`), a key it takes is swallowed
+(`:704-707`). Only then is `HandleSpectatorKeyInput` asked, and only when there is a local player whose
 observer mode is past the death cam (`:714-716`). That gate is what the viewer's `Spectating` stands in for (an open demo;
 B845 is where it diverges). Before any of it, `CInput::KeyEvent` swallows `MOUSE_LEFT` and `MOUSE_RIGHT` while the camera
 intercepts the mouse (`in_main.cpp:562-567`), which the viewer has no state for.
 
-`HandleSpectatorKeyInput` (`:739-772`, **read**) compares the key's **whole binding string** with `Q_strcmp`,
-case-sensitive, and only on the press (`down`):
+`HandleSpectatorKeyInput` (`:739-772`, **read**) compares `pszCurrentBinding` with `Q_strcmp`, case-sensitive, and
+only on the press (`down`). That `pszCurrentBinding` is the key's whole binding string is the engine's side
+(**interpolated**: `Key_Event` was not read for it):
 
 - exactly `+attack`: `engine->ClientCmd( "spec_next" )`, returning 0;
 - exactly `+attack2`: `spec_prev`, returning 0;
 - exactly `+jump`: `spec_mode`, returning 0;
 - exactly `+duck`: the spectator menu panel (`:742-746`), returning 0 (not in the viewer: B850);
 - exactly `+strafe`: `HLTVCamera()->SetAutoDirector( true )` (`:762-769`), which is `spec_autodirector.SetValue( 1 )`
-  (`hltvcamera.cpp:868-871`), returning 0.
+  (`hltvcamera.cpp:868-871`), and the replay camera's too under `REPLAY_ENABLED` (`:765-767`), returning 0.
 
 Returning 0 swallows the key: the engine does not process it (**SDK contract**: `clientmode_shared.cpp:660`, "Return 1 if the
 engine is allowed to handle it", and `in_main.cpp:557`, "Return 1 to allow engine to process the key"). So the binding's text
@@ -40,10 +42,10 @@ reads `IN_SPEED` and no other button (`hltvcamera.cpp:387`, **read**). That ever
 rather than something else, through the engine's command dispatch and `stuffcmds`, is **interpolated** from the SDK.
 
 `spec_next`, `spec_prev` and `spec_mode` are ConCommands of their own (`SpectatorGUI.cpp:786, 807, 828`, **read**). Each
-returns unless the local player `IsObserver()` (`:790, 811, 832`); outside SourceTV each forwards to the server, which
-returns during demo playback (`ForwardSpecCmdToServer`, `:766-769`); on SourceTV, `spec_next` and `spec_prev` do nothing
+returns unless the local player `IsObserver()` (`:790, 811, 832`); outside SourceTV each calls `ForwardSpecCmdToServer`, which
+returns before sending anything during demo playback (`:766-769`), so nothing happens; on SourceTV, `spec_next` and `spec_prev` do nothing
 while the PVS is locked (`:796, 817`), and `spec_mode` swaps eye and chase while it is (`ToggleChaseAsFirstPerson`,
-`:837-841`); unlocked, with exactly one argument (`ArgC() == 2`) it sets that mode, and otherwise cycles (`:843-851`). Those gates are B845, B851 and B853.
+`:837-841`); unlocked, with exactly one argument (`ArgC() == 2`) it sets that mode (`:843-851`), and otherwise cycles (`:852-861`). Those gates are B845, B851 and B853.
 
 TF2 overrides the function: `ClientModeTFNormal::HandleSpectatorKeyInput` (`tf/clientmode_tf.cpp:1589-1618`, **read**)
 takes only an exact `+jump` while the local player is coaching, and passes every other key on (B857).
