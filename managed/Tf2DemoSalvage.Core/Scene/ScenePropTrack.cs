@@ -1887,8 +1887,7 @@ public sealed class ScenePropTrack
         // stated pose there without asking any history. A history whose changetimes precede the entity's
         // arrival settles before that answer changes: a sticky bomb on the 2026 pub POV was held 352 units
         // from where a scrub drew it, for the three ticks between its origin settling and `born + delay`.
-        bool settled = (tick - schedule.TicksAt(tick) > born ||
-                Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) > born)
+        bool settled = !FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget)
             && Settled(_simulation, target, now, OriginVariable)
             && Settled(_simulation, anglesTarget, now, AnglesVariable)
             && Settled(_animation, animationTarget, now, WholeVariable)
@@ -1952,6 +1951,24 @@ public sealed class ScenePropTrack
     /// <param name="variable">Which of the history's engine variables (B860 review 2).</param>
     private static bool Settled(InterpolatedHistory history, double target, int now, HistoryVariable variable) =>
         history.BracketVariable(target, now, variable.First, variable.Count) is not { NoMoreChanges: false };
+
+    /// <summary>Whether <see cref="At(double)"/> answers the first stated pose whole: nothing drawn yet has passed birth.</summary>
+    /// <remarks>
+    /// The delayed moment and every variable's target at or before birth (B860 reviews 3 and 4), and **no earlier frame aimed
+    /// past it** (review 5, Fable): once a frame was drawn from the history, a rise that sends the target back before birth
+    /// must not bring back the skin and visibility the entity was born with, which are plain networked members, live from
+    /// the latest update. With no rise the last clause follows from the first. That the first pose carries birth state for
+    /// the delay's length after birth at all is B865.
+    /// </remarks>
+    private bool FirstPoseAnswers(
+        double tick, InterpolationSchedule schedule, double target, double anglesTarget, double animationTarget, double poseTarget)
+    {
+        int born = _keyframes.FirstTick;
+
+        return tick - schedule.TicksAt(tick) <= born
+            && Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) <= born
+            && schedule.MaxTargetBefore(tick) <= born;
+    }
 
     /// <summary>
     /// One engine variable's components inside a history entry (B860 review 2, Fable): `m_iv_vecOrigin` and
@@ -2589,11 +2606,7 @@ public sealed class ScenePropTrack
         double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
-        // **The delayed moment AND every variable's target** (B860 reviews 3 and 4, Fable): the first pose carries its state
-        // fields too, so a variable held at its first entry long after birth must not bring back the skin it was born with;
-        // and a young entity whose delay rose is floored above its birth, where the history the old delay kept answers.
-        if (tick - schedule.TicksAt(tick) <= _keyframes.FirstTick &&
-            Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) <= _keyframes.FirstTick)
+        if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))
         {
             // Nothing had been received yet, so the first stated pose is all a client would have.
             return _keyframes.FirstPose;

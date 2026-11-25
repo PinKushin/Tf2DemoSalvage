@@ -26,6 +26,24 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <remarks>
+    /// **A latch is compared with the head it was latched against** (B860 review 5, Fable): `NoteChanged` `memcmp`s the new
+    /// value with `m_VarHistory[0]` (`interpolatedvar.h:633-639`). 100 at changetime 10, then 200 stamped 12 arriving at 11,
+    /// then 200 stamped 11 arriving at 12, which flushes the entry stamped 12. The head the third latch met was the 100, so it
+    /// changed the variable: the latest change arrived at 12, not 11.
+    /// </remarks>
+    [Test]
+    public void LatestChange_ALatchAfterAFlush_ComparesWithTheHeadStillHeld()
+    {
+        InterpolatedHistory history = new(1);
+
+        history.Add(10, 10, [100f]);
+        history.Add(12, 11, [200f]);
+        history.Add(11, 12, [200f]);
+
+        history.LatestChange(12, 0, 1).ShouldBe(12);
+    }
+
+    /// <remarks>
     /// **A cut at 15 with a tail of 2** drops the twelve entries before 13 (entries 1..14 precede the cut; 14 − 2 = 12),
     /// and the pair bracketing 16.5 is the same two values.
     /// </remarks>

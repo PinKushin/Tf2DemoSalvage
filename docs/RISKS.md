@@ -47123,6 +47123,22 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
+## B865 — an entity's first delay window draws its birth state, and a re-parent in a rise's packet takes the new amount a frame late (2026-11-25) — OPEN
+
+Found in B860 review 5 (Fable). Two small divergences of the frame's state, both *read*, neither measured:
+- **The first pose is answered whole.** `ScenePropTrack.At` returns `FirstPose` while the delayed target is before birth,
+  state fields included. The engine answers the oldest entry for the interpolated variables (`interpolatedvar.h:877-882`),
+  but `m_nSkin`, the effects, the sequence and the scale are plain networked members, live from the latest update: an
+  entity born at 40 whose skin changes at 45 draws skin 0 at 46 (delay 8), where TF2 draws 1. Fix shape: fall through to
+  the bracket, which already answers the oldest entry, with `from = earlier`; `At_SeededHistories_MatchMainsFingerprintBitForBit`
+  and `PropsAt_PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList` encode the current behaviour and need
+  their expectations re-derived from the engine.
+- **A re-parent in a rise's packet** takes the new amount at the packet read (`Interp_UpdateInterpolationAmounts` from
+  `LinkChild`/`UnlinkChild`, `c_baseentity.cpp:2239`, `:2268`), one frame before `FRAME_START` hands it to everything else
+  (B860); so does a predictable's `SetPredictable` (`:4596`) and an every-tick flag flip (`recvproxy.cpp:139-150`). The
+  viewer gives every variable the amount at the frame start.
+*Not fixed*.
+
 ## B864 — a settled variable re-blends toward a latch that changed nothing, where the engine leaves it settled (2026-11-25) — OPEN
 
 Found in B860 review 4 (Fable). `NoteChanged` adds the entry whatever it holds but returns true only when the value
@@ -47289,6 +47305,40 @@ asked; the windowed corpus builds agree with the whole build). Fable's "the hold
 is real and not the rise's: a latch that changed nothing does not re-arm a variable at any tick (`NoteChanged`,
 `interpolatedvar.h:633-639`), so a settled variable stays put where the sampler, past the rise window or with no rise at
 all, splines toward that latch's identical entry through an older differing one — **B864**.
+
+Review 5 (Fable, Sonnet, Codex: no blocker). Fixed (Fable):
+- **A rise sent a drawn young entity back to its birth pose**, state fields included (born 40, skin 1 from 45: skin 0 at
+  60). The first pose now also needs no earlier frame to have aimed past birth, which a rise cannot undo;
+  `At_AYoungEntitySentBeforeItsBirthByTheRise_KeepsItsLatestState` reddens without the clause. Removing the shortcut
+  outright, Fable's suggestion, changes every entity's first delay window, which predates this branch: **B865**.
+- **The `cl_predict` flip and the jump on a packetless timeline had no test that could fail**:
+  `PropsAt_SteppedAcrossPredictionTurningOff_MatchesAFreshTimelineEverywhere` (updates off the flip's tick, so no arrival
+  wakes the track there) and `PropsAt_AJumpOnATimelineWithNoPackets_ReadsItsOwnTick` (360; 520 under the first step), each
+  reddened by its sabotage.
+- **`LatestChange` compared a latch with the entry before it, flushed or not**, where `NoteChanged` compares with the head
+  it met; `LatestChange_ALatchAfterAFlush_ComparesWithTheHeadStillHeld` reddens without the skip.
+- The born clause `Motion` gained in review 4 is the same first-pose test, now one helper (`FirstPoseAnswers`).
+
+Recorded, not modelled (Fable, *read*): `FRAME_START` is not the only place a variable takes a new amount —
+`Interp_UpdateInterpolationAmounts` also runs during the packet read from `LinkChild`/`UnlinkChild`
+(`c_baseentity.cpp:2239`, `:2268`), `SetPredictable` (`:4596`), the every-tick flags' receive proxy (`recvproxy.cpp:139-150`)
+and their setters (`baseentity_shared.h:151-171`). An entity that gains or loses a move parent in the rise's own packet
+takes the new amount one frame before the viewer has it — one frame, on one tick, only there; in **B865**'s neighbourhood
+of first-window and per-frame state, filed with it.
+
+Not taken, each with its reason:
+- *The end of the hold is no wake* (Sonnet). After the window a held variable is sampled at the plain target, and that
+  answer differs from the held one only where a differing older sample bends the curve — which makes the held sample
+  unsettled too, so the track is never parked there and is re-sampled every frame. A window wake was written and its
+  test, `PropsAt_SteppedAcrossTheEndOfARisesHold_MatchesAFreshTimelineEverywhere`, passed with the wake disabled, so the
+  wake was deleted and the test kept as a guard. The step in the answer at the window's end is B864's.
+- *`_delaySteps` is built once* (Sonnet): a timeline's tracks are fixed at construction (the builder hands them over
+  whole; a window is a new timeline), so no track arrives after the first sample.
+- *The frame start outlives its frame* (Sonnet): a later sample at exactly that tick is that frame's answer, which is
+  what any reader asking for the shown moment wants.
+- *The floor vanishes once the target reaches the furthest earlier one* (Codex): past that target the bracket's older
+  entry is at least the first entry older than the cut, so the spline's third sample is one the engine kept.
+- Records: the frames-a-tick-apart model is tagged *interpolated* in findings 115 (Sonnet).
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

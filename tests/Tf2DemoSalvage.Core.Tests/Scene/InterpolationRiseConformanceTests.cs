@@ -177,6 +177,22 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A rise does not send a drawn entity back to its birth pose** (B860 review 5, Fable): born at 40, skin 1 from 45.
+    /// Frames to 50 drew it from its history (the frame at 50 aimed at 42); the rise sends the target back to 26, before
+    /// birth, but the skin is a plain networked member, live from the latest update: 1, not the birth pose's 0.
+    /// </summary>
+    [Test]
+    public void At_AYoungEntitySentBeforeItsBirthByTheRise_KeepsItsLatestState()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        crate.Add(40, new ScenePose());
+        crate.Add(45, new ScenePose { Skin = 1 });
+
+        crate.At(60)!.Value.Skin.ShouldBe(1);
+    }
+
+    /// <summary>
     /// **A young entity whose delay rose is floored above its birth** (B860 review 4, Fable): born at 30, an update a tick.
     /// The frame at 50 aimed at 42 and kept 38, 37 and 36; the frame at 51 aims at 17, older than all of them, and answers
     /// the oldest, 36: 360. Gated on the delayed moment alone, it drew the first pose, 300.
@@ -329,6 +345,30 @@ public sealed class InterpolationRiseConformanceTests
         timeline.PropsAt(100, props);
 
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(660f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A jump on a timeline with no packets reads its own tick** (B860 review 4, Sonnet; untested until review 5, Fable):
+    /// there is nothing to place a skip batch by, so the frame at 60 runs under the delay of 60 like any reader that names
+    /// no frame: the moving crate floored at 36, 360 — not under the first step, 52, 520.
+    /// </summary>
+    [Test]
+    public void PropsAt_AJumpOnATimelineWithNoPackets_ReadsItsOwnTick()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(double.NegativeInfinity, 60);
+        timeline.PropsAt(60, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
     }
 
     /// <summary>

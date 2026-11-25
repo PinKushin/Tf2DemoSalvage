@@ -656,11 +656,22 @@ public sealed class InterpolatedHistory
         LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _changeTimes[index] : null;
 
     /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
+    /// <remarks>
+    /// Compared with the head it was latched against — the newest entry still held when it arrived, so one a clock
+    /// correction had flushed by then is skipped (`memcmp` against `m_VarHistory[0]`, B860 review 5, Fable).
+    /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
         for (int index = LastReceivedAtOrBefore(arrivedBy); index >= 0; index--)
         {
-            if (index == _generationStarts[index] || !Same(index, index - 1, first, count))
+            int head = index - 1;
+
+            while (head >= _generationStarts[index] && _flushedAt[head] <= _received[index])
+            {
+                head--;
+            }
+
+            if (head < _generationStarts[index] || !Same(index, head, first, count))
             {
                 return index;
             }

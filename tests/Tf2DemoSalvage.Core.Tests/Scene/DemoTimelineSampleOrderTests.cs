@@ -167,6 +167,95 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
+    /// **A server turning prediction off is a moment of its own** (B860 review 5, Fable): the recorder's launcher, updated
+    /// every ten ticks from 5, is predicted (one tick) until `sv_client_predict 0` at 50, and then takes the delay. No track wake
+    /// names that tick, so the stepped sample must resync there to agree with a fresh one.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossPredictionTurningOff_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Launcher()
+        {
+            ScenePropTrack weapon = new(entityIndex: 2, "models/weapons/w_models/w_rocketlauncher.mdl")
+            {
+                PredictsForItsOwner = true,
+                OwnedBy = 1,
+            };
+
+            // Off the flip's tick, so no arrival wakes the track there.
+            for (int tick = 5; tick <= 95; tick += 10)
+            {
+                weapon.Stamp(tick);
+                weapon.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [weapon];
+        }
+
+        Core.Net.ServerConVars off = new();
+        off.Apply(new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_predict", "0")]));
+        List<(int Tick, Core.Net.ServerConVars ConVars)> changes = [(50, off)];
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Launcher(), recorder: 1, conVarChanges: changes);
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            List<SceneProp> fresh = [];
+            DemoTimeline.ForTracks(Launcher(), recorder: 1, conVarChanges: changes).PropsAt(tick, fresh);
+
+            ShouldMatch(props, fresh, $"at tick {tick}");
+        }
+    }
+
+    /// <summary>
+    /// **Across the end of a rise's hold the cache agrees with the sampler** (B860 review 5, Sonnet): X steps 0 to 200 by
+    /// 20, an update that arrives at 44 stamped 30 moves it to 300 and settles it, and a turn at 49 leaves it there; the
+    /// delay rises at 50. The hold ends where the delayed target catches up with every earlier frame's, a tick no history
+    /// names; the answer can change there only where a differing older sample bends the curve, which keeps the track off
+    /// the settled list and so re-sampled every frame anyway.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossTheEndOfARisesHold_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Held()
+        {
+            Core.Net.ServerConVars raised = new();
+            raised.Apply(new Core.Net.SetConVarMessage(
+            [
+                new KeyValuePair<string, string>("sv_client_min_interp_ratio", "10"),
+                new KeyValuePair<string, string>("sv_client_max_interp_ratio", "10"),
+            ]));
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
+            };
+
+            for (int tick = 0; tick <= 20; tick++)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            crate.Add(44, new ScenePose { X = 300f }, appliedAt: 30);
+            crate.Add(49, new ScenePose { X = 300f, Yaw = 90f });
+
+            return [crate];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Held());
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            ShouldMatch(props, Fresh(Held, tick), $"at tick {tick}");
+        }
+    }
+
+    /// <summary>
     /// **An entity whose own clock runs behind its arrival: every history settles before the first
     /// stated pose stops being the answer.**
     /// </summary>
