@@ -412,6 +412,15 @@ public sealed partial class ViewerSession
             return true;
         }
 
+        // **The repeat of any other bound chord is taken too** (B827): its press is the menu shortcut's, and WinForms runs a
+        // shortcut on every key down, auto-repeats included, so a held CTRL+w flickered wireframe. Source binds the press
+        // (`Key_Event` runs a bind on the down transition), and no action a menu shortcut carries repeats while held: each
+        // is a toggle, a mode, a dialog or a one-shot. A chord bound to nothing is still the toolkit's.
+        if (!press && Array.Exists(Enum.GetValues<ViewerAction>(), Chord))
+        {
+            return true;
+        }
+
         // **Logged before the guard, so a key that ARRIVED is distinguishable from one that never
         // did.** Full screen has twice been reported as impossible to leave, and the two states
         // look identical from outside: the key reaching this method and being ignored, and the key

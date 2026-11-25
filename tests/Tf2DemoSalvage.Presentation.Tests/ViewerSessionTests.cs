@@ -1484,6 +1484,25 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A held menu chord fires once** (B827): a chord the session does not perform itself is left to the menu
+    /// shortcut, which WinForms runs on every key down, auto-repeats included, so holding `CTRL+w` flickered wireframe.
+    /// Source binds the press (`Key_Event` runs a bind on the down transition), and no menu shortcut is an action that
+    /// repeats while held, so a bound chord's repeat is taken and runs nothing. The press is still the menu's; a chord
+    /// bound to nothing is still the toolkit's on repeat.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AHeldMenuChordRepeating_IsTakenSoItFiresOnce()
+    {
+        using Rig rig = Build();
+        static bool Wireframe(string? binding) => binding == "CTRL+w";
+
+        rig.Session.KeyPressed(Key("w", Wireframe, controlOrAlt: true)).ShouldBeFalse("the press is the menu shortcut's");
+        rig.Session.KeyPressed(Key("w", Wireframe, controlOrAlt: true, repeat: true)).ShouldBeTrue("its repeat is taken");
+        rig.Session.KeyPressed(Key("q", static _ => false, controlOrAlt: true, repeat: true))
+            .ShouldBeFalse("the control: a chord bound to nothing is left to the toolkit");
+    }
+
+    /// <remarks>
     /// **A held screenshot chord writes one file** (B825 review 4, Fable): a matched chord's repeat is taken and runs
     /// nothing, so a held chord is one press, as Source binds it. The control: the press wrote one.
     /// </remarks>
