@@ -46618,8 +46618,9 @@ Review 11 (Fable, Sonnet, Gemini):
 Review 12 (Fable, Sonnet, Gemini after): no engine divergence. The wiring comment claimed a race the UI thread rules out
 (Fable): reworded. A test renamed for what its rows hold (Sonnet). A waited `demo_togglepause` that comes due during
 the load is spent on nothing, where TF2 holds the buffer (Fable): B847's consequence, added there. The handoff memory's
-"B841 open" is updated at the merge (Sonnet).
-- 2,244 of 2,244 pass.
+"B841 open" is updated at the merge (Sonnet). Gemini, on `d2a277342`: no findings; each round-11 test checked for
+the mutation that reddens it.
+- 2,244 of 2,244 pass; after main (B839) merged in, 2,260 of 2,260.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
