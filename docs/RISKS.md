@@ -46348,7 +46348,8 @@ dequeue. `Link` is `InsertCommand`: while processing, a command due now goes bef
 at a given command, which is how `Cmd_Exec_f` (`engine.dll` build 1007 FUN_1801672f0) runs a file line. An alias body
 is added and the loop runs it next, so aliases no longer nest on the stack. A key's text is added as while nothing
 processes; a config line, the launch line and a handler's text run where they stand. Each entry carries its context,
-its command's budgets and its key's answer. A throw drops what the call from outside added that is due now.
+its key's answer, and, while it is due within the current run, its alias depth and its command's budgets. A throw
+drops what the call from outside added that is due now.
 
 Review 1 (Fable, Gemini, Sonnet, Grok) found the first version, per-text lists on a stack, could not hold the engine's
 order: `wait -5; al; wait 5; b` with `al` = `x; wait 2; d; wait -2; y` runs al, x, d, y, b in TF2 (`d` sits before
@@ -46361,6 +46362,20 @@ Gemini, Grok). Tests `Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBefor
 `Load_ACommandBehindOnePutOff_WaitsForIt`, `Load_TwoAliasesPuttingEachOtherOff_EndWithoutNesting`,
 `Load_AThrowInsideAnAlias_DropsWhatTheLoadAddedDueNow`. Immediate commands sent to the tail reddened eight console
 tests; any due command taken instead of the head reddened `Load_ACommandBehindOnePutOff_WaitsForIt`.
+
+Review 2 (Fable, Sonnet, Grok; Gemini pending). Fixed:
+- A command put off past the current `Cbuf_Execute` keeps no alias depth or budgets: the engine has neither, so a
+  `wait` loop runs every tick for ever; such a command is a command of its own, at depth 0 with budgets of its own, as
+  before B840. One due within the run keeps them, which bounds a loop that never leaves it (Fable). Test
+  `Execute_AWaitLoop_RunsEveryTickPastTheDepthBound`, red with the carry kept.
+- Text from outside (a config load, the launch line) stands where TF2's `exec` or `stuffcmds` stands: one command with
+  no bytes is linked by tick at the current tick, behind what is queued, and its run adds the text where it stands, at
+  the tick it runs at (Fable). Tests `Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt`,
+  `Load_BehindAnAliasThatPutsOff_RunsBeforeWhatItPutOff`, both red with the old drain-then-add.
+- `RunClause`'s doc says what its false now means (Fable).
+Not taken: that a load's or the launch line's text is linked by tick as if nothing were processing (Grok, Sonnet).
+TF2 adds them from `exec` and `stuffcmds`, commands the queue is running, so `InsertImmediateCommand` puts them before
+the next command; what is queued ahead of that command runs first. A key's text, from `Key_Event`, is linked by tick.
 
 The paragraph below is the entry as filed.
 

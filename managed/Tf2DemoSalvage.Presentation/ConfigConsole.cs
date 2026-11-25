@@ -661,7 +661,8 @@ public sealed class ConfigConsole
         bool SavedLayer,
         Budget Budget,
         Answer? Answer,
-        int Adding);
+        int Adding,
+        Action? Run);
 
     /// <summary>`m_Commands`: every queued command, one list, in the order the engine links them (B840).</summary>
     private readonly LinkedList<Entry> _queue = new();
@@ -732,10 +733,11 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// Runs new text from outside every command as the next `Cbuf_Execute` would, at once (B832): what is due runs first,
-    /// as the text is queued behind it; then the text; then what else falls due by the current tick, which that call runs
-    /// too. The tick is left as it was, as the call that stands for it has not ended. Inside a command, the text runs
-    /// where it stands, as `Cmd_Exec_f` runs a file line. A throw drops what this call added and has not run by now.
+    /// Runs new text from outside every command as the next `Cbuf_Execute` would, at once (B832): the command that adds it
+    /// (an `exec`, `stuffcmds`, or a key's `Key_Event`) is linked by tick at the current tick, and the queue runs from the
+    /// head, so what is queued ahead of it runs first and what it adds runs where the engine runs it. The tick is left as
+    /// it was, as the call that stands for this one has not ended. Inside a command, the text runs where it stands, as
+    /// `Cmd_Exec_f` runs a file line. A throw drops what this call added and has not run by now.
     /// </summary>
     /// <param name="add">Adds the text, and runs it where it stands.</param>
     /// <param name="linkedByTick">Whether the text is added as while no commands are processing, a key's (`Key_Event`), so
@@ -761,12 +763,12 @@ public sealed class ConfigConsole
             }
             else
             {
-                Processing(now, () =>
-                {
-                    Pump(until: null);
-                    add();
-                    Pump(until: null);
-                });
+                // **Where TF2's `exec` or `stuffcmds` stands** (B840 review 2, Fable): that command is linked by tick at the
+                // current tick, behind what is queued for it, and its run adds the text where it stands. One command with
+                // no bytes stands for it here, so what runs before it, and at what tick, is the engine's.
+                Link(new Entry(
+                    now, 0, string.Empty, null, 0, _loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding, add));
+                Processing(now, () => Pump(until: null));
             }
         }
         catch (Exception)
@@ -835,6 +837,13 @@ public sealed class ConfigConsole
 
         try
         {
+            // The command that stands for text added from outside: its run adds the text where it stands (B840 review 2).
+            if (entry.Run is { } run)
+            {
+                run();
+                return;
+            }
+
             bool acted = false;
             _ = RunClause(entry.Command, entry.Key, entry.Depth, ref acted);
 
@@ -2117,15 +2126,32 @@ public sealed class ConfigConsole
         // off past the current tick, it is linked from the head by tick (`InsertCommandAtAppropriateTime`). The queue's
         // head-only dequeue then runs them in the engine's order. Each holds its bytes until it runs, in the context it was
         // added in, with the budgets and the key's answer of the command that added it.
+        // **One put off past this `Cbuf_Execute` starts afresh** (B840 review 2, Fable): `CCommandBuffer` has no depth or
+        // budget, so a `wait` loop (`alias lp "x; wait; lp"`) runs every tick for ever in TF2; the viewer's bounds (B820) are
+        // per run, and one that runs in a later call is a command of its own, at depth 0 with budgets of its own, as it was
+        // before B840. One due within this call keeps them, which bounds a loop that never leaves it.
+        int lastThisRun = _processing ? _lastTick : _tick;
         bool putOff = false;
 
         foreach (Added queued in added)
         {
             _queuedBytes += queued.Size;
             putOff |= queued.Tick > _tick;
+            bool later = queued.Tick > lastThisRun;
             Link(new Entry(
-                queued.Tick, queued.Size, queued.Command, key, depth, _loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer,
-                _adding));
+                queued.Tick,
+                queued.Size,
+                queued.Command,
+                key,
+                later ? 0 : depth,
+                _loading,
+                _stuffing,
+                _viewerIssued,
+                _savedLayer,
+                later ? new Budget(new CommandBudget()) : _budget,
+                _answer,
+                _adding,
+                Run: null));
         }
 
         return putOff;
@@ -2136,7 +2162,8 @@ public sealed class ConfigConsole
     /// <param name="key">The key that ran it, if any.</param>
     /// <param name="depth">Its depth.</param>
     /// <param name="acted">Set when it did something.</param>
-    /// <returns>False when the clause budget is spent, so the rest of the text is not run.</returns>
+    /// <returns>False when the clause budget is spent: every later command on that budget is then refused at its first
+    /// clause as it comes off the queue.</returns>
     private bool RunClause(string clause, string? key, int depth, ref bool acted)
     {
         // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).

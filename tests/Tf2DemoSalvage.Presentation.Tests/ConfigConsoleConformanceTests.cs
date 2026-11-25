@@ -2339,6 +2339,70 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("fps_max").ShouldBe("1");
     }
 
+    /// <remarks>
+    /// **A `wait` loop runs every tick for ever** (B840 review 2, Fable): `CCommandBuffer` has no depth or budget, so
+    /// `alias lp "x; wait; lp"` runs once a `Cbuf_Execute`; one put off past the run is a command of its own, at depth 0
+    /// with budgets of its own. It runs once at the load and once more for each call after the first: 50 in fifty calls,
+    /// past the alias depth bound of 20.
+    /// </remarks>
+    [Test]
+    public void Execute_AWaitLoop_RunsEveryTickPastTheDepthBound()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias lp \"incrementvar {Alpha} 0 1000 1; wait; lp\"");
+        console.Load($"{Alpha} 0\nlp");
+
+        for (int call = 0; call < 50; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("50.000000", "incrementvar writes its result as %f");
+    }
+
+    /// <remarks>
+    /// **A load stands where TF2's `exec` stands: linked by tick behind what is queued, at the tick it runs at** (B840
+    /// review 2, Fable): with `2` (T+2) and `3` (T, held behind it) queued and the tick at T+2, the load's `wait 2; 4` is
+    /// added at T+2 after both run, so `4` waits for T+4. Run before them at T, it would land at T+2 and run inside the
+    /// load.
+    /// </remarks>
+    [Test]
+    public void Load_BehindQueuedCommands_AddsItsTextAtTheTickItRunsAt()
+    {
+        ConfigConsole console = new();
+        List<string> sets = Recorded(console);
+        console.Load($"{Alpha} 1; wait 2; {Alpha} 2; wait -2; {Alpha} 3");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.Load($"wait 2; {Alpha} 4");
+        sets.ShouldBe(["1", "2", "3"], "the control: 4 waits two more ticks");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        sets.ShouldBe(["1", "2", "3", "4"]);
+    }
+
+    /// <remarks>
+    /// **What an alias queued ahead of a load puts off is linked behind the load** (B840 review 2, Fable): TF2's queue is
+    /// `2`, `al`, then the `exec`; `al` links its `9` at T+2 after the `exec`, so 2, 3 (the load), 9.
+    /// </remarks>
+    [Test]
+    public void Load_BehindAnAliasThatPutsOff_RunsBeforeWhatItPutOff()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait 2; {Alpha} 9\"");
+        List<string> sets = Recorded(console);
+        console.Load($"{Alpha} 1; wait 2; {Alpha} 2; wait -2; al");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.Load($"{Alpha} 3");
+
+        sets.ShouldBe(["1", "2", "3", "9"]);
+    }
+
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
     private static List<string> Recorded(ConfigConsole console)
     {
