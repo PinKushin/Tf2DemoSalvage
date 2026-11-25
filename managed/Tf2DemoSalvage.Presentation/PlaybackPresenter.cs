@@ -156,14 +156,11 @@ public sealed class PlaybackPresenter
 
     /// <summary>A frame that moved the clock some other way: the next <see cref="Advance"/> counts only the time since this one.</summary>
     /// <remarks>Host frame time accumulates per frame; a skip's frames read the demo and spend none of it on playback (B708).</remarks>
-    public void HoldClock()
-    {
-        TicksAdvanced = 0;
-        _elapsed.Restart();
-    }
+    public void HoldClock() => _elapsed.Restart();
 
-    /// <summary>The whole ticks the last <see cref="Advance"/> moved over: zero when it did not move.</summary>
-    public int TicksAdvanced { get; private set; }
+    /// <summary>Seconds within which a frame's time counts as reaching the next tick: far below one tick, far above a
+    /// double's rounding of a frame.</summary>
+    private const double TickTolerance = 1e-9;
 
     /// <summary>`demo_togglepause`: pauses while playing, plays while paused (B825).</summary>
     public void TogglePause()
@@ -192,7 +189,7 @@ public sealed class PlaybackPresenter
 
     /// <summary>Moves playback on by however long has passed since the last frame, one tick at a time.</summary>
     /// <param name="beforeEachTick">
-    /// Run before each whole tick the frame crosses, as TF2 runs `Cbuf_Execute` in each host tick's input step before that
+    /// Run with the tick the clock is on before each whole tick the frame crosses, as TF2 runs `Cbuf_Execute` in each host tick's input step before that
     /// tick's client step (B832, B838; `_Host_RunFrame`, `engine.dll` build 1007 FUN_1801a5eb0). A command it runs that
     /// pauses playback stops the clock on the tick reached, as a waited `demo_pause` stops TF2's demo there.
     /// </param>
@@ -201,10 +198,8 @@ public sealed class PlaybackPresenter
     /// A demo plays one tick per host tick, and TF2 adds no frame time while the demo is paused (its demo player's
     /// `IsPlaybackPaused`), so a paused frame runs no tick.
     /// </remarks>
-    public void Advance(Action? beforeEachTick = null)
+    public void Advance(Action<int>? beforeEachTick = null)
     {
-        TicksAdvanced = 0;
-
         // Stryker disable once : a mutant that empties the guard body leaves 'clock'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_view.Playing || _clock is not { } clock)
@@ -227,22 +222,32 @@ public sealed class PlaybackPresenter
         {
             double toTick = clock.SecondsToNextTick();
 
-            if (toTick > left)
+            // Within a rounding error of the tick counts as reaching it (B832 review 1, Sonnet): otherwise `Advance` could
+            // land on the tick without the console running before it.
+            if (toTick - left > TickTolerance)
             {
                 clock.Advance(left);
                 break;
             }
 
-            beforeEachTick?.Invoke();
+            beforeEachTick?.Invoke(clock.Tick);
 
             if (!_view.Playing)
             {
                 break;
             }
 
+            // Read again (B832 review 1, Fable): a command it ran may have changed the speed or the direction.
+            toTick = clock.SecondsToNextTick();
+
+            if (toTick - left > TickTolerance)
+            {
+                clock.Advance(left);
+                break;
+            }
+
             clock.StepToNextTick();
             left -= toTick;
-            TicksAdvanced++;
         }
 
         _view.ShowTick(clock.Tick);

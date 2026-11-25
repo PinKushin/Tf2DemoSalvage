@@ -511,7 +511,7 @@ public sealed partial class ViewerSession
     {
         // **The console's buffer runs at the top of every frame, map read or not** (B832): `_Host_RunFrame` (`engine.dll`
         // build 1007 FUN_1801a5eb0) calls `Cbuf_Execute` before its tick loop, whatever else the frame does.
-        ExecuteConsole();
+        ExecuteConsole(_transport.CurrentTick);
 
         // **Nothing is drawn while a map is being read on another thread (B146).** That read
         // replaces a dozen fields one at a time — the outline, the surfaces, the assets, the
@@ -830,9 +830,9 @@ public sealed partial class ViewerSession
     /// A replicated ConVar whose default is 1 (`engine.dll` build 1007 FUN_18000b680), read as its integer at each
     /// `Cbuf_Execute` (FUN_180166a10); a demo sets it as a server's <c>net_SetConVar</c> does.
     /// </remarks>
-    private void ExecuteConsole() =>
-        _console.Execute(
-            ConfigConsole.WaitAllowed(_presenter.Timeline?.ServerConVarsAt(_transport.CurrentTick).Value(ConfigConsole.AllowWaitConVar)));
+    /// <param name="tick">The demo tick it runs at: the clock's, inside a frame's advance (B832 review 1, Fable).</param>
+    private void ExecuteConsole(int tick) =>
+        _console.Execute(ConfigConsole.WaitAllowed(_presenter.Timeline?.ServerConVarsAt(tick).Value(ConfigConsole.AllowWaitConVar)));
 
     /// <summary>`--measure`'s sun line, over the whole frame.</summary>
     private readonly SunMeter _sunMeter = new();

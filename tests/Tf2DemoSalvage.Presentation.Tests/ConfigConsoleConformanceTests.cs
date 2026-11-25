@@ -1902,6 +1902,7 @@ public sealed class ConfigConsoleConformanceTests
     /// m_nWaitDelayTicks;`, `commandbuffer.cpp:237`), and the name is matched in any case (`Q_stricmp`).
     /// </remarks>
     [TestCase("wait 3", 4)]
+    [TestCase("\"wait\" 3", 4)]
     [TestCase("WAIT", 2)]
     [TestCase("wait 0", 0)]
     [TestCase("wait x", 0)]
@@ -1957,6 +1958,184 @@ public sealed class ConfigConsoleConformanceTests
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
         console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **A text's waited commands are linked before any of it runs** (B832 review 1, Sonnet): `AddText` inserts the whole
+    /// text first, so `x`'s waited `2`, added when `x` runs, goes after the key's own waited `3` at the same tick
+    /// (`InsertCommandAtAppropriateTime` links before the first LATER tick). So 2 is last.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasWaitingAsLongAsItsCaller_RunsItsWaitedHalfLast()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias x \"wait 5; {Alpha} 2\"\nbind k \"x; wait 5; {Alpha} 3\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        for (int call = 0; call < 6; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **A key's text is linked by tick, so a negative `wait` runs what follows it first** (B832 review 1, Sonnet):
+    /// `Key_Event` adds while nothing is processing, and `InsertCommand` then links each command by its tick
+    /// (`commandbuffer.cpp:148-151`). A config line is added while its `exec` is processing, so it runs in order
+    /// (`InsertImmediateCommand`). The control: the same text as a config line leaves 2.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ANegativeWait_RunsTheCommandAfterItFirst()
+    {
+        ConfigConsole control = new();
+        control.Load($"{Alpha} 1; wait -1; {Alpha} 2");
+        control.ConVar(Alpha).ShouldBe("2", "the control: a config line runs in order");
+
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A command run from the queue can wait again** (B832): it runs at its tick, and a `wait` in its alias puts the
+    /// rest one tick past that.
+    /// </remarks>
+    [Test]
+    public void Execute_AWaitedAliasThatWaits_RunsItsRestATickLater()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias x \"{Alpha} 1; wait; {Alpha} 2\"\nwait; x");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **A waited command runs as what added it** (B832): a config line's set, run later from the queue, is still a
+    /// config's, so it is not announced before the settings attach (D215). The control: a key's waited set is announced.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Execute_AWaitedSet_IsAnnouncedAsWhatAddedIt(bool fromConfig, int announced)
+    {
+        ConfigConsole console = new();
+        int sets = 0;
+        console.Load($"bind k \"wait; {Alpha} 1\"");
+        console.ConVarSet += (_, _) => sets++;
+
+        if (fromConfig)
+        {
+            console.Load($"wait; {Alpha} 1");
+        }
+        else
+        {
+            console.KeyDown("k");
+        }
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.ConVar(Alpha).ShouldBe("1", "the control: the waited set ran");
+        sets.ShouldBe(announced);
+    }
+
+    /// <remarks>
+    /// **A config's waited one-shot still does nothing; the launch line's still runs** (B832 review 1, Fable): each runs at
+    /// a later `Execute` as the text that added it, a config's at load (B820 review 1) and the launch line's as `stuffcmds`
+    /// runs it (B829).
+    /// </remarks>
+    [TestCase(false, 0)]
+    [TestCase(true, 1)]
+    public void Execute_AWaitedOneShot_RunsAsTheTextThatAddedIt(bool launchLine, int triggered)
+    {
+        ConfigConsole console = new();
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        if (launchLine)
+        {
+            console.Stuff("wait\ntogglefullscreen");
+        }
+        else
+        {
+            console.Load("wait; togglefullscreen");
+        }
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        raised.ShouldBe(triggered);
+    }
+
+    /// <remarks>
+    /// **A waited command from the viewer's own key is still the viewer's** (B832 review 1, Fable; D253): `SPACE`'s
+    /// built-in `+jump`, replaced by a config's alias that waits before a cheat, sets it when it runs. The control: the
+    /// same alias run from a config's own bind is refused.
+    /// </remarks>
+    [TestCase("SPACE", "1")]
+    [TestCase("j", null)]
+    public void Execute_AWaitedCheatFromTheViewersOwnKey_IsAdmitted(string key, string? fullbright)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Load("alias +jump \"wait; mat_fullbright 1\"\nalias -jump \"\"\nbind j +jump");
+
+        console.KeyDown(key);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.ConVar("mat_fullbright").ShouldBe(fullbright);
+    }
+
+    /// <remarks>
+    /// **A `+` bind's text carries its key's number, and the number takes bytes** (B834 review 1, Fable): `Key_Event`
+    /// (`engine.dll` build 1007 FUN_1801b6090) adds `"%s %i"` with the key's `ButtonCode_t`, so with nine bytes left
+    /// `+forward` (nine with its terminator) would fit and `+forward 21` does not. The control: with room for the number,
+    /// forward is held.
+    /// </remarks>
+    [TestCase(20, true, 0)]
+    [TestCase(9, false, 1)]
+    public void KeyDown_APlusBindBesideAFullBuffer_CountsItsKeyNumber(int room, bool held, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load("bind k +forward");
+        console.Stuff("wait\n" + Fillers(ConfigConsole.ArgumentBufferLength - room));
+
+        console.KeyDown("k");
+
+        console.AnyHeld.ShouldBe(held);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+    }
+
+    /// <remarks>
+    /// **`wait`'s number is read past the command, as `atoi( pArgS )` reads it** (B832 review 1, Fable): `pArgS` points into
+    /// the whole text, so `wait ` then a line `5…` waits five, white space and the line feed skipped.
+    /// </remarks>
+    [Test]
+    public void Stuff_AWaitWhoseNumberIsOnTheNextLine_WaitsThatMany()
+    {
+        ConfigConsole console = new();
+
+        console.Stuff($"wait \n5\n{Alpha} 2");
+
+        for (int call = 0; call < 5; call++)
+        {
+            console.ConVar(Alpha).ShouldBeNull($"before call {call + 1}");
+            console.Execute(waitAllowed: true);
+        }
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
     }
 
     /// <remarks>

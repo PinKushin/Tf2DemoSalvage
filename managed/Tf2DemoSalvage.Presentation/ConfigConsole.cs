@@ -44,7 +44,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// **One dispatcher runs every line** (B820, `engine.dll` `Cmd_ExecuteCommand`): a config's line, a key's bind and an
 /// alias's body reach the same commands, `exec` among them, which reads <see cref="FindConfig"/>.
 ///
-/// **What it deliberately does not implement**: `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
+/// **Text is queued as TF2's command buffer queues it** (B832, B834): whole before it runs, in 8192 bytes, with `wait`
+/// putting commands off to a later <see cref="Execute"/>.
+///
+/// **What it deliberately does not implement**: the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
 /// file. <see cref="Applied"/> counts what actually landed so a caller can tell "your config loaded
 /// and bound nothing" from "your config did not load", which otherwise look identical.
@@ -506,7 +509,7 @@ public sealed class ConfigConsole
             // (`:235-240`; `m_nWaitDelayTicks` is 1, FUN_180166970).
             if (waitEnabled && string.Equals(tokens[0], WaitCommand, StringComparison.OrdinalIgnoreCase))
             {
-                tick += WaitTicks(command);
+                tick += WaitTicks(command, rest);
                 continue;
             }
 
@@ -535,7 +538,10 @@ public sealed class ConfigConsole
     /// The ticks a `wait` adds: `atoi( pArgS )`, the text after its first token, or one when nothing follows it
     /// (`ParseArgV0`, `commandbuffer.cpp:86-87`). So `wait 3` is three, `wait` one, and `wait x` or `wait ` none.
     /// </summary>
-    private static int WaitTicks(string command)
+    /// <param name="command">The `wait` command.</param>
+    /// <param name="fromHere">The text from it on: `pArgS` points into the whole text, so `atoi` reads past the command's
+    /// end, through a line feed's white space, and `wait \n5` waits five (B832 review 1, Fable).</param>
+    private static int WaitTicks(string command, string fromHere)
     {
         int at = 0;
 
@@ -547,7 +553,7 @@ public sealed class ConfigConsole
         // The first token is `wait`, bare or quoted, so it ends four bytes on, or six with its quotes.
         at += command[at] == '"' ? WaitCommand.Length + 2 : WaitCommand.Length;
 
-        return at >= command.Length ? 1 : Core.Primitives.CStdlib.Atoi(command.AsSpan(at));
+        return at >= command.Length ? 1 : Core.Primitives.CStdlib.Atoi(fromHere.AsSpan(at));
     }
 
     /// <summary>
@@ -913,13 +919,25 @@ public sealed class ConfigConsole
             // overflow line when `AddText` refuses it. No bind's own text reaches 511 bytes (B835 reviews 1 and 2, Fable,
             // Sonnet): `bind` stores its value from a statement under 511 whose prefix is at least 5 bytes (`bind'`), so the
             // value is at most 505, and ` %i` adds at most 4 (509). So only a full argument buffer refuses it (B834).
-            return RunCommand(command, key!);
+            return RunCommand(KeyText(command, key!), key!);
         }
         finally
         {
             _viewerIssued = viewerIssued;
         }
     }
+
+    /// <summary>
+    /// The text `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds for a bind: a `+` bind as `"%s %i"` with the key's
+    /// `ButtonCode_t`, anything else as it stands (B834 review 1, Fable). Its bytes are what the argument buffer holds, and
+    /// the number is the last command's last argument, as in TF2. A chord, which TF2 has no code for, adds none.
+    /// </summary>
+    /// <param name="command">The bind; its release is this text with the `+` made `-`.</param>
+    /// <param name="key">The key.</param>
+    private static string KeyText(string command, string key) =>
+        command.StartsWith('+') && ButtonCodeNames.CodeOf(key) is { } code
+            ? string.Create(CultureInfo.InvariantCulture, $"{command} {code}")
+            : command;
 
     /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
     /// <remarks>
@@ -1006,7 +1024,7 @@ public sealed class ConfigConsole
 
         // Stryker restore all
 
-        _ = RunCommand(string.Concat("-", command.AsSpan(1)), key!);
+        _ = RunCommand(string.Concat("-", KeyText(command, key!).AsSpan(1)), key!);
     }
 
     /// <summary>Lets go of every button, leaving the binds and aliases in place.</summary>
@@ -1893,28 +1911,43 @@ public sealed class ConfigConsole
             Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
         }
 
+        List<Added> now = [];
+
         foreach (Added queued in added)
         {
             _queuedBytes += queued.Size;
+
+            // **A command a `wait` put off is linked at its tick now, before any of the text runs** (B832 review 1, Sonnet):
+            // `AddText` inserts the whole text first, so a later command this text's aliases put off at the same tick goes
+            // after it (`InsertCommandAtAppropriateTime`). It holds its bytes until it runs, and counts as the key's or the
+            // line's doing.
+            if (queued.Tick > _tick)
+            {
+                Defer(queued, key);
+                acted = true;
+            }
+            else
+            {
+                now.Add(queued);
+            }
+        }
+
+        // **A key's text is linked by tick, not inserted in order** (B832 review 1, Sonnet): `Key_Event` adds it while no
+        // commands are processing, so `InsertCommand` links each by its tick (`commandbuffer.cpp:148-151`), and one a
+        // negative `wait` put before the current tick runs ahead of the commands before it. Text added while processing,
+        // as an alias body, a file line or a launch line is, goes in order (`InsertImmediateCommand`). Stable.
+        if (key is not null && depth == 0 && !_processing)
+        {
+            now = [.. now.OrderBy(queued => queued.Tick)];
         }
 
         int handled = 0;
 
         try
         {
-            while (handled < added.Count)
+            while (handled < now.Count)
             {
-                Added queued = added[handled++];
-
-                // **A command a `wait` put off waits for its tick** (B832): queued for a later `Execute`, holding its bytes
-                // until then, and counted as the key's or the line's doing.
-                if (queued.Tick > _tick)
-                {
-                    Defer(queued, key);
-                    acted = true;
-                    continue;
-                }
-
+                Added queued = now[handled++];
                 _queuedBytes -= queued.Size;
 
                 if (!RunClause(queued.Command, key, depth, ref acted))
@@ -1926,9 +1959,9 @@ public sealed class ConfigConsole
         finally
         {
             // What a budget or a throw left unrun is dropped, and its bytes with it.
-            for (int left = handled; left < added.Count; left++)
+            for (int left = handled; left < now.Count; left++)
             {
-                _queuedBytes -= added[left].Size;
+                _queuedBytes -= now[left].Size;
             }
         }
 

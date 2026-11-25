@@ -119,15 +119,41 @@ public sealed class PlaybackPresenterTests
     /// </remarks>
     [TestCase(true, 3)]
     [TestCase(false, 0)]
-    public void Advance_AFrameOfThreeTicks_SaysItAdvancedThem(bool playing, int ticks)
+    public void Advance_AFrameOfThreeTicks_RunsTheConsoleBeforeEach(bool playing, int ticks)
     {
         (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
 
         view.PressPlayPause(playing);
         time.Seconds = 0.05;
-        presenter.Advance();
+        presenter.Advance(_ => called++);
 
-        presenter.TicksAdvanced.ShouldBe(ticks);
+        called.ShouldBe(ticks);
+    }
+
+    /// <remarks>
+    /// **A frame that ends a rounding error short of a tick still runs the console before it** (B832 review 1, Sonnet):
+    /// exactly three ticks of time, 3 × the float interval, reaches tick 3 by the arithmetic and must call three times.
+    /// </remarks>
+    [Test]
+    public void Advance_AFrameOfExactlyThreeTicks_RunsTheConsoleThreeTimes()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 3 * (double)0.015f;
+        List<int> ticks = [];
+        presenter.Advance(tick =>
+        {
+            called++;
+            ticks.Add(tick);
+        });
+
+        ticks.ShouldBe([0, 1, 2], "each call is told the tick the clock is on, before it moves");
+
+        called.ShouldBe(3);
+        view.LastShownTick.ShouldBe(3);
     }
 
     /// <remarks>
@@ -145,7 +171,7 @@ public sealed class PlaybackPresenterTests
 
         view.PressPlayPause(true);
         time.Seconds = 0.05;
-        presenter.Advance(() =>
+        presenter.Advance(_ =>
         {
             if (++called == pauseAt)
             {
@@ -155,7 +181,31 @@ public sealed class PlaybackPresenterTests
 
         called.ShouldBe(calls);
         view.LastShownTick.ShouldBe(shown);
-        presenter.TicksAdvanced.ShouldBe(shown);
+    }
+
+    /// <remarks>
+    /// **A speed the console sets before a tick times that tick** (B832 review 1, Fable, Gemini): the distance to the next
+    /// tick is read again after the console runs. 0.045 seconds is three ticks at 1x; doubled before the first, the rest is
+    /// five more, so the clock reaches tick 6, where the speed read before the console ran would reach 5.
+    /// </remarks>
+    [Test]
+    public void Advance_ASpeedSetBeforeTheFirstTick_TimesEveryTickAtIt()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        bool set = false;
+
+        view.PressPlayPause(true);
+        time.Seconds = 3 * (double)0.015f;
+        presenter.Advance(_ =>
+        {
+            if (!set)
+            {
+                set = true;
+                view.ChooseSpeed(2f);
+            }
+        });
+
+        view.LastShownTick.ShouldBe(6);
     }
 
     /// <remarks>A skip's frames spend no playback time (B708): the frame after its landing moves by that frame, not the walk.</remarks>
