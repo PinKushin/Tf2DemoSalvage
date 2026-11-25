@@ -449,7 +449,7 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) => AtStartup(stuffing: false, () => RunFile(text ?? string.Empty, depth: 0));
+    public void Load(string? text) => AtStartup(stuffing: false, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
 
     /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
     /// <param name="text">The commands.</param>
@@ -468,7 +468,27 @@ public sealed class ConfigConsole
     /// second launch.
     /// </param>
     public void Stuff(string? text, bool oneShots) =>
-        AtStartup(oneShots, () => _ = RunCommand(text ?? string.Empty, key: null));
+        AtStartup(oneShots, () => FromOutside(() => AsCommand(() => RunHere(text ?? string.Empty, key: null, depth: 0))));
+
+    /// <summary>
+    /// Runs one command typed with budgets of its own (B820 review 5, Fable): a key, each line of a config
+    /// <see cref="Load"/> reads, and the whole launch line, whose `+command`s share one set (B830). Put back after, so a
+    /// handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
+    /// </summary>
+    private void AsCommand(Action run)
+    {
+        Budget outer = _budget;
+        _budget = new Budget(new CommandBudget());
+
+        try
+        {
+            run();
+        }
+        finally
+        {
+            _budget = outer;
+        }
+    }
 
     /// <summary>`ARGS_BUFFER_LENGTH`: the bytes every queued command shares, each with its terminator (`commandbuffer.h:92`).</summary>
     /// <remarks>`engine.dll` x64 build 1007's `CCommandBuffer` constructor (FUN_180294fb0) sets its limit to 0x2000 (B834).</remarks>
@@ -585,30 +605,81 @@ public sealed class ConfigConsole
     /// <summary>`m_nCurrentTick`: the tick the console's commands run at now (B832).</summary>
     private int _tick;
 
+    /// <summary>`m_nLastTickToProcess`: the last tick the commands running now may run.</summary>
+    private int _lastTick;
+
     /// <summary>`m_bWaitEnabled`, as the last <see cref="Execute"/> set it.</summary>
     private bool _waitEnabled = true;
 
-    /// <summary>Whether <see cref="Execute"/> is running, so a second one inside it does nothing.</summary>
+    /// <summary>`m_bIsProcessingCommands`: an <see cref="Execute"/>, or the console's run of new text, is running.</summary>
     private bool _processing;
 
     /// <summary>
-    /// A queued command: its tick, its size, its text, the context it was added in, and the text it came in (a key's, so
-    /// the key is answered for its own commands only; 0 for any other).
+    /// The budgets one command typed spends, and everything it runs (B820): files exec'd and clauses run. A key, each line
+    /// of a config <see cref="Load"/> reads, and the whole launch line each begin one.
     /// </summary>
-    private readonly record struct Deferred(
-        int Tick, int Size, string Command, string? Key, bool Loading, bool Stuffing, bool ViewerIssued, bool SavedLayer, int Text);
+    private sealed class CommandBudget
+    {
+        /// <summary>Files exec'd; see <see cref="MaximumExecs"/>.</summary>
+        public int Execs { get; set; }
 
-    /// <summary>The last key text queued, numbering each so its commands can be told from others' (B832 review 3).</summary>
-    private int _keyTexts;
+        /// <summary>Clauses run; see <see cref="MaximumCommandClauses"/>.</summary>
+        public int Clauses { get; set; }
+    }
+
+    /// <summary>The budgets a line spends: its command's, and its own alias runs (B820 review 3: per file line).</summary>
+    private sealed class Budget(CommandBudget command)
+    {
+        /// <summary>The command's budgets.</summary>
+        public CommandBudget Command { get; } = command;
+
+        /// <summary>Aliases run; see <see cref="MaximumAliasRuns"/>.</summary>
+        public int AliasRuns { get; set; }
+    }
+
+    /// <summary>Whether a key's commands did something, which <see cref="KeyDown"/> answers (B547).</summary>
+    private sealed class Answer
+    {
+        /// <summary>Whether one did.</summary>
+        public bool Acted { get; set; }
+    }
 
     /// <summary>
-    /// The commands queued by tick, in the order `InsertCommandAtAppropriateTime` links them: those put off to a later tick,
-    /// and a key's whole text until it runs.
+    /// A queued command (`Command_t`): its tick, its size with the terminator, its text, and what it runs with: the key
+    /// that added it, its alias depth, the context it was added in, its budgets, the key it answers to, and the call that
+    /// added it.
     /// </summary>
-    private readonly List<Deferred> _deferred = [];
+    private sealed record Entry(
+        int Tick,
+        int Size,
+        string Command,
+        string? Key,
+        int Depth,
+        bool Loading,
+        bool Stuffing,
+        bool ViewerIssued,
+        bool SavedLayer,
+        Budget Budget,
+        Answer? Answer,
+        int Adding);
 
-    /// <summary>Commands a <see cref="RunCommand"/> is inside, so only the outermost runs what is due first.</summary>
-    private int _commandsRunning;
+    /// <summary>`m_Commands`: every queued command, one list, in the order the engine links them (B840).</summary>
+    private readonly LinkedList<Entry> _queue = new();
+
+    /// <summary>`m_hNextCommand`: the head when the last command was taken; text added while processing goes before it.</summary>
+    private LinkedListNode<Entry>? _next;
+
+    /// <summary>The budgets the command running now spends.</summary>
+    private Budget _budget = new(new CommandBudget());
+
+    /// <summary>The key the command running now answers to, if any.</summary>
+    private Answer? _answer;
+
+    /// <summary>The call from outside that added the command running now, numbered, so a throw drops what it added.</summary>
+    private int _adding;
+
+    /// <summary>The last call from outside numbered.</summary>
+    private int _addings;
 
     /// <summary>
     /// One `Cbuf_Execute` (`engine.dll` x64 build 1007 FUN_180166a10, B832): sets whether `wait` is taken from
@@ -621,25 +692,108 @@ public sealed class ConfigConsole
     /// </remarks>
     public void Execute(bool waitAllowed)
     {
-        // Nor inside a command the console runs between two calls, which stands in for one (B832 review 3, Fable).
-        if (_processing || _commandsRunning > 0)
+        // Nor inside the console's run of new text, which stands in for one (B832 review 3, Fable).
+        if (_processing)
         {
             return;
         }
 
         _waitEnabled = waitAllowed;
-        _processing = true;
         int last = _tick;
 
         try
         {
-            _ = RunDue(last);
+            Processing(last, () => Pump(until: null));
         }
         finally
         {
-            _processing = false;
             _tick = last + 1;
         }
+    }
+
+    /// <summary>
+    /// Runs as one `Cbuf_Execute` does, between `BeginProcessingCommands` and `EndProcessingCommands` (`:277-288,
+    /// 376-381`): commands processing, the last tick set, the next-command handle at the head.
+    /// </summary>
+    /// <param name="last">The last tick to run.</param>
+    /// <param name="run">What runs.</param>
+    private void Processing(int last, Action run)
+    {
+        (_processing, _lastTick, _next) = (true, last, _queue.First);
+
+        try
+        {
+            run();
+        }
+        finally
+        {
+            (_processing, _next) = (false, null);
+        }
+    }
+
+    /// <summary>
+    /// Runs new text from outside every command as the next `Cbuf_Execute` would, at once (B832): what is due runs first,
+    /// as the text is queued behind it; then the text; then what else falls due by the current tick, which that call runs
+    /// too. The tick is left as it was, as the call that stands for it has not ended. Inside a command, the text runs
+    /// where it stands, as `Cmd_Exec_f` runs a file line. A throw drops what this call added and has not run by now.
+    /// </summary>
+    /// <param name="add">Adds the text, and runs it where it stands.</param>
+    /// <param name="linkedByTick">Whether the text is added as while no commands are processing, a key's (`Key_Event`), so
+    /// it is linked by tick among what is queued, and the run then takes the queue as it stands.</param>
+    private void FromOutside(Action add, bool linkedByTick = false)
+    {
+        if (_processing)
+        {
+            add();
+            return;
+        }
+
+        int now = _tick;
+        int adding = _adding;
+        _adding = ++_addings;
+
+        try
+        {
+            if (linkedByTick)
+            {
+                add();
+                Processing(now, () => Pump(until: null));
+            }
+            else
+            {
+                Processing(now, () =>
+                {
+                    Pump(until: null);
+                    add();
+                    Pump(until: null);
+                });
+            }
+        }
+        catch (Exception)
+        {
+            DropUnrun(_adding, now);
+            throw;
+        }
+        finally
+        {
+            (_tick, _adding) = (now, adding);
+        }
+    }
+
+    /// <summary>Adds a text and runs it where it stands, as `Cmd_Exec_f` runs one file line: until the head is the
+    /// command that was next before it was added.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="key">The key that added it, if any.</param>
+    /// <param name="depth">Its alias depth.</param>
+    /// <remarks>
+    /// The handle is `GetNextCommandHandle`'s, which is the head straight after `exec` was taken; text added now goes
+    /// before it (`InsertImmediateCommand`), so the run ends there.
+    /// </remarks>
+    private void RunHere(string text, string? key, int depth)
+    {
+        LinkedListNode<Entry>? until = _next;
+        _ = AddText(text, key, depth);
+        Pump(until);
     }
 
     /// <summary>The server ConVar that allows `wait` (`engine.dll` build 1007 FUN_18000b680: replicated, default 1).</summary>
@@ -651,121 +805,93 @@ public sealed class ConfigConsole
     /// <returns>True when `wait` is taken.</returns>
     public static bool WaitAllowed(string? value) => value is null || ConVarNumber.GetBool(value);
 
-    /// <summary>Runs the queued commands due by a tick, each at its own tick (`DequeueNextCommand`, `:294-329`).</summary>
-    /// <param name="last">The last tick to run.</param>
-    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
-    /// <returns>Whether any of that text's commands did something.</returns>
-    private bool RunDue(int last, int text = 0)
+    /// <summary>
+    /// `DequeueNextCommand` in a loop (`commandbuffer.cpp:294-329`): runs the queue's head while it is due by
+    /// <see cref="_lastTick"/>, each at its own tick, the next-command handle moved to the new head after each, and stops
+    /// at the first command not due or at <paramref name="until"/>, which is how `Cmd_Exec_f` (`engine.dll` build 1007
+    /// FUN_1801672f0) runs one file line: until the head is the command that followed `exec`.
+    /// </summary>
+    /// <param name="until">The command to stop before, or null to run all that is due.</param>
+    private void Pump(LinkedListNode<Entry>? until)
     {
-        bool acted = false;
-
-        while (_deferred.Count > 0 && _deferred[0].Tick <= last)
+        while (_queue.First is { } head && head != until && head.Value.Tick <= _lastTick)
         {
-            Deferred due = _deferred[0];
-            _deferred.RemoveAt(0);
-            acted |= RunQueued(due, text);
+            _queue.RemoveFirst();
+            _next = _queue.First;
+            RunEntry(head.Value);
         }
-
-        return acted;
     }
 
-    /// <summary>Runs one queued command at its own tick, in the context it was added in (`DequeueNextCommand`).</summary>
-    /// <param name="due">The command, already taken off the queue.</param>
-    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
-    /// <returns>Whether it is that text's and did something.</returns>
-    private bool RunQueued(Deferred due, int text)
+    /// <summary>Runs one dequeued command at its tick, in the context it was added in (`Cmd_ExecuteCommand`).</summary>
+    private void RunEntry(Entry entry)
     {
-        _queuedBytes -= due.Size;
-        _tick = due.Tick;
+        _queuedBytes -= entry.Size;
+        _tick = entry.Tick;
 
-        (bool loading, bool stuffing, bool viewerIssued, bool savedLayer) = (_loading, _stuffing, _viewerIssued, _savedLayer);
-        (_loading, _stuffing, _viewerIssued, _savedLayer) = (due.Loading, due.Stuffing, due.ViewerIssued, due.SavedLayer);
+        (bool loading, bool stuffing, bool viewerIssued, bool savedLayer, Budget budget, Answer? answer, int adding) =
+            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding);
+        (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+            (entry.Loading, entry.Stuffing, entry.ViewerIssued, entry.SavedLayer, entry.Budget, entry.Answer, entry.Adding);
 
         try
         {
-            // The key text being run shares the budgets its key's command began (B832 review 4, Sonnet), as it did when
-            // it ran as one text; any other queued command is a command of its own.
-            bool ownText = text != 0 && due.Text == text;
-            bool did = ownText ? Run(due.Command, due.Key, depth: 0) : RunCommand(due.Command, due.Key);
-            return did && ownText;
+            bool acted = false;
+            _ = RunClause(entry.Command, entry.Key, entry.Depth, ref acted);
+
+            if (acted && entry.Answer is { } asked)
+            {
+                asked.Acted = true;
+            }
         }
         finally
         {
-            (_loading, _stuffing, _viewerIssued, _savedLayer) = (loading, stuffing, viewerIssued, savedLayer);
+            (_loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer, _adding) =
+                (loading, stuffing, viewerIssued, savedLayer, budget, answer, adding);
         }
     }
 
     /// <summary>
-    /// A text added while commands are processing, running: its commands still to run, in the order
-    /// `InsertImmediateCommand` put them at the queue's front, and any command a deeper text put off and
-    /// `InsertCommandAtAppropriateTime` linked among them (B840).
+    /// `InsertCommand`'s linking (`commandbuffer.cpp:148-155`): while commands are processing, one due now goes before the
+    /// next command (`InsertImmediateCommand`, `:111-114`), so a text added then runs ahead of the rest in order; any
+    /// other is linked from the head before the first command with a later tick (`InsertCommandAtAppropriateTime`,
+    /// `:95-105`).
     /// </summary>
-    private sealed class Running
+    private void Link(Entry entry)
     {
-        /// <summary>The commands left: the text's own (no <see cref="Pending.Linked"/>) and those linked among them.</summary>
-        public List<Pending> Left { get; } = [];
-
-        /// <summary>The next of <see cref="Left"/> to run.</summary>
-        public int Next { get; set; }
-    }
-
-    /// <summary>One command of a running text: its tick, its size, its text, and, for one linked in, the queued command.</summary>
-    private readonly record struct Pending(int Tick, int Size, string Command, Deferred? Linked);
-
-    /// <summary>The texts running now, outermost first: the front of the queue is the innermost's commands left, then
-    /// the next one out's, then <see cref="_deferred"/> (B840).</summary>
-    private readonly List<Running> _running = [];
-
-    /// <summary>Drops a key text's queued commands due by a tick, releasing their bytes: what a throw left unrun.</summary>
-    /// <param name="text">The key text.</param>
-    /// <param name="upTo">The last tick it was to run now.</param>
-    private void DropUnrun(int text, int upTo)
-    {
-        for (int at = _deferred.Count - 1; at >= 0; at--)
+        if (_processing && entry.Tick <= _tick)
         {
-            if (_deferred[at].Text == text && _deferred[at].Tick <= upTo)
-            {
-                _queuedBytes -= _deferred[at].Size;
-                _deferred.RemoveAt(at);
-            }
+            _ = _next is { List: not null } next ? _queue.AddBefore(next, entry) : _queue.AddLast(entry);
+            return;
         }
-    }
 
-    /// <summary>Queues a command at its tick, after every one at its tick or before (`:95-105`).</summary>
-    /// <remarks>
-    /// **The scan starts at the queue's head** (B840): the commands left of every running text come first, innermost
-    /// first, so a command put off to a tick before one of theirs is linked ahead of it and runs before it; past them,
-    /// the queue proper.
-    /// </remarks>
-    private void Defer(Added command, string? key, int text) =>
-        Link(new Deferred(command.Tick, command.Size, command.Command, key, _loading, _stuffing, _viewerIssued, _savedLayer, text));
-
-    /// <summary>Links a queued command by its tick, from the queue's head (see <see cref="Defer"/>).</summary>
-    private void Link(Deferred deferred)
-    {
-        for (int level = _running.Count - 1; level >= 0; level--)
+        for (LinkedListNode<Entry>? at = _queue.First; at is not null; at = at.Next)
         {
-            Running running = _running[level];
-
-            for (int left = running.Next; left < running.Left.Count; left++)
+            if (at.Value.Tick > entry.Tick)
             {
-                if (running.Left[left].Tick > deferred.Tick)
-                {
-                    running.Left.Insert(left, new Pending(deferred.Tick, deferred.Size, deferred.Command, deferred));
-                    return;
-                }
+                _ = _queue.AddBefore(at, entry);
+                return;
             }
         }
 
-        int at = _deferred.FindIndex(queued => queued.Tick > deferred.Tick);
+        _ = _queue.AddLast(entry);
+    }
 
-        if (at < 0)
+    /// <summary>Drops what one call added that is still queued and due by a tick, releasing its bytes: what a throw left.</summary>
+    /// <param name="adding">The call.</param>
+    /// <param name="upTo">The last tick it was to run.</param>
+    private void DropUnrun(int adding, int upTo)
+    {
+        for (LinkedListNode<Entry>? at = _queue.First; at is not null;)
         {
-            _deferred.Add(deferred);
-        }
-        else
-        {
-            _deferred.Insert(at, deferred);
+            LinkedListNode<Entry>? next = at.Next;
+
+            if (at.Value.Adding == adding && at.Value.Tick <= upTo)
+            {
+                _queuedBytes -= at.Value.Size;
+                _queue.Remove(at);
+            }
+
+            at = next;
         }
     }
 
@@ -783,7 +909,7 @@ public sealed class ConfigConsole
     /// A config read at startup or on a folder change, its `exec`s included; a key's `exec` is a run-time command.
     /// Restored rather than cleared, so a load from a handler inside a load leaves the outer one quiet (B820 review 2).
     /// Each config line's budgets are its own, the whole launch line shares one set (B830), and the outer command's are put
-    /// back by `RunCommand` (B820 reviews 3-5).
+    /// back by `AsCommand` (B820 reviews 3-5).
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
     /// Each load says whether its one-shots fire, restored after it, so a config a handler loads inside the launch line
     /// fires none and the rest of the line still does (B829).
@@ -808,8 +934,9 @@ public sealed class ConfigConsole
     /// <summary>Runs a file's lines through the one dispatcher, each before the next is read, as `Cmd_Exec_f` does (B820).</summary>
     private void RunFile(string text, int depth)
     {
-        // A nested file's lines take the alias budget from the line that exec'd it, which gets its own back (B820 review 6).
-        int aliasRuns = _aliasRuns;
+        // A nested file's lines take an alias budget each and their command's other budgets, and the line that exec'd it
+        // keeps its own (B820 reviews 3 and 6).
+        Budget outer = _budget;
 
         try
         {
@@ -817,7 +944,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            _aliasRuns = aliasRuns;
+            _budget = outer;
         }
     }
 
@@ -962,14 +1089,15 @@ public sealed class ConfigConsole
             // of a file is queued at a time, beside whatever the text that ran `exec` still holds).
             // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config
             // tree, whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+            // Run where it stands, as `Cmd_Exec_f` runs each line until the head is the command after `exec` (B840).
             if (depth == 0)
             {
-                _ = RunCommand(line, key: null);
+                AsCommand(() => RunHere(line, key: null, depth));
                 continue;
             }
 
-            _aliasRuns = 0;
-            _ = Run(line, key: null, depth);
+            _budget = new Budget(_budget.Command);
+            RunHere(line, key: null, depth);
         }
     }
 
@@ -1007,7 +1135,7 @@ public sealed class ConfigConsole
             // overflow line when `AddText` refuses it. No bind's own text reaches 511 bytes (B835 reviews 1 and 2, Fable,
             // Sonnet): `bind` stores its value from a statement under 511 whose prefix is at least 5 bytes (`bind'`), so the
             // value is at most 505, and ` %i` adds at most 4 (509). So only a full argument buffer refuses it (B834).
-            return RunCommand(KeyText(command, key!), key!);
+            return RunKey(KeyText(command, key!), key!);
         }
         finally
         {
@@ -1027,72 +1155,43 @@ public sealed class ConfigConsole
             ? string.Create(CultureInfo.InvariantCulture, $"{command} {code}")
             : command;
 
-    /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
+    /// <summary>Runs a key's text, a command of its own, and answers whether it did something (B547).</summary>
     /// <remarks>
-    /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
-    /// launch line, which <see cref="Stuff(string?, bool)"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
-    /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
-    /// A key's commands due at the press share its set; each one a `wait` puts off runs later with a set of its own (B832).
+    /// **A key's text is linked into the queue by tick, every command of it** (B832 reviews 1 to 3, Sonnet, Fable):
+    /// `Key_Event` adds it while no commands are processing, so `InsertCommand` links each by its tick among those already
+    /// queued (`commandbuffer.cpp:95-105, 148-151`), and the next `Cbuf_Execute` runs the queue in that order, which the
+    /// console runs at once. A key a handler presses inside a command runs inside it, in order. It answers for its own
+    /// commands, their aliases' included, and for one it put off to a later tick.
     /// </remarks>
-    private bool RunCommand(string line, string? key)
+    private bool RunKey(string text, string key)
     {
-        // **What a `wait` put off to this tick runs before new text** (B832): TF2 queues a key's or a config's text behind the
-        // commands already queued for its tick (`InsertCommandAtAppropriateTime`) and runs them all at the next
-        // `Cbuf_Execute`; the console runs new text at once, so it runs what is due first. Only from outside every command:
-        // a handler's text inside a command runs inside it. A key's text is linked among them by tick, in `Run`.
-        bool outside = _commandsRunning == 0 && !_processing;
-
-        if (outside && key is null)
-        {
-            _ = RunDueOutside(_tick);
-        }
-
-        (int execs, int aliasRuns, int clauses) = (_execs, _aliasRuns, _commandClauses);
-        (_execs, _aliasRuns, _commandClauses) = (0, 0, 0);
-        _commandsRunning++;
-        int tick = _tick;
+        Answer answer = new();
+        Answer? outer = _answer;
+        _answer = answer;
+        bool putOff = false;
 
         try
         {
-            return Run(line, key, depth: 0);
-        }
-        finally
-        {
-            _commandsRunning--;
-            (_execs, _aliasRuns, _commandClauses) = (execs, aliasRuns, clauses);
-
-            // Each command runs at its own tick (`DequeueNextCommand`); outside an `Execute` the tick is the next call's.
-            if (outside)
+            AsCommand(() =>
             {
-                _tick = tick;
-            }
-        }
-    }
-
-    /// <summary>Runs the queued commands due by a tick from outside an <see cref="Execute"/>, as that call would run
-    /// them ahead of text linked after them, leaving the current tick as it was.</summary>
-    /// <param name="upTo">The last tick to run.</param>
-    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
-    /// <returns>Whether any of that text's commands did something.</returns>
-    private bool RunDueOutside(int upTo, int text = 0)
-    {
-        if (_deferred.Count == 0 || _deferred[0].Tick > upTo)
-        {
-            return false;
-        }
-
-        int now = _tick;
-        _processing = true;
-
-        try
-        {
-            return RunDue(upTo, text);
+                if (_processing)
+                {
+                    LinkedListNode<Entry>? until = _next;
+                    putOff = AddText(text, key, depth: 0);
+                    Pump(until);
+                }
+                else
+                {
+                    FromOutside(() => putOff = AddText(text, key, depth: 0), linkedByTick: true);
+                }
+            });
         }
         finally
         {
-            _processing = false;
-            _tick = now;
+            _answer = outer;
         }
+
+        return answer.Acted || putOff;
     }
 
     /// <summary>Whether the command running now came from the viewer's own default binds (D253).</summary>
@@ -1137,7 +1236,7 @@ public sealed class ConfigConsole
 
         // Stryker restore all
 
-        _ = RunCommand(string.Concat("-", KeyText(command, key!).AsSpan(1)), key!);
+        _ = RunKey(string.Concat("-", KeyText(command, key!).AsSpan(1)), key!);
     }
 
     /// <summary>Lets go of every button, leaving the binds and aliases in place.</summary>
@@ -1609,19 +1708,12 @@ public sealed class ConfigConsole
     /// <remarks>*Interpolated* (B820 review 1): the engine's bound is not read. Far past a real config tree, which execs tens.</remarks>
     public const int MaximumExecs = 256;
 
-    /// <summary>Files `exec`ed since the last line run at depth 0 (a file's line or a key); see <see cref="MaximumExecs"/>.</summary>
-    private int _execs;
-
     /// <summary>How many aliases one line may run in all, nested ones included: a key's line, or one line of a file.</summary>
     /// <remarks>
     /// *Interpolated* (B820 reviews 2 and 3): the engine's bound is not read. Far past a real script, which runs tens per line;
     /// per file line rather than per command, so one `exec` of a whole config tree does not share one budget.
     /// </remarks>
     public const int MaximumAliasRuns = 4096;
-
-    /// <summary>Aliases run since the current command began (a key, a config line, or the whole launch line, B830); see
-    /// <see cref="MaximumAliasRuns"/>.</summary>
-    private int _aliasRuns;
 
     /// <summary>`COMMAND_MAX_LENGTH`: a command of this many bytes less one or more is skipped (`src/public/tier1/convar.h:207`).</summary>
     public const int MaximumCommandLength = 512;
@@ -1636,9 +1728,6 @@ public sealed class ConfigConsole
     /// lines and by the length of an alias body. A clause is the unit of work, so this bounds the work itself.
     /// </remarks>
     public const int MaximumCommandClauses = 1 << 20;
-
-    /// <summary>Clauses run since the last command at depth 0; see <see cref="MaximumCommandClauses"/>.</summary>
-    private int _commandClauses;
 
     /// <summary>What makes a path invalid to `Cmd_Exec_f`, case-sensitively (`engine.dll` build 1007 FUN_180176d10).</summary>
     private static readonly string[] RefusedPathParts = ["\\\\", ":", "..", "\n", "\r"];
@@ -1662,9 +1751,9 @@ public sealed class ConfigConsole
 
         // **A budget per command typed, besides the depth** (B820 review 1, Fable, Sonnet): a file holding `exec self`
         // twice reads 2^20 files under the depth bound alone. *Interpolated*, as the depth bound is.
-        if (++_execs > MaximumExecs)
+        if (++_budget.Command.Execs > MaximumExecs)
         {
-            if (_execs == MaximumExecs + 1)
+            if (_budget.Command.Execs == MaximumExecs + 1)
             {
                 Log.LogInformation("{Message}", $"exec: more than {MaximumExecs} files from one command; not executing the rest.");
             }
@@ -1995,14 +2084,12 @@ public sealed class ConfigConsole
     /// *press* forward rather than release it. Carrying a direction flag down the recursion was the
     /// second bug in this class, and it failed the same test.
     /// </remarks>
-    /// <returns>Whether it did something: an alias, a ConVar set, a button (B547), or a one-shot raised (B825).</returns>
-    private bool Run(string commandLine, string? key, int depth)
+    /// <returns>Whether a command of it was put off past the current tick, which counts as the key's doing.</returns>
+    private bool AddText(string commandLine, string? key, int depth)
     {
-        bool acted = false;
-
         if (depth >= MaximumExpansion)
         {
-            return acted;
+            return false;
         }
 
         // **The text is queued whole before any of it runs** (B834): `CCommandBuffer::AddText` inserts every command first, so
@@ -2024,105 +2111,24 @@ public sealed class ConfigConsole
             Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
         }
 
-        // **A key's text is linked into the queue by tick, every command of it** (B832 reviews 1 to 3, Sonnet, Fable):
-        // `Key_Event` adds it while no commands are processing, so `InsertCommand` links each by its tick among those
-        // already queued (`commandbuffer.cpp:95-105, 148-151`), and the next `Cbuf_Execute` runs the queue in that order:
-        // a negative `wait`'s command ahead of one already due, and a command its own alias puts off to a tick the key's
-        // text also holds after the key's. The console runs that `Cbuf_Execute`'s share at once. Only from outside every
-        // command: a key a handler presses inside one runs inside it. Text added while processing, as an alias body, a
-        // file line or a launch line is, goes in order (`InsertImmediateCommand`).
-        bool keyText = key is not null && depth == 0 && !_processing && _commandsRunning == 1;
-        int addedAt = _tick;
-        int text = keyText ? ++_keyTexts : 0;
-
-        // **Text added while processing goes to the queue's front, and is part of the queue** (B840): its commands for now
-        // are what this run works through, and a command a deeper text puts off is linked among them by tick.
-        Running running = new();
-
-        if (!keyText)
-        {
-            _running.Add(running);
-        }
+        // **Every command of the text is linked into the one queue as `InsertCommand` links it** (B840, B832): added while
+        // commands are processing (an alias body, a file line, the launch line), one due now goes before the next command,
+        // in order (`InsertImmediateCommand`), so it runs ahead of the rest; added while none are (`Key_Event`'s), or put
+        // off past the current tick, it is linked from the head by tick (`InsertCommandAtAppropriateTime`). The queue's
+        // head-only dequeue then runs them in the engine's order. Each holds its bytes until it runs, in the context it was
+        // added in, with the budgets and the key's answer of the command that added it.
+        bool putOff = false;
 
         foreach (Added queued in added)
         {
             _queuedBytes += queued.Size;
-
-            // **A command a `wait` put off is linked at its tick now, before any of the text runs** (B832 review 1, Sonnet):
-            // `AddText` inserts the whole text first, so a later command this text's aliases put off at the same tick goes
-            // after it (`InsertCommandAtAppropriateTime`). It holds its bytes until it runs, and counts as the key's or the
-            // line's doing.
-            if (keyText || queued.Tick > _tick)
-            {
-                Defer(queued, key, text);
-                acted |= queued.Tick > addedAt;
-            }
-            else
-            {
-                running.Left.Add(new Pending(queued.Tick, queued.Size, queued.Command, Linked: null));
-            }
+            putOff |= queued.Tick > _tick;
+            Link(new Entry(
+                queued.Tick, queued.Size, queued.Command, key, depth, _loading, _stuffing, _viewerIssued, _savedLayer, _budget, _answer,
+                _adding));
         }
 
-        if (keyText)
-        {
-            try
-            {
-                bool ran = RunDueOutside(addedAt, text);
-                return ran || acted;
-            }
-            finally
-            {
-                // What a throw left unrun of the key's text now is dropped, and its bytes with it, as a run text's rest is
-                // (B832 review 4, Sonnet), rather than left to fire at some later run.
-                DropUnrun(text, addedAt);
-            }
-        }
-
-        try
-        {
-            while (running.Next < running.Left.Count)
-            {
-                Pending queued = running.Left[running.Next++];
-
-                // A command a deeper text put off and linked here runs here, as what added it (B840).
-                if (queued.Linked is { } linked)
-                {
-                    _ = RunQueued(linked, text: 0);
-                    continue;
-                }
-
-                _queuedBytes -= queued.Size;
-
-                // **It runs at its own tick** (`DequeueNextCommand` sets `m_nCurrentTick`, `commandbuffer.cpp:307`; B832
-                // review 2, Fable, Sonnet), so a `wait` in what it runs counts from there.
-                _tick = queued.Tick;
-
-                if (!RunClause(queued.Command, key, depth, ref acted))
-                {
-                    break;
-                }
-            }
-        }
-        finally
-        {
-            _running.RemoveAt(_running.Count - 1);
-
-            // What a budget or a throw left unrun of this text is dropped, and its bytes with it; a command another text
-            // linked among it is that text's, and stays queued.
-            for (int left = running.Next; left < running.Left.Count; left++)
-            {
-                if (running.Left[left].Linked is { } linked)
-                {
-                    Link(linked);
-                }
-                else
-                {
-                    _queuedBytes -= running.Left[left].Size;
-                }
-            }
-        }
-
-        return acted;
+        return putOff;
     }
 
     /// <summary>Runs one queued command (`Cmd_ExecuteCommand`).</summary>
@@ -2134,9 +2140,9 @@ public sealed class ConfigConsole
     private bool RunClause(string clause, string? key, int depth, ref bool acted)
     {
         // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).
-        if (++_commandClauses > MaximumCommandClauses)
+        if (++_budget.Command.Clauses > MaximumCommandClauses)
         {
-            if (_commandClauses == MaximumCommandClauses + 1)
+            if (_budget.Command.Clauses == MaximumCommandClauses + 1)
             {
                 Log.LogInformation("{Message}", $"more than {MaximumCommandClauses} commands run from one command; not running the rest.");
             }
@@ -2162,9 +2168,9 @@ public sealed class ConfigConsole
         {
             // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
             // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
-            if (++_aliasRuns > MaximumAliasRuns)
+            if (++_budget.AliasRuns > MaximumAliasRuns)
             {
-                if (_aliasRuns == MaximumAliasRuns + 1)
+                if (_budget.AliasRuns == MaximumAliasRuns + 1)
                 {
                     Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
                 }
@@ -2176,8 +2182,8 @@ public sealed class ConfigConsole
             // No key, deliberately — see the remark above. The body is its own adder's call, so it says its own
             // refusals and the line that ran it does not hear them (B835; B830 review 6, Fable). `Cmd_ExecuteCommand`
             // (`engine.dll` build 1007 FUN_1801678a0) adds it while commands are processing, so it goes ahead of the rest
-            // of this text (`InsertImmediateCommand`), which is running it here.
-            _ = Run(body, key: null, depth + 1);
+            // of this text (`InsertImmediateCommand`), and the queue runs it next.
+            _ = AddText(body, key: null, depth + 1);
             acted = true;
             return true;
         }

@@ -46340,15 +46340,27 @@ lines were wrapped, where the whole entry was.
 
 ## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
 
-**Fixed.** The queue's front is now part of the queue: each text added while processing (an alias body, a file line,
-the launch line, a queued command's text) runs from a `Running` record of its commands left, kept on a stack
-(`_running`), innermost last. `Defer` links a put-off command as `InsertCommandAtAppropriateTime` does, scanning from
-the head: the innermost running text's commands left first, then each outer one's, then `_deferred`; it goes before the
-first with a later tick, so `wait -2; al; wait 2; b` with `al` = `wait; d` runs al, d, b. A linked command runs where it
-sits, as what added it (`RunQueued`, split out of `RunDue`). When a budget or a throw stops a text, its own rest is
-dropped with its bytes and a command another text linked among it is linked again past it, so it stays queued. Tests
-`Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt` (red without the scan of running texts) and
-`Load_AThrowAfterAnAliasLinkedAheadOfTheLine_KeepsTheAliassCommand` (red with the linked command dropped).
+**Fixed.** The console is now `CCommandBuffer`'s one queue (`src/tier1/commandbuffer.cpp`): every command is an
+`Entry` in one linked list (`m_Commands`), with a next-command handle (`m_hNextCommand`) set to the head at each
+dequeue. `Link` is `InsertCommand`: while processing, a command due now goes before the handle
+(`InsertImmediateCommand`), otherwise it is linked from the head before the first later tick
+(`InsertCommandAtAppropriateTime`). `Pump` is `DequeueNextCommand` in a loop: the head only, while it is due, stopping
+at a given command, which is how `Cmd_Exec_f` (`engine.dll` build 1007 FUN_1801672f0) runs a file line. An alias body
+is added and the loop runs it next, so aliases no longer nest on the stack. A key's text is added as while nothing
+processes; a config line, the launch line and a handler's text run where they stand. Each entry carries its context,
+its command's budgets and its key's answer. A throw drops what the call from outside added that is due now.
+
+Review 1 (Fable, Gemini, Sonnet, Grok) found the first version, per-text lists on a stack, could not hold the engine's
+order: `wait -5; al; wait 5; b` with `al` = `x; wait 2; d; wait -2; y` runs al, x, d, y, b in TF2 (`d` sits before
+`b` and after `x`, and `y` goes before the handle, after `d`); only the head is taken, so `1; wait 2; 2; wait -2; 3`
+with nothing queued runs 1 now and 2 and 3 at T+2; and linked commands ran inside each other on the stack (Fable,
+Gemini, Grok). Tests `Load_AnAliasPuttingOffAheadOfItsLinesNextCommand_RunsBeforeIt`,
+`Load_ACommandPutOffInsideTwoRunningTexts_IsLinkedAmongTheInnermosts` (and its bytes released),
+`Load_ACommandPutOffToARunningCommandsTick_RunsAfterIt`,
+`Load_AnAliasPuttingOffBetweenItsOwnCommands_RunsInTheEnginesOrder`,
+`Load_ACommandBehindOnePutOff_WaitsForIt`, `Load_TwoAliasesPuttingEachOtherOff_EndWithoutNesting`,
+`Load_AThrowInsideAnAlias_DropsWhatTheLoadAddedDueNow`. Immediate commands sent to the tail reddened eight console
+tests; any due command taken instead of the head reddened `Load_ACommandBehindOnePutOff_WaitsForIt`.
 
 The paragraph below is the entry as filed.
 
