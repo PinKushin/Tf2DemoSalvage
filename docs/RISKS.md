@@ -46598,9 +46598,19 @@ finding but this record's). Fixed:
 - A key's commands, run from the queue one by one, share the budgets its key's command began, as one text did
   (Fable, Sonnet). Test `KeyDown_ABindOfManyFanningOutAliases_SpendsOneBudget`, red with a budget per command.
 - A throw drops what of the key's text was to run now, and its bytes, as a run text's rest is (Fable, Sonnet). Test
-  `KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText`, red with the drop disabled.
+  `KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText`, red with the drop disabled; review 5 made it red too with
+  the bytes kept and with a future-tick command dropped (Fable, Sonnet).
 - The tie test checks that both sets ran, in order (Grok); stale comments on the queue and an unasserted "control"
   in a presenter test's remark are fixed (Fable, Sonnet).
+
+**Review 5** (Fable, Gemini as above, Sonnet, Grok; no blocker). Fixed: the handler-pressed key's test checks both
+sets in order (Grok); the throw test asserts the bytes are
+released (an 8192-byte launch line fits after it) and a future-tick command of the key survives (Fable, Sonnet); a
+pointless `KeyDown` of an unbound key is gone; `RunCommand`'s remark names the key's due commands' shared set (Fable).
+Not taken: `!_processing` in the key test (Sonnet) is redundant with `_commandsRunning == 1` and is kept as the
+engine's own condition (`!m_bIsProcessingCommands`). Not taken (Grok): that a spent budget no longer stops the rest
+of a key's text. The alias budget never stopped it (a spent alias is skipped and the text goes on); the clause budget
+still does, each remaining entry refused at its first clause (Fable, Sonnet traced it).
 
 The paragraph below is the entry as filed.
 

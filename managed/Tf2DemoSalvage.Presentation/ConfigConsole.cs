@@ -980,6 +980,7 @@ public sealed class ConfigConsole
     /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
     /// launch line, which <see cref="Stuff(string?, bool)"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
     /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
+    /// A key's commands due at the press share its set; each one a `wait` puts off runs later with a set of its own (B832).
     /// </remarks>
     private bool RunCommand(string line, string? key)
     {

@@ -2054,12 +2054,12 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
         console.ReadSettingsFrom(_ => null);
         bool pressed = false;
-        string? alpha = null;
+        List<string> alpha = [];
         console.ConVarSet += (_, set) =>
         {
             if (set.Name == Alpha)
             {
-                alpha = set.Value;
+                alpha.Add(set.Value);
             }
             else if (!pressed && set.Name == "fps_max")
             {
@@ -2071,7 +2071,7 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("fps_max 60");
 
         pressed.ShouldBeTrue("the control: the handler ran");
-        alpha.ShouldBe("2");
+        alpha.ShouldBe(["1", "2"], "both ran, in order (B832 review 5, Grok)");
     }
 
     /// <remarks>
@@ -2117,8 +2117,9 @@ public sealed class ConfigConsoleConformanceTests
     [Test]
     public void KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText()
     {
-        ConfigConsole console = new();
-        console.Load($"bind k \"{Alpha} 1; {Alpha} 2\"");
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load($"bind k \"{Alpha} 1; {Alpha} 2; wait; {Alpha} 3\"");
         List<string> sets = [];
         EventHandler<ConVarSetEventArgs> throwing = (_, _) => throw new InvalidOperationException("a handler failed");
         console.ConVarSet += (_, set) => sets.Add(set.Value);
@@ -2128,9 +2129,14 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVarSet -= throwing;
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
-        console.KeyDown("unbound");
 
-        sets.ShouldBe(["1"], "the control: its first command ran; the rest was dropped");
+        // Its first command ran, the rest due now was dropped, and what it put off to a later tick still ran (B832 review 5,
+        // Fable).
+        sets.ShouldBe(["1", "3"]);
+
+        // Its bytes went with it (B832 review 5, Sonnet): a launch line of exactly 8192 bytes still fits.
+        console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength));
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
     }
 
     /// <remarks>
