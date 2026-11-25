@@ -81,8 +81,9 @@ public sealed class InterpolationScheduleTests
     {
         // Review 3 (Fable, Sonnet): a fractional tick asked from, as `Motion` asks; a tick inside a step whose changetime the
         // target had passed (95: passed at 92, and still past at 100); and the reach tick itself (102), already reached.
-        // Review 4 (Sonnet): a target landing exactly on 95 at the rise is still reached, no new reach; 98 would be met at
-        // 100 under the old delay, but the step starts there, so it is 98 + 5 = 103.
+        // Review 4 (Sonnet): 95 asked after 99 is no new reach (the target at 99 is 97, past it), which `TicksAt(at)` for
+        // the tick before answered 100 (review 5, Fable); 98 would be met at 100 under the old delay, but the step starts
+        // there, so it is 98 + 5 = 103, which `<=` against the step's end answered 100.
         InterpolationSchedule schedule = InterpolationSchedule.From(
             Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 

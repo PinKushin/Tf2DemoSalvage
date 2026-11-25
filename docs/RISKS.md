@@ -46740,6 +46740,20 @@ so would put a signon message after every packet in time, and out of tick order 
 types per `dem_signon` over gcor and lcor first; fix each history a signon reaches, as the light styles are fixed. A
 signon game event matters more now that it hears the ConVars of its tick (B843). *Not fixed*.
 
+## B861 — a locally recorded demo's every-tick entities take one tick of interpolation, where the viewer takes the full amount for every demo (2026-11-25) — OPEN
+
+Found in B848 review 4 (Sonnet), split from B860 in review 5 (Fable): it does not need a rise. `GetInterpolationAmount`
+takes the amount (`c_baseentity.cpp:5937`) only in multiplayer or for a demo that is not locally recorded
+(`:5932-5935`); a locally recorded demo falls through to `:5940-5960`, where an entity animated and simulated every tick,
+or latched for the one it is, takes `TICK_INTERVAL ×` the tick multiple whatever the amount (`g_nThreadModeTicks` is 0
+in the SDK, `:60`). B267 (and findings 20) chose the non-local path for every demo on purpose, on the reasoning that a
+third-party viewer holds no prediction history; that is a reading of WHY the branch exists, not of what TF2 does when
+it plays the same file. *Read* in the SDK; what `IsPlayingDemoALocallyRecordedDemo` answers for a POV demo is engine
+code, not read, and decides whether this is a divergence at all. `m_bAnimatedEveryTick` and `m_bSimulatedEveryTick`
+are networked, so the viewer could decide per entity. Fix shape: read `IsPlayingDemoALocallyRecordedDemo` in
+`engine.dll`; if TF2 answers true for a POV demo, decode the two flags and take a tick for those entities, with a test
+predicting the engine's delay; if false, close this with the read. *Not fixed*.
+
 ## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
@@ -46757,11 +46771,7 @@ mechanism (review 3): the variables take the new amount at the next frame start,
 viewer's tracks switch at the tick (where the frame start falls against the packet read is engine code, unread); a
 predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` whatever the amount, and a server on
 alternate ticks adds two ticks, not one (`c_baseentity.cpp:5919-5928`); `cl_interp_npcs` is a second trigger the schedule
-does not model; and a LOCALLY recorded demo takes `GetInterpolationAmount`'s second path (`:5940-5960`), where an entity
-animated and simulated every tick takes a tick interval (plus `g_nThreadModeTicks` threaded) whatever the amount, the
-amount only for the rest (B848 review 4, Sonnet). Which demos the engine counts as locally recorded
-(`IsPlayingDemoALocallyRecordedDemo`) is not read; the viewer, since B267, takes the non-local path for every demo, so
-this is older than B848 and wider than a rise. Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
+does not model. (The locally recorded path, which does not need a rise, is B861.) Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
 per-entity state (settled entities hold; a moving one's target clamped to the history the old amount kept) at the frame
 start after the change, with a stepped test that predicts the engine's value. *Not fixed*.
 
@@ -46826,6 +46836,13 @@ test could not fail, Fable); a rise and back to the start is three steps, which 
 now in B860 and findings 115 (Sonnet, Fable); `GetClientInterpAmount` is at `:127`. Not taken: either `Motion` reach
 call reverted alone survives, the two histories sharing stamps (recorded in review 3). Sabotage, each restored: no
 epsilon reddens the step test, the first amount compared reddens the three-step test. Core 3328 of 3328.
+
+Review 5 of B848 (Fable, Sonnet, Codex: no merge blocker, no code finding). Records: the locally recorded path is its
+own bug, **B861**, since it needs no rise and B860's fix shape would have left it untracked (Fable); it names B267's
+deliberate choice and findings 20's reading that a POV demo is locally recorded, which B860 had called unread (Sonnet);
+`g_nThreadModeTicks` is 0 and never written in the SDK (Fable); findings 115 declares its "disassembled" class and that
+the two addresses' builds are unrecorded, qualifies the falling-delay claim to the `:5937` path, and states the bounded
+wrappers exactly (Fable). The `(95, 99)` test comment names the mutant it kills (Sonnet; Fable traced it to `TicksAt(at)`).
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay
