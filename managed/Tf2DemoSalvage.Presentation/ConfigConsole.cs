@@ -2610,14 +2610,15 @@ public sealed class ConfigConsole
     }
 
     /// <summary>
-    /// Whether a clause fires its action (B844 review 3): a spectator button only as a key's whole, exact binding, and
-    /// `spec_mode` only without exactly one argument.
+    /// Whether a clause fires its action (B844 review 3): a spectator button never as a clause — a key's whole, exact
+    /// binding is answered before any clause is read (`Expand`'s exact-first step, review 4) — and `spec_mode` only
+    /// without exactly one argument.
     /// </summary>
-    private static bool Fires(string commandLine, IReadOnlyList<string> tokens, int depth)
+    private static bool Fires(IReadOnlyList<string> tokens)
     {
         if (IsSpectatorButton(tokens[0]))
         {
-            return depth == 0 && SpectatorKeys.ContainsKey(commandLine);
+            return false;
         }
 
         return !(tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
@@ -2696,7 +2697,7 @@ public sealed class ConfigConsole
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ?? OneShotOf(tokens[0]);
 
-            if (credit && !Fires(commandLine, tokens, depth))
+            if (credit && !Fires(tokens))
             {
                 continue;
             }

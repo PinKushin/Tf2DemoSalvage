@@ -2960,6 +2960,7 @@ public sealed class ConfigConsoleConformanceTests
     [TestCase("\"+attack; +use\"", ViewerAction.CycleTargetForward, false)]
     [TestCase("+ATTACK", ViewerAction.CycleTargetForward, false)]
     [TestCase("\"spec_mode 5 6\"", ViewerAction.SwitchCameraMode, true)]
+    [TestCase("spec_mode", ViewerAction.SwitchCameraMode, true)]
     [TestCase("\"spec_next x\"", ViewerAction.CycleTargetForward, true)]
     [TestCase("+m1\nalias +m1 +attack", ViewerAction.CycleTargetForward, false)]
     [TestCase("+attack\nalias +attack spec_prev", ViewerAction.CycleTargetForward, true)]
@@ -2969,6 +2970,26 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"unbindall\nbind k {bind}");
 
         console.Unbound().Contains(action).ShouldBe(!credited);
+    }
+
+    /// <remarks>
+    /// **An alias named `+attack` is passed over for the key, by the key and by the credit alike** (B844 review 5, Fable):
+    /// `alias +attack spec_prev` with `bind k +attack` cycles FORWARD while spectating, as `HandleSpectatorKeyInput` tests
+    /// the binding before any text runs, and the credit holds forward cycling and not backward.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyBoundExactlyToAnAliasNamedPlusAttack_CyclesForwardAndIsCreditedSo()
+    {
+        ConfigConsole console = new() { Spectating = static () => true };
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("unbindall\nalias +attack spec_prev\nbind k +attack");
+
+        console.KeyDown("k");
+
+        raised.ShouldBe([ViewerAction.CycleTargetForward]);
+        (console.Unbound().Contains(ViewerAction.CycleTargetForward), console.Unbound().Contains(ViewerAction.CycleTargetReverse))
+            .ShouldBe((false, true));
     }
 
     /// <remarks>

@@ -46361,7 +46361,8 @@ sets the button, as TF2's does; **decided by the owner: TF2's way (D266)**. *Not
 
 ## B851 — `spec_mode <n>` does nothing, where TF2 sets that observer mode (2026-11-25) — OPEN
 
-Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling
+Found in B844 review 1 (Fable). `spec_mode` with an argument sets `mode = Q_atoi( args[1] )` rather than cycling, when
+SourceTV is not PVS-locked (locked, it only swaps in eye and chase: B853)
 (`SpectatorGUI.cpp:847-851`); a recorded TF2 measurement in this file typed `spec_mode 5`. The viewer's camera has
 three modes (free, first person, third person), so the mapping from the engine's seven is a design question: in eye and
 chase map directly, roaming to free, fixed and point of interest have no counterpart. Until it is decided the command
@@ -46474,6 +46475,25 @@ the key the config owns; `spec_mode`'s `SetAutoDirector( false )` is in B851 and
 (Sonnet, Fable). Sabotage, each restored: the exact-first step dropped reddens the alias-named row alone; the unbound
 report without credit reddens the compound, other-case and alias rows. Presentation 389 of 389 in
 `ConfigConsoleConformanceTests`.
+
+Review 5 (Fable, Gemini, Sonnet). No divergence in the branch's own rules. Fixed: `Fires`'s exact-binding test could
+no longer be reached once the exact-first step answered first (Fable, Sonnet): it answers false for a spectator button
+and its remark points to the step; dropping the step's early return credited cycling both ways and survived (Fable,
+Gemini): `KeyDown_AKeyBoundExactlyToAnAliasNamedPlusAttack_CyclesForwardAndIsCreditedSo` presses the key while
+spectating and asserts backward cycling stays unbound; a bare `spec_mode` row (Gemini). **Filed: B853** (Fable), the
+spectator commands ignoring `IsPVSLocked()`. Not taken: the two swallow branches run in the opposite order to the
+engine's, `spec_next` raised at once where `ClientCmd` queues it and `spec_autodirector` queued where the engine sets it
+(Fable, low): they differ only for a key pressed inside a running command or a full buffer; `credit` forced true on the
+non-credit readers (Gemini) answers the same for them. Presentation 391 of 391 in `ConfigConsoleConformanceTests`.
+
+## B853 — `spec_next`, `spec_prev` and `spec_mode` ignore SourceTV's PVS lock (2026-11-25) — OPEN
+
+Found in B844 review 5 (Fable). On SourceTV, `spec_next` and `spec_prev` do nothing while `HLTVCamera()->IsPVSLocked()`
+(`SpectatorGUI.cpp:796, 817`), and `spec_mode` then only swaps in eye and chase and ignores its argument (`:837-841`,
+`hltvcamera.cpp:843-866`). The lock holds when the relay did not transmit every entity (`tv_transmitall 0`). The
+viewer's camera cycles and switches regardless, for the keys (older than B844) and for the three commands B844 made.
+*Read*, not measured: whether a recording says it was locked, and where, is not read. Fix shape: read how
+`IsPVSLocked` is decided and whether the demo carries it, then gate the camera actions on it. *Not fixed*.
 
 The original entry follows. Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
 `+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
