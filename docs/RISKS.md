@@ -46338,6 +46338,15 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
+## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — OPEN
+
+Found in B840 review 3 (Fable). B820 review 1 made a config's one-shot (a viewer action such as `screenshot` or
+`demo_togglepause`) do nothing at load, *interpolated* from TF2 running its configs at startup, before a demo plays. A
+command a `wait` puts off keeps the context it was added in (B832), `Loading` included, so a config's
+`wait 500; screenshot` never takes the screenshot, though in TF2 it runs 500 ticks later, during playback, and acts.
+*Read*, not measured. Fix shape: decide the one-shot rule by when the command runs (no demo playing yet, or the
+startup run), not by whether its text came from a config. *Not fixed*.
+
 ## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — FIXED (2026-11-25)
 
 **Fixed.** The console is now `CCommandBuffer`'s one queue (`src/tier1/commandbuffer.cpp`): every command is an
@@ -46379,10 +46388,19 @@ the wait-loop test runs 5000 calls, past the alias budget, so it reddens with th
 depth (Fable, Sonnet); a text's commands put off share one fresh set of budgets, as a text run at once shares one
 (Fable); a throw from a command queued ahead of a load drops the load with it, tested
 (`Load_BehindACommandThatThrows_IsDroppedWithIt`, red with the outer call's drop; Fable); a test remark and the `Entry`
-summary (Fable). *Known bound*, recorded in the code (Fable): a `wait` loop started from a command held 20
-or more ticks behind its run by a negative `wait` re-adds within that run and ends at the depth bound there, where TF2
+summary (Fable). *Known bound*, recorded in the code (Fable): a `wait` loop started from a command held about
+19 ticks behind its run (review 4) by a negative `wait` re-adds within that run and ends at the depth bound there,
+where TF2
 runs it on; the alternative line, the current tick, lets `alias a "wait; b"` / `alias b "wait -1; a"` run for ever
 inside one run.
+
+Review 4 (Fable, Gemini pending, Sonnet, Grok; no blocker). Fixed: a text's commands put off share one fresh set per
+tick, not one across ticks, as each later tick is a run of its own; one set across ticks cut the eighth of eight `b`s a
+tick apart, which TF2 runs (Fable). Test `Load_PutOffAliasesFanningOut_ShareABudgetPerTick`: eight fanning-out aliases
+put off to one tick are cut at the alias budget, as one text is; eight a tick apart all run; red with one set for all
+ticks and with one per command (Fable, Grok). The known bound is about 19 ticks behind, fewer by its starting depth
+(Fable). A doubling loop, `alias a "wait; a; a"`, is bounded only by the 8192-byte buffer, as in TF2: each tick it
+fills the buffer and says `Cbuf_AddText: buffer overflow` for each add refused (Fable, Sonnet, Grok).
 
 Not taken: that a load's or the launch line's text is linked by tick as if nothing were processing (Grok, Sonnet).
 TF2 adds them from `exec` and `stuffcmds`, commands the queue is running, so `InsertImmediateCommand` puts them before

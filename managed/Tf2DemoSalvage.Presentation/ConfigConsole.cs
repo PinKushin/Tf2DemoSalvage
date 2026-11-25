@@ -885,6 +885,18 @@ public sealed class ConfigConsole
         _ = _queue.AddLast(entry);
     }
 
+    /// <summary>The one fresh set of budgets a text's commands put off to a tick share.</summary>
+    private static Budget LaterBudget(Dictionary<int, Budget> byTick, int tick)
+    {
+        if (!byTick.TryGetValue(tick, out Budget? budget))
+        {
+            budget = new Budget(new CommandBudget());
+            byTick[tick] = budget;
+        }
+
+        return budget;
+    }
+
     /// <summary>Drops what one call added that is still queued and due by a tick, releasing its bytes: what a throw left.</summary>
     /// <param name="adding">The call.</param>
     /// <param name="upTo">The last tick it was to run.</param>
@@ -2130,11 +2142,12 @@ public sealed class ConfigConsole
         // budget, so a `wait` loop (`alias lp "x; wait; lp"`) runs every tick for ever in TF2; the viewer's bounds (B820) are
         // per run, and one that runs in a later call is a command of its own, at depth 0 with budgets of its own, as it was
         // before B840. One due within this call keeps them, which bounds a loop that never leaves it.
-        // A text's commands put off share one fresh set, as a text run at once shares one (B840 review 3, Fable). *Known
-        // bound*: one run from a command held 20 or more ticks behind the run, by a negative `wait`, re-adds at or before
-        // the run's last tick and keeps its depth, so a `wait` loop started there ends at the depth bound inside that run.
+        // A text's commands put off to one tick share one fresh set, as a text run at once shares one; each later tick is a
+        // run of its own (B840 reviews 3 and 4, Fable). *Known bound*: a loop run from a command held about 19 ticks behind
+        // the run by a negative `wait` (fewer by its starting depth) re-adds at or before the run's last tick and keeps its
+        // depth, so a `wait` loop started there ends at the depth bound inside that run.
         int lastThisRun = _processing ? _lastTick : _tick;
-        Budget? laterBudget = null;
+        Dictionary<int, Budget>? laterBudgets = null;
         bool putOff = false;
 
         foreach (Added queued in added)
@@ -2152,7 +2165,7 @@ public sealed class ConfigConsole
                 _stuffing,
                 _viewerIssued,
                 _savedLayer,
-                later ? laterBudget ??= new Budget(new CommandBudget()) : _budget,
+                later ? LaterBudget(laterBudgets ??= [], queued.Tick) : _budget,
                 _answer,
                 _adding,
                 Run: null));

@@ -2414,7 +2414,7 @@ public sealed class ConfigConsoleConformanceTests
     public void Load_BehindACommandThatThrows_IsDroppedWithIt()
     {
         ConfigConsole console = new();
-        console.Load($"bind k \"wait; fps_max 1\"");
+        console.Load("bind k \"wait; fps_max 1\"");
         List<string> sets = Recorded(console);
         console.KeyDown("k");
         console.Execute(waitAllowed: true);
@@ -2433,6 +2433,33 @@ public sealed class ConfigConsoleConformanceTests
         console.Execute(waitAllowed: true);
 
         sets.ShouldBeEmpty("the load's text never ran");
+    }
+
+    /// <remarks>
+    /// **A text's commands put off to one tick share one set of budgets; each later tick has its own** (B840 reviews 3 and
+    /// 4, Fable): one `b` is 585 alias runs (73 of `b`, `c`, `d` and 512 of `e`, each of which adds 1). Eight put off to
+    /// one tick share the 4096 alias runs and are cut short of 4096 adds, as a text run at once is; eight each a tick apart
+    /// are eight runs, each within its budget, and add 4096 with no budget line. The engine has no budget; the viewer's is
+    /// per run (B820).
+    /// </remarks>
+    [TestCase("wait; b; b; b; b; b; b; b; b", 2, true)]
+    [TestCase("wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b; wait; b", 9, false)]
+    public void Load_PutOffAliasesFanningOut_ShareABudgetPerTick(string text, int calls, bool cut)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load(
+            $"alias e \"incrementvar {Alpha} 0 100000 1\"\nalias d \"e;e;e;e;e;e;e;e\"\nalias c \"d;d;d;d;d;d;d;d\"\nalias b \"c;c;c;c;c;c;c;c\"\n{Alpha} 0");
+
+        console.Load(text);
+
+        for (int call = 0; call < calls; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        (log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs") > 0).ShouldBe(cut);
+        (console.ConVar(Alpha) == "4096.000000").ShouldBe(!cut);
     }
 
     /// <summary>The settings attached, and every value set to <see cref="Alpha"/> recorded in order.</summary>
