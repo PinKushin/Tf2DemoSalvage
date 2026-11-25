@@ -1814,6 +1814,613 @@ public sealed class ConfigConsoleConformanceTests
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
     }
 
+    /// <summary>A command that queues <paramref name="size"/> bytes, its terminator included, and changes nothing seen.</summary>
+    private static string Filler(int size) => "alias f " + new string('x', size - 1 - "alias f ".Length);
+
+    /// <summary>Fillers that queue <paramref name="size"/> bytes in all, none over 400, one per line.</summary>
+    private static string Fillers(int size)
+    {
+        List<string> lines = [];
+
+        for (; size > 400; size -= 400)
+        {
+            lines.Add(Filler(400));
+        }
+
+        lines.Add(Filler(size));
+        return string.Join('\n', lines);
+    }
+
+    /// <remarks>
+    /// **The launch line fills the 8192-byte argument buffer, and the command that does not fit is refused with every
+    /// command after it** (B834): `CCommandBuffer::InsertCommand` refuses `m_nArgSBufferSize + nCommandSize + 1 &gt;
+    /// m_nMaxArgSBufferLength` (`src/tier1/commandbuffer.cpp:129-134`), 0x2000 in `engine.dll` x64 build 1007
+    /// (FUN_180294fb0, FUN_180295740), and `stuffcmds` (FUN_1801683d0) adds the whole line at once through FUN_180166e30,
+    /// which says `Cbuf_AddText: buffer overflow`. The control: the same line one byte shorter fills the buffer exactly and
+    /// sets `fps_max`.
+    /// </remarks>
+    [TestCase(0, "60", 0)]
+    [TestCase(1, null, 1)]
+    public void Stuff_ALaunchLineAtTheArgumentBuffersEdge_RunsWhatFits(int over, string? fpsMax, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string last = "fps_max 60";
+
+        console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength - (last.Length + 1) + over) + "\n" + last);
+
+        console.ConVar("fps_max").ShouldBe(fpsMax);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+        log.Count("WARNING: Command too long... ignoring!").ShouldBe(0, "no command is too long");
+    }
+
+    /// <remarks>
+    /// **An alias body fits only beside the rest of the text that ran it** (B834): `AddText` queues the whole text before
+    /// any of it runs, so while `a` runs, the fillers after it still hold the buffer, and its body is refused when it does
+    /// not fit beside them; the rest of that text still runs. The control: with 100 bytes fewer of fillers, it fits.
+    /// </remarks>
+    [TestCase(100, "1", 0)]
+    [TestCase(0, null, 1)]
+    public void Stuff_AnAliasBodyThatDoesNotFitBesideTheRestOfItsText_IsRefused(int room, string? alpha, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string body = $"{Alpha} 1";
+        console.Load($"alias a \"{body}\"");
+
+        // `a` itself is dequeued before its body is added, so the fillers and `fps_max 60` are what is queued.
+        console.Stuff("a\n" + Fillers(ConfigConsole.ArgumentBufferLength - (body.Length + 1) - 11 + 1 - room) + "\nfps_max 60");
+
+        console.ConVar(Alpha).ShouldBe(alpha);
+        console.ConVar("fps_max").ShouldBe("60", "the rest of the launch line runs");
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+    }
+
+    /// <remarks>
+    /// **`wait` puts the rest of its text off to the next tick** (B832): `AddText` (`src/tier1/commandbuffer.cpp:235-240`;
+    /// `engine.dll` x64 build 1007 FUN_1802952a0) adds `m_nWaitDelayTicks`, 1, to the tick of every command after it, and
+    /// `Cbuf_Execute` (FUN_180166a10) runs one tick's commands a call. Text run between calls is the next call's tick, so the
+    /// waited half runs at the second call after it. The control: before any call, only the first half has run.
+    /// </remarks>
+    [Test]
+    public void Load_ALineWithAWait_RunsTheRestAtTheSecondExecute()
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1; wait; {Alpha} 2");
+        console.ConVar(Alpha).ShouldBe("1", "the control: the first half runs at once");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1", "the waited half is a tick later");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **`wait N` waits N ticks, a bare `wait` one, and `wait 0` none** (`int nDelay = pArgS ? atoi( pArgS ) :
+    /// m_nWaitDelayTicks;`, `commandbuffer.cpp:237`), and the name is matched in any case (`Q_stricmp`).
+    /// </remarks>
+    [TestCase("wait 3", 4)]
+    [TestCase("\"wait\" 3", 4)]
+    [TestCase("WAIT", 2)]
+    [TestCase("wait 0", 0)]
+    [TestCase("wait x", 0)]
+    public void Load_AWaitWithAnArgument_WaitsThatManyTicks(string wait, int executes)
+    {
+        ConfigConsole console = new();
+
+        console.Load($"{Alpha} 1; {wait}; {Alpha} 2");
+
+        for (int call = 0; call < executes; call++)
+        {
+            console.ConVar(Alpha).ShouldBe("1", $"before call {call + 1}");
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **What waits goes after the rest of the text that ran it** (B832): an alias body is added while commands are
+    /// processing, its first half ahead of the rest of its caller's text, its waited half at the later tick
+    /// (`InsertCommand`, `commandbuffer.cpp:148-155`). So `w; tf_hud_target_id_alpha 3` leaves 3, then 2.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasWithAWait_RunsItsWaitedHalfAfterTheRestOfTheBind()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias w \"{Alpha} 1; wait; {Alpha} 2\"\nbind k \"w; {Alpha} 3\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+        console.ConVar(Alpha).ShouldBe("3");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **Waited commands run in tick order, not the order they were added** (B832): `InsertCommandAtAppropriateTime`
+    /// (`commandbuffer.cpp:95-105`) links each before the first with a later tick. So a set three ticks off, added first,
+    /// lands after one a tick off: 1 after two calls, 3 after four.
+    /// </remarks>
+    [Test]
+    public void Load_WaitsAddedOutOfTickOrder_RunInTickOrder()
+    {
+        ConfigConsole console = new();
+        console.Load($"wait 3; {Alpha} 3\nwait; {Alpha} 1");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **A text's waited commands are linked before any of it runs** (B832 review 1, Sonnet): `AddText` inserts the whole
+    /// text first, so `x`'s waited `2`, added when `x` runs, goes after the key's own waited `3` at the same tick
+    /// (`InsertCommandAtAppropriateTime` links before the first LATER tick). So 2 is last.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasWaitingAsLongAsItsCaller_RunsItsWaitedHalfLast()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias x \"wait 5; {Alpha} 2\"\nbind k \"x; wait 5; {Alpha} 3\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        for (int call = 0; call < 6; call++)
+        {
+            console.Execute(waitAllowed: true);
+        }
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **A key's text is linked by tick, so a negative `wait` runs what follows it first** (B832 review 1, Sonnet):
+    /// `Key_Event` adds while nothing is processing, and `InsertCommand` then links each command by its tick
+    /// (`commandbuffer.cpp:148-151`). A config line is added while its `exec` is processing, so it runs in order
+    /// (`InsertImmediateCommand`). The control: the same text as a config line leaves 2.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ANegativeWait_RunsTheCommandAfterItFirst()
+    {
+        ConfigConsole control = new();
+        control.Load($"{Alpha} 1; wait -1; {Alpha} 2");
+        control.ConVar(Alpha).ShouldBe("2", "the control: a config line runs in order");
+
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **A key's negative-`wait` command runs ahead of a command already due, the rest after it** (B832 review 2, Fable,
+    /// Grok): `InsertCommand` links the key's commands by tick among those queued (`commandbuffer.cpp:95-105`), so with
+    /// `9` due at the current tick, `wait -1; 2` runs 2 (a tick earlier), then 9, and 9 is left.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"wait -1; {Alpha} 2\"\nwait; {Alpha} 9");
+        console.Execute(waitAllowed: true);
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("9");
+    }
+
+    /// <remarks>
+    /// **A command a key's own alias puts off to a tick the key's text also holds runs after the key's** (B832 review 3,
+    /// Fable): the key's whole text is linked first, `al` at T-1 and `9` at T, and `al`'s `2`, put off to T when it runs,
+    /// is linked after `9` (`InsertCommandAtAppropriateTime`), so 2 is left.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AnAliasPuttingOffToATickItsKeyHolds_RunsAfterTheKeys()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 2\"\nbind k \"wait -1; al; wait; {Alpha} 9\"");
+        List<string> sets = [];
+        console.ConVarSet += (_, set) => sets.Add(set.Value);
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        sets.ShouldBe(["9", "2"], "both ran, 9 first (B832 review 4, Grok)");
+    }
+
+    /// <remarks>
+    /// **A key a handler presses inside a command runs inside it, in order** (B832 review 4, Fable, Sonnet): only a key
+    /// pressed from outside every command is linked by tick, as `Key_Event`'s is. Inside a config line, `1; wait -1; 2`
+    /// runs in order and leaves 2. The control: the same key pressed on its own leaves 1.
+    /// </remarks>
+    [Test]
+    public void KeyDown_FromAHandlerInsideACommand_RunsInOrder()
+    {
+        ConfigConsole control = new();
+        control.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+        control.KeyDown("k");
+        control.ConVar(Alpha).ShouldBe("1", "the control: on its own, by tick");
+
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 1; wait -1; {Alpha} 2\"");
+        console.ReadSettingsFrom(_ => null);
+        bool pressed = false;
+        List<string> alpha = [];
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha.Add(set.Value);
+            }
+            else if (!pressed && set.Name == "fps_max")
+            {
+                pressed = true;
+                console.KeyDown("k");
+            }
+        };
+
+        console.Load("fps_max 60");
+
+        pressed.ShouldBeTrue("the control: the handler ran");
+        alpha.ShouldBe(["1", "2"], "both ran, in order (B832 review 5, Grok)");
+    }
+
+    /// <remarks>
+    /// **`Execute` does nothing inside a command the console runs** (B832 review 4, Fable, Sonnet): that command stands in
+    /// for one `Cbuf_Execute` already running, and `IsProcessingCommands` guards the call. A handler inside a config line
+    /// calling it twice leaves a set waited a tick unrun. The control: two calls after the line run it.
+    /// </remarks>
+    [Test]
+    public void Execute_FromAHandlerInsideACommand_DoesNothing()
+    {
+        ConfigConsole console = new();
+        console.ReadSettingsFrom(_ => null);
+        console.Load($"wait; {Alpha} 2");
+        bool called = false;
+        string? alpha = null;
+        console.ConVarSet += (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                alpha = set.Value;
+            }
+            else if (!called && set.Name == "fps_max")
+            {
+                called = true;
+                console.Execute(waitAllowed: true);
+                console.Execute(waitAllowed: true);
+            }
+        };
+
+        console.Load("fps_max 60");
+        called.ShouldBeTrue("the control: the handler ran");
+        alpha.ShouldBeNull();
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        alpha.ShouldBe("2", "the control: two calls after the line run it");
+    }
+
+    /// <remarks>
+    /// **A throw drops the rest of a key's text due now** (B832 review 4, Fable, Sonnet): as a run text's rest is, rather
+    /// than left queued to fire at some later run, and its bytes with it. The controls: its first command ran, and what
+    /// it put off to a later tick still runs.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load($"bind k \"{Alpha} 1; {Alpha} 2; wait; {Alpha} 3\"");
+        List<string> sets = [];
+        EventHandler<ConVarSetEventArgs> throwing = (_, _) => throw new InvalidOperationException("a handler failed");
+        console.ConVarSet += (_, set) => sets.Add(set.Value);
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.KeyDown("k"));
+        console.ConVarSet -= throwing;
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        // Its first command ran, the rest due now was dropped, and what it put off to a later tick still ran (B832 review 5,
+        // Fable).
+        sets.ShouldBe(["1", "3"], "1 ran, 2 was dropped, 3 (a tick later) still ran");
+
+        // Its bytes went with it (B832 review 5, Sonnet): a launch line of exactly 8192 bytes still fits.
+        console.Stuff(Fillers(ConfigConsole.ArgumentBufferLength));
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A throw drops the key's own text only** (B832 review 6, Fable): a config's command due at the same run stays
+    /// queued and runs at the next `Execute`. The control: the key's command ran before the throw.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AHandlerThatThrows_KeepsOtherTextsQueuedCommands()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"wait -1; {Alpha} 1\"\nwait; fps_max 60");
+        console.Execute(waitAllowed: true);
+        bool threw = false;
+        EventHandler<ConVarSetEventArgs> throwing = (_, set) =>
+        {
+            if (set.Name == Alpha)
+            {
+                threw = true;
+                throw new InvalidOperationException("a handler failed");
+            }
+        };
+        console.ConVarSet += throwing;
+
+        Should.Throw<InvalidOperationException>(() => console.KeyDown("k"));
+        console.ConVarSet -= throwing;
+        threw.ShouldBeTrue("the control: the key's command ran first, as its tick is earlier");
+        console.Execute(waitAllowed: true);
+
+        console.ConVar("fps_max").ShouldBe("60");
+    }
+
+    /// <remarks>
+    /// **A key's commands share one set of budgets** (B832 review 4, Fable, Sonnet): run from the queue one by one, they
+    /// still run under the budget the key's command began, as when they ran as one text, so a bind of many fanning-out
+    /// aliases says the alias budget's line once.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ABindOfManyFanningOutAliases_SpendsOneBudget()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load("alias a \"a;a;a;a\"\nbind k \"a;a;a\"");
+
+        console.KeyDown("k");
+
+        log.Count($"more than {ConfigConsole.MaximumAliasRuns} alias runs").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A command runs at its own tick, so a `wait` in what it runs counts from there** (B832 review 2, Fable, Sonnet):
+    /// `DequeueNextCommand` sets `m_nCurrentTick` to the command's tick (`commandbuffer.cpp:307`). A key's `wait -1; al`
+    /// runs `al` a tick early, and its `wait` puts `2` back to the key's own tick, which the same `Cbuf_Execute` runs.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AWaitInsideANegativeWaitsCommand_CountsFromItsTick()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 2\"\nbind k \"wait -1; al\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **A command run from the queue can wait again** (B832): it runs at its tick, and a `wait` in its alias puts the
+    /// rest one tick past that.
+    /// </remarks>
+    [Test]
+    public void Execute_AWaitedAliasThatWaits_RunsItsRestATickLater()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias x \"{Alpha} 1; wait; {Alpha} 2\"\nwait; x");
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("1");
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **A waited command runs as what added it** (B832): a config line's set, run later from the queue, is still a
+    /// config's, so it is not announced before the settings attach (D215). The control: a key's waited set is announced.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Execute_AWaitedSet_IsAnnouncedAsWhatAddedIt(bool fromConfig, int announced)
+    {
+        ConfigConsole console = new();
+        int sets = 0;
+        console.Load($"bind k \"wait; {Alpha} 1\"");
+        console.ConVarSet += (_, _) => sets++;
+
+        if (fromConfig)
+        {
+            console.Load($"wait; {Alpha} 1");
+        }
+        else
+        {
+            console.KeyDown("k");
+        }
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.ConVar(Alpha).ShouldBe("1", "the control: the waited set ran");
+        sets.ShouldBe(announced);
+    }
+
+    /// <remarks>
+    /// **A config's waited one-shot still does nothing; the launch line's still runs** (B832 review 1, Fable): each runs at
+    /// a later `Execute` as the text that added it, a config's at load (B820 review 1) and the launch line's as `stuffcmds`
+    /// runs it (B829).
+    /// </remarks>
+    [TestCase(false, 0)]
+    [TestCase(true, 1)]
+    public void Execute_AWaitedOneShot_RunsAsTheTextThatAddedIt(bool launchLine, int triggered)
+    {
+        ConfigConsole console = new();
+        int raised = 0;
+        console.Triggered += (_, _) => raised++;
+
+        if (launchLine)
+        {
+            console.Stuff("wait\ntogglefullscreen");
+        }
+        else
+        {
+            console.Load("wait; togglefullscreen");
+        }
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        raised.ShouldBe(triggered);
+    }
+
+    /// <remarks>
+    /// **A waited command from the viewer's own key is still the viewer's** (B832 review 1, Fable; D253): `SPACE`'s
+    /// built-in `+jump`, replaced by a config's alias that waits before a cheat, sets it when it runs. The control: the
+    /// same alias run from a config's own bind is refused.
+    /// </remarks>
+    [TestCase("SPACE", "1")]
+    [TestCase("j", null)]
+    public void Execute_AWaitedCheatFromTheViewersOwnKey_IsAdmitted(string key, string? fullbright)
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Load("alias +jump \"wait; mat_fullbright 1\"\nalias -jump \"\"\nbind j +jump");
+
+        console.KeyDown(key);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        console.ConVar("mat_fullbright").ShouldBe(fullbright);
+    }
+
+    /// <remarks>
+    /// **A `+` bind's text carries its key's number, and the number takes bytes** (B832 review 1, Fable): `Key_Event`
+    /// (`engine.dll` build 1007 FUN_1801b6090) adds `"%s %i"` with the key's `ButtonCode_t`, so with nine bytes left
+    /// `+forward` (nine with its terminator) would fit and `+forward 21` does not. The control: with room for the number,
+    /// forward is held.
+    /// </remarks>
+    [TestCase(20, true, 0)]
+    [TestCase(9, false, 1)]
+    public void KeyDown_APlusBindBesideAFullBuffer_CountsItsKeyNumber(int room, bool held, int overflows)
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        console.Load("bind k +forward");
+        console.Stuff("wait\n" + Fillers(ConfigConsole.ArgumentBufferLength - room));
+
+        console.KeyDown("k");
+
+        console.AnyHeld.ShouldBe(held);
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
+    }
+
+    /// <remarks>
+    /// **A key's `ButtonCode_t` is its place in TF2's table** (B832 review 2, Sonnet): `KEY_NONE` 0, the digits 1 to 10, the
+    /// letters from 11, so `k` is 21; `SPACE` 65; `MOUSE1` 107; and a chord, which TF2 has no code for, none.
+    /// </remarks>
+    [TestCase("k", 21)]
+    [TestCase("SPACE", 65)]
+    [TestCase("MOUSE1", 107)]
+    [TestCase("CTRL+e", null)]
+    public void CodeOf_AKey_IsItsButtonCode(string key, int? code) => ButtonCodeNames.CodeOf(key).ShouldBe(code);
+
+    /// <remarks>
+    /// **`wait`'s number is read past the command, as `atoi( pArgS )` reads it** (B832 review 1, Fable): `pArgS` points into
+    /// the whole text, so `wait ` then a line `5…` waits five, white space and the line feed skipped.
+    /// </remarks>
+    [Test]
+    public void Stuff_AWaitWhoseNumberIsOnTheNextLine_WaitsThatMany()
+    {
+        ConfigConsole console = new();
+
+        console.Stuff($"wait \n5\n{Alpha} 2");
+
+        for (int call = 0; call < 5; call++)
+        {
+            console.ConVar(Alpha).ShouldBeNull($"before call {call + 1}");
+            console.Execute(waitAllowed: true);
+        }
+
+        console.Execute(waitAllowed: true);
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
+    /// **With <c>sv_allow_wait_command</c> off, `wait` is no wait** (B832): `Cbuf_Execute` (`engine.dll` x64 build 1007
+    /// FUN_180166a10) sets `m_bWaitEnabled` from it before each run, and `AddText` takes `wait` only when it is set. The
+    /// control: the same line with it on waits.
+    /// </remarks>
+    [TestCase(false, "2")]
+    [TestCase(true, "1")]
+    public void Load_AWaitAfterAnExecute_WaitsOnlyWhenTheServerAllowsIt(bool allowed, string alpha)
+    {
+        ConfigConsole console = new();
+        console.Execute(allowed);
+
+        console.Load($"{Alpha} 1; wait; {Alpha} 2");
+
+        console.ConVar(Alpha).ShouldBe(alpha);
+    }
+
+    /// <remarks>
+    /// **<c>sv_allow_wait_command</c> is read as its integer, and is 1 until a server sets it** (B832): `Cbuf_Execute`
+    /// (`engine.dll` x64 build 1007 FUN_180166a10) tests the ConVar's `m_nValue`, `(int)atof`, and its default string is
+    /// "1" (FUN_18000b680). So "0.5" is off and "1abc" on.
+    /// </remarks>
+    [TestCase(null, true)]
+    [TestCase("1", true)]
+    [TestCase("1abc", true)]
+    [TestCase("0", false)]
+    [TestCase("0.5", false)]
+    public void WaitAllowed_AServersValue_IsItsIntegerNotZero(string? value, bool allowed) =>
+        ConfigConsole.WaitAllowed(value).ShouldBe(allowed);
+
+    /// <remarks>
+    /// **A key pressed while a wait's commands are due runs after them** (B832): TF2 queues the key's text behind what is
+    /// already queued for its tick (`InsertCommandAtAppropriateTime`, `commandbuffer.cpp:95-105`), so the waited set lands
+    /// first and the key's set wins.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AfterAWaitsCommandsAreDue_RunsAfterThem()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"{Alpha} 3\"\n{Alpha} 1; wait; {Alpha} 2");
+        console.Execute(waitAllowed: true);
+
+        console.KeyDown("k").ShouldBeTrue();
+        console.Execute(waitAllowed: true);
+
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
+    /// <remarks>
+    /// **A waited command holds the argument buffer until it runs** (B832, B834): it is queued at its later tick, its
+    /// bytes counted, so a key whose bind does not fit beside them is refused and says `Cbuf_AddText: buffer overflow`
+    /// (`Key_Event`'s FUN_180166500). The control: once the waited commands have run, the same key acts.
+    /// </remarks>
+    [Test]
+    public void KeyDown_WhileWaitedCommandsFillTheBuffer_SaysTheBufferOverflowed()
+    {
+        RecordingLogger log = new();
+        ConfigConsole console = new() { Log = log };
+        string bind = $"{Alpha} 3";
+        console.Load($"bind k \"{bind}\"");
+        // As launch-line text: one `AddText`, where a config's line would be cut at 1023 bytes.
+        console.Stuff("wait\n" + Fillers(ConfigConsole.ArgumentBufferLength - bind.Length));
+
+        console.KeyDown("k");
+        console.ConVar(Alpha).ShouldBeNull();
+        log.Count("Cbuf_AddText: buffer overflow").ShouldBe(1);
+
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        console.KeyDown("k").ShouldBeTrue("the control: the waited commands ran and freed the buffer");
+        console.ConVar(Alpha).ShouldBe("3");
+    }
+
     /// <remarks>
     /// **A refusal in a file the launch line execs is the file line's, said once** (B830 review 4, Fable, Sonnet):
     /// `stuffcmds` added `exec long` whole, and `Cmd_Exec_f`'s own `Cbuf_AddText` for the file's line says it. Counted by

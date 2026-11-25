@@ -44,7 +44,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// **One dispatcher runs every line** (B820, `engine.dll` `Cmd_ExecuteCommand`): a config's line, a key's bind and an
 /// alias's body reach the same commands, `exec` among them, which reads <see cref="FindConfig"/>.
 ///
-/// **What it deliberately does not implement**: `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
+/// **Text is queued as TF2's command buffer queues it** (B832, B834): whole before it runs, in 8192 bytes, with `wait`
+/// putting commands off to a later <see cref="Execute"/>.
+///
+/// **What it deliberately does not implement**: the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
 /// file. <see cref="Applied"/> counts what actually landed so a caller can tell "your config loaded
 /// and bound nothing" from "your config did not load", which otherwise look identical.
@@ -465,81 +468,253 @@ public sealed class ConfigConsole
     /// second launch.
     /// </param>
     public void Stuff(string? text, bool oneShots) =>
-        AtStartup(oneShots, () => AddedAsOne(depth: 0, () => _ = RunCommand(text ?? string.Empty, key: null)));
+        AtStartup(oneShots, () => _ = RunCommand(text ?? string.Empty, key: null));
+
+    /// <summary>`ARGS_BUFFER_LENGTH`: the bytes every queued command shares, each with its terminator (`commandbuffer.h:92`).</summary>
+    /// <remarks>`engine.dll` x64 build 1007's `CCommandBuffer` constructor (FUN_180294fb0) sets its limit to 0x2000 (B834).</remarks>
+    public const int ArgumentBufferLength = 8192;
+
+    /// <summary>One command `AddText` queued: its size with the terminator, its text, the text from it on, and its tick.</summary>
+    private readonly record struct Added(int Size, string Command, int Tick);
 
     /// <summary>
-    /// Runs text the engine adds in one `Cbuf_AddText` call, and says what that call says when `AddText` refuses one of the
-    /// text's own commands: `Cbuf_AddText: buffer overflow`, after the `Command too long` line (B830 review 3; `engine.dll`
-    /// build 1007 FUN_180166e30, `engine/cmd.cpp`). The launch line is one such call (`stuffcmds`), and so is each line of
-    /// an exec'd file (`Cmd_Exec_f`).
+    /// What one `CCommandBuffer::AddText` call queues (`src/tier1/commandbuffer.cpp:209-247`, B834, B832), read in `engine.dll`
+    /// x64 build 1007 as FUN_1802952a0 and FUN_180295740: each command named, in order, at the tick a `wait` before it in
+    /// the text puts it; stopping, and dropping the rest, at a command of 511 bytes or more (`InsertCommand`'s
+    /// `Command too long`) or at one the 8192-byte argument buffer cannot take beside what is already queued (`:129-134`:
+    /// `Compact` leaves only the queued commands, so the test is against those).
     /// </summary>
-    /// <param name="depth">The depth the text's own commands run at: a refusal deeper is another adder's (B835).</param>
-    /// <param name="run">Runs the text.</param>
-    private void AddedAsOne(int depth, Action run)
+    /// <param name="text">The text.</param>
+    /// <param name="queued">The bytes already queued.</param>
+    /// <param name="tick">The tick the text is added at.</param>
+    /// <param name="waitEnabled">Whether `wait` is taken here rather than queued as a command (`IsWaitEnabled`).</param>
+    /// <returns>The commands queued; the text from a refused command on, when one was refused for its length; whether
+    /// `AddText` returned false, which its caller says as `Cbuf_AddText: buffer overflow`.</returns>
+    private static (List<Added> Queued, string? TooLong, bool Refused) Insert(string text, int queued, int tick, bool waitEnabled)
     {
-        // Saved and cleared rather than compared, as the budgets are (B830 review 5, Fable): a handler that loads or
-        // stuffs inside this run adds its own text at the same depth, and its refusal is its own to report.
-        int outer = _refusalsAt[depth];
-        _refusalsAt[depth] = 0;
+        List<Added> added = [];
 
-        try
+        foreach ((int length, string command, string rest) in BufferCommands(text))
         {
-            run();
+            IReadOnlyList<string> tokens = SourceConfig.Tokens(command);
 
-            if (_refusalsAt[depth] != 0)
+            // `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it (`:230-232`):
+            // a blank command, or one whose first token is `""`, is no command of any length (B820 reviews 6 and 7, Fable).
+            if (!NamesACommand(tokens))
             {
-                Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+                continue;
             }
+
+            // `wait`, any case, moves the commands after it in this text on by its argument, or by one tick with none
+            // (`:235-240`; `m_nWaitDelayTicks` is 1, FUN_180166970).
+            if (waitEnabled && string.Equals(tokens[0], WaitCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                tick += WaitTicks(command, rest);
+                continue;
+            }
+
+            if (IsTooLong(length))
+            {
+                return (added, rest, true);
+            }
+
+            // `m_nArgSBufferSize + nCommandSize + 1 > m_nMaxArgSBufferLength`, after `Compact` (`:129-134`).
+            if (queued + length + 1 > ArgumentBufferLength)
+            {
+                return (added, null, true);
+            }
+
+            queued += length + 1;
+            added.Add(new Added(length + 1, command, tick));
         }
-        finally
+
+        return (added, null, false);
+    }
+
+    /// <summary>The command that delays the rest of its text (`commandbuffer.cpp:235`).</summary>
+    private const string WaitCommand = "wait";
+
+    /// <summary>
+    /// The ticks a `wait` adds: `atoi( pArgS )`, the text after its first token, or one when nothing follows it
+    /// (`ParseArgV0`, `commandbuffer.cpp:86-87`). So `wait 3` is three, `wait` one, and `wait x` or `wait ` none.
+    /// </summary>
+    /// <param name="command">The `wait` command.</param>
+    /// <param name="fromHere">The text from it on: `pArgS` points into the whole text, so `atoi` reads past the command's
+    /// end, through a line feed's white space, and `wait \n5` waits five (B832 review 1, Fable).</param>
+    private static int WaitTicks(string command, string fromHere)
+    {
+        int at = 0;
+
+        while (at < command.Length && command[at] <= ' ')
         {
-            _refusalsAt[depth] = outer;
+            at++;
         }
+
+        // The first token is `wait`, bare or quoted, so it ends four bytes on, or six with its quotes.
+        at += command[at] == '"' ? WaitCommand.Length + 2 : WaitCommand.Length;
+
+        return at >= command.Length ? 1 : Core.Primitives.CStdlib.Atoi(fromHere.AsSpan(at));
     }
 
     /// <summary>
-    /// Runs an alias body as its own `Cbuf_AddText` call (B835): `Cmd_ExecuteCommand` (`engine.dll` build 1007
-    /// FUN_1801678a0) adds the body through FUN_180166e30, which says the overflow line for the body's own refusals.
+    /// Whether one `AddText` call queues the first named command of a launch line, and whether it queues the whole of it,
+    /// beside what the launch line's earlier lines queued (B830, B834).
     /// </summary>
-    /// <param name="body">The alias body.</param>
-    /// <param name="depth">The depth it runs at.</param>
-    private void RunAliasBody(string body, int depth)
+    /// <param name="text">The line, as it would be added.</param>
+    /// <param name="queued">The bytes the launch line's earlier lines queued, moved on by this one's.</param>
+    /// <param name="whole">Whether every command in it is queued.</param>
+    /// <returns>False only when a command is refused before any is queued; true when the text names none.</returns>
+    /// <remarks>
+    /// The same split, the same skip of a command with no name, and the same bounds as the console's run, with nothing else
+    /// queued: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0) pastes the whole launch line into a growable buffer and adds
+    /// it in one call. The commands before a refused one are queued and run, so a set first on its line runs even when a later
+    /// command on that line is refused.
+    /// </remarks>
+    internal static bool Adds(string text, ref int queued, out bool whole)
     {
-        if (depth >= MaximumExpansion)
+        (List<Added> added, _, bool refused) = Insert(text, queued, tick: 0, waitEnabled: true);
+        queued += added.Sum(command => command.Size);
+        whole = !refused;
+
+        return added.Count > 0 || !refused;
+    }
+
+    /// <summary>The bytes the queued commands hold in the argument buffer (B834).</summary>
+    private int _queuedBytes;
+
+    /// <summary>`m_nCurrentTick`: the tick the console's commands run at now (B832).</summary>
+    private int _tick;
+
+    /// <summary>`m_bWaitEnabled`, as the last <see cref="Execute"/> set it.</summary>
+    private bool _waitEnabled = true;
+
+    /// <summary>Whether <see cref="Execute"/> is running, so a second one inside it does nothing.</summary>
+    private bool _processing;
+
+    /// <summary>
+    /// A queued command: its tick, its size, its text, the context it was added in, and the text it came in (a key's, so
+    /// the key is answered for its own commands only; 0 for any other).
+    /// </summary>
+    private readonly record struct Deferred(
+        int Tick, int Size, string Command, string? Key, bool Loading, bool Stuffing, bool ViewerIssued, bool SavedLayer, int Text);
+
+    /// <summary>The last key text queued, numbering each so its commands can be told from others' (B832 review 3).</summary>
+    private int _keyTexts;
+
+    /// <summary>
+    /// The commands queued by tick, in the order `InsertCommandAtAppropriateTime` links them: those put off to a later tick,
+    /// and a key's whole text until it runs.
+    /// </summary>
+    private readonly List<Deferred> _deferred = [];
+
+    /// <summary>Commands a <see cref="RunCommand"/> is inside, so only the outermost runs what is due first.</summary>
+    private int _commandsRunning;
+
+    /// <summary>
+    /// One `Cbuf_Execute` (`engine.dll` x64 build 1007 FUN_180166a10, B832): sets whether `wait` is taken from
+    /// <c>sv_allow_wait_command</c>, runs every command queued for this tick or before, in order, then moves the tick on.
+    /// </summary>
+    /// <param name="waitAllowed">Whether <c>sv_allow_wait_command</c> is on (a replicated ConVar whose default is 1).</param>
+    /// <remarks>
+    /// TF2 runs one at the top of every frame and one in each host tick's input step (`_Host_RunFrame`, FUN_1801a5eb0;
+    /// `_Host_RunFrame_Input`, FUN_1801a74d0). Inside another it does nothing, as `IsProcessingCommands` guards it.
+    /// </remarks>
+    public void Execute(bool waitAllowed)
+    {
+        // Nor inside a command the console runs between two calls, which stands in for one (B832 review 3, Fable).
+        if (_processing || _commandsRunning > 0)
         {
-            _ = Run(body, key: null, depth);
             return;
         }
 
-        AddedAsOne(depth, () => _ = Run(body, key: null, depth));
+        _waitEnabled = waitAllowed;
+        _processing = true;
+        int last = _tick;
+
+        try
+        {
+            _ = RunDue(last);
+        }
+        finally
+        {
+            _processing = false;
+            _tick = last + 1;
+        }
     }
 
-    /// <summary>Commands refused for their length so far, by the depth they ran at (B830): see <see cref="AddedAsOne"/>.</summary>
-    private readonly int[] _refusalsAt = new int[MaximumExpansion];
+    /// <summary>The server ConVar that allows `wait` (`engine.dll` build 1007 FUN_18000b680: replicated, default 1).</summary>
+    public const string AllowWaitConVar = "sv_allow_wait_command";
 
-    /// <summary>Whether one `AddText` call would queue every command in this text, refusing none for its length (B830).</summary>
-    /// <param name="text">The text, as it would be added.</param>
-    /// <returns>False when a command in it is 511 bytes or more, which `AddText` refuses with every command after it.</returns>
-    /// <remarks>The same split, the same skip of a command with no name, and the same bound as the console's run.</remarks>
-    internal static bool AddsWhole(string text) =>
-        !BufferCommands(text).Any(command => NamesACommand(SourceConfig.Tokens(command.Command)) && IsTooLong(command.Length));
+    /// <summary>Whether a value of <see cref="AllowWaitConVar"/> allows `wait`: its integer not zero, as `Cbuf_Execute`
+    /// reads `m_nValue`; its default, 1, when the demo's server never set it.</summary>
+    /// <param name="value">The value the demo's server set, or null.</param>
+    /// <returns>True when `wait` is taken.</returns>
+    public static bool WaitAllowed(string? value) => value is null || ConVarNumber.GetBool(value);
 
-    /// <summary>Whether one `AddText` call would queue the first named command in this text (B830 review 1).</summary>
-    /// <param name="text">The text, as it would be added.</param>
-    /// <returns>False only when that first command is 511 bytes or more; true when the text names none.</returns>
-    /// <remarks>The commands before a refused one are queued and run, so a set first on its line runs even when a later
-    /// command on that line is refused.</remarks>
-    internal static bool AddsFirst(string text)
+    /// <summary>Runs the queued commands due by a tick, each at its own tick (`DequeueNextCommand`, `:294-329`).</summary>
+    /// <param name="last">The last tick to run.</param>
+    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
+    /// <returns>Whether any of that text's commands did something.</returns>
+    private bool RunDue(int last, int text = 0)
     {
-        foreach ((int length, string command, _) in BufferCommands(text))
+        bool acted = false;
+
+        while (_deferred.Count > 0 && _deferred[0].Tick <= last)
         {
-            if (NamesACommand(SourceConfig.Tokens(command)))
+            Deferred due = _deferred[0];
+            _deferred.RemoveAt(0);
+            _queuedBytes -= due.Size;
+            _tick = due.Tick;
+
+            (bool loading, bool stuffing, bool viewerIssued, bool savedLayer) = (_loading, _stuffing, _viewerIssued, _savedLayer);
+            (_loading, _stuffing, _viewerIssued, _savedLayer) = (due.Loading, due.Stuffing, due.ViewerIssued, due.SavedLayer);
+
+            try
             {
-                return !IsTooLong(length);
+                // The key text being run shares the budgets its key's command began (B832 review 4, Sonnet), as it did when
+                // it ran as one text; any other queued command is a command of its own.
+                bool ownText = text != 0 && due.Text == text;
+                bool did = ownText ? Run(due.Command, due.Key, depth: 0) : RunCommand(due.Command, due.Key);
+                acted |= did && ownText;
+            }
+            finally
+            {
+                (_loading, _stuffing, _viewerIssued, _savedLayer) = (loading, stuffing, viewerIssued, savedLayer);
             }
         }
 
-        return true;
+        return acted;
+    }
+
+    /// <summary>Drops a key text's queued commands due by a tick, releasing their bytes: what a throw left unrun.</summary>
+    /// <param name="text">The key text.</param>
+    /// <param name="upTo">The last tick it was to run now.</param>
+    private void DropUnrun(int text, int upTo)
+    {
+        for (int at = _deferred.Count - 1; at >= 0; at--)
+        {
+            if (_deferred[at].Text == text && _deferred[at].Tick <= upTo)
+            {
+                _queuedBytes -= _deferred[at].Size;
+                _deferred.RemoveAt(at);
+            }
+        }
+    }
+
+    /// <summary>Queues a command at its tick, after every one at its tick or before (`:95-105`).</summary>
+    private void Defer(Added command, string? key, int text)
+    {
+        int at = _deferred.FindIndex(queued => queued.Tick > command.Tick);
+        Deferred deferred = new(command.Tick, command.Size, command.Command, key, _loading, _stuffing, _viewerIssued, _savedLayer, text);
+
+        if (at < 0)
+        {
+            _deferred.Add(deferred);
+        }
+        else
+        {
+            _deferred.Insert(at, deferred);
+        }
     }
 
     /// <summary>
@@ -731,20 +906,18 @@ public sealed class ConfigConsole
         {
             // **Each file line is its own `Cbuf_AddText`** (B830 review 4, Fable): `Cmd_Exec_f` (`engine.dll` build 1007
             // FUN_1801672f0) adds every line through FUN_180166e30, which says `Cbuf_AddText: buffer overflow` when `AddText`
-            // refuses one of its commands, before the next line is read.
-            AddedAsOne(depth, () =>
+            // refuses one of its commands, and runs the line's commands before the next line is read (B834: so only one line
+            // of a file is queued at a time, beside whatever the text that ran `exec` still holds).
+            // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config
+            // tree, whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
+            if (depth == 0)
             {
-                // The alias budget is per file line (B820 review 3, Fable, Sonnet): one `exec` line pulls in a whole config
-                // tree, whose lines each run their aliases as a line of their own does. The `exec` budget stays per command.
-                if (depth == 0)
-                {
-                    _ = RunCommand(line, key: null);
-                    return;
-                }
+                _ = RunCommand(line, key: null);
+                continue;
+            }
 
-                _aliasRuns = 0;
-                _ = Run(line, key: null, depth);
-            });
+            _aliasRuns = 0;
+            _ = Run(line, key: null, depth);
         }
     }
 
@@ -778,11 +951,11 @@ public sealed class ConfigConsole
         {
             // The key travels with the command because a button tracks WHICH keys hold it — see
             // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
-            // `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds the bind through FUN_180166500, which would say the
-            // overflow line for it, but no bind's own text reaches 511 bytes (B835 reviews 1 and 2, Fable, Sonnet): `bind`
-            // stores its value from a statement under 511 whose prefix is at least 5 bytes (`bind'`), so the value is at most
-            // 505, and ` %i` adds at most 4 (509). An alias it runs is its own adder's (`RunAliasBody`).
-            return RunCommand(command, key!);
+            // `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds the bind through FUN_180166500, which says the
+            // overflow line when `AddText` refuses it. No bind's own text reaches 511 bytes (B835 reviews 1 and 2, Fable,
+            // Sonnet): `bind` stores its value from a statement under 511 whose prefix is at least 5 bytes (`bind'`), so the
+            // value is at most 505, and ` %i` adds at most 4 (509). So only a full argument buffer refuses it (B834).
+            return RunCommand(KeyText(command, key!), key!);
         }
         finally
         {
@@ -790,16 +963,42 @@ public sealed class ConfigConsole
         }
     }
 
+    /// <summary>
+    /// The text `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds for a bind: a `+` bind as `"%s %i"` with the key's
+    /// `ButtonCode_t`, anything else as it stands (B832 review 1, Fable). Its bytes are what the argument buffer holds, and
+    /// the number is the last command's last argument, as in TF2. A chord, which TF2 has no code for, adds none.
+    /// </summary>
+    /// <param name="command">The bind; its release is this text with the `+` made `-`.</param>
+    /// <param name="key">The key.</param>
+    private static string KeyText(string command, string key) =>
+        command.StartsWith('+') && ButtonCodeNames.CodeOf(key) is { } code
+            ? string.Create(CultureInfo.InvariantCulture, $"{command} {code}")
+            : command;
+
     /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
     /// <remarks>
     /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
     /// launch line, which <see cref="Stuff(string?, bool)"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
     /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
+    /// A key's commands due at the press share its set; each one a `wait` puts off runs later with a set of its own (B832).
     /// </remarks>
     private bool RunCommand(string line, string? key)
     {
+        // **What a `wait` put off to this tick runs before new text** (B832): TF2 queues a key's or a config's text behind the
+        // commands already queued for its tick (`InsertCommandAtAppropriateTime`) and runs them all at the next
+        // `Cbuf_Execute`; the console runs new text at once, so it runs what is due first. Only from outside every command:
+        // a handler's text inside a command runs inside it. A key's text is linked among them by tick, in `Run`.
+        bool outside = _commandsRunning == 0 && !_processing;
+
+        if (outside && key is null)
+        {
+            _ = RunDueOutside(_tick);
+        }
+
         (int execs, int aliasRuns, int clauses) = (_execs, _aliasRuns, _commandClauses);
         (_execs, _aliasRuns, _commandClauses) = (0, 0, 0);
+        _commandsRunning++;
+        int tick = _tick;
 
         try
         {
@@ -807,7 +1006,40 @@ public sealed class ConfigConsole
         }
         finally
         {
+            _commandsRunning--;
             (_execs, _aliasRuns, _commandClauses) = (execs, aliasRuns, clauses);
+
+            // Each command runs at its own tick (`DequeueNextCommand`); outside an `Execute` the tick is the next call's.
+            if (outside)
+            {
+                _tick = tick;
+            }
+        }
+    }
+
+    /// <summary>Runs the queued commands due by a tick from outside an <see cref="Execute"/>, as that call would run
+    /// them ahead of text linked after them, leaving the current tick as it was.</summary>
+    /// <param name="upTo">The last tick to run.</param>
+    /// <param name="text">The key text whose commands' answer is wanted, or 0.</param>
+    /// <returns>Whether any of that text's commands did something.</returns>
+    private bool RunDueOutside(int upTo, int text = 0)
+    {
+        if (_deferred.Count == 0 || _deferred[0].Tick > upTo)
+        {
+            return false;
+        }
+
+        int now = _tick;
+        _processing = true;
+
+        try
+        {
+            return RunDue(upTo, text);
+        }
+        finally
+        {
+            _processing = false;
+            _tick = now;
         }
     }
 
@@ -853,7 +1085,7 @@ public sealed class ConfigConsole
 
         // Stryker restore all
 
-        _ = RunCommand(string.Concat("-", command.AsSpan(1)), key!);
+        _ = RunCommand(string.Concat("-", KeyText(command, key!).AsSpan(1)), key!);
     }
 
     /// <summary>Lets go of every button, leaving the binds and aliases in place.</summary>
@@ -1721,150 +1953,228 @@ public sealed class ConfigConsole
             return acted;
         }
 
-        foreach ((int length, string clause, string rest) in BufferCommands(commandLine))
+        // **The text is queued whole before any of it runs** (B834): `CCommandBuffer::AddText` inserts every command first, so
+        // the commands after the one running hold the argument buffer while it runs, and an alias body it adds, or a file line
+        // an `exec` in it adds, fits only beside them. A command of 511 bytes or more is refused with TF2's line, and so is the
+        // rest of its text (`InsertCommand`, `src/tier1/commandbuffer.cpp:120-126`; `AddText`, `:242-243`; B820 reviews 5 and
+        // 6, Fable). Every adder in the engine (`Cbuf_AddText`, FUN_180166500 and FUN_180166e30 in `engine.dll` build 1007:
+        // a key, a file line, an alias body, the launch line) then says `Cbuf_AddText: buffer overflow` (B830 review 3, B835),
+        // and says it before any of the text runs. The strings are in TF2's `engine.dll`, so the engine links this tier1 code.
+        (List<Added> added, string? tooLong, bool refused) = Insert(commandLine, _queuedBytes, _tick, _waitEnabled);
+
+        if (tooLong is not null)
         {
-            // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).
-            if (++_commandClauses > MaximumCommandClauses)
+            Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{tooLong}");
+        }
+
+        if (refused)
+        {
+            Log.LogInformation("{Message}", "Cbuf_AddText: buffer overflow");
+        }
+
+        // **A key's text is linked into the queue by tick, every command of it** (B832 reviews 1 to 3, Sonnet, Fable):
+        // `Key_Event` adds it while no commands are processing, so `InsertCommand` links each by its tick among those
+        // already queued (`commandbuffer.cpp:95-105, 148-151`), and the next `Cbuf_Execute` runs the queue in that order:
+        // a negative `wait`'s command ahead of one already due, and a command its own alias puts off to a tick the key's
+        // text also holds after the key's. The console runs that `Cbuf_Execute`'s share at once. Only from outside every
+        // command: a key a handler presses inside one runs inside it. Text added while processing, as an alias body, a
+        // file line or a launch line is, goes in order (`InsertImmediateCommand`).
+        bool keyText = key is not null && depth == 0 && !_processing && _commandsRunning == 1;
+        int addedAt = _tick;
+        int text = keyText ? ++_keyTexts : 0;
+        List<Added> now = [];
+
+        foreach (Added queued in added)
+        {
+            _queuedBytes += queued.Size;
+
+            // **A command a `wait` put off is linked at its tick now, before any of the text runs** (B832 review 1, Sonnet):
+            // `AddText` inserts the whole text first, so a later command this text's aliases put off at the same tick goes
+            // after it (`InsertCommandAtAppropriateTime`). It holds its bytes until it runs, and counts as the key's or the
+            // line's doing.
+            if (keyText || queued.Tick > _tick)
             {
-                if (_commandClauses == MaximumCommandClauses + 1)
+                Defer(queued, key, text);
+                acted |= queued.Tick > addedAt;
+            }
+            else
+            {
+                now.Add(queued);
+            }
+        }
+
+        if (keyText)
+        {
+            try
+            {
+                bool ran = RunDueOutside(addedAt, text);
+                return ran || acted;
+            }
+            finally
+            {
+                // What a throw left unrun of the key's text now is dropped, and its bytes with it, as a run text's rest is
+                // (B832 review 4, Sonnet), rather than left to fire at some later run.
+                DropUnrun(text, addedAt);
+            }
+        }
+
+        int handled = 0;
+
+        try
+        {
+            while (handled < now.Count)
+            {
+                Added queued = now[handled++];
+                _queuedBytes -= queued.Size;
+
+                // **It runs at its own tick** (`DequeueNextCommand` sets `m_nCurrentTick`, `commandbuffer.cpp:307`; B832
+                // review 2, Fable, Sonnet), so a `wait` in what it runs counts from there.
+                _tick = queued.Tick;
+
+                if (!RunClause(queued.Command, key, depth, ref acted))
                 {
-                    Log.LogInformation("{Message}", $"more than {MaximumCommandClauses} commands run from one command; not running the rest.");
+                    break;
                 }
-
-                return acted;
             }
-
-            // **A command of 511 bytes or more is refused, and so is the rest of the text it came in** (B820 reviews 5 and 6,
-            // Fable): `CCommandBuffer::InsertCommand` (`src/tier1/commandbuffer.cpp:120-126`) refuses `nCommandSize >=
-            // CCommand::MaxCommandLength()` (`COMMAND_MAX_LENGTH - 1`, `src/public/tier1/convar.h:207,217-220`) with TF2's line,
-            // and `AddText` (`:242-243`) then returns, so the commands after it in that file line, bind or alias body never run.
-            // The strings are in TF2's `engine.dll`, so the engine links this tier1 code. *Interpolated*: that an alias body is
-            // inserted through `AddText` as a bind and an exec'd line are.
-            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
-
-            // `ParseArgV0` finding an empty first token skips the command before `InsertCommand` measures it (`:230-232`):
-            // a blank command, or one whose first token is `""`, is no command of any length, not a refused one (B820
-            // reviews 6 and 7, Fable). *Not implemented*: `wait`, which `AddText` consumes there too.
-            if (!NamesACommand(tokens))
+        }
+        finally
+        {
+            // What a budget or a throw left unrun is dropped, and its bytes with it.
+            for (int left = handled; left < now.Count; left++)
             {
-                continue;
+                _queuedBytes -= now[left].Size;
             }
-
-            if (IsTooLong(length))
-            {
-                Log.LogInformation("{Message}", $"WARNING: Command too long... ignoring!\n{rest}");
-
-                // By depth, so each adder hears only its own text's refusals (B830 review 4, Fable, Sonnet): an exec'd
-                // file's line or an alias body runs deeper, under its own adder.
-                _refusalsAt[depth]++;
-                return acted;
-            }
-
-            // **At most 64 arguments, said once the 64th is taken** (`CCommand::Tokenize`, `src/tier1/convar.cpp:416,460-464`;
-            // `COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`).
-            if (tokens.Count >= MaximumArguments)
-            {
-                Log.LogInformation("{Message}", "CCommand::Tokenize: Encountered command which overflows the argument buffer.. Clamped!");
-                tokens = [.. tokens.Take(MaximumArguments)];
-            }
-
-            string command = tokens[0];
-
-            // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
-            // where the name is a `+`/`-` button, which an alias may replace.
-            if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
-            {
-                // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
-                // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
-                if (++_aliasRuns > MaximumAliasRuns)
-                {
-                    if (_aliasRuns == MaximumAliasRuns + 1)
-                    {
-                        Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
-                    }
-
-                    acted = true;
-                    continue;
-                }
-
-                // No key, deliberately — see the remark above. The body is its own adder's call, so it says its own
-                // refusals and the line that ran it does not hear them (B835; B830 review 6, Fable).
-                RunAliasBody(body, depth + 1);
-                acted = true;
-                continue;
-            }
-
-            // A nested `alias` DEFINES rather than runs, and this is the state machine's whole
-            // mechanism: `+mfwd` ends with `alias checkfwd +forward`, so releasing the other key
-            // later finds a different meaning than it would have found before. `bind` and `exec` are ConCommands as
-            // `alias` is, so a file line, a key and an alias body all reach them (B820).
-            if (Define(tokens, depth))
-            {
-                acted = true;
-                continue;
-            }
-
-            if (CvarCommand(tokens) is { } assignment)
-            {
-                // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
-                tokens = assignment;
-            }
-            else if (tokens.Count >= 2)
-            {
-                // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
-                // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. `bind`, `alias` and `exec`
-                // were taken by `Define` above. A command that is no ConVar reaches only `SetConVar`, which refuses it, and
-                // then `tokens[0]` and the count: its arguments are read by nothing past here (B823 review 2, Sonnet, Grok —
-                // a guard to collapse only for a ConVar had no test that could fail, and was removed).
-                tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
-            }
-
-            if (SetConVar(tokens))
-            {
-                // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
-                // after startup is announced for the host to apply (D215). A config line before the settings attach is
-                // not, and nor is one from TF2's saved configs, which stays here below the viewer's saved settings (D264).
-                // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
-                if (!_loading || (_settingValue is not null && !_savedLayer))
-                {
-                    ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
-                }
-
-                acted = true;
-                continue;
-            }
-
-            // A refused cheat ConVar is the console's answer, as TF2's is: it ends the clause (B718).
-            if (_refusedNow)
-            {
-                acted = true;
-                continue;
-            }
-
-            // **A bare cheat ConVar's name is the viewer's one-shot for it** (`mat_wireframe` toggles the view), and on TF2's
-            // command paths it does nothing without cheats (B791). TF2 prints the value and sets nothing, so it is not a refused
-            // SET either: no refusal is reported (B788 review 3).
-            if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
-                EngineConVars.TryByConsoleName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
-            {
-                acted = true;
-                continue;
-            }
-
-            // **A config's one-shot does nothing at load** (B820 review 1, Fable, Sonnet). *Interpolated*: TF2 runs its configs
-            // at startup, before a demo plays, so a view or playback command has nothing to act on, and the viewer's own
-            // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
-            // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
-            // `exec`s' included (B829): `stuffcmds` runs every command it adds.
-            if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
-            {
-                continue;
-            }
-
-            acted |= Perform(command, key);
         }
 
         return acted;
+    }
+
+    /// <summary>Runs one queued command (`Cmd_ExecuteCommand`).</summary>
+    /// <param name="clause">The command.</param>
+    /// <param name="key">The key that ran it, if any.</param>
+    /// <param name="depth">Its depth.</param>
+    /// <param name="acted">Set when it did something.</param>
+    /// <returns>False when the clause budget is spent, so the rest of the text is not run.</returns>
+    private bool RunClause(string clause, string? key, int depth, ref bool acted)
+    {
+        // Every clause counts, so one command's work is bounded whatever its aliases and files hold (B820 review 5).
+        if (++_commandClauses > MaximumCommandClauses)
+        {
+            if (_commandClauses == MaximumCommandClauses + 1)
+            {
+                Log.LogInformation("{Message}", $"more than {MaximumCommandClauses} commands run from one command; not running the rest.");
+            }
+
+            return false;
+        }
+
+        IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
+
+        // **At most 64 arguments, said once the 64th is taken** (`CCommand::Tokenize`, `src/tier1/convar.cpp:416,460-464`;
+        // `COMMAND_MAX_ARGC`, `src/public/tier1/convar.h:206`).
+        if (tokens.Count >= MaximumArguments)
+        {
+            Log.LogInformation("{Message}", "CCommand::Tokenize: Encountered command which overflows the argument buffer.. Clamped!");
+            tokens = [.. tokens.Take(MaximumArguments)];
+        }
+
+        string command = tokens[0];
+
+        // **The engine's order** (B820, `Cmd_ExecuteCommand`): an alias only where no command or ConVar has the name, or
+        // where the name is a `+`/`-` button, which an alias may replace.
+        if (ConsultsAlias(command) && _aliases.TryGetValue(command, out string? body))
+        {
+            // **A budget besides the depth** (B820 review 2, Fable, Sonnet): `alias a "a;a;a;a"` and a line `a` is 4^20
+            // runs under the depth bound alone, and a config line now runs its alias at load. *Interpolated*.
+            if (++_aliasRuns > MaximumAliasRuns)
+            {
+                if (_aliasRuns == MaximumAliasRuns + 1)
+                {
+                    Log.LogInformation("{Message}", $"alias {command}: more than {MaximumAliasRuns} alias runs from one line; not running the rest.");
+                }
+
+                acted = true;
+                return true;
+            }
+
+            // No key, deliberately — see the remark above. The body is its own adder's call, so it says its own
+            // refusals and the line that ran it does not hear them (B835; B830 review 6, Fable). `Cmd_ExecuteCommand`
+            // (`engine.dll` build 1007 FUN_1801678a0) adds it while commands are processing, so it goes ahead of the rest
+            // of this text (`InsertImmediateCommand`), which is running it here.
+            _ = Run(body, key: null, depth + 1);
+            acted = true;
+            return true;
+        }
+
+        // A nested `alias` DEFINES rather than runs, and this is the state machine's whole
+        // mechanism: `+mfwd` ends with `alias checkfwd +forward`, so releasing the other key
+        // later finds a different meaning than it would have found before. `bind` and `exec` are ConCommands as
+        // `alias` is, so a file line, a key and an alias body all reach them (B820).
+        if (Define(tokens, depth))
+        {
+            acted = true;
+            return true;
+        }
+
+        if (CvarCommand(tokens) is { } assignment)
+        {
+            // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
+            tokens = assignment;
+        }
+        else if (tokens.Count >= 2)
+        {
+            // **A typed ConVar set takes `ArgS`, not `Arg(1)`** (B823): `name a b` sets `a b`, and a trailing non-ASCII
+            // character is trimmed as the engine trims it — see `SourceConfig.ConVarValue`. `bind`, `alias` and `exec`
+            // were taken by `Define` above. A command that is no ConVar reaches only `SetConVar`, which refuses it, and
+            // then `tokens[0]` and the count: its arguments are read by nothing past here (B823 review 2, Sonnet, Grok —
+            // a guard to collapse only for a ConVar had no test that could fail, and was removed).
+            tokens = [tokens[0], SourceConfig.ConVarValue(clause)];
+        }
+
+        if (SetConVar(tokens))
+        {
+            // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
+            // after startup is announced for the host to apply (D215). A config line before the settings attach is
+            // not, and nor is one from TF2's saved configs, which stays here below the viewer's saved settings (D264).
+            // Under the ConVar's own name, whatever case it was typed in, so the settings find it (B791 review 9).
+            if (!_loading || (_settingValue is not null && !_savedLayer))
+            {
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(OwnName(tokens[0]), tokens[1]));
+            }
+
+            acted = true;
+            return true;
+        }
+
+        // A refused cheat ConVar is the console's answer, as TF2's is: it ends the clause (B718).
+        if (_refusedNow)
+        {
+            acted = true;
+            return true;
+        }
+
+        // **A bare cheat ConVar's name is the viewer's one-shot for it** (`mat_wireframe` toggles the view), and on TF2's
+        // command paths it does nothing without cheats (B791). TF2 prints the value and sets nothing, so it is not a refused
+        // SET either: no refusal is reported (B788 review 3).
+        if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
+            EngineConVars.TryByConsoleName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
+        {
+            acted = true;
+            return true;
+        }
+
+        // **A config's one-shot does nothing at load** (B820 review 1, Fable, Sonnet). *Interpolated*: TF2 runs its configs
+        // at startup, before a demo plays, so a view or playback command has nothing to act on, and the viewer's own
+        // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
+        // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
+        // `exec`s' included (B829): `stuffcmds` runs every command it adds.
+        if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
+        {
+            return true;
+        }
+
+        acted |= Perform(command, key);
+        return true;
     }
 
     /// <summary>Applies one fully-expanded command.</summary>

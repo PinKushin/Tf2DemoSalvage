@@ -105,6 +105,34 @@ public sealed class ConfigConsoleLoadFromTests
     }
 
     /// <remarks>
+    /// **A saved config's waited ConVar stays below the settings when it runs later** (B832 review 1, Fable): the command a
+    /// `wait` puts off runs at a later `Execute` as the saved layer that added it, so it is still not announced. The
+    /// control: the same line in `autoexec.cfg` is announced once it runs.
+    /// </remarks>
+    /// <param name="file">The config the line is in.</param>
+    /// <param name="announced">Whether the settings are told.</param>
+    [TestCase("config.cfg", 0)]
+    [TestCase("autoexec.cfg", 1)]
+    public void LoadFrom_AWaitedConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec(string file, int announced)
+    {
+        string folder = TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder, "cfg"));
+        File.WriteAllText(Path.Combine(folder, "cfg", file), "wait; cl_showfps 1\n");
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.ReadSettingsFrom(_ => null);
+        int told = 0;
+        console.ConVarSet += (_, _) => told++;
+
+        console.LoadFrom(folder, NullLoggerFactory.Instance, new RecordingLogger(), NowhereFolder());
+        told.ShouldBe(0, "the control: the set waits");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        told.ShouldBe(announced);
+        console.ConVar("cl_showfps").ShouldBe(announced == 0 ? "1" : null, "the control: the waited set ran");
+    }
+
+    /// <remarks>
     /// **A saved config's `sv_cheats 1` then `0` reverts only its own lines, not the settings' cheats** (D264; B816 review
     /// 2, Sonnet): the settings hold `mat_fullbright 1`. The control: the same lines in `autoexec.cfg` revert it.
     /// </remarks>

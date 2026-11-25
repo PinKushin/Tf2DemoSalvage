@@ -46338,7 +46338,73 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
-## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — OPEN
+## B840 — text added while processing runs its due commands before one its own alias links ahead by tick (2026-11-25) — OPEN
+
+Found in B832 review 3 (Fable). `InsertCommand` (`engine.dll` x64 build 1007 FUN_180295740;
+`src/tier1/commandbuffer.cpp:148-155`) puts text added while commands are processing at the front in order, but a
+command it puts off past the current tick is linked by tick among everything queued, the text's own front commands
+included. The console runs such text (an alias body, a file line, the launch line, a waited command) from a list of
+its own and links only the put-off commands into the queue. The order differs only when a negative `wait` lowers the
+current tick: `wait -2; al; wait 2; b` with `al` = `wait; d` runs al, d, b in TF2 (`d` at T-1 is linked before `b` at
+T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait`. Fix shape: one queue for every
+command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
+dequeued from its head. *Not fixed*.
+
+## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — OPEN
+
+Found in B832 review 1 (Grok). `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs, for each host tick,
+the input step's `Cbuf_Execute` and then that tick's client step, which reads the demo's tick. B838 runs the console
+before each tick the clock steps, but the viewer builds its world once a frame, at the clock's final position, so a
+waited command that changes a ConVar between two ticks of one frame is in force when the frame's earlier tick's events
+are read (a sound, a HUD event). `demo_pause` is the exception B838 handles, as it stops the clock. *Inferred* from
+the order read; not measured. Fix shape: hand the per-tick work (event delivery) the console state of its own tick.
+*Not fixed*.
+
+## B838 — a frame's per-tick `Cbuf_Execute` calls run after the frame's whole advance, not inside each tick (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed** on B832's branch. `PlaybackPresenter.Advance(beforeEachTick)` steps the clock one whole tick at a time
+(`PlaybackClock.SecondsToNextTick`, `StepToNextTick`), runs the console before each, and stops on the tick reached
+when a command it ran paused playback; the frame's last part-tick is advanced as before. `ViewerSession.Simulate`
+passes it `ExecuteConsole(tick)`, which reads `sv_allow_wait_command` at that tick. Tests
+`Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check removed),
+`SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
+`SecondsToNextTick_AtTheEndPlayingForward_IsInfinite`. *Not reproduced*: TF2 counts its host ticks from accumulated
+frame time before the loop; the viewer counts the demo ticks the frame crosses, which is the same count while a demo
+plays one tick per host tick.
+
+The paragraph below is the entry as filed.
+
+Found fixing B832. `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs each host tick's
+`_Host_RunFrame_Input` (FUN_1801a74d0, which calls `Cbuf_Execute`) before that tick's server and client steps, so a
+command a `wait` put off to the second tick of a frame acts before the demo reads its second tick: a waited
+`demo_pause` stops playback on that tick. `ViewerSession.Simulate` advances the playback clock by the whole frame
+first and then runs one `Execute` per tick it crossed, so the same `demo_pause` stops it at the frame's last tick, up to
+six ticks later at the 0.1-second frame clamp. *Inferred* from the order read; not measured. Fix shape: step the clock
+one tick at a time in `PlaybackPresenter.Advance`, running the console before each and stopping when it pauses.
+*Not fixed*.
+
+## B834 — the command buffer's 8192-byte argument space is not modelled, so a long launch line runs past where TF2 stops (2026-11-24) — FIXED (2026-11-25)
+
+**Fixed**, with B832 on one branch: both are `CCommandBuffer`'s queue. Read in `engine.dll` x64 build 1007 (Ghidra):
+the constructor (FUN_180294fb0) sets `m_nMaxArgSBufferLength` to 0x2000, and `InsertCommand` (FUN_180295740) and
+`AddText` (FUN_1802952a0) match `src/tier1/commandbuffer.cpp`. Both interpolations are answered: `stuffcmds`
+(FUN_1801683d0) pastes the launch line into a growable `CUtlBuffer` and adds it in one call, so nothing caps it first;
+and the buffer holds the queued commands, each with its terminator, since `Compact` keeps only those. `AddText` queues
+a whole text before any of it runs, so while one command runs, the rest of its text, of every text that ran it, and
+every command a `wait` put off hold the buffer. `Cmd_Exec_f` (FUN_1801672f0) adds a file one line at a time and runs
+each before reading the next. `ConfigConsole.Insert` is that `AddText`: it queues a text's commands, stops at one of 511
+bytes or more or at one that does not fit (`queued + size + 1 > 8192`), and `Run` keeps `_queuedBytes`, released as
+each command runs. Every adder (a key, a file line, an alias body, the launch line) says
+`Cbuf_AddText: buffer overflow`, now before the text's commands run, as TF2 prints it from the adder; the depth-keyed
+`AddedAsOne` is gone.
+`LaunchOptions` counts the same bytes across the launch line for its early store (`ConfigConsole.Adds`), with nothing
+else queued: a config's waited commands still queued when `stuffcmds` runs are not counted there. Tests
+`Stuff_ALaunchLineAtTheArgumentBuffersEdge_RunsWhatFits` (exactly 8192 fits, 8193 does not),
+`Stuff_AnAliasBodyThatDoesNotFitBesideTheRestOfItsText_IsRefused`,
+`KeyDown_WhileWaitedCommandsFillTheBuffer_SaysTheBufferOverflowed`, `Read_AConVarPastTheArgumentBuffer_IsNotStored`;
+each red with the limit doubled, and the first with `>=` for `>`.
+
+The paragraph below is the entry as filed.
 
 Found in B830 review 2 (Fable). `CCommandBuffer::InsertCommand` refuses a second way: when the argument buffer
 (`m_nMaxArgSBufferLength`, 8192 by `src/public/tier1/commandbuffer.h:92`) cannot take the command even after `Compact`
@@ -46436,7 +46502,127 @@ it for the launch line and for each config line (`Cmd_Exec_f` adds each line thr
 A key's bind and an alias body print only the first line. *Not read*: which adder each of those two reaches; the
 engine's strings also hold `Cbuf_AddTextWithMarkers: buffer overflow`, whose callers are not read either. *Not fixed*.
 
-## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — OPEN
+## B832 — `wait` is not implemented, so a config's waits do nothing (2026-11-24) — FIXED (2026-11-25)
+
+**Fixed**, with B834. Read in `engine.dll` x64 build 1007 (Ghidra): `AddText` (FUN_1802952a0) takes `wait`, any case,
+when `m_bWaitEnabled` is set, and adds `atoi( pArgS )` to the tick of every later command of its text, or
+`m_nWaitDelayTicks` (1, FUN_180166970) when nothing follows the word. `Cbuf_Execute` (FUN_180166a10) sets
+`m_bWaitEnabled` from `sv_allow_wait_command` (FUN_18000b680: replicated, default "1", read as its integer) unless
+commands are already processing, then runs one tick's commands (`BeginProcessingCommands(1)`). `_Host_RunFrame`
+(FUN_1801a5eb0) calls it at the top of every frame and `_Host_RunFrame_Input` (FUN_1801a74d0) once in each host tick,
+and no frame time is added while the demo player is paused. So the console keeps a tick (`_tick`) and a list of
+commands put off (`_deferred`, linked by tick as `InsertCommandAtAppropriateTime` links them, each with the context it
+was added in); `Execute(waitAllowed)` runs what is due and moves the tick on; `ViewerSession` calls it at the top of
+`RenderFrame` and before each demo tick `PlaybackPresenter.Advance` moves, with `sv_allow_wait_command` from the demo's
+server ConVars at the current tick. A key or a config line run between two calls first runs what is due, as TF2 queues
+it behind those. Tests (each red under its own sabotage):
+`Load_ALineWithAWait_RunsTheRestAtTheSecondExecute`, `Load_AWaitWithAnArgument_WaitsThatManyTicks` (`wait 3`, `WAIT`,
+`wait 0`, `wait x`), `KeyDown_AnAliasWithAWait_RunsItsWaitedHalfAfterTheRestOfTheBind`,
+`Load_WaitsAddedOutOfTickOrder_RunInTickOrder`, `Load_AWaitAfterAnExecute_WaitsOnlyWhenTheServerAllowsIt`,
+`WaitAllowed_AServersValue_IsItsIntegerNotZero`, `KeyDown_AfterAWaitsCommandsAreDue_RunsAfterThem`,
+`RenderFrame_AOneShotAfterAWaitOnTheLaunchLine_PerformsItAtTheSecondFrame`,
+`RenderFrame_AWaitOf30TicksWhilePlaying_IsReachedInSixFrames`, `Advance_AFrameOfThreeTicks_RunsTheConsoleBeforeEach`.
+The per-tick calls first ran after the frame's whole advance; filed and fixed as B838.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok; no blocker). Fixed:
+- A text's waited commands are linked when it is added, before any of it runs, so an alias's waited half at the same
+  tick goes after its caller's (all four). Test `KeyDown_AnAliasWaitingAsLongAsItsCaller_RunsItsWaitedHalfLast`. This
+  also keeps a text's waited commands when a budget or a throw stops it (Sonnet, Grok).
+- A key's text is linked by tick, as `Key_Event` adds while nothing is processing, so a negative `wait` runs what
+  follows it first; a config line, added while its `exec` processes, keeps its order (Sonnet, Fable). Test
+  `KeyDown_ANegativeWait_RunsTheCommandAfterItFirst`.
+- `wait`'s number is `atoi` of the text from after the word, past the command's end, as `pArgS` points into the whole
+  text: `wait \n5` waits five (Fable, Gemini). Test `Stuff_AWaitWhoseNumberIsOnTheNextLine_WaitsThatMany`.
+- A `+` bind's text carries its key's `ButtonCode_t` (`"%s %i"`), so its bytes count, and the release carries it too
+  (Fable, Gemini; `ButtonCodeNames.CodeOf`). Test `KeyDown_APlusBindBesideAFullBuffer_CountsItsKeyNumber`.
+- The clock reads the next tick's distance again after the console runs, as a command may change the speed, and a
+  frame a rounding error short of a tick still reaches it (Fable, Gemini, Sonnet). *Superseded by review 2*: a
+  frame's ticks run at the speed it began with, and the speed test is now
+  `Advance_ASpeedSetBeforeTheFirstTick_TimesTheNextFrame`.
+- Each per-tick call reads `sv_allow_wait_command` at the tick the clock is on, not the previous frame's (Fable,
+  Gemini).
+- The context a waited command runs in has tests that fail without it: a config's (`Loading`), the launch line's
+  (`Stuffing`), the viewer's own key (`ViewerIssued`), a saved config's (`SavedLayer`) (Fable, Sonnet, Gemini). Tests
+  `Execute_AWaitedOneShot_RunsAsTheTextThatAddedIt`, `Execute_AWaitedCheatFromTheViewersOwnKey_IsAdmitted`,
+  `Execute_AWaitedSet_IsAnnouncedAsWhatAddedIt`,
+  `LoadFrom_AWaitedConVarWithTheSettingsAttached_IsAnnouncedOnlyFromAutoexec`.
+- `TicksAdvanced`, read by tests only, is gone (Sonnet, Fable); the class remark no longer says `wait` is not done.
+- Each fix sabotaged alone reddened its own test.
+
+Not taken: a viewer handler (the host's `ConVarSet` or `Triggered`) that runs text inside a command runs it at once,
+where an engine `Cbuf_AddText` would queue it behind the rest (Grok). No engine path adds text from inside a command
+but the immediate ones modelled (alias, `exec`); the handlers are the viewer's own. Filed as B839: a frame's demo ticks
+are applied after all of the frame's console calls (Grok). `_deferred` survives a new demo, as TF2's buffer survives
+`playdemo` (Sonnet). Reverse playback, which TF2 has not, runs a console call per tick it crosses backwards.
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini's three are the
+frame speed and the key's tick order below). Fixed:
+- A frame's ticks are counted at the speed it began with, as `_Host_RunFrame` fixes its host ticks before the loop: a
+  speed a command sets inside a frame times the next frame, and a tick the console ran for is always stepped, where
+  round 1's re-read could run the console twice for one tick (Sonnet). `PlaybackClock.SecondsToNextTick`,
+  `StepToNextTick` and `Advance` take the frame's speed. Test `Advance_ASpeedSetBeforeTheFirstTick_TimesTheNextFrame`.
+- The rounding tolerance has a test that fails without it, a frame 1e-12 s short of a tick; round 1's test could not,
+  as three float intervals are exact in a double (Fable, Sonnet, Grok). Test
+  `Advance_AFrameARoundingErrorShortOfATick_ReachesIt`; round 1's "each fix reddened its own test" did not hold for it.
+- The session reads `sv_allow_wait_command` from the demo at the tick it hands the console (Fable). Test
+  `RenderFrame_ADemoWhoseServerTurnedWaitOff_RunsAWaitedKeyAtOnce`, a synthetic demo whose `net_SetConVar` turns it off.
+- A key's commands run among the queued commands by tick, a negative `wait`'s ahead of one already due, and each
+  command runs at its own tick (`DequeueNextCommand`), so a `wait` inside it counts from there (Fable, Sonnet, Grok).
+  Tests `KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder`,
+  `KeyDown_AWaitInsideANegativeWaitsCommand_CountsFromItsTick`.
+- `ButtonCodeNames.CodeOf` has a test of its values (`k` 21, `SPACE` 65, `MOUSE1` 107, a chord none) (Sonnet); its
+  summary and the labels say B832 review 1 (Fable, Sonnet).
+- Each fix sabotaged alone reddened its own test.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok; Gemini called the first and third bullets below blockers; all five of its
+findings are among them). Fixed:
+- A key's whole text is linked into the queue by tick and run from it, so a command a key's own alias puts off to a
+  tick its text also holds runs after the key's (Fable). Round 2's per-command drain ran it first. Test
+  `KeyDown_AnAliasPuttingOffToATickItsKeyHolds_RunsAfterTheKeys`. The key is answered for its own commands only.
+- Only a key pressed from outside every command is queued so (Fable, Sonnet); one a handler presses inside a command
+  runs inside it, as before. `Execute` does nothing inside such a command, which stands in for one (Fable).
+- A frame stops at the end it travelled towards at its own speed, whatever a command in it set (Sonnet). Test
+  `Advance_AFrameThatReachesTheEndWithASpeedSetToZero_Stops`.
+- Review 1's re-read bullet is marked superseded (Fable).
+- Each fix sabotaged alone reddened its own test.
+
+Not taken (Grok): that a key's future-tick commands ran at once (they were never in the list run at once), and that
+`KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder` should leave 2 (its `Execute` moves the tick on, so `9` is
+due). Filed as B840 (Fable): a negative `wait` in text added while processing.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini read through the fixes below, c5e32cd7b, and found no
+finding but this record's). Fixed:
+- Review 3's second bullet had no test that could fail, so its "each fix reddened its own test" was wrong for it
+  (Fable, Sonnet). Tests `KeyDown_FromAHandlerInsideACommand_RunsInOrder` and
+  `Execute_FromAHandlerInsideACommand_DoesNothing`, each red with its guard loosened.
+- A key's commands, run from the queue one by one, share the budgets its key's command began, as one text did
+  (Fable, Sonnet). Test `KeyDown_ABindOfManyFanningOutAliases_SpendsOneBudget`, red with a budget per command.
+- A throw drops what of the key's text was to run now, and its bytes, as a run text's rest is (Fable, Sonnet). Test
+  `KeyDown_AHandlerThatThrows_DropsTheRestOfTheKeysText`, red with the drop disabled; review 5 made it red too with
+  the bytes kept and with a future-tick command dropped (Fable, Sonnet).
+- The tie test checks that both sets ran, in order (Grok); stale comments on the queue and an unasserted "control"
+  in a presenter test's remark are fixed (Fable, Sonnet).
+
+**Review 5** (Fable, Gemini as above, Sonnet, Grok; no blocker). Fixed: the handler-pressed key's test checks both
+sets in order (Grok); the throw test asserts the bytes are
+released (an 8192-byte launch line fits after it) and a future-tick command of the key survives (Fable, Sonnet); a
+pointless `KeyDown` of an unbound key is gone; `RunCommand`'s remark names the key's due commands' shared set (Fable).
+Not taken: that `!_processing` in the key test can go (Sonnet). It holds the loop up: a key's own queued command is
+run by `Run` straight from `RunDue` with `_commandsRunning` still 1, and only `_processing` stops it being linked
+again as a new key text, without end (review 6, Fable; every key press covers it). It is the engine's own condition
+too (`!m_bIsProcessingCommands`).
+
+**Review 6** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini and Grok no findings; Gemini's note of uncommitted
+changes was a sabotage under way, restored before 1c2d672b8). Fixed: the record's reason for keeping
+`!_processing`, which said it was redundant (Fable, above); a throw keeps other texts' queued commands, now tested
+(`KeyDown_AHandlerThatThrows_KeepsOtherTextsQueuedCommands`, red when the drop takes text 0 too; Fable); the throw
+test's remark names its controls (Sonnet).
+
+Not taken (Grok): that a spent budget no longer stops the rest
+of a key's text. The alias budget never stopped it (a spent alias is skipped and the text goes on); the clause budget
+still does, each remaining entry refused at its first clause (Fable, Sonnet traced it).
+
+The paragraph below is the entry as filed.
 
 Filed for the beta.71 notes (Fable, Sonnet review the docs pass): B820's review recorded that `wait`, which TF2's
 `Cbuf_AddText` consumes, is not implemented here, and B820 is closed, so it had no open entry. A script that relies on

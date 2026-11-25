@@ -95,16 +95,45 @@ public sealed class PlaybackClock
     /// a bad measurement and would show as a stutter, but a negative scale is reverse playback,
     /// which is deliberate — see <see cref="TimeScale"/>.
     /// </remarks>
-    public void Advance(double seconds)
+    public void Advance(double seconds) => Advance(seconds, TimeScale);
+
+    /// <summary>Advances by an interval of real time at a given speed.</summary>
+    /// <param name="seconds">How long has passed.</param>
+    /// <param name="scale">The speed: a frame's own, which a command inside it may have changed since (B832 review 2).</param>
+    public void Advance(double seconds, double scale)
     {
-        if (seconds <= 0 || TimeScale == 0)
+        if (seconds <= 0 || scale == 0)
         {
             return;
         }
 
-        _position = Math.Clamp(
-            _position + (seconds * TimeScale / _intervalPerTick), 0, _lastTick);
+        _position = Math.Clamp(_position + (seconds * scale / _intervalPerTick), 0, _lastTick);
     }
+
+    /// <summary>The real seconds until the position reaches the next whole tick it travels towards at a speed.</summary>
+    /// <remarks>A frame's host ticks are the whole ticks it crosses (B838), each run on its own.</remarks>
+    /// <param name="scale">The speed: a frame's own, which a command inside it may have changed since (B832 review 2).</param>
+    /// <returns>Infinity when it travels nowhere at that speed: stopped, or at the end it travels towards.</returns>
+    public double SecondsToNextTick(double scale)
+    {
+        if (scale > 0 && !AtEnd)
+        {
+            return (Math.Floor(_position) + 1 - _position) * _intervalPerTick / scale;
+        }
+
+        if (scale < 0 && !AtStart)
+        {
+            return (_position - (Math.Ceiling(_position) - 1)) * _intervalPerTick / -scale;
+        }
+
+        return double.PositiveInfinity;
+    }
+
+    /// <summary>Moves to the next whole tick in the direction of a given speed, exactly, where
+    /// <see cref="Advance(double, double)"/> by <see cref="SecondsToNextTick"/> could land a rounding error short of it.</summary>
+    /// <param name="scale">The speed whose direction to step in.</param>
+    public void StepToNextTick(double scale) =>
+        _position = Math.Clamp(scale > 0 ? Math.Floor(_position) + 1 : Math.Ceiling(_position) - 1, 0, _lastTick);
 
     /// <summary>Jumps to a tick, discarding any part-tick already accumulated.</summary>
     /// <param name="tick">Where to go; clamped to the demo.</param>

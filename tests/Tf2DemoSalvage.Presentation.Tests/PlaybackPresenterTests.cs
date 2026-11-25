@@ -112,6 +112,155 @@ public sealed class PlaybackPresenterTests
         view.LastShownTick.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The ticks a frame moved over are its host ticks, each a `Cbuf_Execute`** (B832; `_Host_RunFrame_Input`,
+    /// `engine.dll` build 1007 FUN_1801a74d0): 0.05 seconds at 0.015 a tick crosses three, and a paused frame none. The
+    /// control: the same time paused moves nothing.
+    /// </remarks>
+    [TestCase(true, 3)]
+    [TestCase(false, 0)]
+    public void Advance_AFrameOfThreeTicks_RunsTheConsoleBeforeEach(bool playing, int ticks)
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(playing);
+        time.Seconds = 0.05;
+        presenter.Advance(_ => called++);
+
+        called.ShouldBe(ticks);
+    }
+
+    /// <remarks>
+    /// **Each console call is told the tick the clock is on, before it moves** (B832 review 1, Fable): three ticks of time
+    /// call three times, at ticks 0, 1 and 2, and reach tick 3.
+    /// </remarks>
+    [Test]
+    public void Advance_AFrameOfExactlyThreeTicks_RunsTheConsoleThreeTimes()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 3 * (double)0.015f;
+        List<int> ticks = [];
+        presenter.Advance(tick =>
+        {
+            called++;
+            ticks.Add(tick);
+        });
+
+        ticks.ShouldBe([0, 1, 2], "each call is told the tick the clock is on, before it moves");
+
+        called.ShouldBe(3);
+        view.LastShownTick.ShouldBe(3);
+    }
+
+    /// <remarks>
+    /// **The console runs before each tick, and a pause it makes stops the clock on the tick reached** (B838): `_Host_RunFrame`
+    /// (`engine.dll` build 1007 FUN_1801a5eb0) runs `_Host_RunFrame_Input`'s `Cbuf_Execute` before each host tick's client
+    /// step. A command that pauses before the third tick of 0.05 seconds leaves the demo on tick 2. The control: run
+    /// nothing, and it reaches tick 3, the callback called three times.
+    /// </remarks>
+    [TestCase(99, 3, 3)]
+    [TestCase(3, 2, 3)]
+    public void Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached(int pauseAt, int shown, int calls)
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.05;
+        presenter.Advance(_ =>
+        {
+            if (++called == pauseAt)
+            {
+                view.Playing = false;
+            }
+        });
+
+        called.ShouldBe(calls);
+        view.LastShownTick.ShouldBe(shown);
+    }
+
+    /// <remarks>
+    /// **A speed the console sets inside a frame times the next frame** (B832 review 2, Sonnet): `_Host_RunFrame`
+    /// (`engine.dll` build 1007 FUN_1801a5eb0) counts the frame's host ticks before its loop, so 0.045 seconds runs three
+    /// ticks at 1x though the first one's console doubled the speed, and the console runs before each of the three. The
+    /// next frame of 0.015 seconds plays two at 2x. Read at once, the doubled speed would have reached tick 6.
+    /// </remarks>
+    [Test]
+    public void Advance_ASpeedSetBeforeTheFirstTick_TimesTheNextFrame()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 3 * (double)0.015f;
+        presenter.Advance(_ =>
+        {
+            if (++called == 1)
+            {
+                view.ChooseSpeed(2f);
+            }
+        });
+
+        called.ShouldBe(3);
+        view.LastShownTick.ShouldBe(3);
+
+        time.Seconds = 0.015f;
+        presenter.Advance();
+        view.LastShownTick.ShouldBe(5, "the doubled speed holds for the next frame");
+    }
+
+    /// <remarks>
+    /// **A frame that reaches the end stops there, whatever speed a command inside it set** (B832 review 3, Sonnet): the
+    /// frame played towards the end at its own speed, so a `demo_timescale 0` from its console does not leave playback
+    /// claiming to play at the last tick.
+    /// </remarks>
+    [Test]
+    public void Advance_AFrameThatReachesTheEndWithASpeedSetToZero_Stops()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired(lastTick: 3);
+        bool set = false;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.1;
+        presenter.Advance(_ =>
+        {
+            if (!set)
+            {
+                set = true;
+                view.ChooseSpeed(0f);
+            }
+        });
+
+        view.LastShownTick.ShouldBe(3);
+        view.Playing.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A frame a rounding error short of the next tick reaches it, the console run before it** (B832 review 2, Fable,
+    /// Sonnet): half a tick in, a frame of the other half less 1e-12 seconds counts as reaching tick 1.
+    /// </remarks>
+    [Test]
+    public void Advance_AFrameARoundingErrorShortOfATick_ReachesIt()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+        int called = 0;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.5 * 0.015f;
+        presenter.Advance();
+        double rest = (1 - presenter.Position!.Value) * 0.015f;
+
+        time.Seconds = rest - 1e-12;
+        presenter.Advance(_ => called++);
+
+        called.ShouldBe(1);
+        view.LastShownTick.ShouldBe(1);
+    }
+
     /// <remarks>A skip's frames spend no playback time (B708): the frame after its landing moves by that frame, not the walk.</remarks>
     [Test]
     public void HoldClock_WhilePlaying_RestartsTheElapsedTime()

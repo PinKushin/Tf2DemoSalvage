@@ -509,6 +509,10 @@ public sealed partial class ViewerSession
     /// </remarks>
     public bool RenderFrame()
     {
+        // **The console's buffer runs at the top of every frame, map read or not** (B832): `_Host_RunFrame` (`engine.dll`
+        // build 1007 FUN_1801a5eb0) calls `Cbuf_Execute` before its tick loop, whatever else the frame does.
+        ExecuteConsole(_transport.CurrentTick);
+
         // **Nothing is drawn while a map is being read on another thread (B146).** That read
         // replaces a dozen fields one at a time — the outline, the surfaces, the assets, the
         // terrain, the overlays — and drawing halfway through it would be drawing a world that does
@@ -815,9 +819,20 @@ public sealed partial class ViewerSession
         }
         else
         {
-            _playback.Advance();
+            // **And the console once more before each host tick the frame runs** (B832, B838): `_Host_RunFrame_Input`
+            // (FUN_1801a74d0) runs `Cbuf_Execute` in every tick of the loop, before the tick's client step.
+            _playback.Advance(ExecuteConsole);
         }
     }
+
+    /// <summary>One `Cbuf_Execute`, with `wait` taken as the demo's <c>sv_allow_wait_command</c> says (B832).</summary>
+    /// <remarks>
+    /// A replicated ConVar whose default is 1 (`engine.dll` build 1007 FUN_18000b680), read as its integer at each
+    /// `Cbuf_Execute` (FUN_180166a10); a demo sets it as a server's <c>net_SetConVar</c> does.
+    /// </remarks>
+    /// <param name="tick">The demo tick it runs at: the clock's, inside a frame's advance (B832 review 1, Fable).</param>
+    private void ExecuteConsole(int tick) =>
+        _console.Execute(ConfigConsole.WaitAllowed(_presenter.Timeline?.ServerConVarsAt(tick).Value(ConfigConsole.AllowWaitConVar)));
 
     /// <summary>`--measure`'s sun line, over the whole frame.</summary>
     private readonly SunMeter _sunMeter = new();

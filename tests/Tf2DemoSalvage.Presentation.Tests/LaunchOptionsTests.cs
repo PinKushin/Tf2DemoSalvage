@@ -291,6 +291,28 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
+    /// **What does not fit in the 8192-byte argument buffer is not stored early either** (B834): `stuffcmds` adds the whole
+    /// launch line in one `AddText`, and `InsertCommand` refuses a command that does not fit beside the ones before it
+    /// (`commandbuffer.cpp:129-134`), with every later one. Twenty `alias a` lines of 409 bytes each queue 8180, and
+    /// `demo_fov_override 75` needs 21 more. The control: nineteen leave room, and 75 is stored.
+    /// </remarks>
+    [TestCase(19, 75f)]
+    [TestCase(20, null)]
+    public void Read_AConVarPastTheArgumentBuffer_IsNotStored(int aliases, float? stored)
+    {
+        System.Collections.Generic.List<string> arguments = [];
+
+        for (int alias = 0; alias < aliases; alias++)
+        {
+            arguments.AddRange(["+alias", "a " + new string('x', 400)]);
+        }
+
+        arguments.AddRange(["+demo_fov_override", "75"]);
+
+        Read([.. arguments]).Settings.DemoFovOverride.ShouldBe(stored ?? ViewerSettings.Load().DemoFovOverride);
+    }
+
+    /// <remarks>
     /// **A set first on its line is stored though a later statement on that line is refused** (B830 review 1, Sonnet):
     /// `AddText` queues the commands before the one it refuses (`commandbuffer.cpp:242-243`), so `demo_fov_override 75`
     /// runs in TF2 and the early store must hold it. The control: a first statement that is itself too long, and reads as
