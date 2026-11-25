@@ -46394,7 +46394,8 @@ where TF2
 runs it on; the alternative line, the current tick, lets `alias a "wait; b"` / `alias b "wait -1; a"` run for ever
 inside one run.
 
-Review 4 (Fable, Gemini pending, Sonnet, Grok; no blocker). Fixed: a text's commands put off share one fresh set per
+Review 4 (Fable, Gemini, Sonnet, Grok; no blocker; Gemini found the one set across ticks too and read the fix, no
+blocker). Fixed: a text's commands put off share one fresh set per
 tick, not one across ticks, as each later tick is a run of its own; one set across ticks cut the eighth of eight `b`s a
 tick apart, which TF2 runs (Fable). Test `Load_PutOffAliasesFanningOut_ShareABudgetPerTick`: eight fanning-out aliases
 put off to one tick are cut at the alias budget, as one text is; eight a tick apart all run; red with one set for all
