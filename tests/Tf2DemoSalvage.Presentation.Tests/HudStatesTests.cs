@@ -149,6 +149,21 @@ public sealed class HudStatesTests
         state.ConVars.Client.ShouldNotBeNull()("cl_hud").ShouldBe("1");
     }
 
+    /// <remarks>
+    /// **The window's per-tick ConVars reach the HUD's state** (B839 review 1, Sonnet): a tick of the frame read before a
+    /// later run's set hears its own value through `HudConVars.At`. The control: a tick the window has no record for reads
+    /// the window's ConVars as they are now.
+    /// </remarks>
+    [Test]
+    public void At_ATickWithTheWindowsPerTickConVars_CarriesThemToTheHud()
+    {
+        HudState state = HudStates.At(
+            View(NoRecordedView) with { ClientConVarsAt = static tick => tick == 10 ? static _ => "0" : null }, null, []);
+
+        state.ConVars.At(10).Client.ShouldNotBeNull()("cl_hud").ShouldBe("0");
+        state.ConVars.At(11).Client.ShouldNotBeNull()("cl_hud").ShouldBe("1", "the control: no record, the ConVars now");
+    }
+
     /// <summary>`GetClientVoiceMgr()->IsPlayerSpeaking`: the window's speakers reach the HUD (B549 item 2).</summary>
     [Test]
     public void At_ATickWithSpeakers_CarriesThemToTheHud()

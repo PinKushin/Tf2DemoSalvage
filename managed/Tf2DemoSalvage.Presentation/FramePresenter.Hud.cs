@@ -75,7 +75,8 @@ public sealed partial class FramePresenter
 
     private GameContent? _game => _window?.Game();
 
-    private HudState HudStateAt(int hudTick)
+    /// <summary>The state the HUD is handed for a tick, through the window the session attached (internal for its tests, B839).</summary>
+    internal HudState HudStateAt(int hudTick)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_window is not { } window)

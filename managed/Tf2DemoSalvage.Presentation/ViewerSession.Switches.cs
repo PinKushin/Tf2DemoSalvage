@@ -269,6 +269,9 @@ public sealed partial class ViewerSession
     /// </remarks>
     private void OnConVarSet(object? sender, ConVarSetEventArgs set)
     {
+        // A tick's run inside a frame: the frame's earlier ticks still read the value it replaced (B839).
+        _conVarsByTick.Set(set.Name, set.Before);
+
         if (set.Name.Equals(Scene.ViewerSettings.PhongCommand, StringComparison.OrdinalIgnoreCase))
         {
             ApplyMaterialSwitch(Scene.ViewerSettings.PhongCommand, _settingsOwner.MaterialSwitches.Phong);
