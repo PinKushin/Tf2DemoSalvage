@@ -2584,6 +2584,34 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **The session tells the console it is spectating while a demo is open** (B844 review 10, Sonnet): a key bound exactly
+    /// to `+strafe` turns the auto-director on only then (`clientmode_shared.cpp:762-769`). The control: with no demo open
+    /// the key runs its own `+strafe`, which this viewer does not implement, and `spec_autodirector` stays 0.
+    /// </remarks>
+    [TestCase(true, "1")]
+    [TestCase(false, "0")]
+    public async Task KeyPressed_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOnOnlyWithADemoOpen(bool open, string expected)
+    {
+        string demo = WriteDemo("strafe", ticks: 600);
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "spec_autodirector 0\nbind k +strafe\n")
+            .ConfigureAwait(false);
+        using Rig rig = open ? Build(new ViewerSettings { FrameRateLimit = 0 }, 0.5, demo).WithDevice() : Build().WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+
+        if (open)
+        {
+            (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        }
+
+        rig.Session.KeyPressed(Key("k", static _ => false));
+
+        rig.Settings.ConVar("spec_autodirector").ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **A demo still loading is already playing back** (B841 review 10, Fable, Sonnet): `playdemo` starts playback before
     /// the map loads, so the console is told a demo plays back from the open on, until it is closed or failed. A pure rule,
     /// tested apart from a load whose length the rig cannot hold (review 11, Sonnet).

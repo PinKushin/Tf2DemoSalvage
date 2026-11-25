@@ -2619,14 +2619,16 @@ public sealed class ConfigConsole
     /// <param name="tokens">The clause as it runs (<see cref="Credited"/> hands in a key's real text).</param>
     private static bool Fires(IReadOnlyList<string> tokens)
     {
-        if (IsSpectatorButton(tokens[0]))
-        {
-            return false;
-        }
-
-        return !(tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) &&
-                 moded == ViewerAction.SwitchCameraMode);
+        return !IsSpectatorButton(tokens[0]) && !SetsASpectatorMode(tokens);
     }
+
+    /// <summary>
+    /// Whether a clause is `spec_mode` with exactly one argument (`ArgC() == 2`, `SpectatorGUI.cpp:847-851`), which sets a
+    /// mode this viewer does not implement (B851) and so does nothing here, for every reader: a key bound to it keeps its
+    /// default, as before B844 (review 10, Sonnet).
+    /// </summary>
+    private static bool SetsASpectatorMode(IReadOnlyList<string> tokens) =>
+        tokens.Count == 2 && SpectatorCommands.TryGetValue(tokens[0], out ViewerAction moded) && moded == ViewerAction.SwitchCameraMode;
 
     /// <summary>What a key's bind FIRES, for the claim, the settings projection and the unbound report (B844).</summary>
     /// <param name="command">The key's bind.</param>
@@ -2634,7 +2636,7 @@ public sealed class ConfigConsole
     /// <returns>
     /// A key bound exactly to a spectator button: that button's action, before any alias of that name runs, as `KeyDown`
     /// answers it (review 4, Fable). Anything else: what the text the key really runs reaches — <see cref="KeyText"/>, with
-    /// the key's number after a `+` bind and none for a chord (review 7, Fable), so `+use; spec_mode` runs `spec_mode 107`.
+    /// the key's number after a `+` bind and none for a chord (review 7, Fable), so `bind k "+use; spec_mode"` runs `spec_mode 21`.
     /// An exact `+strafe`: nothing, since it turns the auto-director on and no alias of that name runs (review 9, Fable).
     /// </returns>
     /// <remarks>
@@ -2712,16 +2714,17 @@ public sealed class ConfigConsole
             // `mat_fullbright  1` and a tab both resolve.
             // `spec_next` and its two siblings too (B844 review 1, Fable, Sonnet), or a key with a default bound to one counts as
             // doing nothing and falls back to that default.
-            // A set's value is its whole `ArgS`, read as a number up to the first space, so `mat_fullbright 1 107` (a `+`
+            // A set's value is its whole `ArgS`, read as a number up to the first space, so `mat_fullbright 1 20` (a `+`
             // bind's key number after it) is `mat_fullbright 1` (B844 review 8, Fable).
-            // A client ConVar's name with any argument is a set (`Run`'s `SetConVar`), never its bare one-shot, so the
-            // credit does not fall back to the verb for it: `mat_wireframe 106` sets 106 (B844 review 9, Fable, Sonnet).
+            // A client ConVar's name with any argument is a set (`RunClause`'s `SetConVar`), never its bare one-shot, so it
+            // does not fall back to the verb: `mat_wireframe 20` sets 20 (B844 review 9, Fable, Sonnet). For the "names"
+            // reading this changes nothing, since `SetsState` counts the set (review 10, Fable, Sonnet).
             ViewerAction? action =
                 KeyBindings.ActionOf(string.Join(' ', tokens)) ??
                 (tokens.Count > 2 ? KeyBindings.ActionOf(string.Concat(tokens[0], " ", tokens[1])) : null) ??
-                (credit && tokens.Count > 1 && IsClientConVar(tokens[0]) ? null : OneShotOf(tokens[0]));
+                (tokens.Count > 1 && IsClientConVar(tokens[0]) ? null : OneShotOf(tokens[0]));
 
-            if (credit && !Fires(tokens))
+            if ((credit && !Fires(tokens)) || SetsASpectatorMode(tokens))
             {
                 continue;
             }

@@ -2908,17 +2908,19 @@ public sealed class ConfigConsoleConformanceTests
     ///
     /// The key's answer is asserted on every row (review 3, Fable, Gemini, Sonnet), and SPACE with `+STRAFE` falls back to
     /// its own default: a binding in another case is not the spectator's, so it names nothing here and `+jump` runs.
+    /// A console nobody wired is not spectating (review 10, Sonnet).
     /// </remarks>
     [TestCase("k", "+strafe", true, "1", true, 0)]
     [TestCase("k", "+strafe", false, "0", false, 0)]
+    [TestCase("k", "+strafe", null, "0", false, 0)]
     [TestCase("k", "+STRAFE", true, "0", false, 0)]
     [TestCase("SPACE", "+strafe", true, "1", true, 0)]
     [TestCase("SPACE", "+STRAFE", true, "0", true, 2)]
     public void KeyDown_AKeyBoundExactlyToPlusStrafe_TurnsTheAutoDirectorOn(
-        string key, string binding, bool spectating, string expected, bool taken, int raisedCount)
+        string key, string binding, bool? spectating, string expected, bool taken, int raisedCount)
     {
         ConfigConsole console = ConfigConsole.WithDefaults();
-        console.Spectating = () => spectating;
+        console.Spectating = spectating is { } wired ? () => wired : null;
         List<ViewerAction> raised = [];
         console.Triggered += (_, e) => raised.Add(e.Action);
         console.Load($"spec_autodirector 0\nbind {key} {binding}");
@@ -2928,6 +2930,26 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown(key);
 
         (console.ConVar("spec_autodirector"), answered, raised.Count).ShouldBe((expected, taken, raisedCount));
+    }
+
+    /// <remarks>
+    /// **A key bound to `spec_mode 5` keeps its default** (B844 review 10, Sonnet): `spec_mode` with one argument sets a mode
+    /// this viewer does not implement (B851), so the bind does nothing here and SPACE's `+jump` still switches the camera,
+    /// as before B844, rather than SPACE falling silent.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AKeyWithADefaultBoundToSpecModeWithAnArgument_RunsItsDefault()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Spectating = static () => true;
+        List<ViewerAction> raised = [];
+        console.Triggered += (_, e) => raised.Add(e.Action);
+        console.Load("bind SPACE \"spec_mode 5\"");
+
+        console.KeyDown("SPACE");
+
+        (string.Join(',', raised), console.Bindings().KeyFor(ViewerAction.SwitchCameraMode))
+            .ShouldBe((nameof(ViewerAction.SwitchCameraMode), "SPACE"));
     }
 
     /// <remarks>
@@ -3002,7 +3024,7 @@ public sealed class ConfigConsoleConformanceTests
 
     /// <remarks>
     /// **The claim and the settings screen read the key's real text too** (B844 review 8, Sonnet): `bind k "+use; spec_mode"`
-    /// runs `spec_mode 107`, which switches nothing, so it does not claim the camera switch: SPACE keeps its `+jump` default
+    /// runs `spec_mode 21` (`k` is key 21), which switches nothing, so it does not claim the camera switch: SPACE keeps its `+jump` default
     /// and the settings screen names SPACE for it.
     /// </remarks>
     [Test]
@@ -3023,7 +3045,7 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **The settings screen credits only a key that fires the action** (B844 review 8, Fable): an alias that runs
     /// `+attack` only sets the button, so `k` is not the key for cycling; and a `+` bind ending in `mat_fullbright 1` runs
-    /// `mat_fullbright 1 107`, which sets 1, so `j` is the key for it.
+    /// `mat_fullbright 1 20` (`j` is key 20), which sets 1, so `j` is the key for it.
     /// </remarks>
     [Test]
     public void Bindings_KeysWhoseTextGainsANumberOrRunsAnAlias_NameWhatTheyFire()
@@ -3038,8 +3060,9 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **The press agrees with that credit** (B844 review 9, Fable): `mat_fullbright 1 107` is a set whose value is read
-    /// up to its first space, so `j` sets `mat_fullbright` to 1, as `CvarCommand` hands `ArgS` to `SetValue`.
+    /// **The press agrees with that credit** (B844 review 9, Fable): `j` runs `mat_fullbright 1 20`, a set of the whole
+    /// `ArgS`, as `RunClause` hands `SourceConfig.ConVarValue` to `SetConVar`; the value is read as a number up to its first
+    /// space where it is used. The exact text announced is asserted (review 10, Fable).
     /// </remarks>
     [Test]
     public void KeyDown_APlusBindEndingInAFullbrightSet_SetsItsFirstValue()
@@ -3051,12 +3074,12 @@ public sealed class ConfigConsoleConformanceTests
 
         console.KeyDown("j");
 
-        set.ShouldHaveSingleItem().Split(' ')[..2].ShouldBe(["mat_fullbright", "1"]);
+        set.ShouldBe(["mat_fullbright 1 20"]);
     }
 
     /// <remarks>
     /// **A bare toggle with the key's number after it is a set, not the toggle** (B844 review 9, Fable, Sonnet):
-    /// `bind j "+use; mat_wireframe"` runs `mat_wireframe 106`, which `CvarCommand` sets, so `j` is not the wireframe key
+    /// `bind j "+use; mat_wireframe"` runs `mat_wireframe 20`, which `RunClause` sets, so `j` is not the wireframe key
     /// and pressing it raises no toggle.
     /// </remarks>
     [Test]
@@ -3075,20 +3098,23 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **An alias named `+strafe` is passed over as the three buttons' are** (B844 review 9, Fable): while spectating, a key
     /// bound exactly to `+strafe` turns the auto-director on and is swallowed (`clientmode_shared.cpp:762-769`), so the
-    /// alias's `screenshot` never runs and the key is not credited with it.
+    /// alias's `spec_next` never runs and the key is not credited with it. `+STRAFE` is not exact (`Q_strcmp`), so the
+    /// alias runs and is credited (review 10, Fable).
     /// </remarks>
-    [Test]
-    public void Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody()
+    [TestCase("+strafe", false)]
+    [TestCase("+STRAFE", true)]
+    public void Unbound_AKeyBoundExactlyToAnAliasedStrafe_IsNotCreditedTheAliasBody(string binding, bool runsTheAlias)
     {
         ConfigConsole console = new();
         console.Spectating = static () => true;
         List<ViewerAction> raised = [];
         console.Triggered += (_, e) => raised.Add(e.Action);
-        console.Load("unbindall\nalias +strafe screenshot\nbind k +strafe");
+        console.Load($"unbindall\nalias +strafe spec_next\nbind k {binding}");
 
         console.KeyDown("k");
 
-        (console.Unbound().Contains(ViewerAction.Screenshot), raised.Contains(ViewerAction.Screenshot)).ShouldBe((true, false));
+        (console.Unbound().Contains(ViewerAction.CycleTargetForward), raised.Contains(ViewerAction.CycleTargetForward))
+            .ShouldBe((!runsTheAlias, runsTheAlias));
     }
 
     /// <remarks>
@@ -3186,10 +3212,11 @@ public sealed class ConfigConsoleConformanceTests
     /// <remarks>
     /// **A spectator command bound to a key with a default replaces the default** (B844 review 1, Fable, Sonnet): MOUSE1's
     /// default is `+attack`, and `bind MOUSE1 spec_prev` must cycle backwards. `spec_mode 5` sets a mode TF2 names, which
-    /// the viewer does not implement (B851), so it does nothing rather than cycle.
+    /// the viewer does not implement (B851), so the bind does nothing here and MOUSE1 keeps its default, as before B844
+    /// (review 10, Sonnet: `CommandFor`'s fallback is for exactly a bind that does nothing in this viewer).
     /// </remarks>
     [TestCase("spec_prev", new[] { ViewerAction.CycleTargetReverse })]
-    [TestCase("spec_mode 5", new ViewerAction[0])]
+    [TestCase("spec_mode 5", new[] { ViewerAction.CycleTargetForward })]
     public void KeyDown_AKeyWithADefaultBoundToASpectatorCommand_RunsTheCommand(string command, ViewerAction[] expected)
     {
         ConfigConsole console = ConfigConsole.WithDefaults();
