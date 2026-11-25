@@ -46443,6 +46443,28 @@ Review 4 (Fable, Gemini, Sonnet, Grok):
   overflow the 8192-byte buffer; a first-read waited `exec` resolves through the new folder.
 - `thirdperson` refused with cheats turned off before its tick now carries its control in the same test (Sonnet).
 
+Review 5 (Fable, Gemini, Sonnet; Grok's account is out of credit, "Grok Build usage balance exhausted", so it could
+not review rounds 4 and 5):
+- **A file `exec`'d from the configs was off the record** (Fable, Gemini). It took the replay flag of the file that
+  reached it: a replayed `autoexec.cfg` exec'ing a `gameshots.cfg` the chosen folder first holds suppressed it, and a
+  new or edited parent exec'ing a file an earlier read ran fired it again. `Exec` now decides per file too, against the
+  same record, while `LoadFrom` reads. Only an EARLIER read makes a file a replay: TF2 runs a file `exec`'d twice at one
+  startup twice, so the files of the read running now are kept apart until it ends.
+- **Known bound, the viewer's own rule** (Fable, Gemini, Sonnet): a config edited between reads is a new file, and its
+  waited one-shots run again, beside a first copy still queued. TF2 has no reread; its next launch would run the edited
+  file whole, which is what this does. Not filed.
+- **Coverage** (Sonnet, Gemini): nothing pinned either half of the record's key, nor `exec` on it.
+  `ConfigConsoleLoadFromTests` gains `LoadFrom_ReadAgain_ReplaysOnlyAFileAnEarlierReadRanUnchanged` (unchanged and
+  edited), `LoadFrom_TwoFilesWithTheSameText_EachRunsItsOwn`, `LoadFrom_ANewFileWithAnEarlierFilesText_RunsAsNew`,
+  `LoadFrom_AFileExecdTwiceInOneRead_RunsTwiceAndIsAReplayAfter`,
+  `LoadFrom_AReplayedConfigExecingAFileFirstFoundNow_RunsItAsNew` and
+  `LoadFrom_ANewConfigExecingAFileAnEarlierReadRan_ReplaysIt`, against real files. Sabotage, each restored: `exec`
+  off the record reddens the two `exec` reread tests; one read making its own files replays reddens the twice-`exec`'d
+  test alone; the key on the path alone reddens the edited case alone; on the text alone, the new-file case alone.
+  2,219 of 2,219 pass.
+- Equivalent mutants kept: `AtStartup`'s restore of `_replaying`, as of `_putOff` (`RunEntry` restores both around every
+  command), and the stand-in entry's `_putOff`, false whenever `FromOutside` builds one.
+
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
 (`nTick` is a local, `src/tier1/commandbuffer.cpp:214, 238`), so a `wait` alone on a line puts off nothing.

@@ -720,8 +720,28 @@ public sealed class ConfigConsole
         }
     }
 
-    /// <summary>Every config file <see cref="LoadFrom"/> has read, by path and text: one read again unchanged is a replay (B841).</summary>
+    /// <summary>
+    /// Every config file an earlier <see cref="LoadFrom"/> read, itself or by `exec`, by path and text: one read again
+    /// unchanged is a replay (B841).
+    /// </summary>
     private readonly HashSet<(string Path, string Text)> _configsRead = [];
+
+    /// <summary>
+    /// The files the read now running has read, kept apart until it ends: TF2 runs a file `exec`'d twice at one startup
+    /// twice, so only an EARLIER read makes a file a replay.
+    /// </summary>
+    private readonly HashSet<(string Path, string Text)> _configsReadThisPass = [];
+
+    /// <summary>Whether <see cref="LoadFrom"/> is reading the configs now, so an `exec` reached from them is on the record.</summary>
+    private bool _readingConfigs;
+
+    /// <summary>Notes a config file read now; whether an earlier read read it, unchanged.</summary>
+    private bool ReadBefore(string path, string text)
+    {
+        _configsReadThisPass.Add((path, text));
+
+        return _configsRead.Contains((path, text));
+    }
 
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;
@@ -1493,21 +1513,32 @@ public sealed class ConfigConsole
             // **TF2's saved configs rank below the viewer's own saved settings** (D264): their ConVars stay in this console's
             // list, which the attached settings shadow, rather than reaching the settings as a run-time set. Their binds
             // and aliases count as always. `autoexec.cfg` reaches the settings, as the player's hand-written layer.
-            foreach ((string path, string text) in configs)
-            {
-                _savedLayer = Tf2ConfigFiles.IsSaved(path);
+            _configsReadThisPass.Clear();
+            _readingConfigs = true;
 
-                // **A file read before, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or are queued,
-                // from the first read, so the reread is no second launch (B829). A file read for the first time here is
-                // not: with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read now (Sonnet).
-                try
+            try
+            {
+                foreach ((string path, string text) in configs)
                 {
-                    Load(text, replaying: !_configsRead.Add((path, text)));
+                    _savedLayer = Tf2ConfigFiles.IsSaved(path);
+
+                    // **A file an earlier read read, unchanged, is a replay** (B841 reviews 3 and 4): its one-shots fired, or
+                    // are queued, from that read, so the reread is no second launch (B829). A file read for the first time
+                    // here is not: with no TF2 found at startup, the chosen folder's `autoexec.cfg` is first read now (Sonnet).
+                    try
+                    {
+                        Load(text, replaying: ReadBefore(path, text));
+                    }
+                    finally
+                    {
+                        _savedLayer = false;
+                    }
                 }
-                finally
-                {
-                    _savedLayer = false;
-                }
+            }
+            finally
+            {
+                _readingConfigs = false;
+                _configsRead.UnionWith(_configsReadThisPass);
             }
 
             // TF2's own line for each cheat ConVar a config set with cheats off (B718). Once the settings are attached, their
@@ -1868,7 +1899,28 @@ public sealed class ConfigConsole
             return;
         }
 
-        RunFile(Tf2ConfigFiles.Decode(bytes), depth + 1);
+        string text = Tf2ConfigFiles.Decode(bytes);
+
+        if (!_readingConfigs)
+        {
+            RunFile(text, depth + 1);
+            return;
+        }
+
+        // **A file `exec`'d while the configs are read is on the record too** (B841 review 5, Fable): it is a replay only if
+        // an earlier read ran it, unchanged, whatever the file that reached it is, so a file the chosen folder adds under
+        // a replayed `autoexec.cfg` is read as new, and one a new file reaches that an earlier read ran is not.
+        bool replaying = _replaying;
+        _replaying = ReadBefore(path, text);
+
+        try
+        {
+            RunFile(text, depth + 1);
+        }
+        finally
+        {
+            _replaying = replaying;
+        }
     }
 
     /// <summary>A typed ConVar name as the ConVar spells it, or as typed when nothing declares it (B791 review 9).</summary>

@@ -245,6 +245,153 @@ public sealed class ConfigConsoleLoadFromTests
             () => ConfigConsole.WithDefaults().LoadFrom("x", NullLoggerFactory.Instance, config: null!));
     }
 
+    /// <remarks>
+    /// **A read again replays only a file an earlier read ran, unchanged** (B841 reviews 4 and 5, Sonnet, Fable): the same
+    /// `autoexec.cfg` is no second launch (B829), so its waited screenshot is taken once; edited, it is a new file and is
+    /// run as one. *The viewer's own rule*: TF2 has no reread.
+    /// </remarks>
+    [TestCase(false, 1)]
+    [TestCase(true, 2)]
+    public void LoadFrom_ReadAgain_ReplaysOnlyAFileAnEarlierReadRanUnchanged(bool edited, int raised)
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, game, NowhereFolder());
+        triggered().ShouldBe(1, "the control: the first read takes it");
+
+        if (edited)
+        {
+            File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "wait; screenshot\nbind h +forward\n");
+        }
+
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **The record is kept by path and text**: `config.cfg` and `autoexec.cfg` holding the same waited screenshot are two
+    /// files, and each takes one, as TF2 runs both.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_TwoFilesWithTheSameText_EachRunsItsOwn()
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "wait; screenshot\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A different file with an earlier file's text is new** (B841 review 5, Sonnet): `autoexec.cfg` first appearing at
+    /// the second read with `config.cfg`'s text is run, and `config.cfg` read again is not.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_ANewFileWithAnEarlierFilesText_RunsAsNew()
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, game, NowhereFolder());
+        triggered().ShouldBe(1, "the control: the first read takes config.cfg's");
+
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "wait; screenshot\n");
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A file `exec`'d twice in one read runs twice, as TF2's startup runs it twice; a later read replays it** (B841
+    /// review 5, Fable): only an EARLIER read makes a file a replay.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AFileExecdTwiceInOneRead_RunsTwiceAndIsAReplayAfter()
+    {
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "exec shots\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, game, NowhereFolder());
+        triggered().ShouldBe(2, "the control: one read runs it twice");
+
+        LoadAndRun(console, game, NowhereFolder());
+
+        triggered().ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A file `exec`'d from a replayed config is judged by itself** (B841 review 5, Fable). With no TF2 found, the
+    /// program's own `autoexec.cfg` runs `exec gameshots` and finds nothing; the chosen folder holds it, so the reread
+    /// replays `autoexec.cfg` and reads `gameshots.cfg` as new, and its screenshot is taken.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_AReplayedConfigExecingAFileFirstFoundNow_RunsItAsNew()
+    {
+        string own = TempFolder();
+        File.WriteAllText(Path.Combine(own, "autoexec.cfg"), "exec gameshots\n");
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "gameshots.cfg"), "wait; screenshot\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, null, own);
+        triggered().ShouldBe(0, "the control: nothing found to exec yet");
+
+        LoadAndRun(console, game, own);
+
+        triggered().ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A file an earlier read ran is a replay, whichever file reaches it now** (B841 review 5, Fable): the chosen folder's
+    /// new `autoexec.cfg` runs `exec shots`, which the program's own `config.cfg` ran at startup, so it is not taken again.
+    /// </remarks>
+    [Test]
+    public void LoadFrom_ANewConfigExecingAFileAnEarlierReadRan_ReplaysIt()
+    {
+        string own = TempFolder();
+        File.WriteAllText(Path.Combine(own, "config.cfg"), "exec shots\n");
+        File.WriteAllText(Path.Combine(own, "shots.cfg"), "wait; screenshot\n");
+        string game = TempFolder();
+        Directory.CreateDirectory(Path.Combine(game, "cfg"));
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
+        (ConfigConsole console, Func<int> triggered) = Counting();
+        LoadAndRun(console, null, own);
+        triggered().ShouldBe(1, "the control: the first read takes it");
+
+        LoadAndRun(console, game, own);
+
+        triggered().ShouldBe(1);
+    }
+
+    /// <summary>A console counting the one-shots it raises.</summary>
+    private static (ConfigConsole Console, Func<int> Triggered) Counting()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        return (console, () => triggered);
+    }
+
+    /// <summary>Reads the configs, then runs two frames' `Cbuf_Execute`, enough for a `wait` of one tick.</summary>
+    private static void LoadAndRun(ConfigConsole console, string? game, string own)
+    {
+        console.LoadFrom(game, NullLoggerFactory.Instance, new RecordingLogger(), own);
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+    }
+
     /// <summary>A folder that exists but holds no configs.</summary>
     private static string NowhereFolder() => TempFolder();
 
