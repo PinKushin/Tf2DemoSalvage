@@ -2568,26 +2568,20 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A chosen folder's second read of the configs holds none of the first read's waited commands** (B841 review 2,
-    /// Fable, Sonnet), as a fresh start holds none: the one-shot runs once, from the second read. The control: without the
-    /// drop it runs twice.
+    /// **A reread of the configs fires no one-shot, waited or not** (B841 reviews 2 and 3, Fable, Sonnet): like the launch
+    /// line's replay it is no second launch (B829), so the first read's waited one-shot fires once. The control: read twice
+    /// as two loads, it fires twice.
     /// </remarks>
     [TestCase(true, 1)]
     [TestCase(false, 2)]
-    public void DropQueuedConfigs_BeforeAReload_RunsAWaitedOneShotOnce(bool drop, int raised)
+    public void Load_ARereadOfAWaitedOneShot_FiresOnlyTheFirstReads(bool reread, int raised)
     {
         ConfigConsole console = new();
         int triggered = 0;
         console.Triggered += (_, _) => triggered++;
 
         console.Load("wait; screenshot");
-
-        if (drop)
-        {
-            console.DropQueuedConfigs();
-        }
-
-        console.Load("wait; screenshot");
+        console.Load("wait; screenshot", replaying: reread);
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
 
@@ -2595,22 +2589,70 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **The drop keeps the launch line's own waited commands** (B841 review 2): the launch happened once, and the line's
-    /// replay fires none, so the original is the one that acts.
+    /// **A reread after the first read's waited one-shot ran does not run it again** (B841 review 3, Fable): a folder chosen
+    /// late in the session reads the configs again, and the one-shot it queues is the reread's.
     /// </remarks>
     [Test]
-    public void DropQueuedConfigs_WithTheLaunchLinesWaitedOneShotQueued_KeepsIt()
+    public void Load_ARereadAfterTheWaitedOneShotRan_DoesNotFireItAgain()
     {
         ConfigConsole console = new();
         int triggered = 0;
         console.Triggered += (_, _) => triggered++;
 
-        console.Stuff("wait\nscreenshot", oneShots: true);
-        console.DropQueuedConfigs();
+        console.Load("wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+        triggered.ShouldBe(1, "the control: the first read's fired");
+
+        console.Load("wait; screenshot", replaying: true);
         console.Execute(waitAllowed: true);
         console.Execute(waitAllowed: true);
 
         triggered.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A load from a handler puts the waited command's flags back after it** (B841 review 3, Sonnet): the waited `exec`'s
+    /// second line is still put off, so both of its `screenshot`s act, though a handler loaded a config at the first.
+    /// </remarks>
+    [Test]
+    public void Load_FromAHandlerInsideAWaitedExecsFirstLine_LeavesTheSecondLinePutOff()
+    {
+        ConfigConsole console = new() { FindConfig = path => path == "cfg/shot.cfg" ? "screenshot\nscreenshot"u8.ToArray() : null };
+        int triggered = 0;
+        console.Triggered += (_, _) =>
+        {
+            if (++triggered == 1)
+            {
+                console.Load("cl_showfps 0");
+            }
+        };
+
+        console.Load("wait; exec shot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **`thirdperson`'s cheat check is made when it runs** (B841 review 3, Sonnet), as `Cmd_ExecuteCommand` (`engine.dll`
+    /// build 1007 FUN_1801678a0) makes it: cheats on at the load and off by its tick refuse it.
+    /// </remarks>
+    [Test]
+    public void Execute_AWaitedThirdPersonAfterCheatsTurnedOff_IsRefused()
+    {
+        ConfigConsole console = new();
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load("sv_cheats 1; wait 2; thirdperson");
+        console.Execute(waitAllowed: true);
+        console.Load("sv_cheats 0");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(0);
     }
 
     /// <remarks>

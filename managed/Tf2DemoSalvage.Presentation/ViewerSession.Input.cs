@@ -48,7 +48,8 @@ public sealed partial class ViewerSession
     /// **The two counts are logged together deliberately.** "13 of 78 binds" and "0 of 0" say
     /// different things; "loaded" says neither.
     /// </remarks>
-    private void LoadUserConfig()
+    /// <param name="replaying">Whether this is the reread after a game folder is chosen, whose one-shots never fire (B841).</param>
+    private void LoadUserConfig(bool replaying = false)
     {
         // **An instrument's run reads none of the machine's configs** (B816 review 5, Fable, Sonnet, Grok): since the
         // configs reach the run's settings, whatever the watcher's own `autoexec.cfg` sets would move a golden or a
@@ -63,7 +64,7 @@ public sealed partial class ViewerSession
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.
-        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder) is { } loaded)
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder, replaying) is { } loaded)
         {
             _bindings = loaded;
             _bindingsRevision = _console.BindsRevision;

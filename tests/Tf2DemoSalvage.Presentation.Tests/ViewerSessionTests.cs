@@ -2459,23 +2459,14 @@ public sealed class ViewerSessionTests
 
     /// <remarks>
     /// **A config's one-shot put off by `wait` reaches the playback at its frame, once** (B841, and review 2, Fable,
-    /// Sonnet): `CCommandBuffer` runs it at its tick, so `demo_togglepause` plays the paused demo. A chosen folder reads the
-    /// configs again as a fresh start, which holds none of the first read's waited commands, so it toggles once and not
-    /// twice. The control: paused before the frames, as no `--autoplay` was given.
+    /// Sonnet): `CCommandBuffer` runs it at its tick, so `demo_togglepause` plays the paused demo. The control: paused
+    /// before the frames, as no `--autoplay` was given.
     /// </remarks>
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemoOnce(bool folderChosen)
+    [Test]
+    public async Task RenderFrame_AConfigsWaitedTogglePause_PlaysTheDemo()
     {
         string demo = WriteDemo("toggles", ticks: 600);
         using Rig rig = BuildWithAutoexec("wait; demo_togglepause\n", demo);
-
-        if (folderChosen)
-        {
-            await File.WriteAllTextAsync(Path.Combine(_gameFolder!, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
-            rig.Session.GameFolderChosen(_gameFolder!);
-        }
-
         rig.Session.PlanStartup();
         rig.Session.WindowShown();
         (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
@@ -2487,6 +2478,36 @@ public sealed class ViewerSessionTests
         }
 
         rig.Transport.Playing.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A chosen folder's reread of the configs is no second launch** (B841 reviews 2 and 3, Fable, Sonnet, Gemini; B829):
+    /// a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or after the
+    /// screenshot was taken. The control: no folder chosen, it captures once.
+    /// </remarks>
+    [TestCase(null)]
+    [TestCase(0)]
+    [TestCase(3)]
+    public async Task RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce(int? folderChosenBeforeFrame)
+    {
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), "wait; screenshot\n").ConfigureAwait(false);
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }).WithDevice();
+        rig.Session.WindowShown();
+
+        for (int frame = 0; frame < 6; frame++)
+        {
+            if (frame == folderChosenBeforeFrame)
+            {
+                await File.WriteAllTextAsync(Path.Combine(_gameFolder, SteamInstall.Recogniser), string.Empty).ConfigureAwait(false);
+                rig.Session.GameFolderChosen(_gameFolder);
+            }
+
+            rig.Session.RenderFrame();
+        }
+
+        rig.Device.Captured.Count.ShouldBe(1);
     }
 
     /// <remarks>

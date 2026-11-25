@@ -449,8 +449,13 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) =>
-        AtStartup(stuffing: false, replaying: false, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
+    /// <param name="replaying">
+    /// Whether this is the viewer's reread of a config after a game folder is chosen, whose one-shots never fire, waited or
+    /// not: like the launch line's replay it is no second launch (B829, B841 review 3, Fable). The first read's waited
+    /// one-shots still queued fire once, from the first read.
+    /// </param>
+    public void Load(string? text, bool replaying = false) =>
+        AtStartup(stuffing: false, replaying, () => FromOutside(() => RunFile(text ?? string.Empty, depth: 0)));
 
     /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
     /// <param name="text">The commands.</param>
@@ -712,27 +717,6 @@ public sealed class ConfigConsole
         finally
         {
             _tick = last + 1;
-        }
-    }
-
-    /// <summary>
-    /// Drops every config command a `wait` left queued, releasing its bytes: the viewer reads its configs again from a
-    /// chosen game folder "as a fresh start is" (B811 review 3), and a fresh start has none queued, so the second read would
-    /// otherwise run a waited one-shot twice (B841 review 2, Fable, Sonnet). The launch line's own commands stay.
-    /// </summary>
-    public void DropQueuedConfigs()
-    {
-        for (LinkedListNode<Entry>? at = _queue.First; at is not null;)
-        {
-            LinkedListNode<Entry>? next = at.Next;
-
-            if (at.Value is { Loading: true, Stuffing: false })
-            {
-                _queuedBytes -= at.Value.Size;
-                _queue.Remove(at);
-            }
-
-            at = next;
         }
     }
 
@@ -1446,6 +1430,7 @@ public sealed class ConfigConsole
     /// <param name="loggers">For the config reader's own diagnostics.</param>
     /// <param name="config">The config log.</param>
     /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null (D193).</param>
+    /// <param name="replaying">Whether this is the reread after a game folder is chosen (<see cref="Load"/>).</param>
     /// <returns>The bindings, or null when nothing was loaded and the caller should keep its own.</returns>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
@@ -1464,7 +1449,7 @@ public sealed class ConfigConsole
     /// unbound list exists for the same reason from the other side.
     /// </remarks>
     public KeyBindings? LoadFrom(
-        string? installedGameFolder, ILoggerFactory loggers, ILogger config, string? ownCustomRoot = null)
+        string? installedGameFolder, ILoggerFactory loggers, ILogger config, string? ownCustomRoot = null, bool replaying = false)
     {
         ArgumentNullException.ThrowIfNull(loggers);
         ArgumentNullException.ThrowIfNull(config);
@@ -1506,7 +1491,7 @@ public sealed class ConfigConsole
 
                 try
                 {
-                    Load(text);
+                    Load(text, replaying);
                 }
                 finally
                 {

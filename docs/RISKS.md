@@ -46338,6 +46338,16 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
+## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
+
+Found in B841 review 3 (Fable). When a game folder is chosen with no install open, the viewer reads the configs again
+and replays the launch line (`ViewerSession.GameFolderChosen`, B811, B816), and both queue their waited commands again
+beside the first copies still queued. One-shots are guarded (B829, B841: the replay and the reread fire none), but a
+state command runs twice: a launch line `+wait +"toggle cl_showfps"` with the folder picked before the first frame
+toggles twice and ends where it began; `incrementvar` steps twice. *Read*, not measured. TF2 has no reread, so the
+engine has no answer here; the viewer's own rule (one launch) decides it. Fix shape: the replay's and the reread's
+copies replace the first copies still queued, or run only where no first copy remains. *Not fixed*.
+
 ## B841 — a config's one-shot put off by `wait` still does nothing, where TF2 runs it at its tick (2026-11-25) — FIXED (2026-11-25)
 
 **Fixed.** `CCommandBuffer` runs a command a `wait` put off at its tick, whatever text added it, so the one-shot rule
@@ -46357,11 +46367,11 @@ adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294
 handler inside `Execute` fired its un-waited one-shots. All three: `+jump`, `+attack` and `+attack2` were missing from
 the set. Sonnet and Grok: a waited one-shot in the launch-line replay would act a second time. All taken.
 
-Review 2 (Fable, Gemini, Sonnet, Grok) found four more, all taken:
+Review 2 (Fable, Gemini, Sonnet; Grok's run stopped at a permission prompt with no verdict) found four more, all taken:
 - **The reload doubled it** (Fable, Sonnet). A chosen game folder reads the configs again "as a fresh start is" (B811
   review 3), but the first read's waited commands stayed queued, so a `wait 500; screenshot` ran twice and a waited
-  `demo_togglepause` cancelled itself. `DropQueuedConfigs` now drops every queued config command (`Loading`, not
-  `Stuffing`) before the second read; the launch line's own stay.
+  `demo_togglepause` cancelled itself. The first fix, a drop of every queued config command before the second read,
+  was replaced in review 3 (below).
 - **Put off past the run, not the tick it was added at** (Fable). `alias x "wait; screenshot"; wait -3; x` brings the
   body back inside the load's run, where `CCommandBuffer` runs it while the load processes; it was marked put off and
   acted. The flag is now `later` (past the run's last tick).
@@ -46386,6 +46396,33 @@ Tests added in review 2: `Execute_AWaitedAliasOrExecHoldingAOneShot_ActsAtItsTic
 not dropping reddens its session case alone; `PutOff` not inherited reddens the alias and `exec` cases; `PutOff`
 measured against the added tick reddens the negative-`wait` alias case alone; the cheat gate removed reddens the
 `thirdperson` case alone. 2,205 of 2,205 pass.
+
+Review 3 (Fable, Gemini, Sonnet; Grok to follow on the result):
+- **The drop could not stop a second fire** (Fable, Gemini). A folder chosen late in a session, with no install open,
+  rereads the configs after the waited one-shot already ran; nothing is queued to drop, and the reread queues it again
+  to act a second time. The drop also discarded a queued non-one-shot set the new folder's configs might not repeat
+  (Gemini). Replaced, as Gemini recommended: the reread is a replay, `Load(text, replaying: true)` through
+  `LoadFrom(..., replaying)`, so its one-shots never fire, waited or not, as the launch line's replay fires none (B829:
+  no second launch). The first read's waited one-shot, still queued or already run, is the one that acts, once. *The
+  trade:* a waited one-shot in a config that only the chosen folder holds never fires, as a one-shot on the launch line
+  never fires from the replay. *The reading picked* is B829's; a reread as a true fresh start would fire it, and fire
+  the first read's again.
+- **Coverage** (Sonnet, Gemini): no test showed `AtStartup` putting back the waited command's flags, nor a cheat check
+  made at the tick rather than the load. `Load_FromAHandlerInsideAWaitedExecsFirstLine_LeavesTheSecondLinePutOff` and
+  `Execute_AWaitedThirdPersonAfterCheatsTurnedOff_IsRefused` added. The `AtStartup` restore of `_putOff` stays an
+  equivalent mutant: every command runs inside `RunEntry`, which puts the flag back after it, so a handler's load
+  cannot leave it changed for the next command (Fable, Sonnet).
+- **Not taken:** `CheatsOn` reads the console's own `sv_cheats`, not the demo server's replicated value (Fable,
+  Sonnet). `RefuseCheat` reads the same (B718), so the gate is consistent with every other cheat; whether TF2's client
+  follows the demo's `net_SetConVar` for `sv_cheats` was not read, and applies to all cheats, not to this bug.
+- Waited state commands (`toggle`, `incrementvar`) doubling across the replay and the reread predate this branch and
+  touch the launch line too (Fable): filed as B842.
+
+Tests after review 3: `Load_ARereadOfAWaitedOneShot_FiresOnlyTheFirstReads`,
+`Load_ARereadAfterTheWaitedOneShotRan_DoesNotFireItAgain`, and the session's
+`RenderFrame_AConfigsWaitedScreenshotAcrossAFolderChoice_CapturesOnce` (no folder, a folder before the first frame, a
+folder after the screenshot: one capture each), replacing the drop's tests. Sabotage: the reread not marked a replay
+reddens both folder cases (two captures) and leaves the control at one. 2,209 of 2,209 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
