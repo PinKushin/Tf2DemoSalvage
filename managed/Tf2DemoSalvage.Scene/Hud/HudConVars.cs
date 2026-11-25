@@ -10,8 +10,19 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </summary>
 /// <param name="Find">The demo's replicated values (the server's), or null where it sent none.</param>
 /// <param name="Client">The watcher's own values — their TF2 configs, then this viewer's settings — or null where unset.</param>
-public readonly record struct HudConVars(Func<string, string?>? Find, Func<string, string?>? Client = null)
+/// <param name="ClientAt">
+/// The watcher's values as one demo tick's `Cbuf_Execute` left them, or null where that tick reads <paramref name="Client"/>
+/// (B839): a frame that plays several ticks runs the console before each, and a game event of an earlier tick is heard
+/// before a later tick's run changes anything.
+/// </param>
+public readonly record struct HudConVars(
+    Func<string, string?>? Find, Func<string, string?>? Client = null, Func<int, Func<string, string?>?>? ClientAt = null)
 {
+    /// <summary>The values as a demo tick reads them: <see cref="ClientAt"/>'s answer for it, else these.</summary>
+    /// <param name="tick">The demo tick whose packet is read.</param>
+    /// <returns>The ConVars that tick reads.</returns>
+    public HudConVars At(int tick) => ClientAt?.Invoke(tick) is { } client ? this with { Client = client } : this;
+
     /// <summary>`CEmptyConVar() : ConVar( "", "0" )` (convar.cpp:1246): what a ref to an unregistered name reads.</summary>
     private const string EmptyConVarValue = "0";
 

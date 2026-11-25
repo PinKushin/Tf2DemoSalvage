@@ -46424,7 +46424,35 @@ T) and al, b, d here. *Read*, not measured; no real config uses a negative `wait
 command, the immediate ones linked before the next command as `InsertImmediateCommand` does, and the console's runs
 dequeued from its head. *Not fixed*.
 
-## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — OPEN
+## B839 — a frame's demo ticks are applied after all of its console calls, not one by one between them (2026-11-25) — FIXED (2026-11-25)
+
+**Fixed.** What reads a client ConVar per tick in the engine is what `CL_ReadPackets` fires as each tick is parsed:
+the game events and the user messages, whose HUD listeners read their ConVars in the handler
+(`hud_deathnotice_time` in `CTFHudDeathNotice::FireGameEvent`, `hud_saytext_time` and `cl_chatfilters` in the chat).
+The rest of a frame's work reads them once, after the tick loop, in the engine as here: `_Host_RunFrame_Render` runs
+once per frame and fires the temp entities there (`FireEvents`, FUN_1800905d0; `SoundPresenter.InFrameOrder`), and
+the HUD's think and paint and the sound mix are per frame. So the fix hands each event and message the ConVars its own
+tick read:
+- `ConVarsByTick` (Presentation) keeps, for one frame, every set a tick's run made, with the value it replaced
+  (`ConVarSetEventArgs.Before`, which the console now fills). `BeforeTick(tick, run)` labels a run made while the
+  clock is on `tick` as first read by `tick + 1`, as the client step after `Cbuf_Execute` reads the next tick's
+  packets. A set outside a tick's run (the frame's top run, a key, a load) is in force for every tick of the frame.
+- `ViewerSession` starts the record at the frame's top run and wraps each per-tick run in `BeforeTick`; it hands the
+  HUD `ClientConVarsAt(tick)` through `ViewerWindow`, `HudView` and `HudConVars.ClientAt`.
+- `VguiHud.Think` handles each game event and user message with `HudConVars.At(tick)`: on the state it passes and on
+  the viewport, where a panel reads them (`HudViewport.ConVarsOf`); the frame's own are put back after.
+
+Tests: `ConVarsByTickTests` (the run on tick 10 is first read by 11; two runs; a set outside a run and a new frame; a
+throw ends the run), `VguiHudTickConVarsTests.Think_AnEventAndAMessage_HearTheConVarsTheirTickRead` (the death
+notice's and the chat's own sounds read the viewport's ConVars inside their handlers: tick 1000 hears 3, tick 1001
+hears the frame's 9, and 9 is put back), and the session's
+`RenderFrame_AWaitedSetInsideAFrame_IsNotHeardByItsEarlierTicks` (a config's `wait 3; hud_deathnotice_time 0` run
+inside a playing frame: that frame's earlier ticks read the default, its later ones and the next frame's read 0).
+Sabotage, each restored: the run labelled with its own tick reddens the three unit cases that read across it; the
+session not recording a set reddens the session test; no put-back reddens the tick-1000 HUD case; messages read with
+the frame's ConVars reddens the tick-1000 HUD case; no frame start reddens the session test. 2,184 of 2,184 pass.
+
+The original entry follows.
 
 Found in B832 review 1 (Grok). `_Host_RunFrame` (`engine.dll` x64 build 1007 FUN_1801a5eb0) runs, for each host tick,
 the input step's `Cbuf_Execute` and then that tick's client step, which reads the demo's tick. B838 runs the console

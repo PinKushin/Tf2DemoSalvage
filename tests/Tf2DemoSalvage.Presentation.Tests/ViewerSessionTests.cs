@@ -2083,6 +2083,47 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A tick a frame played before a run's set reads the value that set replaced** (B839): `_Host_RunFrame`
+    /// (`engine.dll` build 1007 FUN_1801a5eb0) runs `Cbuf_Execute` before each host tick's client step, so the config's
+    /// waited `hud_deathnotice_time 0`, run inside a frame, is not yet in force for that frame's earlier ticks, whose events
+    /// read the default (unset). The frame that ran it is found by asking each played tick; the control is that one is
+    /// found, and that the frame's last tick reads the ConVars as they are now.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_AWaitedSetInsideAFrame_IsNotHeardByItsEarlierTicks()
+    {
+        string demo = WriteDemo("tickconvars", ticks: 600);
+        using Rig rig = BuildWithAutoexec("wait 3; hud_deathnotice_time 0\n", demo, "--autoplay");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        List<string?> earlier = [];
+        int last = -1;
+
+        for (int frame = 0; frame < 10 && earlier.Count == 0; frame++)
+        {
+            rig.Session.RenderFrame();
+
+            for (int tick = 0; tick < 600; tick++)
+            {
+                if (rig.Session.ClientConVarsAt(tick) is { } read)
+                {
+                    earlier.Add(read("hud_deathnotice_time"));
+                    last = tick;
+                }
+            }
+        }
+
+        earlier.ShouldNotBeEmpty("the control: a frame ran the set inside its ticks");
+        earlier.ShouldAllBe(value => value == null);
+        rig.Session.ClientConVarsAt(last + 1).ShouldBeNull("the ticks from the run on read the ConVars as they are now");
+
+        rig.Session.RenderFrame();
+
+        rig.Session.ClientConVarsAt(last).ShouldBeNull("the next frame's ticks all come after the run");
+    }
+
+    /// <remarks>
     /// **A playing frame runs the buffer once more for each tick it played** (B832): `_Host_RunFrame_Input` (`engine.dll`
     /// build 1007 FUN_1801a74d0) runs `Cbuf_Execute` in every host tick, and a frame here plays up to 0.1 s, six ticks, so
     /// six frames run at least 31 calls and reach a `wait 30`. The control: paused, six frames run six, and it waits on.
