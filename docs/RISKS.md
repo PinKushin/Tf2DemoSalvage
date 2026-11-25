@@ -46338,6 +46338,16 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
+## B845 — the viewer's screenshot key works while a demo plays, and its view keys move a SourceTV camera, where TF2's do not (2026-11-25) — OPEN
+
+Found in B841 review 9 (Fable, Sonnet). TF2's `screenshot` takes none while a demo plays back unless
+`cl_playback_screenshots` is set (`engine.dll` build 1007 FUN_180091070; **measured on live TF2, 2026-11-25**: no file
+at 0, one at 1), whichever key or command runs it; the viewer's F5 captures during playback. `firstperson` and
+`thirdperson` only flip the third-person flag, which a SourceTV demo's HLTV camera never reads (`view.cpp:660-662`,
+`hltvcamera.cpp:510-545`); the viewer's keys for them change its camera on any demo. Both are above Valve as they
+stand, and parity never removes a feature (D246): **the owner decides** whether each becomes a row in
+`docs/ABOVE-VALVE.md` with its test, or follows TF2. *Not fixed*.
+
 ## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
 
 Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
@@ -46535,6 +46545,29 @@ Review 8 (Fable, Sonnet; Gemini after):
   keyed apart. `RecordPath`'s `?? path` is unreachable, as `exec` refuses `..` first (Sonnet, Fable); kept as the
   engine's own null return handled.
 - Gemini, after: the same `ABOVE-VALVE.md` blind spot, already closed above; nothing else. 2,229 of 2,229 pass.
+
+Review 9 (Fable, Sonnet; Gemini after):
+- **TF2 takes no `screenshot` while a demo plays back** (Fable). `engine.dll` build 1007 FUN_180091070 returns at once
+  when the demo player's slot `+0x30` answers true and `cl_playback_screenshots` (FUN_180004960, flags 0, default 0,
+  "Allows the client to playback screenshot and jpeg commands in demos.") is 0; `demo_togglepause` (FUN_180076910) asks
+  the same slot to need playback. **Measured on live TF2, 2026-11-25** (`f12.dem` playing): `screenshot` wrote no file
+  with the ConVar at 0, and `cp_process_f120002.tga` with it at 1. A config's waited `screenshot` now acts only with no
+  demo open or the ConVar set; the session tells the console whether a demo is open (`PlayingBack`).
+  `Execute_AWaitedScreenshotWhileADemoPlaysBack_IsTakenOnlyWhenAllowed`,
+  `RenderFrame_AConfigsWaitedScreenshotWithADemoOpen_IsTakenOnlyWhenAllowed`; the gate dropped reddens the unit case,
+  the session's wiring inverted reddens all six screenshot session cases. `cl_playback_screenshots` is declared.
+- **`firstperson` and `thirdperson` change nothing on a SourceTV demo** (Fable, Sonnet). They only flip
+  `CInput::m_fCameraInThirdPerson` (`in_camera.cpp:59-118, 676-711`), and an HLTV demo draws through
+  `HLTVCamera()->CalcView` alone (`view.cpp:660-662`), no branch of which reads that flag (`hltvcamera.cpp:510-545`,
+  read whole). A config's waited one now acts only on a POV demo (`HltvPlayback`).
+  `Execute_AWaitedViewCommandOnASourceTvDemo_ChangesNothing`; the gate dropped reddens all four cases. *Not covered at
+  the session*: the `HltvPlayback` wiring line, as the rig's synthetic demo cannot show a camera change.
+- The same two readings reach the viewer's own keys (F5's screenshot while a demo plays; the first- and third-person
+  keys on a SourceTV demo), which go beyond TF2's and predate this branch: filed as **B845**.
+- **Not taken:** the widened `ABOVE-VALVE.md` check still skips a malformed row or a non-`\w` name, and counts a mention
+  as a test (Fable, Sonnet); it holds every row today. The `+jump`/`+attack`/`+attack2` zero cases have no control
+  that the command was queued (Fable); the same template's other cases show it is.
+- Gemini's review 9 was still running when this was written. 2,236 of 2,236 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
@@ -51336,7 +51369,12 @@ before any connection, and a demo recorded with `sv_cheats 1`.
 3. `sv_cheats 0` reverts every cheat ConVar to its default (`r_screenfademinsize` 12 → 0).
 4. A new `playdemo` after `sv_cheats 1` left it 1.
 **So the reading below was wrong.** The vtable `+0x30` slot on the global at `0x180524e88` is not `IsPlayingBack` (it was
-named by its use in `ProcessServerInfo` alone, with no control); during playback it answered false. **The viewer diverges:**
+named by its use in `ProcessServerInfo` alone, with no control); during playback it answered false. *Corrected
+2026-11-25 (B841 review 9, Fable):* that slot does answer true during playback — `screenshot` (FUN_180091070) and
+`demo_togglepause` (FUN_180076910) both gate on it, and live TF2 refused a playback `screenshot` with
+`cl_playback_screenshots` 0 and took one at 1. So the cheat refusal measured above comes from another condition in
+that check than the slot, which is not yet read; the measurement stands, the slot's naming here does not.
+**The viewer diverges:**
 it applies a config's cheat ConVar with `sv_cheats` 0, and its console refuses `sv_cheats` itself as replicated, where TF2
 takes it during playback. *Not yet measured:* a fresh launch's main menu before any connection (`Host_IsSinglePlayerGame` may
 allow it there), and a demo recorded with `sv_cheats 1`.

@@ -2481,6 +2481,33 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A config's waited `screenshot` takes none while a demo plays back, unless `cl_playback_screenshots` is set**
+    /// (B841 review 9, Fable): `engine.dll` build 1007 FUN_180091070 asks the demo player first. The session tells the
+    /// console a demo is open. The control: the same config with `cl_playback_screenshots 1` takes one.
+    /// </remarks>
+    [TestCase("", 0)]
+    [TestCase("cl_playback_screenshots 1\n", 1)]
+    public async Task RenderFrame_AConfigsWaitedScreenshotWithADemoOpen_IsTakenOnlyWhenAllowed(string allow, int captured)
+    {
+        string demo = WriteDemo("shots", ticks: 600);
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        await File.WriteAllTextAsync(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), allow + "wait 3; screenshot\n").ConfigureAwait(false);
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = Path.Combine(_folder, "shots") }, 0.5, demo)
+            .WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 6; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Device.Captured.Count.ShouldBe(captured);
+    }
+
+    /// <remarks>
     /// **A chosen folder's reread of a config already read is no second launch** (B841 reviews 2 to 4, Fable, Sonnet,
     /// Gemini; B829): a config's `wait; screenshot` captures once, whether the folder is chosen before the first frame or
     /// after the screenshot was taken. **A config the folder holds that no read saw is read as new** (review 4, Sonnet):

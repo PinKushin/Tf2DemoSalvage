@@ -2503,6 +2503,49 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A config's waited `screenshot` takes none while a demo plays back, unless `cl_playback_screenshots` allows it**
+    /// (B841 review 9, Fable): `engine.dll` build 1007 FUN_180091070 returns at once while the demo player plays back and
+    /// the ConVar is 0, its default. The control: with no demo, it takes one.
+    /// </remarks>
+    [TestCase(false, "", 1)]
+    [TestCase(true, "", 0)]
+    [TestCase(true, "cl_playback_screenshots 1; ", 1)]
+    public void Execute_AWaitedScreenshotWhileADemoPlaysBack_IsTakenOnlyWhenAllowed(bool playingBack, string allow, int raised)
+    {
+        ConfigConsole console = new() { PlayingBack = () => playingBack };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"{allow}wait; screenshot");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
+    /// **A config's waited `firstperson` or `thirdperson` changes nothing on a SourceTV demo** (B841 review 9, Fable,
+    /// Sonnet): TF2 draws it through the HLTV camera, which no branch of reads the third-person flag those two commands
+    /// flip (`view.cpp:660-662`, `hltvcamera.cpp:510-545`). The control: on a POV demo they act.
+    /// </remarks>
+    [TestCase("firstperson", false, 1)]
+    [TestCase("firstperson", true, 0)]
+    [TestCase("sv_cheats 1; thirdperson", false, 1)]
+    [TestCase("sv_cheats 1; thirdperson", true, 0)]
+    public void Execute_AWaitedViewCommandOnASourceTvDemo_ChangesNothing(string command, bool hltv, int raised)
+    {
+        ConfigConsole console = new() { HltvPlayback = () => hltv };
+        int triggered = 0;
+        console.Triggered += (_, _) => triggered++;
+
+        console.Load($"wait; {command}");
+        console.Execute(waitAllowed: true);
+        console.Execute(waitAllowed: true);
+
+        triggered.ShouldBe(raised);
+    }
+
+    /// <remarks>
     /// **A key's run takes a waited config command off the queue at its tick, and it still acts** (B841 review 1, Fable):
     /// `Key_Event` only adds text and the next `Cbuf_Execute` runs both (`commandbuffer.cpp:148-151, 294-329`), so whichever
     /// call runs it, the `screenshot` is the config's put-off one. A load after it is put off by nothing, and does nothing.

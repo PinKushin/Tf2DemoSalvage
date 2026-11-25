@@ -771,6 +771,29 @@ public sealed class ConfigConsole
     private static string RecordPath(string path) =>
         (Content.Assets.GameArchives.RemoveDotSlashes(path) ?? path).ToUpperInvariant();
 
+    /// <summary>Whether a demo is playing back (the demo player's `IsPlayingBack`), or null where nothing says.</summary>
+    public Func<bool>? PlayingBack { get; set; }
+
+    /// <summary>
+    /// Whether TF2's `screenshot` takes one now: `engine.dll` build 1007 FUN_180091070 returns at once while a demo plays
+    /// back (the demo player's slot `+0x30`, which `demo_togglepause`, FUN_180076910, also asks) unless
+    /// `cl_playback_screenshots` (FUN_180004960, default 0, "Allows the client to playback screenshot and jpeg commands in
+    /// demos.") is set (B841 review 9, Fable).
+    /// </summary>
+    private bool ScreenshotsTaken =>
+        PlayingBack?.Invoke() is not true || ConVarNumber.GetBool(ConVar(PlaybackScreenshotsConVar) ?? "0");
+
+    /// <summary>
+    /// Whether the demo playing back is a SourceTV one, or null where nothing says. TF2 then draws through the HLTV camera
+    /// alone (`CViewRender::SetUpViews`, `view.cpp:660-662`; `C_HLTVCamera::CalcView`, `hltvcamera.cpp:510-545`, which no
+    /// branch of reads the third-person flag), so `firstperson` and `thirdperson`, which only flip that flag
+    /// (`in_camera.cpp:59-118, 676-711`), change nothing on screen (B841 review 9, Fable, Sonnet).
+    /// </summary>
+    public Func<bool>? HltvPlayback { get; set; }
+
+    /// <summary>The client ConVar that lets a demo's `screenshot` act.</summary>
+    public const string PlaybackScreenshotsConVar = "cl_playback_screenshots";
+
     /// <summary>Whether the command running now was put off by a `wait`, or was added by one that was (B841).</summary>
     private bool _putOff;
 
@@ -2427,7 +2450,9 @@ public sealed class ConfigConsole
         // `thirdperson` is `FCVAR_CHEAT` (`in_camera.cpp:912`), which `Cmd_ExecuteCommand` (`engine.dll` build 1007
         // FUN_1801678a0) refuses with "Can't use cheat command" unless `sv_cheats` is on (B841 review 2, Fable).
         if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot) &&
-            !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn)))
+            !(_putOff && !_replaying && Tf2OneShots.Contains(shot) && (shot != ViewerAction.ThirdPersonView || CheatsOn) &&
+              (shot != ViewerAction.Screenshot || ScreenshotsTaken) &&
+              (shot is not (ViewerAction.FirstPersonView or ViewerAction.ThirdPersonView) || HltvPlayback?.Invoke() is not true)))
         {
             return true;
         }

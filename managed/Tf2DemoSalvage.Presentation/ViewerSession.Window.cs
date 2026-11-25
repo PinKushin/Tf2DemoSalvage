@@ -287,6 +287,12 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
         _console.Triggered += OnConsoleAction;
 
+        // The engine's demo player answers whether a demo plays back, which TF2's `screenshot` asks first (B841 review 9).
+        _console.PlayingBack = () => _presenter.HasDemo;
+
+        // A SourceTV demo draws through the HLTV camera, which TF2's first- and third-person commands do not reach.
+        _console.HltvPlayback = () => _presenter.Timeline is { HasRecordedView: false };
+
         // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
         _console.ConVarSet += OnConVarSet;
 
