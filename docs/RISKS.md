@@ -46462,6 +46462,20 @@ Tests: `HudStatesTests.For_ATickBetweenTwoSets_ReadsTheServersValueAtThatTick`,
 value back in `ServerConVars` reddens the first; the replay without `ServerAt` reddens the second's replay case; `At`
 not calling `ServerAt` reddens the first and the second's live case. The rest of the whole-recording readers: B848.
 
+Review 1 (Fable, Gemini, Sonnet): no engine divergence. Fixed: the voice icons' call site had no test (all three):
+`FramePresenter.VoiceIconConVars` records what `HeadLabels` was handed,
+`FramePresenterTests.DrawOver_AFrameBetweenTwoSets_GatesTheVoiceIconsByItsTicksValues`; `HudStates.At` dropping
+`FindAt` survived (Fable): `HudStatesTests.At_AWindowOverAServerThatChangedMidRecording_KeepsEachEventsServerValues`; an
+event heard at the wrong tick survived, the fixture answering one value below 1001 (Sonnet): it now answers each tick
+exactly, over two events; the null guard (Gemini): `ServerConVars_NoTimeline_Throws`; a closure and two delegates per
+frame (Fable, Sonnet): `ServerConVars.Lookup()` and `DemoTimeline.ServerLookupAt()` make each once. Sabotage, each
+restored: the voice icons on the whole recording, `At` rebuilding the ConVars without `FindAt`, and the replay at a fixed
+tick each redden their own test. **An instrument trap on the way:** the two cached delegates were first public
+PROPERTIES, and `TimelineFingerprint` walks public properties, so a delegate's `Target` led back into the timeline and
+the test host died of a stack overflow while `dotnet test` printed "Passed!" over 2,156 of 2,200. Both are methods.
+Not taken: the same-tick order (Sonnet's recollection that reliable messages precede unreliable ones in a packet) is
+unread; the bound stands as stated. Presentation 2,200 of 2,200, Core 3,296 (40 skipped), Scene 5,421 of 5,421.
+
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
 tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an

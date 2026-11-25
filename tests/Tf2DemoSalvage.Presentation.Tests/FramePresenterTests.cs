@@ -121,6 +121,25 @@ public sealed class FramePresenterTests
     }
 
     /// <remarks>
+    /// **The voice icons are gated by the server's ConVars as of the frame's tick** (B843 review 1): `mp_tournament` was
+    /// turned on at tick 10 and off at 20, so a frame at 15 reads 1 where the recording's last value is 0, and one at 25
+    /// reads 0.
+    /// </remarks>
+    [TestCase(15, "1")]
+    [TestCase(25, "0")]
+    public void DrawOver_AFrameBetweenTwoSets_GatesTheVoiceIconsByItsTicksValues(int tick, string expected)
+    {
+        FramePresenter frames = Presenter();
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
+            (10, [new Core.Net.SetConVarMessage([new("mp_tournament", "1")])]),
+            (20, [new Core.Net.SetConVarMessage([new("mp_tournament", "0")])])));
+
+        frames.DrawOver(Frame(timeline, tick), AlongX, new FakeFrameDevice());
+
+        frames.VoiceIconConVars.GetString("mp_tournament").ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// `cl_drawmonitors` reaches the client-side effects through the device, both ways (B736): with it off no monitor runs
     /// `DrawEffects`, so a camera in play ages nothing twice.
     /// </remarks>

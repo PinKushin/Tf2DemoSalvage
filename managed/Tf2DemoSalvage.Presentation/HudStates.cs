@@ -105,7 +105,8 @@ public static class HudStates
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
-        return new HudConVars(timeline.ServerConVarsAt(tick).Value, FindAt: read => timeline.ServerConVarsAt(read).Value);
+        // Both delegates are made once per timeline and per ConVar set, so a frame allocates none (B843 review 1).
+        return new HudConVars(timeline.ServerConVarsAt(tick).Lookup(), FindAt: timeline.ServerLookupAt());
     }
 
     /// <summary>The state with every player where the frame drew him — his `GetAbsOrigin()` — and all else as newest recorded (B531).</summary>

@@ -2724,6 +2724,12 @@ public sealed class DemoTimeline
         return low == 0 ? _defaultConVars : changes[low - 1].ConVars;
     }
 
+    /// <summary><see cref="ServerConVarsAt"/>'s lookup at a tick, one delegate made once per timeline (B843 review 1).</summary>
+    /// <returns>The same delegate on every call; a method for the reason on <see cref="ServerConVars.Lookup"/>.</returns>
+    public Func<int, Func<string, string?>?> ServerLookupAt() => _serverLookupAt ??= tick => ServerConVarsAt(tick).Lookup();
+
+    private Func<int, Func<string, string?>?>? _serverLookupAt;
+
     /// <summary>Every <c>dem_usercmd</c>, in stream order — the recorder's input, which prediction re-runs (D205).</summary>
     public IReadOnlyList<RecordedUserCommand> UserCommands { get; private init; } = [];
 
