@@ -95,6 +95,49 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **Origin and angles are separate variables** (B860 review 2, Fable): `NoteChanged` re-arms a variable only where its
+    /// value changed (`interpolatedvar.h:633-639`, `c_baseentity.cpp:2828-2829`). The crate slides to 400 by 40 and its
+    /// origin settles on the frame at 48 (aiming at 40, past every entry); a latch at 49 turns it without moving it. The
+    /// origin was never re-armed, so after the rise it holds 400. Taking origin and angles as one variable re-armed both,
+    /// and at 61 floored X at the oldest entry the frame at 50 kept (cut at 42 − 3.33: 38, 37, 36), 360.
+    /// </summary>
+    [Test]
+    public void At_AnOriginSettledBeforeTheRiseAndALatchThatOnlyTurned_HoldsWhereItRested()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 40; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(49, new ScenePose { X = 400f, Yaw = 90f });
+
+        crate.At(61)!.Value.X.ShouldBe(400f);
+    }
+
+    /// <summary>
+    /// **Pose parameters are their own variable too** (B860 review 2, Fable): stamped with the cycle, but settled by their
+    /// own values. The cycle never moves: it settles on the frame at 28, aiming at its only entry, 20, and no later latch
+    /// changes it, so it holds there. The pose parameter goes 0 at 20, then 0.5, 0.6, 0.7 at 36 to 38 and 1 at 44: re-armed
+    /// and still blending at the rise, so at 60 it is floored at the oldest entry the frame at 50 kept (cut at 42 − 3.33:
+    /// 38 and the two before it, 36), 0.5. Taking the cycle's held target drew it at 20, 0.
+    /// </summary>
+    [Test]
+    public void At_APoseParameterStillBlendingWhenTheCycleSettled_IsFlooredOnItsOwn()
+    {
+        ScenePropTrack sentry = new(entityIndex: 1, "models/buildables/sentry1.mdl") { Interpolation = RiseAtFifty() };
+
+        sentry.Add(20, new ScenePose { PoseParameters = [0f] });
+        sentry.Add(36, new ScenePose { PoseParameters = [0.5f] });
+        sentry.Add(37, new ScenePose { PoseParameters = [0.6f] });
+        sentry.Add(38, new ScenePose { PoseParameters = [0.7f] });
+        sentry.Add(44, new ScenePose { PoseParameters = [1f] });
+
+        sentry.At(60)!.Value.PoseParameters[0].ShouldBe(0.5f);
+    }
+
+    /// <summary>
     /// **A moving entity cannot reach history the old delay pruned.** The crate slides on, an update every three ticks
     /// at ten units a tick. At 49 the target was 41 and the frame pruned before 41 − 3.33 = 37.67 (0.05 s at 0.015 s a
     /// tick): the first entry older than that is 36, kept with the two before it, 33 and 30. At 50 the new delay aims
@@ -172,8 +215,15 @@ public sealed class InterpolationRiseConformanceTests
     /// a jump from 10 to 180 across the rise at 50: the frame at 180 had read at least to 80, so it knows the rise and
     /// aims at 180 − 34 = 146, 1460; started at 10 it would aim at 180 − 8 = 172, 1720.
     /// </summary>
-    [Test]
-    public void PropsAt_AFrameAfterAJumpForward_KnowsWhatTheLastSkipBatchRead()
+    /// <remarks>
+    /// A rewind or a scrub is a jump too, read the same way (B860 review 2, Sonnet): from negative infinity the frame at
+    /// 180 still starts at 80, 1460. A jump landing inside the first hundred packets started having read none of them, so
+    /// the frame at 60 runs under the first delay: 60 − 8 = 52, 520.
+    /// </remarks>
+    [TestCase(10d, 180, 1460f)]
+    [TestCase(double.NegativeInfinity, 180, 1460f)]
+    [TestCase(double.NegativeInfinity, 60, 520f)]
+    public void PropsAt_AFrameAfterAJump_KnowsWhatTheLastSkipBatchRead(double lastRead, int frameTick, float expected)
     {
         ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
         List<TimelineFrame> frames = [];
@@ -187,10 +237,10 @@ public sealed class InterpolationRiseConformanceTests
         DemoTimeline timeline = DemoTimeline.ForTracks([crate], frames);
         List<SceneProp> props = [];
 
-        timeline.FrameStart(10, 180);
-        timeline.PropsAt(180, props);
+        timeline.FrameStart(lastRead, frameTick);
+        timeline.PropsAt(frameTick, props);
 
-        props.ShouldHaveSingleItem().Pose.X.ShouldBe(1460f, 0.01f);
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(expected, 0.01f);
     }
 
     /// <summary>

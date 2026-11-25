@@ -253,11 +253,14 @@ public sealed class MomentPresenter
 
         // **`FRAME_START` comes before the frame's packets are read** (B860): `CEngine::Frame` notifies the client before
         // the host frame's `CL_ReadPackets`, so a delay change read this frame is interpolated under from the next. While
-        // playing forward the frame start had read what the last frame showed; a seek, a pause or the first frame reads
-        // its own tick. A second build at the same tick is the same frame, with the same frame start.
+        // playing forward the frame start had read what the last frame showed. A second build at the same tick is the
+        // same frame, with the same frame start.
+        // Anything else is a jump — a rewind, a scrub, the first frame of a demo opened part-way — which the engine reads
+        // as a skip, a hundred packets a frame: negative infinity hands that to the source (B860 review 2, Sonnet). A
+        // paused frame interpolates nothing (B399), so its frame start changes no pose.
         if (_framedAt is not { } shown || shown < tick || shown > tick)
         {
-            _frameRead = view.Playing && _framedAt is { } previous && previous < tick ? previous : tick;
+            _frameRead = view.Playing && _framedAt is { } previous && previous < tick ? previous : double.NegativeInfinity;
             _framedAt = tick;
         }
 

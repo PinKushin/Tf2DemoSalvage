@@ -8194,18 +8194,22 @@ public sealed class DemoTimeline
     /// <summary>Every step of every track's delay schedule, ascending; built on the first sample (B860).</summary>
     private int[]? _delaySteps;
 
-    /// <summary>The last tick read before this frame's <c>FRAME_START</c>, or infinity when no frame has said (B860).</summary>
-    private double _frameStart = double.PositiveInfinity;
+    /// <summary>The last tick read before a frame's <c>FRAME_START</c>, and the tick that frame draws (B860).</summary>
+    /// <remarks>
+    /// One reference, replaced whole, so the player path, which takes no lock, never reads one frame's start beside
+    /// another's tick (B860 review 2, Sonnet).
+    /// </remarks>
+    private sealed record FrameStartState(double LastRead, double Tick);
 
-    /// <summary>The tick of the frame <see cref="_frameStart"/> belongs to; NaN when no frame has said (B860 review 1).</summary>
-    private double _frameTick = double.NaN;
+    /// <summary>The current frame's start, or null when no frame has said.</summary>
+    private volatile FrameStartState? _frameStartState;
 
     /// <summary>
     /// <c>FRAME_START</c>: the frame about to be sampled starts with the recording read through
     /// <paramref name="lastRead"/>, so it interpolates under the delay as that tick left it (B860).
     /// </summary>
     /// <param name="lastRead">
-    /// The tick the previous frame was drawn at, or the frame's own tick after a seek or when nothing came before.
+    /// The tick the previous frame was drawn at while playing on, or negative infinity after a jump.
     /// </param>
     /// <param name="frameTick">The tick this frame draws: only a sample at exactly this tick is the frame's.</param>
     /// <remarks>
@@ -8226,11 +8230,7 @@ public sealed class DemoTimeline
         int frame = FrameIndexAt((int)Math.Floor(frameTick));
         double batch = frame >= SkipBatchPackets ? _frames.TickAt(frame - SkipBatchPackets) : double.NegativeInfinity;
 
-        lock (_sampling)
-        {
-            _frameStart = Math.Max(lastRead, batch);
-            _frameTick = frameTick;
-        }
+        _frameStartState = new FrameStartState(Math.Max(lastRead, batch), frameTick);
     }
 
     /// <summary>How many packets `CDemoPlayer::ReadPacket` reads in one go while skipping (its `99 &lt; count` stop).</summary>
@@ -8238,7 +8238,7 @@ public sealed class DemoTimeline
 
     /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
     private double FrameRead(double tick) =>
-        !(tick < _frameTick) && !(tick > _frameTick) ? Math.Min(_frameStart, tick) : tick;
+        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : tick;
 
     /// <summary><see cref="InterpolationSchedule.Predicted"/> at this recording's rate, made once.</summary>
     private InterpolationSchedule? _predicted;

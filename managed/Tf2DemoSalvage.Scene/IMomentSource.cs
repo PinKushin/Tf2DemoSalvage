@@ -57,7 +57,7 @@ public interface IMomentSource
     }
 
     /// <summary><c>FRAME_START</c>: the frame about to be sampled had read the recording through this tick (B860).</summary>
-    /// <param name="lastRead">The tick the previous frame was drawn at, or this frame's own after a seek.</param>
+    /// <param name="lastRead">The tick the previous frame was drawn at, or negative infinity after a jump.</param>
     /// <param name="frameTick">The tick this frame draws; a sample at any other tick is not this frame's.</param>
     /// <remarks>A source with no interpolation delay that changes has nothing to do.</remarks>
     public void FrameStart(double lastRead, double frameTick)

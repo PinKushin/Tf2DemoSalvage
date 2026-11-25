@@ -47123,10 +47123,21 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
+## B863 — a bone-merged follower's variables are interpolated, where the engine interpolates none of them (2026-11-25) — OPEN
+
+Found on B860's branch (review 2). `C_BaseEntity::BaseInterpolatePart1` returns `INTERPOLATE_STOP` after
+`MoveToLastReceivedPosition()` for an entity that `IsFollowingEntity() || !IsInterpolationEnabled()`
+(`c_baseentity.cpp:2845-2850`, *read*), before `Interp_Interpolate` runs over its var map — so a bone-merged follower (a
+worn item, a carried weapon) draws its last received cycle and pose parameters, not a blend. `DemoTimeline.Interpolates`
+answers `ShouldInterpolate`'s four clauses and has no follower clause, so such a track blends its own animation
+variables. *Not measured* how much of a follower's drawing reads them (its merged bones come from the parent). Fix shape:
+read `IsFollowingEntity` (`EF_BONEMERGE`, `MOVETYPE_NONE`, a move parent) for every era's property names, add the clause
+before the blend with a conformance test predicting a follower's held cycle. *Not fixed*.
+
 ## B862 — the recorder's predicted entities are interpolated from the network history at the network's time, where the engine uses prediction's history at the predicted time (2026-11-25) — OPEN
 
-Found on B860's branch, by the read that settled its predictable part. In a point-of-view demo the recorder and every TF
-weapon he owns are predicted (findings 115). For a predicted entity `BaseInterpolatePart1` replaces the frame's time with
+Found on B860's branch, by the read that settled its predictable part. In a point-of-view demo the recorder, every TF
+weapon he owns and his view models (`CTFViewModel::ShouldPredict`, `tf_viewmodel.h:40-46`) are predicted (findings 115). For a predicted entity `BaseInterpolatePart1` replaces the frame's time with
 `localplayer->GetFinalPredictedTime() − TICK_INTERVAL + interpolation_amount × TICK_INTERVAL` (`c_baseentity.cpp:2853-2862`,
 *read*), and its interpolated variables are latched by prediction after each predicted command
 (`entity->OnLatchInterpolatedVariables`, `prediction.cpp:1276`, *read*), not by the network: `PostDataUpdate` only stores
@@ -47196,6 +47207,37 @@ Fable's "predictability follows the owner per tick, where the engine only initia
 predictable down at each packet while `cl_predict` is off (`prediction.cpp:306-309`) and re-initialises them when it comes
 back (`:579-583`); a TF weapon's owner does not change while it lives (a dropped weapon is a new entity, *interpolated*).
 Records: part 1's commit cites `m_bNeedsToInterpolate` at `interpolatedvar.h:887`; it is `c_baseentity.cpp:887` (Fable).
+
+Review 2 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **One history held several engine variables, and the hold treated them as one** (Fable). `m_iv_vecOrigin`,
+  `m_iv_angRotation` and `m_iv_flPoseParameter` each keep their own `m_bNeedsToInterpolate`, set at a latch only where
+  that variable's value changed (`NoteChanged`, `interpolatedvar.h:633-639`; `c_baseentity.cpp:2828-2829`, read). The
+  hold, the listed-frame pruning and the settle test now run per variable (`InterpolatedHistory.LatestChange`,
+  `BracketVariable`; `ScenePropTrack.HistoryVariable`), and `At` samples the angles and the pose parameters at their own
+  targets. The hold is "settled on or before the frame that read the rise, and not re-armed since", holding its settle
+  frame's target, where it asked whether the variable was settled AT the rise — a question about a variable nobody
+  interpolates. The first-pose answer waits for every variable's target. Tests:
+  `At_AnOriginSettledBeforeTheRiseAndALatchThatOnlyTurned_HoldsWhereItRested` (400; 360 as one variable) and
+  `At_APoseParameterStillBlendingWhenTheCycleSettled_IsFlooredOnItsOwn` (0.5; 0 at the cycle's target), each reddened by
+  its sabotage.
+- **A jump that was not forward-while-playing read its own tick** (Sonnet): a rewind, a scrub and the first frame are
+  skips too. The presenter hands negative infinity for any jump and `FrameStart` takes the batch;
+  `PropsAt_AFrameAfterAJump_KnowsWhatTheLastSkipBatchRead` covers a rewind and a jump inside the first hundred packets.
+- **No test held the presenter's frame tick** (Fable): the stub records it, and `Show_FrameAfterFrame…` asserts it.
+- The frame start is one immutable snapshot, so the lock-free player path never pairs one frame's start with another's
+  tick (Sonnet).
+
+Not taken, recorded: the skip batch also bounds a frame of fast playback reading more than a hundred packets, which is no
+skip (Fable; the engine reads at most a hundred per `CL_ReadPackets` call either way, and a host frame can call it once
+per tick, so how far behind such a frame starts is frame-timing, *interpolated*). The motion window's earlier sample is
+another reader's tick and samples under its own (Sonnet; a heuristic, not the engine's). `ActorFace` has no skip batch:
+after a jump it lags the timeline for a frame (Fable). `LastListedTarget` walks are bounded by the early return to the
+frames after a rise in which the target is still behind an earlier frame's, a delay difference long (Sonnet). Two rises,
+a rise then a fall, a latch on the rise tick are covered by the general recursion and the per-variable re-arm and not
+tested one by one (Sonnet). The recorder's view models are predicted too (`CTFViewModel::ShouldPredict`,
+`tf_viewmodel.h:40-46`, Fable); they are drawn from the per-tick viewmodel list, not under the schedule — B862 names them.
+Found while checking: `BaseInterpolatePart1` stops before any variable is interpolated for an entity that
+`IsFollowingEntity()` (`c_baseentity.cpp:2845-2850`), where `Interpolates` has no such clause — **B863**.
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

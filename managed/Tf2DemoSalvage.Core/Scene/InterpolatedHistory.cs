@@ -451,7 +451,19 @@ public sealed class InterpolatedHistory
     /// older one it has. Refusing it would be this project's own rule rather than Valve's — the pruning
     /// bounds how MANY entries are kept, never how old the bracketing pair may be.
     /// </remarks>
-    public Bracketing? Bracket(double target, int arrivedBy)
+    public Bracketing? Bracket(double target, int arrivedBy) => BracketVariable(target, arrivedBy, 0, -1);
+
+    /// <summary>
+    /// <see cref="Bracket"/> for one engine variable of several this history holds (B860 review 2, Fable):
+    /// `bNoMoreChanges` compares that variable's own entries (`COMPARE_HISTORY`, <c>interpolatedvar.h:865</c>), so origin
+    /// can settle while the angles sharing its entries still turn.
+    /// </summary>
+    /// <param name="target">The moment being drawn.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    /// <returns>As <see cref="Bracket"/>, settled by those components alone.</returns>
+    public Bracketing? BracketVariable(double target, int arrivedBy, int first, int count)
     {
         // **The history the client would have held**, which is every entry received by now and no others.
         // Nothing is deleted to achieve it, so playing the same moment again after a scrub gives the same
@@ -531,7 +543,7 @@ public sealed class InterpolatedHistory
                 return new Bracketing(index, index, oldest, NoMoreChanges: true);
             }
 
-            return new Bracketing(index, newer, oldest, Settled(index, newer, oldest, floor, arrivedBy));
+            return new Bracketing(index, newer, oldest, Settled(index, newer, oldest, floor, arrivedBy, first, count));
         }
 
         // The target precedes every entry this run holds: the oldest is all a client would have had.
@@ -572,7 +584,9 @@ public sealed class InterpolatedHistory
     /// curve between two identical endpoints, so the answer keeps moving even though the pair does not.
     /// </remarks>
     /// <param name="floor">The generation boundary the walk stopped at, so the head is the same one.</param>
-    private bool Settled(int older, int newer, int oldest, int floor, int arrivedBy)
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    private bool Settled(int older, int newer, int oldest, int floor, int arrivedBy, int first, int count)
     {
         // **The SAME floor the walk used, and passing a different one was a defect.** `Head` searched the
         // whole array while `Bracket`'s walk stops at the generation boundary, so on granary it reported an
@@ -580,7 +594,7 @@ public sealed class InterpolatedHistory
         // answer was called settled against a comparison the sampler never makes. Two functions that had to
         // agree, with nothing making them: the track then parked past the moment it started moving, drawing
         // 12.47 units behind.
-        if (newer != Head(floor, arrivedBy) || !Same(newer, older))
+        if (newer != Head(floor, arrivedBy) || !Same(newer, older, first, count))
         {
             return false;
         }
@@ -589,7 +603,7 @@ public sealed class InterpolatedHistory
         int longer = _changeTimes[newer] - _changeTimes[older];
         int shorter = _changeTimes[older] - _changeTimes[oldest];
 
-        return longer <= 0 || shorter <= 0 || Same(newer, oldest);
+        return longer <= 0 || shorter <= 0 || Same(newer, oldest, first, count);
     }
 
     /// <summary>The changetime of the newest entry held, or null when nothing is live.</summary>
@@ -614,6 +628,34 @@ public sealed class InterpolatedHistory
     /// <returns>Its arrival tick, or null when nothing has arrived.</returns>
     public int? LatestArrival(int arrivedBy) =>
         LastReceivedAtOrBefore(arrivedBy) is var last && last >= 0 ? _received[last] : null;
+
+    /// <summary>
+    /// The tick the newest entry received by a tick that CHANGED some of the components arrived on — the last latch that
+    /// re-armed that variable (B860 review 2, Fable).
+    /// </summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component in an entry.</param>
+    /// <param name="count">How many components the variable has; negative for the whole entry.</param>
+    /// <returns>Its arrival tick, or null when nothing has arrived.</returns>
+    /// <remarks>
+    /// `NoteChanged` adds the entry whatever it holds, but returns true only when the value differs from the history's head
+    /// (`memcmp` against `m_VarHistory[0]`, <c>interpolatedvar.h:633-639</c>), and only then does the latch set the
+    /// variable's `m_bNeedsToInterpolate` (<c>c_baseentity.cpp:2828-2829</c>). One history here holds several engine
+    /// variables (origin and angles share an entry), so the caller names which components are the one variable. An entry
+    /// that starts a generation re-arms, as the first entry of an empty history does.
+    /// </remarks>
+    public int? LatestChange(int arrivedBy, int first, int count)
+    {
+        for (int index = LastReceivedAtOrBefore(arrivedBy); index >= 0; index--)
+        {
+            if (index == _generationStarts[index] || !Same(index, index - 1, first, count))
+            {
+                return _received[index];
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The changetime of the oldest entry a client still held after pruning before a threshold (B860).
@@ -690,7 +732,12 @@ public sealed class InterpolatedHistory
     /// <param name="left">One entry.</param>
     /// <param name="right">The other.</param>
     /// <returns><c>true</c> when every component matches.</returns>
-    private bool Same(int left, int right) => ValuesAt(left).SequenceEqual(ValuesAt(right));
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    private bool Same(int left, int right, int first, int count) =>
+        count < 0
+            ? ValuesAt(left).SequenceEqual(ValuesAt(right))
+            : ValuesAt(left).Slice(first, count).SequenceEqual(ValuesAt(right).Slice(first, count));
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>

@@ -66,8 +66,9 @@ public sealed class MomentPresenterTests
 
     /// <summary>
     /// **`FRAME_START` comes before the frame reads its packets** (B860): `CEngine::Frame` notifies the client, then the
-    /// host frame's `CL_ReadPackets` reads. Playing forward, each frame starts having read the tick the last one showed; the
-    /// first frame, a second build of the same frame, a rewind and a paused frame start at their own tick.
+    /// host frame's `CL_ReadPackets` reads. Playing forward, each frame starts having read the tick the last one showed, and
+    /// a second build of the same frame keeps its start. The first frame, a rewind and a scrub while paused are jumps,
+    /// which the engine reads as a skip (B860 review 2): negative infinity hands that to the source.
     /// </summary>
     [Test]
     public void Show_FrameAfterFrame_StartsEachHavingReadTheLastOnesTick()
@@ -83,7 +84,9 @@ public sealed class MomentPresenterTests
 
         presenter.Show(12d, View() with { Playing = false });
 
-        source.FrameStarts.ShouldBe([10d, 10d, 10d, 10.5d, 9d, 12d]);
+        source.FrameStarts.ShouldBe(
+            [double.NegativeInfinity, 10d, 10d, 10.5d, double.NegativeInfinity, double.NegativeInfinity]);
+        source.FrameTicks.ShouldBe([10d, 10.5d, 10.5d, 11.25d, 9d, 12d]);
     }
 
     [Test]
@@ -583,7 +586,14 @@ public sealed class MomentPresenterTests
         /// <summary>Every <c>FRAME_START</c> the presenter announced, in order (B860).</summary>
         public List<double> FrameStarts { get; } = [];
 
-        public void FrameStart(double lastRead, double frameTick) => FrameStarts.Add(lastRead);
+        /// <summary>The tick each announced frame draws, which scopes the start to that frame (B860 review 2, Fable).</summary>
+        public List<double> FrameTicks { get; } = [];
+
+        public void FrameStart(double lastRead, double frameTick)
+        {
+            FrameStarts.Add(lastRead);
+            FrameTicks.Add(frameTick);
+        }
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {

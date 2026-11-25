@@ -64,6 +64,10 @@ widest delay anywhere in the recording (B849). Since B860 a rise and the frame s
   `:667`, **read**), so a variable that settled before the rise was last cut on its settle frame. The sampler is
   stateless and takes frames a tick apart, each reading a step a frame late (**interpolated** at real frame rates, where
   a frame's prune cut falls between ticks; the face, which keeps its history frame by frame, prunes at the real times).
+- **Each variable holds or blends on its own.** Origin, angles, cycle and pose parameters are separate
+  `CInterpolatedVar`s, and a latch re-arms only those whose value it changed (`NoteChanged`, `interpolatedvar.h:633-639`;
+  `c_baseentity.cpp:2828-2829`, **read**). So after a rise a crate turned in place by a late update holds its position
+  while its angles blend, and a pose parameter still moving when the cycle settled is floored on its own history.
 - **A jump forward is read in batches**: while skipping, `CDemoPlayer::ReadPacket` stops after its hundredth call
   (**disassembled**, `engine.dll` 0x1800741e0), and each frame of the skip has a frame start, so the frame that reaches the
   target had read to within a hundred packets of it; the viewer takes the far end of that batch (where the batch began is
