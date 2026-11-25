@@ -7,7 +7,7 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>
-/// `GetClientInterpAmount()` by tick (B849): `cdll_bounded_cvars.cpp:126` computes it when asked, clamping the watcher's
+/// `GetClientInterpAmount()` by tick (B849): `cdll_bounded_cvars.cpp:127` computes it when asked, clamping the watcher's
 /// `cl_interp_ratio` by the server's `sv_client_min_interp_ratio` and `_max_` as they stand, so a server that raises the
 /// minimum mid-recording delays every entity further from that tick on.
 /// </summary>
@@ -75,10 +75,14 @@ public sealed class InterpolationScheduleTests
     [TestCase(90, 91.5d, 92d)]
     [TestCase(90, 95d, null)]
     [TestCase(97, 102d, null)]
+    [TestCase(95, 99d, null)]
+    [TestCase(98, 0d, 103d)]
     public void Reaches_AfterARiseThatDropsTheTargetBack_IsTheReachAfterTheAskedTick(int changeTime, double after, double? expected)
     {
         // Review 3 (Fable, Sonnet): a fractional tick asked from, as `Motion` asks; a tick inside a step whose changetime the
         // target had passed (95: passed at 92, and still past at 100); and the reach tick itself (102), already reached.
+        // Review 4 (Sonnet): a target landing exactly on 95 at the rise is still reached, no new reach; 98 would be met at
+        // 100 under the old delay, but the step starts there, so it is 98 + 5 = 103.
         InterpolationSchedule schedule = InterpolationSchedule.From(
             Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 
@@ -125,16 +129,34 @@ public sealed class InterpolationScheduleTests
     }
 
     /// <summary>
-    /// **A face's time on an exact step reads the step** (B848 review 2, Sonnet): 1.5 s at 0.015 s a tick is tick 100 by
-    /// arithmetic, which the division leaves a hair short of; the delay there is the raised one, 5 ticks, 0.075 s.
+    /// **A face's time on an exact step reads the step** (B848 review 2, Sonnet): 1.8 s at 0.015 s a tick is tick 120 by
+    /// arithmetic, which the division leaves a hair short of (review 4, Fable: at 100 it is exact, so the step moved to 120);
+    /// the delay there is the raised one, 5 ticks, 0.075 s.
     /// </summary>
     [Test]
     public void SecondsAtTime_TheTimeOfAStep_IsTheStepsDelay()
     {
         InterpolationSchedule schedule = InterpolationSchedule.From(
-            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+            Owner, new ServerConVars(), [(120, Set(("sv_client_min_interp_ratio", "4")))], Interval);
 
-        schedule.SecondsAtTime(100 * Interval).ShouldBe(5 * Interval, 1e-12);
+        ((120 * Interval) / Interval).ShouldBeLessThan(120d, "the control: the division falls short of the step");
+        schedule.SecondsAtTime(120 * Interval).ShouldBe(5 * Interval, 1e-12);
+    }
+
+    /// <summary>
+    /// **A delay that rises and comes back is three steps** (B848 review 4, Fable): 2 ticks, 5 from 100, and 2 again from 110,
+    /// the same amount as the first, which is still a change from the step before it.
+    /// </summary>
+    [Test]
+    public void TicksAt_ARiseThenBackToTheStart_FollowsEachStep()
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner,
+            new ServerConVars(),
+            [(100, Set(("sv_client_min_interp_ratio", "4"))), (110, new ServerConVars())],
+            Interval);
+
+        (schedule.TicksAt(99), schedule.TicksAt(105), schedule.TicksAt(110)).ShouldBe((2, 5, 2));
     }
 
     /// <summary>

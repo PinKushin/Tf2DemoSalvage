@@ -46757,7 +46757,11 @@ mechanism (review 3): the variables take the new amount at the next frame start,
 viewer's tracks switch at the tick (where the frame start falls against the packet read is engine code, unread); a
 predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` whatever the amount, and a server on
 alternate ticks adds two ticks, not one (`c_baseentity.cpp:5919-5928`); `cl_interp_npcs` is a second trigger the schedule
-does not model. Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
+does not model; and a LOCALLY recorded demo takes `GetInterpolationAmount`'s second path (`:5940-5960`), where an entity
+animated and simulated every tick takes a tick interval (plus `g_nThreadModeTicks` threaded) whatever the amount, the
+amount only for the rest (B848 review 4, Sonnet). Which demos the engine counts as locally recorded
+(`IsPlayingDemoALocallyRecordedDemo`) is not read; the viewer, since B267, takes the non-local path for every demo, so
+this is older than B848 and wider than a rise. Rare: no corpus demo is known to change its bounds mid-recording. Fix shape: model a rise as the engine's
 per-entity state (settled entities hold; a moving one's target clamped to the history the old amount kept) at the frame
 start after the change, with a stepped test that predicts the engine's value. *Not fixed*.
 
@@ -46812,6 +46816,16 @@ taken: Codex's `Reaches(95, 99)` across a rise: the target lands on the changeti
 at 100 is the delay-change wake. **The lead's call** (Fable): this branch makes a settled entity replay its last motion at
 a rise, which the engine never shows, where main plays such a demo under one wrong delay throughout; B849's named parts
 are done, so B848 merges with B860 open, and B860 is next.
+
+Review 4 of B848 (Fable, Sonnet, Codex: no merge blocker). Tests for the surviving mutants: `Reaches(95, 99)` across a
+rise is no new reach and `Reaches(98, 0)` is 103, where `TicksAt(at)` for the step before and `<=` against the step's end
+answered 100 (Sonnet, Fable); `SecondsAtTime` at tick 120, where the division falls short (at 100 it is exact, so the old
+test could not fail, Fable); a rise and back to the start is three steps, which comparing with the first amount merged
+(Fable). `IndexAt`'s floor was equivalent and is gone (Fable). Records: the `cl_updaterate` clamp is the engine's
+(`engine.dll` `0x180164230`), not the SDK file's; a locally recorded demo takes `GetInterpolationAmount`'s other path,
+now in B860 and findings 115 (Sonnet, Fable); `GetClientInterpAmount` is at `:127`. Not taken: either `Motion` reach
+call reverted alone survives, the two histories sharing stamps (recorded in review 3). Sabotage, each restored: no
+epsilon reddens the step test, the first amount compared reddens the three-step test. Core 3328 of 3328.
 
 The original entry follows. Part 2 of B848, split out on its branch after part 1 (B848 review 1, Fable, corrected the claim it was split when
 filed) and finished there before B848 merges (D261). A different mechanism: not a value read at a moment but a delay

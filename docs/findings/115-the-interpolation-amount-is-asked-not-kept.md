@@ -12,14 +12,19 @@ whole demo under its final ones.
 ## What the client does
 
 `GetClientInterpAmount()` (`cdll_bounded_cvars.cpp:127-134`, **read**) is computed every time it is asked: the larger of
-`cl_interp` and `cl_interp_ratio / cl_updaterate`. The clamping is the bounded ConVars' own: `cl_interp`,
-`cl_interp_ratio` and `cl_updaterate` are `ConVar_ServerBounded` wrappers that read the replicated
-`sv_client_min_interp_ratio`/`_max_` and `sv_minupdaterate`/`sv_maxupdaterate` when asked (`cdll_bounded_cvars.cpp`,
-**read**). The client applies each `net_SetConVar` as its packet is read (B450, engine side, **interpolated** there), so
+`cl_interp` and `cl_interp_ratio / cl_updaterate`. The clamping is the bounded ConVars' own: `cl_interp` and
+`cl_interp_ratio` are `ConVar_ServerBounded` wrappers in that file that read the replicated
+`sv_client_min_interp_ratio`/`_max_` when asked (**read**); `cl_updaterate` is only cast to one (`:133`), and its clamp by
+`sv_minupdaterate`/`sv_maxupdaterate` is the engine's (disassembled, `engine.dll` `0x180164230`, recorded in
+`ClientInterpTests`). The client applies each `net_SetConVar` as its packet is read (B450, engine side, **interpolated** there), so
 the amount at a tick is the one under that tick's bounds. `GetInterpolationAmount` rounds it to ticks and adds
 `serverTickMultiple` (`c_baseentity.cpp:5937`, **read**): one tick, two on a server simulating on alternate ticks
 (`:5919-5923`). A predictable or client-created entity takes `TICK_INTERVAL × serverTickMultiple` instead, whatever the
-amount (`:5925-5928`).
+amount (`:5925-5928`). That `:5937` path is the one for multiplayer and for a demo that is NOT locally recorded
+(`!engine->IsPlayingDemoALocallyRecordedDemo()`, `:5932-5935`); a locally recorded demo falls through to `:5940-5960`,
+where an entity animated and simulated every tick (or latched for the one it is) takes `TICK_INTERVAL ×` the tick
+multiple, plus `g_nThreadModeTicks` when the engine is threaded, and only the rest take the amount (**read**). What makes a
+demo "locally recorded" is the engine's (`IsPlayingDemoALocallyRecordedDemo`, not read).
 
 Each interpolated variable keeps its OWN amount (`SetInterpolationAmount` only stores it, `interpolatedvar.h:608-611`,
 **read**). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`, **read**), called at `FRAME_START`

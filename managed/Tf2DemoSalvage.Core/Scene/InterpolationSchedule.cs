@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// `GetClientInterpAmount()` by tick (B849), and the delay in ticks every interpolated variable is sampled behind.
 /// </summary>
 /// <remarks>
-/// `GetClientInterpAmount` (`cdll_bounded_cvars.cpp:126`) is computed each time it is asked, clamping the watcher's
+/// `GetClientInterpAmount` (`cdll_bounded_cvars.cpp:127`) is computed each time it is asked, clamping the watcher's
 /// `cl_interp_ratio` by the server's `sv_client_min_interp_ratio` and `sv_client_max_interp_ratio` (and `cl_updaterate`
 /// by `sv_minupdaterate`/`sv_maxupdaterate`) as the client has them then, every `net_SetConVar` read by that tick. So a
 /// server that changes a bound mid-recording changes the delay from that tick on. This was one number for the whole
@@ -152,10 +152,10 @@ public sealed class InterpolationSchedule
 
     private int IndexAt(double tick)
     {
-        double floor = Math.Floor(tick);
+        // The steps start on whole ticks, so comparing the tick itself is comparing its floor (B848 review 4, Fable).
         int index = 0;
 
-        while (index + 1 < _from.Length && _from[index + 1] <= floor)
+        while (index + 1 < _from.Length && _from[index + 1] <= tick)
         {
             index++;
         }
