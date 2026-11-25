@@ -46353,9 +46353,8 @@ the order read; not measured. Fix shape: hand the per-tick work (event delivery)
 **Fixed** on B832's branch. `PlaybackPresenter.Advance(beforeEachTick)` steps the clock one whole tick at a time
 (`PlaybackClock.SecondsToNextTick`, `StepToNextTick`), runs the console before each, and stops on the tick reached
 when a command it ran paused playback; the frame's last part-tick is advanced as before. `ViewerSession.Simulate`
-passes it the
-console's `Execute`. Tests `Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check
-removed), `SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
+passes it `ExecuteConsole(tick)`, which reads `sv_allow_wait_command` at that tick. Tests
+`Advance_ACommandThatPausesBeforeATick_StopsOnTheTickReached` (red with the pause check removed), `SecondsToNextTick_AQuarterIntoATick_IsTheRestOfItAtTheScale`,
 `SecondsToNextTick_AtTheEndPlayingForward_IsInfinite`. *Not reproduced*: TF2 counts its host ticks from accumulated
 frame time before the loop; the viewer counts the demo ticks the frame crosses, which is the same count while a demo
 plays one tick per host tick.
@@ -46542,6 +46541,24 @@ where an engine `Cbuf_AddText` would queue it behind the rest (Grok). No engine 
 but the immediate ones modelled (alias, `exec`); the handlers are the viewer's own. Filed as B839: a frame's demo ticks
 are applied after all of the frame's console calls (Grok). `_deferred` survives a new demo, as TF2's buffer survives
 `playdemo` (Sonnet). Reverse playback, which TF2 has not, runs a console call per tick it crosses backwards.
+
+**Review 2** (Fable, Sonnet, Grok; Gemini pending; no blocker). Fixed:
+- A frame's ticks are counted at the speed it began with, as `_Host_RunFrame` fixes its host ticks before the loop: a
+  speed a command sets inside a frame times the next frame, and a tick the console ran for is always stepped, where
+  round 1's re-read could run the console twice for one tick (Sonnet). `PlaybackClock.SecondsToNextTick`,
+  `StepToNextTick` and `Advance` take the frame's speed. Test `Advance_ASpeedSetBeforeTheFirstTick_TimesTheNextFrame`.
+- The rounding tolerance has a test that fails without it, a frame 1e-12 s short of a tick; round 1's test could not,
+  as three float intervals are exact in a double (Fable, Sonnet, Grok). Test
+  `Advance_AFrameARoundingErrorShortOfATick_ReachesIt`; round 1's "each fix reddened its own test" did not hold for it.
+- The session reads `sv_allow_wait_command` from the demo at the tick it hands the console (Fable). Test
+  `RenderFrame_ADemoWhoseServerTurnedWaitOff_RunsAWaitedKeyAtOnce`, a synthetic demo whose `net_SetConVar` turns it off.
+- A key's commands run among the queued commands by tick, a negative `wait`'s ahead of one already due, and each
+  command runs at its own tick (`DequeueNextCommand`), so a `wait` inside it counts from there (Fable, Sonnet, Grok).
+  Tests `KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder`,
+  `KeyDown_AWaitInsideANegativeWaitsCommand_CountsFromItsTick`.
+- `ButtonCodeNames.CodeOf` has a test of its values (`k` 21, `SPACE` 65, `MOUSE1` 107, a chord none) (Sonnet); its
+  summary and the labels say B832 review 1 (Fable, Sonnet).
+- Each fix sabotaged alone reddened its own test.
 
 The paragraph below is the entry as filed.
 

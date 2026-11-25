@@ -929,7 +929,7 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// The text `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds for a bind: a `+` bind as `"%s %i"` with the key's
-    /// `ButtonCode_t`, anything else as it stands (B834 review 1, Fable). Its bytes are what the argument buffer holds, and
+    /// `ButtonCode_t`, anything else as it stands (B832 review 1, Fable). Its bytes are what the argument buffer holds, and
     /// the number is the last command's last argument, as in TF2. A chord, which TF2 has no code for, adds none.
     /// </summary>
     /// <param name="command">The bind; its release is this text with the `+` made `-`.</param>
@@ -950,26 +950,18 @@ public sealed class ConfigConsole
         // **What a `wait` put off to this tick runs before new text** (B832): TF2 queues a key's or a config's text behind the
         // commands already queued for its tick (`InsertCommandAtAppropriateTime`) and runs them all at the next
         // `Cbuf_Execute`; the console runs new text at once, so it runs what is due first. Only from outside every command:
-        // a handler's text inside a command runs inside it.
-        if (_commandsRunning == 0 && !_processing && _deferred.Count > 0)
-        {
-            int now = _tick;
-            _processing = true;
+        // a handler's text inside a command runs inside it. A key's text is linked among them by tick, in `Run`.
+        bool outside = _commandsRunning == 0 && !_processing;
 
-            try
-            {
-                RunDue(now);
-            }
-            finally
-            {
-                _processing = false;
-                _tick = now;
-            }
+        if (outside && key is null)
+        {
+            RunDueOutside(_tick);
         }
 
         (int execs, int aliasRuns, int clauses) = (_execs, _aliasRuns, _commandClauses);
         (_execs, _aliasRuns, _commandClauses) = (0, 0, 0);
         _commandsRunning++;
+        int tick = _tick;
 
         try
         {
@@ -979,6 +971,36 @@ public sealed class ConfigConsole
         {
             _commandsRunning--;
             (_execs, _aliasRuns, _commandClauses) = (execs, aliasRuns, clauses);
+
+            // Each command runs at its own tick (`DequeueNextCommand`); outside an `Execute` the tick is the next call's.
+            if (outside)
+            {
+                _tick = tick;
+            }
+        }
+    }
+
+    /// <summary>Runs the queued commands due by a tick from outside an <see cref="Execute"/>, as that call would run
+    /// them ahead of text linked after them, leaving the current tick as it was.</summary>
+    /// <param name="upTo">The last tick to run.</param>
+    private void RunDueOutside(int upTo)
+    {
+        if (_deferred.Count == 0 || _deferred[0].Tick > upTo)
+        {
+            return;
+        }
+
+        int now = _tick;
+        _processing = true;
+
+        try
+        {
+            RunDue(upTo);
+        }
+        finally
+        {
+            _processing = false;
+            _tick = now;
         }
     }
 
@@ -1936,7 +1958,10 @@ public sealed class ConfigConsole
         // commands are processing, so `InsertCommand` links each by its tick (`commandbuffer.cpp:148-151`), and one a
         // negative `wait` put before the current tick runs ahead of the commands before it. Text added while processing,
         // as an alias body, a file line or a launch line is, goes in order (`InsertImmediateCommand`). Stable.
-        if (key is not null && depth == 0 && !_processing)
+        bool keyText = key is not null && depth == 0 && !_processing;
+        int addedAt = _tick;
+
+        if (keyText)
         {
             now = [.. now.OrderBy(queued => queued.Tick)];
         }
@@ -1948,12 +1973,30 @@ public sealed class ConfigConsole
             while (handled < now.Count)
             {
                 Added queued = now[handled++];
+
+                // A key's command runs after the queued commands due at its tick or before, and ahead of later ones
+                // (B832 review 2, Fable): its negative-`wait` part goes ahead of a command already due.
+                if (keyText)
+                {
+                    RunDueOutside(queued.Tick);
+                }
+
                 _queuedBytes -= queued.Size;
+
+                // **It runs at its own tick** (`DequeueNextCommand` sets `m_nCurrentTick`, `commandbuffer.cpp:307`; B832
+                // review 2, Fable, Sonnet), so a `wait` in what it runs counts from there.
+                _tick = queued.Tick;
 
                 if (!RunClause(queued.Command, key, depth, ref acted))
                 {
                     break;
                 }
+            }
+
+            // And what fell due at the key's own tick while it ran: one its negative `wait` put a later `wait` back to.
+            if (keyText)
+            {
+                RunDueOutside(addedAt);
             }
         }
         finally

@@ -2003,6 +2003,39 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **A key's negative-`wait` command runs ahead of a command already due, the rest after it** (B832 review 2, Fable,
+    /// Grok): `InsertCommand` links the key's commands by tick among those queued (`commandbuffer.cpp:95-105`), so with
+    /// `9` due at the current tick, `wait -1; 2` runs 2 (a tick earlier), then 9, and 9 is left.
+    /// </remarks>
+    [Test]
+    public void KeyDown_ANegativeWaitBesideADueCommand_RunsInTickOrder()
+    {
+        ConfigConsole console = new();
+        console.Load($"bind k \"wait -1; {Alpha} 2\"\nwait; {Alpha} 9");
+        console.Execute(waitAllowed: true);
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("9");
+    }
+
+    /// <remarks>
+    /// **A command runs at its own tick, so a `wait` in what it runs counts from there** (B832 review 2, Fable, Sonnet):
+    /// `DequeueNextCommand` sets `m_nCurrentTick` to the command's tick (`commandbuffer.cpp:307`). A key's `wait -1; al`
+    /// runs `al` a tick early, and its `wait` puts `2` back to the key's own tick, which the same `Cbuf_Execute` runs.
+    /// </remarks>
+    [Test]
+    public void KeyDown_AWaitInsideANegativeWaitsCommand_CountsFromItsTick()
+    {
+        ConfigConsole console = new();
+        console.Load($"alias al \"wait; {Alpha} 2\"\nbind k \"wait -1; al\"");
+
+        console.KeyDown("k").ShouldBeTrue();
+
+        console.ConVar(Alpha).ShouldBe("2");
+    }
+
+    /// <remarks>
     /// **A command run from the queue can wait again** (B832): it runs at its tick, and a `wait` in its alias puts the
     /// rest one tick past that.
     /// </remarks>
@@ -2097,7 +2130,7 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A `+` bind's text carries its key's number, and the number takes bytes** (B834 review 1, Fable): `Key_Event`
+    /// **A `+` bind's text carries its key's number, and the number takes bytes** (B832 review 1, Fable): `Key_Event`
     /// (`engine.dll` build 1007 FUN_1801b6090) adds `"%s %i"` with the key's `ButtonCode_t`, so with nine bytes left
     /// `+forward` (nine with its terminator) would fit and `+forward 21` does not. The control: with room for the number,
     /// forward is held.
@@ -2116,6 +2149,16 @@ public sealed class ConfigConsoleConformanceTests
         console.AnyHeld.ShouldBe(held);
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(overflows);
     }
+
+    /// <remarks>
+    /// **A key's `ButtonCode_t` is its place in TF2's table** (B832 review 2, Sonnet): `KEY_NONE` 0, the digits 1 to 10, the
+    /// letters from 11, so `k` is 21; `SPACE` 65; `MOUSE1` 107; and a chord, which TF2 has no code for, none.
+    /// </remarks>
+    [TestCase("k", 21)]
+    [TestCase("SPACE", 65)]
+    [TestCase("MOUSE1", 107)]
+    [TestCase("CTRL+e", null)]
+    public void CodeOf_AKey_IsItsButtonCode(string key, int? code) => ButtonCodeNames.CodeOf(key).ShouldBe(code);
 
     /// <remarks>
     /// **`wait`'s number is read past the command, as `atoi( pArgS )` reads it** (B832 review 1, Fable): `pArgS` points into

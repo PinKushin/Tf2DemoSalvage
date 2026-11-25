@@ -218,15 +218,20 @@ public sealed class PlaybackPresenter
 
         double left = Math.Min(seconds, MaximumFrameSeconds);
 
+        // **The frame's ticks are counted at the speed it began with** (B832 review 2, Sonnet): `_Host_RunFrame` (FUN_1801a5eb0)
+        // fixes how many host ticks the frame runs from its frame time before the loop, so a speed a command sets inside
+        // it times the next frame; a tick the console ran for is always stepped, in the direction the frame began in.
+        double frameScale = clock.TimeScale;
+
         while (true)
         {
-            double toTick = clock.SecondsToNextTick();
+            double toTick = clock.SecondsToNextTick(frameScale);
 
-            // Within a rounding error of the tick counts as reaching it (B832 review 1, Sonnet): otherwise `Advance` could
-            // land on the tick without the console running before it.
+            // Within a rounding error of the tick counts as reaching it (B832 review 1, Sonnet): otherwise `Advance`
+            // could land on the tick without the console running before it.
             if (toTick - left > TickTolerance)
             {
-                clock.Advance(left);
+                clock.Advance(left, frameScale);
                 break;
             }
 
@@ -237,16 +242,7 @@ public sealed class PlaybackPresenter
                 break;
             }
 
-            // Read again (B832 review 1, Fable): a command it ran may have changed the speed or the direction.
-            toTick = clock.SecondsToNextTick();
-
-            if (toTick - left > TickTolerance)
-            {
-                clock.Advance(left);
-                break;
-            }
-
-            clock.StepToNextTick();
+            clock.StepToNextTick(frameScale);
             left -= toTick;
         }
 

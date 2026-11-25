@@ -115,9 +115,10 @@ public static class ButtonCodeNames
         return null;
     }
 
-    /// <summary>A key's `ButtonCode_t`, which `Key_Event` appends to a `+` bind's text (B834 review 1, Fable).</summary>
+    /// <summary>A key's `ButtonCode_t`, which `Key_Event` appends to a `+` bind's text (B832 review 1, Fable).</summary>
     /// <param name="name">The key as the viewer names it.</param>
-    /// <returns>Its index in the table; null for a chord, which TF2 has no code for, and for a controller name.</returns>
+    /// <returns>Its index in the table's first 171 entries; null for a chord, which TF2 has no code for, and for an
+    /// X-controller name, whose code lies past them (the viewer has no controller).</returns>
     internal static int? CodeOf(string name) =>
         TableKey(name) is { } key && Array.IndexOf(Ordered, key) is var code and > 0 ? code : null;
 

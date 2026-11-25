@@ -2112,6 +2112,34 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **The demo's server turns `wait` off where it set `sv_allow_wait_command 0`** (B832 review 2, Fable): `Cbuf_Execute`
+    /// (`engine.dll` build 1007 FUN_180166a10) reads the replicated ConVar, which the demo's `net_SetConVar` set at tick 2,
+    /// so after a frame at tick 50 a key's `wait; togglefullscreen` runs both at once. The control: a demo that never set
+    /// it keeps `wait`, and nothing is performed yet.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public async Task RenderFrame_ADemoWhoseServerTurnedWaitOff_RunsAWaitedKeyAtOnce(bool off, int performed)
+    {
+        string demo = Path.Combine(_folder, "waitoff.dem");
+        Core.Net.INetMessage[] messages = off ? [new Core.Net.SetConVarMessage([new("sv_allow_wait_command", "0")])] : [];
+        await File.WriteAllBytesAsync(demo, Core.Tests.SyntheticPlayer.DemoWithMessagesAt((2, messages))).ConfigureAwait(false);
+
+        // The synthetic demo's map, present so nothing is fetched; it is not a map, which a demo survives (D224).
+        Directory.CreateDirectory(Path.Combine(_folder, "maps"));
+        await File.WriteAllBytesAsync(Path.Combine(_folder, "maps", "cp_process_final.bsp"), [0]).ConfigureAwait(false);
+        using Rig rig = BuildWithAutoexec("bind \"k\" \"wait; togglefullscreen\"\n").WithDevice();
+        rig.Session.WindowShown();
+        (await rig.Session.Presenter.LoadDemoAsync(demo).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Transport.CurrentTick = 50;
+
+        rig.Session.RenderFrame();
+        rig.Session.KeyPressed(Key("k", static _ => false));
+
+        rig.Window.Told.Count(told => told == "PerformMenuAction FullScreen").ShouldBe(performed);
+    }
+
+    /// <remarks>
     /// **The line's one-shots come before the named demo opens, in the line's order** (B829 review 1, Sonnet), as
     /// `stuffcmds` runs before `playdemo` loads: the first things the window is told after it is shown are the two, in
     /// order, and the open tells it more after them.

@@ -43,10 +43,8 @@ public sealed class PlaybackClockTests
         PlaybackClock clock = new(intervalPerTick: 0.02f, lastTick: 100) { TimeScale = 1.0 };
         clock.Advance(0.005);
         clock.Position.ShouldBe(0.25, 1e-6, "the control: a quarter tick in");
-        clock.TimeScale = scale;
-
-        clock.SecondsToNextTick().ShouldBe(seconds, 1e-9);
-        clock.StepToNextTick();
+        clock.SecondsToNextTick(scale).ShouldBe(seconds, 1e-9);
+        clock.StepToNextTick(scale);
 
         clock.Position.ShouldBe(stepped);
     }
@@ -57,7 +55,8 @@ public sealed class PlaybackClockTests
         PlaybackClock clock = new(intervalPerTick: 0.015f, lastTick: 10);
         clock.Seek(10);
 
-        clock.SecondsToNextTick().ShouldBe(double.PositiveInfinity);
+        clock.SecondsToNextTick(1.0).ShouldBe(double.PositiveInfinity);
+        clock.SecondsToNextTick(0.0).ShouldBe(double.PositiveInfinity, "stopped, it reaches no tick");
     }
 
     [Test]
