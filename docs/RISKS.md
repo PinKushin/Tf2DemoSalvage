@@ -46403,8 +46403,9 @@ refusals from every adder (B830 review 6): it says the line for the body's refus
 does not hear them. The key's own adder, the press's and the release's (`"-%s %i\n"`) alike, never refuses: `bind`
 stores its value from a statement under 511 bytes whose prefix is at least 5 (`bind'`, `'` being a break character and
 a key name), so the value is at most 505, and ` %i` adds at most 4, a space and three digits (509); nothing else
-writes a bind but the viewer's defaults and `unbind`'s empty strings (review 2, Fable). So `KeyDown` and `KeyUp` get
-no adder of their own; a wrap there was tried and no test could fail for it (review 1, Fable, Gemini, Sonnet).
+writes a bind but the viewer's defaults, `unbind` and `unbindall`'s empty strings and `ESCAPE`'s `cancelselect`
+(reviews 2 and 3, Fable). So `KeyDown` and `KeyUp` get no adder of their own; a wrap there was tried and no test
+could fail for it (review 1, Fable, Gemini, Sonnet).
 `Cbuf_AddTextWithMarkers` (FUN_1801666f0) is called only from the client's network code, not by a config, a key or an
 alias. Tests
 `KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits, run, as its control) and
@@ -46416,9 +46417,15 @@ alias. Tests
 release note and the comments named a key's bind as refusable, where only an alias body is; the test's control asserts
 its alias ran (Fable, Gemini).
 
-**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, nits): the
-unreachability is stated with its arithmetic above; the control also asserts the alias body ran (its ConVar is `1`),
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, nits):
+the unreachability is stated with its arithmetic above; the control also asserts the alias body ran (its ConVar is `1`),
 since `KeyDown` returns true for a found alias whatever its body did.
+
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini and Sonnet had no findings). Fixed (Fable, nit): the
+list of bind writers above names `unbindall` and `ESCAPE`'s `cancelselect`. Not taken (Grok): that the release text
+`"-%s %i\n"` is two bytes longer than the sum. FUN_1801b6090 formats the release from the value past its `+`, so the
+`-` takes the `+`'s byte, and `GetNextCommandLength` ends a command at the line feed before counting it
+(`commandbuffer.cpp:197-198`), so the release is 509 too (Fable, Gemini, Sonnet).
 
 The paragraph below is the entry as filed.
 
