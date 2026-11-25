@@ -46542,7 +46542,7 @@ but the immediate ones modelled (alias, `exec`); the handlers are the viewer's o
 are applied after all of the frame's console calls (Grok). `_deferred` survives a new demo, as TF2's buffer survives
 `playdemo` (Sonnet). Reverse playback, which TF2 has not, runs a console call per tick it crosses backwards.
 
-**Review 2** (Fable, Sonnet, Grok; Gemini pending; no blocker). Fixed:
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini's three findings are the ones below). Fixed:
 - A frame's ticks are counted at the speed it began with, as `_Host_RunFrame` fixes its host ticks before the loop: a
   speed a command sets inside a frame times the next frame, and a tick the console ran for is always stepped, where
   round 1's re-read could run the console twice for one tick (Sonnet). `PlaybackClock.SecondsToNextTick`,
