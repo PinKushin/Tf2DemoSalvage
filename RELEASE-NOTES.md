@@ -6,6 +6,8 @@
 
 - **The launch line is one command buffer, as TF2's (B830).** TF2 adds every `+command` on the command line to its console in one go, and a command of 511 bytes or more is refused together with every `+command` after it; the ones before it still run. The viewer now does the same, where before it refused only the long command. A setting in the refused command or after it is not applied either, the viewer's own folder settings (`cl_game_folder`, `cl_screenshot_folder`) included. Statements on one `+command`'s value before a refused statement still run, as in TF2.
 
+- **A one-shot on the command line runs, as in TF2 (B829).** `+screenshot`, `+togglefullscreen`, `+resetcamera` and the viewer's other one-shot commands on the command line now run once the window is up and before the named demo opens, as TF2 runs every `+command`, with or without a demo named; before, they did nothing. `+opendemo` is skipped on a `--shot` or `--measure` run, where its dialog would wait for nobody. The same commands in a config still do nothing at startup. The viewer's own command names, such as `+togglefullscreen`, are not TF2's, so running them is above Valve.
+
 - **An unknown `-flag` takes its value with it, as in TF2 (B828).** TF2 skips the word after any `-flag` unless it starts with `+` or `-`, so `-threads 4 a.dem` now ignores `4` and opens `a.dem`, where before the viewer tried to open a demo named `4`. A `.dem`, or the path of an existing folder written in full or with a `\` or `/` in it, is never taken as a value, so `-novid a.dem` still opens `a.dem`, where TF2 would not play it: this is above Valve.
 
 ## Changes in 0.1.0-beta.71
@@ -1286,7 +1288,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Config, binds and the command line (beta.71), open:**
   a held CTRL or ALT chord on a menu shortcut such as `CTRL+w` fires again on every auto-repeat, so wireframe flickers while the keys are held (B827);
-  a viewer one-shot on the command line, such as `+screenshot`, does nothing, where TF2 runs it (B829);
   `wait` is not implemented, so a script that relies on it runs its commands without the pause (B832);
   `-h` on the command line shows the help, where TF2's sets the window height (B836);
   the viewer's own flags that take no value, such as `--autoplay`, leave the next word as a demo path, where TF2 skips the word after any `-flag` (B837).

@@ -94,8 +94,10 @@ public static class ViewerHelp
                                      Anything in settings.cfg works here too. As in TF2, the
                                      value is the one argument after it, and none is taken
                                      when that starts with + or -, so +mat_picmip -1 sets
-                                     nothing. The viewer's one-shot actions (screenshot and
-                                     the like) do not run from here.
+                                     nothing. The viewer's one-shot actions (+screenshot,
+                                     +togglefullscreen and the like) run once the window is
+                                     up, before the demo opens; +opendemo is skipped on a
+                                     --shot or --measure run.
           --set <cvar> <value>       Set one declared cvar to a value taken whole, negative
                                      ones included. --like uses it for a sidecar's cvars.
 

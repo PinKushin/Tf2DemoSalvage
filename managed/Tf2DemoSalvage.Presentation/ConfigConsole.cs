@@ -118,6 +118,9 @@ public sealed class ConfigConsole
     /// <summary>Whether <see cref="Load"/> is running a config, as opposed to a key: a ConVar set at load is not announced (D215).</summary>
     private bool _loading;
 
+    /// <summary>Whether launch-line text that fires its one-shots is running, its `exec`s included (B829).</summary>
+    private bool _stuffing;
+
     /// <summary>
     /// How many of the keys <see cref="Bound"/> counts have a command, as the config bound it, that names something the
     /// console runs: a viewer action, a set of a client (non-replicated) ConVar or `sv_cheats`, an alias the dispatcher
@@ -443,7 +446,7 @@ public sealed class ConfigConsole
     /// executed, not merged. Calling this again layers a second file over the first, which is how
     /// `autoexec.cfg` after `config.cfg` behaves.
     /// </remarks>
-    public void Load(string? text) => AtStartup(() => RunFile(text ?? string.Empty, depth: 0));
+    public void Load(string? text) => AtStartup(stuffing: false, () => RunFile(text ?? string.Empty, depth: 0));
 
     /// <summary>Runs launch-line text as `stuffcmds` does: straight to `Cbuf_AddText`, not through a file's line reader.</summary>
     /// <param name="text">The commands.</param>
@@ -452,8 +455,17 @@ public sealed class ConfigConsole
     /// launch line reaches the buffer whole: `stuffcmds` (`engine.dll` build 1007 FUN_1801683d0, B824) pastes every
     /// `+command` into one text and adds it once (B830), so the viewer hands its whole launch line here in one call.
     /// </remarks>
-    public void Stuff(string? text) =>
-        AtStartup(() => AddedAsOne(depth: 0, () => _ = RunCommand(text ?? string.Empty, key: null)));
+    public void Stuff(string? text) => Stuff(text, oneShots: true);
+
+    /// <summary>Runs launch-line text as <see cref="Stuff(string?)"/> does, its one-shots fired or not.</summary>
+    /// <param name="text">The commands.</param>
+    /// <param name="oneShots">
+    /// Whether its one-shots fire: they do on the launch (B829; `stuffcmds` runs `+screenshot` like any command, the owner's
+    /// pick), its `exec`s' included, and not on the viewer's replay of the line after a game folder is chosen, which is no
+    /// second launch.
+    /// </param>
+    public void Stuff(string? text, bool oneShots) =>
+        AtStartup(oneShots, () => AddedAsOne(depth: 0, () => _ = RunCommand(text ?? string.Empty, key: null)));
 
     /// <summary>
     /// Runs text the engine adds in one `Cbuf_AddText` call, and says what that call says when `AddText` refuses one of the
@@ -552,11 +564,15 @@ public sealed class ConfigConsole
     /// Each config line's budgets are its own, the whole launch line shares one set (B830), and the outer command's are put
     /// back by `RunCommand` (B820 reviews 3-5).
     /// Startup text is never the viewer's own key, even run from a handler inside one (B820 review 7, Fable).
+    /// Each load says whether its one-shots fire, restored after it, so a config a handler loads inside the launch line
+    /// fires none and the rest of the line still does (B829).
     /// </remarks>
-    private void AtStartup(Action run)
+    /// <param name="stuffing">Whether the text is the launch line run for its one-shots (B829).</param>
+    /// <param name="run">The load.</param>
+    private void AtStartup(bool stuffing, Action run)
     {
-        (bool loading, bool viewerIssued) = (_loading, _viewerIssued);
-        (_loading, _viewerIssued) = (true, false);
+        (bool loading, bool viewerIssued, bool wasStuffing) = (_loading, _viewerIssued, _stuffing);
+        (_loading, _viewerIssued, _stuffing) = (true, false, stuffing);
 
         try
         {
@@ -564,7 +580,7 @@ public sealed class ConfigConsole
         }
         finally
         {
-            (_loading, _viewerIssued) = (loading, viewerIssued);
+            (_loading, _viewerIssued, _stuffing) = (loading, viewerIssued, wasStuffing);
         }
     }
 
@@ -779,7 +795,7 @@ public sealed class ConfigConsole
     /// <summary>Runs one command at depth 0 with budgets of its own, putting back whatever command it ran inside.</summary>
     /// <remarks>
     /// The one place budgets start (B820 review 5, Fable): a key, each line of a file <see cref="Load"/> reads, and the whole
-    /// launch line, which <see cref="Stuff"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
+    /// launch line, which <see cref="Stuff(string?, bool)"/> takes as one text (B830), so its `+command`s share one set of budgets. Saved and
     /// restored, so a handler that presses a key or loads a config inside a command leaves that command's budgets as they were.
     /// </remarks>
     private bool RunCommand(string line, string? key)
@@ -1840,8 +1856,9 @@ public sealed class ConfigConsole
             // **A config's one-shot does nothing at load** (B820 review 1, Fable, Sonnet). *Interpolated*: TF2 runs its configs
             // at startup, before a demo plays, so a view or playback command has nothing to act on, and the viewer's own
             // command names (`opendemo`, `togglefullscreen`) are unknown commands to TF2. A `+`/`-` button is state and is
-            // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act.
-            if (_loading && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
+            // kept, as the engine keeps it. A key's one-shot, and a key's `exec`, still act. So does the launch line's, its
+            // `exec`s' included (B829): `stuffcmds` runs every command it adds.
+            if (_loading && !_stuffing && !command.StartsWith('-') && KeyBindings.ActionOf(command) is { } shot && !HeldActions.Contains(shot))
             {
                 continue;
             }

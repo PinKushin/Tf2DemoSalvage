@@ -46112,7 +46112,63 @@ quote, `convar.cpp:432-451`; the set drops it, `engine.dll` build 1007 FUN_18017
 config line is". Sonnet, Grok: no other caller depended on the cut; a value with a line break, which once injected a
 second parsed line, is now kept whole.
 
-## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — OPEN
+## B829 — a viewer one-shot on the launch line does nothing, where TF2's `stuffcmds` runs it (2026-11-24) — FIXED (2026-11-24)
+
+**Fixed.** B820 skips a config's one-shot at load because a config runs before a demo plays and names the viewer's own
+commands (*interpolated*, B820 review 1). The launch line shares the first half, yet TF2's `stuffcmds` runs every
+command it adds, `+screenshot` included. **The owner's pick** (2026-11-24, asked whether the viewer's own `+names` on
+the line should run like TF2's commands or be ignored as TF2 ignores an unknown one; the owner picked "Run them like
+TF2", the recommended option, without words of their own, D183): `ConfigConsole.Stuff(text, oneShots: true)` fires the
+line's one-shots, its `exec`s' included, and a config a handler loads inside the line fires none (`AtStartup` keeps the
+flag per load). The session holds them while the window is built and performs them, in the line's order, when the
+window is shown and before the named demo opens, as `stuffcmds` runs before `playdemo`'s load. The line's replay after
+a game folder is chosen (B811 review 2) is no second launch and fires none. A viewer-only name (`+togglefullscreen`)
+is above Valve (`docs/ABOVE-VALVE.md`). Tests `Stuff_AOneShot_FiresUnlessItIsAReplay` (replacing
+`Stuff_AOneShot_IsIdleAsAtStartup`), `WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce` and
+`GameFolderChosen_AfterALaunchOneShot_DoesNotFireItAgain`. Sabotage: the load skip applied to the line again reddens
+the first two; the replay firing one-shots reddens the third alone.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok). Fixed:
+- **No demo named** (Fable, Gemini, blockers): the view registered `WindowShown` only when a path was named, so
+  `tf2demoview +togglefullscreen` held the one-shot for ever. It is registered always now; UI test
+  `Startup_ToggleFullScreenOnTheLineWithNoDemo_CoversTheScreen` (sabotage: the old registration reddens it).
+- **`+opendemo` on a capture or measurement** (Sonnet, Gemini): its file dialog would wait for nobody. It is skipped
+  there with a warning (`WindowShown_OpenDemoOnACaptureRun_IsNotRun`; sabotage: the skip removed reddens it).
+- **`--help`** still said one-shots do not run from the line (Fable, Gemini).
+- **Order** (Sonnet, Grok): no test held "in order, before the demo opens"
+  (`WindowShown_OneShotsAndANamedDemo_PerformsThemInOrderBeforeTheOpen`; sabotage: the open moved first reddens it).
+- **A load inside the line** (Fable): nothing held that a config a handler loads fires none and the line goes on
+  (`Stuff_ALoadFromAHandlerInsideTheLine_FiresNoneAndTheLineGoesOn`; sabotage: the flag not restored reddens it).
+- The holder is removed in a `finally` (Sonnet, Gemini); `AtStartup`'s doc comment (Sonnet, Gemini).
+
+Kept, and recorded (Fable, Sonnet): a one-shot that resolves only after a game folder is chosen later (`+exec x.cfg`
+whose file is in that folder, or an alias its autoexec defines) runs in the replay with its one-shots off, so it does
+not fire; the replay is not a launch. Not taken (Grok): `KeepALaunchOneShot` holds whatever `Triggered` raises, which is
+only a one-shot (`Perform` raises it for no held action).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini had no findings). Fixed: the `+opendemo` skip on a
+capture or measurement is now in `--help`, the guide, the release notes and `docs/ABOVE-VALVE.md` (Fable, Sonnet); the
+`WindowShown` summary says it runs the one-shots, with or without a path (Fable); the order test also asserts the named
+demo is what opened (Grok). Checked, no change: `+demo_togglepause` before a demo is open does nothing (`Play` returns
+with no demo), so a `--measure` run cannot stall on it (Fable); `+screenshot` on a `--shot` run also writes a picture of
+the empty view before the demo, as TF2's would (Sonnet). Not taken: the UI test compares the window with the primary
+screen's bounds, as `ShellUiTests` and `MapFullScreenUiTests` do, so a scaled or second display would fail it there
+too (Grok); its full-screen viewer is closed by its `using` before the next test, and the UI assembly runs serially
+(Fable asked whether the shared viewer gets the foreground back; not measured).
+
+**Review 3** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, low): the
+`docs/ABOVE-VALVE.md` row named only the test of the feature, not the one that holds its `+opendemo` exception.
+
+**Review 4** (Fable, Gemini, Sonnet, Grok; no blocker). Fable noted that the skip was tested on `--shot` only, where
+the docs say `--shot` or `--measure`: `WindowShown_OpenDemoOnAMeasurementRun_IsNotRun` holds the other (sabotage: the
+skip keyed on `--shot` alone reddens it alone).
+
+**Review 5** (Fable, Gemini, Sonnet, Grok; no blocker). Review 4 above said "no findings" beside Fable's note; it says
+"no blocker" now (Fable, Sonnet). Not taken (Fable, Grok): the measurement test does not read the warning, as the
+capture test does; both arms share the one `IsHeadless` branch and its one log line, so no change could skip silently
+on one alone.
+
+The paragraph below is the entry as filed.
 
 Found in B824 review 2 (Fable). The launch line runs through `ConfigConsole.Stuff` under `AtStartup`, while `_loading` is
 true, so `Run` skips every one-shot action (`ConfigConsole.cs` ~1723, B820 review 1's rule for a config's one-shots):

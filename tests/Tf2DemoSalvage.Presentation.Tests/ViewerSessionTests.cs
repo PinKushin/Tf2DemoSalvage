@@ -2014,6 +2014,73 @@ public sealed class ViewerSessionTests
         rig.Transport.DemoLength.ShouldBe(2000);
     }
 
+    /// <remarks>
+    /// **A one-shot on the launch line runs, as `stuffcmds` runs it** (B829; the owner's pick, "Run them like TF2"): held
+    /// while the window is built, and performed once it is up. The control: nothing was performed before.
+    /// </remarks>
+    [Test]
+    public void WindowShown_AOneShotOnTheLaunchLine_PerformsItOnce()
+    {
+        using Rig rig = Build("+togglefullscreen");
+        const string Performed = "PerformMenuAction FullScreen";
+        rig.Window.Told.ShouldNotContain(Performed, "the control: nothing performed while the window is built");
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The line's one-shots come before the named demo opens, in the line's order** (B829 review 1, Sonnet), as
+    /// `stuffcmds` runs before `playdemo` loads: the first things the window is told after it is shown are the two, in
+    /// order, and the open tells it more after them.
+    /// </remarks>
+    [Test]
+    public async Task WindowShown_OneShotsAndANamedDemo_PerformsThemInOrderBeforeTheOpen()
+    {
+        string demo = WriteDemo("oneshots", ticks: 200);
+        using Rig rig = Build(demo, "+togglefullscreen", "+opendemo");
+        rig.Session.PlanStartup();
+        int before = rig.Window.Told.Count;
+
+        rig.Session.WindowShown();
+        DemoLoadResult result = await rig.Session.Loading.ConfigureAwait(false);
+
+        List<string> told = [.. rig.Window.Told.Skip(before)];
+        told.Take(2).ShouldBe(["PerformMenuAction FullScreen", "PerformMenuAction OpenDemo"]);
+        told.Count.ShouldBeGreaterThan(2, "the control: the open told the window something after them");
+        result.Loaded.ShouldBeTrue(result.Message);
+        rig.Session.Presenter.DemoPath.ShouldBe(demo, "the named demo is what opened after them (review 2, Grok)");
+    }
+
+    /// <remarks>
+    /// **`+opendemo` is not run on a capture** (B829 review 1, Sonnet): its dialog would wait for nobody, and TF2 has no
+    /// such command. Another one-shot on the same line still runs.
+    /// </remarks>
+    [Test]
+    public void WindowShown_OpenDemoOnACaptureRun_IsNotRun()
+    {
+        using Rig rig = Build("+opendemo", "+togglefullscreen", "--shot", Path.Combine(_folder, "out.png"));
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.ShouldNotContain("PerformMenuAction OpenDemo");
+        rig.Window.Told.ShouldContain("PerformMenuAction FullScreen");
+        rig.Log.Count("+opendemo is not run on a capture or measurement run").ShouldBe(1);
+    }
+
+    /// <remarks>The same on a measurement (B829 review 4, Fable): `--measure` is headless too.</remarks>
+    [Test]
+    public void WindowShown_OpenDemoOnAMeasurementRun_IsNotRun()
+    {
+        using Rig rig = Build("+opendemo", "+togglefullscreen", "--measure", "20");
+
+        rig.Session.WindowShown();
+
+        rig.Window.Told.ShouldNotContain("PerformMenuAction OpenDemo");
+        rig.Window.Told.ShouldContain("PerformMenuAction FullScreen");
+    }
+
     [Test]
     public void WindowShown_AMissingFileOnACaptureRun_SaysWhichOnStderrExitsOneAndCloses()
     {
@@ -2258,6 +2325,27 @@ public sealed class ViewerSessionTests
         rig.Session.GameFolderChosen(tf);
 
         rig.Settings.Current.ConVarText("mat_fullbright").ShouldBe("1");
+    }
+
+    /// <remarks>
+    /// **The line's replay after a folder is chosen fires no one-shot again** (B829): it is no second launch, so a
+    /// `+togglefullscreen` that ran once at startup does not toggle back. The control: the replay ran (the test above).
+    /// </remarks>
+    [Test]
+    public void GameFolderChosen_AfterALaunchOneShot_DoesNotFireItAgain()
+    {
+        using Rig rig = Build("+togglefullscreen");
+        string tf = Path.Combine(_folder, "chosen", "tf");
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, SteamInstall.Recogniser), string.Empty);
+        const string Performed = "PerformMenuAction FullScreen";
+        rig.Session.WindowShown();
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1, "the control: the launch fired it");
+
+        _gameFolder = tf;
+        rig.Session.GameFolderChosen(tf);
+
+        rig.Window.Told.Count(told => told == Performed).ShouldBe(1);
     }
 
     /// <remarks>

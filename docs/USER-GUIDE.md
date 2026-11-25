@@ -132,8 +132,9 @@ You can run a console command for one run only, as on TF2's launch line: `tf2dem
 `+exec my.cfg` or `+toggle cl_showfps`. It runs after your configs. As in TF2, a `+command` takes the one argument
 after it as its value, and none when that argument starts with `+` or `-`: `+mat_picmip -1` sets nothing. To set a
 cvar to a negative value, use `--set <cvar> <value>`, which takes the value whole. The viewer's one-shot actions
-(`+screenshot` and the like) do nothing from the command line yet. A `-flag` the viewer does not know is ignored with
-a warning, and, as in TF2, so is the argument after it unless that starts with `+` or `-`, is a `.dem`, or is the
+(`+screenshot`, `+togglefullscreen` and the like) run once the window is up, before the demo opens; `+opendemo` is
+skipped on a `--shot` or `--measure` run, where its dialog would wait for nobody. A `-flag` the viewer does not know is
+ignored with a warning, and, as in TF2, so is the argument after it unless that starts with `+` or `-`, is a `.dem`, or is the
 path of an existing folder (written in full, or with a `\` or `/` in it): `-threads 4 a.dem` opens `a.dem`, and so does
 `-novid a.dem`; `-novid C:\demos` opens the folder, while `-game tf` drops `tf` as TF2 does.
 

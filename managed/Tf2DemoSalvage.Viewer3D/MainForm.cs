@@ -802,13 +802,15 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
         // **The command line goes through the same code as the Open buttons**: the paths are listed here, and what
         // one path, a missing path or several mean - open it once the window is up, or end a headless run - is the
-        // session's (`ViewerSession.PlanStartup`), registered after the prompt above so it runs after it.
+        // session's (`ViewerSession.PlanStartup`), registered after the prompt above so it runs after it. Shown with no
+        // path too, for the launch line's one-shots (B829 review 1, Fable).
         if (initialPaths.Length > 0)
         {
             AddToLibrary(initialPaths);
             _session.PlanStartup();
-            Shown += (_, _) => _session.WindowShown();
         }
+
+        Shown += (_, _) => _session.WindowShown();
     }
 
     /// <summary>Environment variable pinning the window size, as WIDTHxHEIGHT.</summary>
