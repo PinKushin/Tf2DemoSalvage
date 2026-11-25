@@ -46338,6 +46338,16 @@ breaks and read awkwardly; the entry's over-long lines are wrapped.
 the re-wrap changed no word and split no code span. Fixed (Fable): the review 7 line said only reviews 1 to 3's first
 lines were wrapped, where the whole entry was.
 
+## B844 — a `+attack`, `+attack2` or `+jump` that no key bound exactly runs the spectator camera, where TF2 only sets the button (2026-11-25) — OPEN
+
+Found in B841 review 8 (Fable). TF2's spectator camera answers a key event whose binding string is exactly `+attack`,
+`+attack2` or `+jump` (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`): it runs
+`spec_next`, `spec_prev` or `spec_mode` and swallows the key. The same command reached any other way (the launch
+line's `+attack`, a key bound to an alias that runs `+attack`, a `+attack` inside a longer binding) only sets the
+button, which the HLTV camera does not read. The viewer performs the camera action for every `+attack` that reaches
+`Perform` outside a config's load. *Read* in the SDK, not measured in TF2. Fix shape: act on the spectator's three
+only for a key whose whole binding is that command; anything else sets the button. *Not fixed*.
+
 ## B842 — the launch line's replay and the configs' reread queue their waited state commands a second time (2026-11-25) — OPEN
 
 Found in B841 review 3 (Fable). When a game folder is chosen with no install open, the viewer reads the configs again
@@ -46358,9 +46368,10 @@ copies replace the first copies still queued, or run only where no first copy re
 now rides the queued command. Each entry carries `PutOff`: set when its own `wait` put it past the run it was added in,
 or inherited from the command that added it (an alias body, an `exec`'s lines). A config's one-shot that is put off acts
 at its tick, provided TF2 has the command: `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson` (with
-`sv_cheats` on, as it is `FCVAR_CHEAT`), and the spectator's `+jump`, `+attack` and `+attack2`. The same one-shot at
-the load itself still does nothing (B820 review 1). The viewer's own names (`togglefullscreen`, `resetcamera`,
-`opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown to TF2, so they do nothing at any tick. A load is put off
+`sv_cheats` on, as it is `FCVAR_CHEAT`); not the spectator's `+jump`, `+attack`, `+attack2`, which only set their
+button when buffered (review 8). The same one-shot at the load itself still does nothing (B820 review 1). The
+viewer's own names (`togglefullscreen`, `resetcamera`, `opendemo`, `resetspeed`, `mat_surfacecolours`) are unknown
+to TF2, so they do nothing at any tick. A load is put off
 by nothing, even one a handler runs inside a put-off command. The viewer's replay of the launch line
 (`Stuff(text, oneShots: false)`) and its reread of a config file it already read, unchanged, when a game folder is
 chosen carry `Replaying` and fire no one-shot, waited or not, as neither is a second launch (B829). A config file first
@@ -46505,6 +46516,25 @@ Review 7 (Fable, Gemini: no findings, Sonnet):
   (Sonnet); no production handler presses a key or loads inside a pass. The record keeps each file version's text
   (Sonnet); a session reads a handful.
 - 2,229 of 2,229 pass.
+
+Review 8 (Fable, Sonnet; Gemini after):
+- **Review 1's `+jump`, `+attack`, `+attack2` were wrong, and are taken back** (Fable). TF2's spectator camera does not
+  answer those commands: `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:747-761`, read for this)
+  sends `spec_next`, `spec_prev` or `spec_mode` on a KEY whose binding is exactly that string and swallows the key, so
+  a config's buffered `+attack` only sets the button, which the HLTV camera never reads but for `IN_SPEED`
+  (`hltvcamera.cpp:387`). Out of `Tf2OneShots`; their cases now expect nothing, and putting them back reddens the
+  three. Review 1's "TF2 has the command" was true and beside the point: the effect is the button's. The same root in
+  the launch line and in a key bound to an alias of `+attack` predates this branch: filed as **B844**.
+- **`ABOVE-VALVE.md`'s check read a row only when it named one test** (Fable, Sonnet), so this row and B829's were
+  unchecked. `AboveValveConformanceTests` now reads every backticked name in the test cell, its floor raised from 9 to
+  the 34 it reads; a name that does not exist reddens it. The row also names
+  `Stuff_AWaitedOneShot_FiresOnTheLaunchAndNotOnTheReplay`, which holds its launch-line half (Fable).
+- **The dot-slash test had no control inside it** (Fable): reversed, so the first read reaches the file through the
+  dot-slash spelling and asserts it took the screenshot; without the folding both cases still redden.
+- **Known bound** (Fable): a trailing dot or space (`exec shots.cfg.`) reaches the same loose file on Windows and is
+  keyed apart. `RecordPath`'s `?? path` is unreachable, as `exec` refuses `..` first (Sonnet, Fable); kept as the
+  engine's own null return handled.
+- Gemini's review 8 was still running when this was written. 2,229 of 2,229 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text

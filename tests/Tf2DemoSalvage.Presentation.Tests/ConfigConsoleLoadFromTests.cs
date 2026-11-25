@@ -472,8 +472,8 @@ public sealed class ConfigConsoleLoadFromTests
 
     /// <remarks>
     /// **The record names the file as the finder reads it** (B841 review 7, Fable): `V_RemoveDotSlashes` drops a `./` and
-    /// takes either slash, so the game's `exec ./shots` and `exec .\shots` reach the `cfg/shots.cfg` an earlier read ran.
-    /// The control: the first read takes it.
+    /// takes either slash, so the first read's `exec ./shots` or `exec .\shots` runs the `cfg/shots.cfg` a later read's
+    /// `exec shots` then replays. The control: the first read, through the dot-slash spelling, takes it.
     /// </remarks>
     [TestCase("exec ./shots\n")]
     [TestCase("exec .\\shots\n")]
@@ -481,13 +481,13 @@ public sealed class ConfigConsoleLoadFromTests
     {
         string game = TempFolder();
         Directory.CreateDirectory(Path.Combine(game, "cfg"));
-        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), "exec shots\n");
+        File.WriteAllText(Path.Combine(game, "cfg", "config.cfg"), spelling);
         File.WriteAllText(Path.Combine(game, "cfg", "shots.cfg"), "wait; screenshot\n");
         (ConfigConsole console, Func<int> triggered) = Counting();
         LoadAndRun(console, game, NowhereFolder());
-        triggered().ShouldBe(1, "the control: the first read takes it");
+        triggered().ShouldBe(1, "the control: the dot-slash spelling reached the file");
 
-        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), spelling);
+        File.WriteAllText(Path.Combine(game, "cfg", "autoexec.cfg"), "exec shots\n");
         LoadAndRun(console, game, NowhereFolder());
 
         triggered().ShouldBe(1);

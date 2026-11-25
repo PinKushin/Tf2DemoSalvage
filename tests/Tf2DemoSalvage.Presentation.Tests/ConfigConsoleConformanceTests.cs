@@ -2467,14 +2467,17 @@ public sealed class ConfigConsoleConformanceTests
     /// **A config's TF2 one-shot put off by `wait` runs at its tick** (B841): waited two ticks, it acts at the third
     /// `Execute` and not before, as TF2 runs it during the session; at the load itself it does nothing (B820 review 1). The
     /// viewer's own names are unknown to TF2, and TF2 only prints a bare ConVar, so they do nothing at any tick.
-    /// `thirdperson` is a cheat command, refused without `sv_cheats` (B841 review 2, Fable).
+    /// `thirdperson` is a cheat command, refused without `sv_cheats` (B841 review 2, Fable). A buffered `+jump`, `+attack`
+    /// or `+attack2` only sets its button: the spectator's camera answers a KEY whose binding is exactly that, in
+    /// `ClientModeShared::HandleSpectatorKeyInput` (`clientmode_shared.cpp:747-761`), and moves nothing for a config's
+    /// (review 8, Fable).
     /// </remarks>
     [TestCase("screenshot", 1)]
     [TestCase("demo_togglepause", 1)]
     [TestCase("firstperson", 1)]
-    [TestCase("+jump", 1)]
-    [TestCase("+attack", 1)]
-    [TestCase("+attack2", 1)]
+    [TestCase("+jump", 0)]
+    [TestCase("+attack", 0)]
+    [TestCase("+attack2", 0)]
     [TestCase("sv_cheats 1; thirdperson", 1)]
     [TestCase("thirdperson", 0)]
     [TestCase("togglefullscreen", 0)]

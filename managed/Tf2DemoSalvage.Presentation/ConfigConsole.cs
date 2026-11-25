@@ -782,14 +782,14 @@ public sealed class ConfigConsole
 
     /// <summary>
     /// The one-shots that are TF2's own commands, which a config's `wait` can put off to a tick when they act (B841):
-    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`, and the spectator's `+jump`, `+attack` and `+attack2`
-    /// (B841 review 1, Fable, Sonnet). Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which
-    /// TF2 only prints.
+    /// `screenshot`, `demo_togglepause`, `firstperson`, `thirdperson`. Not the spectator's `+jump`, `+attack`, `+attack2`
+    /// (review 1 added them, review 8 took them back, Fable): run from the buffer they only set their button, as the camera
+    /// answers a KEY bound exactly to them (`ClientModeShared::HandleSpectatorKeyInput`, `clientmode_shared.cpp:747-761`).
+    /// Every other one-shot is the viewer's own name, unknown to TF2, or a bare ConVar, which TF2 only prints.
     /// </summary>
     private static readonly HashSet<ViewerAction> Tf2OneShots =
     [
         ViewerAction.Screenshot, ViewerAction.PlayPause, ViewerAction.FirstPersonView, ViewerAction.ThirdPersonView,
-        ViewerAction.SwitchCameraMode, ViewerAction.CycleTargetForward, ViewerAction.CycleTargetReverse,
     ];
 
     /// <summary>
