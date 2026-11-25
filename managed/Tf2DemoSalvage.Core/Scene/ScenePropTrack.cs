@@ -1887,7 +1887,8 @@ public sealed class ScenePropTrack
         // stated pose there without asking any history. A history whose changetimes precede the entity's
         // arrival settles before that answer changes: a sticky bomb on the 2026 pub POV was held 352 units
         // from where a scrub drew it, for the three ticks between its origin settling and `born + delay`.
-        bool settled = tick - schedule.TicksAt(tick) > born
+        bool settled = (tick - schedule.TicksAt(tick) > born ||
+                Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) > born)
             && Settled(_simulation, target, now, OriginVariable)
             && Settled(_simulation, anglesTarget, now, AnglesVariable)
             && Settled(_animation, animationTarget, now, WholeVariable)
@@ -2399,9 +2400,9 @@ public sealed class ScenePropTrack
     {
         double target = tick - schedule.TicksAt(tick);
 
-        // **A target at or past every earlier frame's is the engine's answer whatever happened**: nothing pruned is that
-        // recent, and a variable that holds has the same value at every target past its settle frame, since nothing
-        // changed it since. It also keeps the walks below to the few frames after a rise.
+        // **A target at or past every earlier frame's ends the rise's effect**: nothing pruned is that recent, and from here
+        // a held variable is sampled as one that never saw a rise is. That a latch which changed nothing does not re-arm a
+        // variable at any tick, rise or not, is B864; this keeps the walks below to the few frames after a rise.
         if (schedule.LastRiseAtOrBefore(tick) is not { } rise || target >= schedule.MaxTargetBefore(tick))
         {
             return target;
@@ -2588,9 +2589,11 @@ public sealed class ScenePropTrack
         double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
-        // **The delayed moment itself, not any variable's target** (B860 review 3, Fable): the first pose carries its state
-        // fields too, and a variable held at its first entry long after birth must not bring back the skin it was born with.
-        if (tick - schedule.TicksAt(tick) <= _keyframes.FirstTick)
+        // **The delayed moment AND every variable's target** (B860 reviews 3 and 4, Fable): the first pose carries its state
+        // fields too, so a variable held at its first entry long after birth must not bring back the skin it was born with;
+        // and a young entity whose delay rose is floored above its birth, where the history the old delay kept answers.
+        if (tick - schedule.TicksAt(tick) <= _keyframes.FirstTick &&
+            Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) <= _keyframes.FirstTick)
         {
             // Nothing had been received yet, so the first stated pose is all a client would have.
             return _keyframes.FirstPose;

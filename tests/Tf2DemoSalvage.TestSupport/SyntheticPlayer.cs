@@ -2827,14 +2827,14 @@ internal static class SyntheticPlayer
         [$"{table}.m_angEyeAngles[1]"] = PropertyValue.FromFloat(eyeYaw),
     };
 
+    /// <summary>The SourceTV client's slot in a single-subject recording: no entity this writer sends (B860).</summary>
+    private const byte SourceTvSlot = 32;
+
     /// <summary>Entity 1 over several snapshots: the first an ENTER, the rest deltas carrying only what they name.</summary>
     /// <remarks>
     /// Team and life state ride on the entering update and are retained, which is the delta behaviour a
     /// viewer depends on.
     /// </remarks>
-    /// <summary>The SourceTV client's slot in a single-subject recording: no entity this writer sends (B860).</summary>
-    private const byte SourceTvSlot = 32;
-
     private static byte[] DemoOfSnapshots(
         DemoSchema schema,
         float intervalPerTick,

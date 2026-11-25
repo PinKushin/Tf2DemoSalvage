@@ -8229,7 +8229,8 @@ public sealed class DemoTimeline
         // (*interpolated*).
         // **Never before the first packet** (B860 review 3, Sonnet): the signon, its `net_SetConVar`s among it, is read when
         // playback starts or restarts, before any skip counts a call; this timeline holds those settings from the first
-        // packet's tick (B843). With no packets at all there is nothing to place the batch by, and the caller's start stands.
+        // packet's tick (B843). With no packets at all there is nothing to place the batch by, and the caller's start stands
+        // unless it is a jump's.
         int frame = FrameIndexAt((int)Math.Floor(frameTick));
         double batch = double.NegativeInfinity;
 
@@ -8242,7 +8243,10 @@ public sealed class DemoTimeline
             batch = Math.Min(_frames.TickAt(0), frameTick);
         }
 
-        _frameStartState = new FrameStartState(Math.Max(lastRead, batch), frameTick);
+        // A jump on a timeline with no packets to place it by reads its own tick (B860 review 4, Sonnet).
+        double start = Math.Max(lastRead, batch);
+
+        _frameStartState = new FrameStartState(double.IsNegativeInfinity(start) ? frameTick : start, frameTick);
     }
 
     /// <summary>How many packets `CDemoPlayer::ReadPacket` reads in one go while skipping (its `99 &lt; count` stop).</summary>
@@ -8308,10 +8312,19 @@ public sealed class DemoTimeline
                 }
             }
 
-            // A server's settings decide whether anything predicts (`ScheduleFor`), and no track's wakes name them either.
-            foreach ((int changed, ServerConVars _) in ConVarChanges)
+            // A server's settings decide whether anything predicts (`ScheduleFor`), and no track's wakes name them either:
+            // only a change that turns `cl_predict` on or off is one (B860 review 4, Fable), not every `net_SetConVar`.
+            bool predicting = _defaultConVars.GetInt(ClientPredictConVar) != 0;
+
+            foreach ((int changed, ServerConVars conVars) in ConVarChanges)
             {
-                steps.Add(changed);
+                bool now = conVars.GetInt(ClientPredictConVar) != 0;
+
+                if (now != predicting)
+                {
+                    steps.Add(changed);
+                    predicting = now;
+                }
             }
 
             _delaySteps = [.. steps];

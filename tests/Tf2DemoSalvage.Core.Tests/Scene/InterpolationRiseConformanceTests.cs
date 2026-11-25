@@ -154,6 +154,47 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A held variable keeps the value of the entry that last changed it** (B860 review 4, Fable): its settle frame drew
+    /// that entry, and `Interp_Interpolate` skips it after (`c_baseentity.cpp:879-880`). X steps 0 to 200 by 20, then an
+    /// update that arrives at 44 stamped 30 moves it to 300 and settles it at once (the frame at 44 aims at 36, past every
+    /// entry); a latch at 49 only turns it. At 61 X holds 300 exactly. Sampled at the settle frame's target, 36, against
+    /// today's history it fell between the entry at 30 and the turn's at 49, on a spline through 200: not 300.
+    /// </summary>
+    [Test]
+    public void At_AHeldVariableAfterTheRise_KeepsTheEntryThatLastChangedIt()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 20; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(44, new ScenePose { X = 300f }, appliedAt: 30);
+        crate.Add(49, new ScenePose { X = 300f, Yaw = 90f });
+
+        crate.At(61)!.Value.X.ShouldBe(300f);
+    }
+
+    /// <summary>
+    /// **A young entity whose delay rose is floored above its birth** (B860 review 4, Fable): born at 30, an update a tick.
+    /// The frame at 50 aimed at 42 and kept 38, 37 and 36; the frame at 51 aims at 17, older than all of them, and answers
+    /// the oldest, 36: 360. Gated on the delayed moment alone, it drew the first pose, 300.
+    /// </summary>
+    [Test]
+    public void At_AYoungEntityAfterTheDelayRises_IsFlooredAboveItsBirth()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 30; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.At(51)!.Value.X.ShouldBe(360f);
+    }
+
+    /// <summary>
     /// **A moving entity cannot reach history the old delay pruned.** The crate slides on, an update every three ticks
     /// at ten units a tick. At 49 the target was 41 and the frame pruned before 41 − 3.33 = 37.67 (0.05 s at 0.015 s a
     /// tick): the first entry older than that is 36, kept with the two before it, 33 and 30. At 50 the new delay aims

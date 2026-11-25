@@ -47123,6 +47123,19 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
+## B864 — a settled variable re-blends toward a latch that changed nothing, where the engine leaves it settled (2026-11-25) — OPEN
+
+Found in B860 review 4 (Fable). `NoteChanged` adds the entry whatever it holds but returns true only when the value
+differs from the history's head (`interpolatedvar.h:633-639`, *read*), and only then does the latch set
+`m_bNeedsToInterpolate` (`c_baseentity.cpp:2828-2829`); a variable that settled is skipped by `Interp_Interpolate`
+(`:879-880`) and stays at its value. The sampler is stateless and always brackets the delayed target: once a later latch
+that left the variable alone sits in the history, a target between the variable's last change and that latch has a newer
+sample equal to the older and a third, earlier sample that differs, and the hermite bends off the held value. Scenario
+(Fable): X slides to 400 by tick 40 and settles at frame 48; a latch at 49 only turns; with no rise, ticks 50-57 draw X off
+400. B860 holds such a variable only in the frames after a delay rise. *Not measured* how large or how common the bend is.
+Fix shape: apply B860's per-variable armed state (`LatestChange`, `SettleFrame`) in `At` generally — a variable not re-armed
+since it settled is sampled at its last change — with a conformance test predicting 400 at 50-57. *Not fixed*.
+
 ## B863 — a bone-merged follower's variables are interpolated, where the engine interpolates none of them (2026-11-25) — OPEN
 
 Found on B860's branch (review 2). `C_BaseEntity::BaseInterpolatePart1` returns `INTERPOLATE_STOP` after
@@ -47149,7 +47162,7 @@ recorder on a frame with no view. Fix shape: run the recorded user commands thro
 the recorder's movement, keep the history it latches, and sample it at the predicted time; a conformance test predicting a
 weapon's cycle at a frame first. *Not fixed*.
 
-## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25)
+## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25; predicted entities' drawn values interim, B862)
 
 **Fixed**, every part this entry names (the evidence is findings 115):
 
@@ -47256,6 +47269,26 @@ Not taken, recorded: Codex's follower clause is B863, filed. `SoundOrigins` and 
 stateless `At(tick)` — readers that name no frame, as recorded in review 1 (Fable). `_predicted ??=` from the lock-free
 player path makes at worst two equal immutable instances (Fable). `LatestChange` walks back to the last change, bounded to
 the frames after a rise by `TargetFor`'s early return (Sonnet).
+
+Review 4 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The first-pose gate on the delayed moment alone dropped the floor for an entity younger than the new delay** (Fable):
+  born at 30 and moving, at 51 it drew its birth pose, 300, where the engine answers the oldest entry the frame at 50 kept,
+  360. The first pose now needs the delayed moment AND every variable's target at or before birth (review 3's held-skin
+  case still holds); `At_AYoungEntityAfterTheDelayRises_IsFlooredAboveItsBirth` reddens with the target clause removed.
+- **No test held the hold's `LatestChangeTime`** (Fable): `At_AHeldVariableAfterTheRise_KeepsTheEntryThatLastChangedIt`
+  (an update stamped 30 that arrives at 44, then a turn at 49: 300 exactly) reddens when the hold samples its settle
+  frame's target instead.
+- **Every `net_SetConVar` resynced the sample** (Fable): only a change that turns `cl_predict` on or off is a step now.
+- A jump on a timeline with no packets read negative infinity and ran the whole sample under the first step; it reads its
+  own tick (Sonnet).
+`SyntheticPlayer.DemoOfSnapshots` got its doc back from the constant inserted under it (Sonnet). The header names the
+interim. Not taken: a variable held at its last change is not `Settled` while same-valued latches follow, so `Motion` keeps
+the track re-sampling for the window after a rise; the drawn answer is right (fraction zero) and the rule is the engine's
+`bNoMoreChanges` (Sonnet). `PredictsForItsOwner` is set where `NoIk` is and copied the same way by a checkpoint (Sonnet
+asked; the windowed corpus builds agree with the whole build). Fable's "the hold ends in a bend the engine never draws"
+is real and not the rise's: a latch that changed nothing does not re-arm a variable at any tick (`NoteChanged`,
+`interpolatedvar.h:633-639`), so a settled variable stays put where the sampler, past the rise window or with no rise at
+all, splines toward that latch's identical entry through an older differing one — **B864**.
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through
