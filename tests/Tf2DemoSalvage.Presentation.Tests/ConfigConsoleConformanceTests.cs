@@ -1792,10 +1792,10 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
-    /// **A key whose bind runs an alias with a refused body says the overflow line once** (B835): `Key_Event` (`engine.dll`
-    /// build 1007 FUN_1801b6090) adds the bind through FUN_180166500, and the alias adds its body through FUN_180166e30;
-    /// each says `Cbuf_AddText: buffer overflow` for its own text, and only the body's is refused. The control: a key whose
-    /// alias fits says nothing.
+    /// **A key whose bind runs an alias with a refused body says the overflow line once** (B835): the alias adds its body
+    /// through FUN_180166e30 (`engine.dll` build 1007), which says `Cbuf_AddText: buffer overflow` for it. The key's own
+    /// adder, FUN_180166500 from `Key_Event`, never refuses: no bind's text reaches 511 bytes. The control: a key whose
+    /// alias fits runs it and says nothing.
     /// </remarks>
     [Test]
     public void KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce()
@@ -1805,7 +1805,7 @@ public sealed class ConfigConsoleConformanceTests
         console.Load("alias a " + string.Concat(Enumerable.Repeat(new string('w', 15) + "(", 31)));
         console.Load($"alias b {Alpha} 1\nbind k a\nbind j b");
 
-        console.KeyDown("j");
+        console.KeyDown("j").ShouldBeTrue("the control: the alias that fits ran");
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "the control: an alias that fits");
 
         console.KeyDown("k");

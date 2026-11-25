@@ -778,11 +778,11 @@ public sealed class ConfigConsole
         {
             // The key travels with the command because a button tracks WHICH keys hold it — see
             // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
-            // One `Cbuf_AddText` call (B835): `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds the bind through
-            // FUN_180166500, which says the overflow line when its text is refused.
-            bool acted = false;
-            AddedAsOne(depth: 0, () => acted = RunCommand(command, key!));
-            return acted;
+            // `Key_Event` (`engine.dll` build 1007 FUN_1801b6090) adds the bind through FUN_180166500, which would say the
+            // overflow line for it, but no bind's own text reaches 511 bytes (B835 review 1, Fable, Sonnet): `bind` stores
+            // its value from a statement under 511, so the value with ` %i` stays under too. An alias it runs is its own
+            // adder's (`RunAliasBody`).
+            return RunCommand(command, key!);
         }
         finally
         {

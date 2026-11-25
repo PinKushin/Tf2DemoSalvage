@@ -46398,15 +46398,23 @@ height and takes `1080` as its value. *Not read*: which TF2 module reads `-h`. *
 FUN_180166500, either the bind itself and then `"\n"`, or a `+` bind as `"%s %i\n"` with the key number, formatted into
 a 1024-byte buffer; `Cmd_ExecuteCommand` (FUN_1801678a0) adds an alias's body through FUN_180166e30 when no command or
 ConVar takes the name. Both adders print `Cbuf_AddText: buffer overflow` when `CCommandBuffer::AddText` (FUN_1802952a0)
-refuses. So `ConfigConsole.KeyDown` runs the bind as one `AddedAsOne` call at depth 0, and `RunAliasBody` runs the body
-as one at its own depth, where it had kept the body's refusals from every adder (B830 review 6): each says the line
-for its own text's refusals, and the line that ran it does not hear them. `Cbuf_AddTextWithMarkers` (FUN_1801666f0)
-is called only from the client's network code, not by a config, a key or an alias. Tests
-`KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits as its control) and
+refuses. So `RunAliasBody` runs the body as one `AddedAsOne` call at its own depth, where it had kept the body's
+refusals from every adder (B830 review 6): it says the line for the body's refusals, and the line or key that ran it
+does not hear them. The key's own adder, the press's and the release's (`"-%s %i\n"`) alike, never refuses: `bind`
+stores its value from a statement under 511 bytes, so the value with ` %i` stays under too, and nothing else writes a
+bind but the viewer's defaults. So `KeyDown` and `KeyUp` get no adder of their own; a wrap there was tried and no test
+could fail for it (review 1, Fable, Gemini, Sonnet). `Cbuf_AddTextWithMarkers` (FUN_1801666f0) is called only from the
+client's network code, not by a config, a key or an alias. Tests
+`KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits, run, as its control) and
 `Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_SaysTheBufferOverflowedOnce`
-(was `…DoesNotSay…`, expecting none); both red before. *Not modelled*: a `+` bind of 511 bytes or more with its key
-number appended, which the console's own line limits make unreachable from a `bind` statement. The paragraph below is
-the entry as filed.
+(was `…DoesNotSay…`, expecting none); both red before.
+
+**Review 1** (Fable, Gemini, Sonnet, Grok; Grok had no findings). No blocker. Fixed (Fable, Gemini, Sonnet): the
+`KeyDown` wrap had no test that could fail and is unreachable, so it is gone, with the release half recorded above; the
+release note and the comments named a key's bind as refusable, where only an alias body is; the test's control asserts
+its alias ran (Fable, Gemini).
+
+The paragraph below is the entry as filed.
 
 Found in B830 review 3 (Fable). `Cbuf_AddText` in `engine/cmd.cpp` (`engine.dll` build 1007 FUN_180166500, and
 FUN_180166e30 which `stuffcmds` and `Cmd_Exec_f`, FUN_1801672f0, call) prints `Cbuf_AddText: buffer overflow` whenever
