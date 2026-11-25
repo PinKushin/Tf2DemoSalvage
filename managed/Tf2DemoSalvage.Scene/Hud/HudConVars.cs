@@ -15,13 +15,32 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// (B839): a frame that plays several ticks runs the console before each, and a game event of an earlier tick is heard
 /// before a later tick's run changes anything.
 /// </param>
+/// <param name="FindAt">
+/// The server's values as of one demo tick, every `net_SetConVar` read by then (B843), or null where that tick reads
+/// <paramref name="Find"/>: the client applies the message as its packet is parsed. By tick, not by stream position: an
+/// event read before a set in the same packet hears the set too (the recorded bound, B843).
+/// </param>
 public readonly record struct HudConVars(
-    Func<string, string?>? Find, Func<string, string?>? Client = null, Func<int, Func<string, string?>?>? ClientAt = null)
+    Func<string, string?>? Find,
+    Func<string, string?>? Client = null,
+    Func<int, Func<string, string?>?>? ClientAt = null,
+    Func<int, Func<string, string?>?>? FindAt = null)
 {
-    /// <summary>The values as a demo tick reads them: <see cref="ClientAt"/>'s answer for it, else these.</summary>
+    /// <summary>The values as a demo tick reads them: the server's (<see cref="ServerAt"/>) and <see cref="ClientAt"/>'s for it.</summary>
     /// <param name="tick">The demo tick whose packet is read.</param>
     /// <returns>The ConVars that tick reads.</returns>
-    public HudConVars At(int tick) => ClientAt?.Invoke(tick) is { } client ? this with { Client = client } : this;
+    public HudConVars At(int tick)
+    {
+        HudConVars server = ServerAt(tick);
+
+        return ClientAt?.Invoke(tick) is { } client ? server with { Client = client } : server;
+    }
+
+    /// <summary>The values with the server's as a demo tick reads them (<see cref="FindAt"/>), the client's unchanged.</summary>
+    /// <param name="tick">The demo tick whose packet is read.</param>
+    /// <returns>The ConVars with that tick's server values.</returns>
+    /// <remarks>A replay after a seek reads every packet to the tick (`demo_gototick`), so its events hear this too (B843).</remarks>
+    public HudConVars ServerAt(int tick) => FindAt?.Invoke(tick) is { } find ? this with { Find = find } : this;
 
     /// <summary>`CEmptyConVar() : ConVar( "", "0" )` (convar.cpp:1246): what a ref to an unregistered name reads.</summary>
     private const string EmptyConVarValue = "0";

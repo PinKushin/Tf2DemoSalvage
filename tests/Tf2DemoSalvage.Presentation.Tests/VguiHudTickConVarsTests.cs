@@ -113,6 +113,48 @@ public sealed class VguiHudTickConVarsTests
         notice.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **An event hears the server's ConVars of its own tick, on a replay too** (B843): the client applies a
+    /// `net_SetConVar` as its packet is read, and a seek's `demo_gototick` reads every packet to the tick. The server's
+    /// value is 3 at tick 1000 and 5 at 1001, each answered for its exact tick only (Sonnet, review 1: a lookup at any
+    /// other tick must not pass); the frame's is 9. The client ConVars stay the frame's on the replay (B839).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Think_AnEvent_HearsTheServersConVarsOfItsTick(bool reset)
+    {
+        VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
+        VguiHud hud = new(host, new EntityModelSet());
+        List<(string Server, string Client)> heard = [];
+        hud.DeathNotice.SoundEmitter = _ =>
+        {
+            HudConVars now = HudViewport.ConVarsOf(hud.DeathNotice);
+            heard.Add((now.GetString("mp_timelimit"), now.GetString("hud_deathnotice_time")));
+        };
+        HudConVars conVars = new(
+            static _ => "9",
+            static _ => "9",
+            static read => read < 1001 ? static _ => "3" : null,
+            static read => read switch { 1000 => static _ => "3", 1001 => static _ => "5", _ => null });
+        HudState state = new(
+            true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1, Players: [new ScenePlayer(1, 0f, 0f, 0f, 2, 100, 3)], ConVars: conVars);
+
+        // A user message takes the same path (review 7, Fable): the chat heard at 1000 reads that tick's server value.
+        string? chatHeard = null;
+        hud.Chat.SoundEmitter = _ => chatHeard ??= HudViewport.ConVarsOf(hud.Chat).GetString("mp_timelimit");
+
+        host.BeginFrame(640, 480);
+        hud.Think(
+            state,
+            events: [Death(1000), Death(1001)],
+            userMessages: [new SceneUserMessage(1000, SceneUserMessage.SayText, (byte[])[0, .. Encoding.UTF8.GetBytes("hi"), 0, 1])],
+            reset: reset);
+
+        heard.ShouldBe([("3", reset ? "9" : "3"), ("5", "9")]);
+        chatHeard.ShouldBe("3");
+        HudViewport.ConVarsOf(hud.DeathNotice).GetString("mp_timelimit").ShouldBe("9", "the frame's own, put back after");
+    }
+
     /// <summary>A domination by the recorder at a tick, which the death notice sounds (`PlayRivalrySounds`).</summary>
     private static HudGameEvent Death(int tick)
     {
