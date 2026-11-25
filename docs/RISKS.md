@@ -46401,10 +46401,12 @@ ConVar takes the name. Both adders print `Cbuf_AddText: buffer overflow` when `C
 refuses. So `RunAliasBody` runs the body as one `AddedAsOne` call at its own depth, where it had kept the body's
 refusals from every adder (B830 review 6): it says the line for the body's refusals, and the line or key that ran it
 does not hear them. The key's own adder, the press's and the release's (`"-%s %i\n"`) alike, never refuses: `bind`
-stores its value from a statement under 511 bytes, so the value with ` %i` stays under too, and nothing else writes a
-bind but the viewer's defaults. So `KeyDown` and `KeyUp` get no adder of their own; a wrap there was tried and no test
-could fail for it (review 1, Fable, Gemini, Sonnet). `Cbuf_AddTextWithMarkers` (FUN_1801666f0) is called only from the
-client's network code, not by a config, a key or an alias. Tests
+stores its value from a statement under 511 bytes whose prefix is at least 5 (`bind'`, `'` being a break character and
+a key name), so the value is at most 505, and ` %i` adds at most 4, a space and three digits (509); nothing else
+writes a bind but the viewer's defaults and `unbind`'s empty strings (review 2, Fable). So `KeyDown` and `KeyUp` get
+no adder of their own; a wrap there was tried and no test could fail for it (review 1, Fable, Gemini, Sonnet).
+`Cbuf_AddTextWithMarkers` (FUN_1801666f0) is called only from the client's network code, not by a config, a key or an
+alias. Tests
 `KeyDown_ABindWhoseAliasBodyIsRefused_SaysTheBufferOverflowedOnce` (an alias that fits, run, as its control) and
 `Load_AnAliasBodyOf511BytesRunByAHandlerInsideAnExecdLine_SaysTheBufferOverflowedOnce`
 (was `…DoesNotSay…`, expecting none); both red before.
@@ -46413,6 +46415,10 @@ client's network code, not by a config, a key or an alias. Tests
 `KeyDown` wrap had no test that could fail and is unreachable, so it is gone, with the release half recorded above; the
 release note and the comments named a key's bind as refusable, where only an alias body is; the test's control asserts
 its alias ran (Fable, Gemini).
+
+**Review 2** (Fable, Gemini, Sonnet, Grok; no blocker; Gemini, Sonnet and Grok had no findings). Fixed (Fable, nits): the
+unreachability is stated with its arithmetic above; the control also asserts the alias body ran (its ConVar is `1`),
+since `KeyDown` returns true for a found alias whatever its body did.
 
 The paragraph below is the entry as filed.
 

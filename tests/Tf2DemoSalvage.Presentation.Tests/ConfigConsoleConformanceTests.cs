@@ -1806,6 +1806,7 @@ public sealed class ConfigConsoleConformanceTests
         console.Load($"alias b {Alpha} 1\nbind k a\nbind j b");
 
         console.KeyDown("j").ShouldBeTrue("the control: the alias that fits ran");
+        console.ConVar(Alpha).ShouldBe("1", "the control: its body ran");
         log.Count("Cbuf_AddText: buffer overflow").ShouldBe(0, "the control: an alias that fits");
 
         console.KeyDown("k");
