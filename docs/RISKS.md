@@ -46770,6 +46770,19 @@ the test host died of a stack overflow while `dotnet test` printed "Passed!" ove
 Not taken: the same-tick order (Sonnet's recollection that reliable messages precede unreliable ones in a packet) is
 unread; the bound stands as stated. Presentation 2,200 of 2,200, Core 3,296 (40 skipped), Scene 5,421 of 5,421.
 
+Review 2 (Fable, Gemini, Sonnet): no engine divergence; the `??=` races are benign (equal delegates either way). Fixed:
+the delegate caching had no test (Gemini, Sonnet): `ServerConVarsAtTests.Lookup_AskedTwice_IsTheSameDelegate`; no test
+read `ServerConVarsAt` on a trimmed window, which the HUD now depends on (Fable):
+`TimelineCheckpointsTests.Window_CutPastAConVarSet_AnswersTheSetAtItsTicks`, whose first form could not fail because
+the trim never drops the LAST element, so it carries a second set inside the window's history; the voice icons' tick-25
+case read the default (Sonnet): the sets are now 1 then 2; `VoiceIconConVars` held the last timeline after the demo
+closed (Fable): reset with no demo, asserted; `Lookup()` on a set that is applied again would answer from a copy's
+original (Fable, Sonnet): a remark restricts it to snapshots; `HudConVars.At` written as a block (Sonnet). Not taken: a
+mutant handing `HeadLabels.For` another value while keeping the recorded one survives (Fable, Gemini); the seam is the
+argument, in one statement, and its remark names the D180 exception. Sabotage, each restored: no cache reddens the
+identity test; the in-force set dropped at the cut reddens the window test; no reset reddens both voice-icon cases.
+Presentation 2,267 of 2,267, Core 3,298 (40 skipped).
+
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
 tick's `net_SetConVar` as that tick's packet is parsed, before the events after it in the stream, so an event of an

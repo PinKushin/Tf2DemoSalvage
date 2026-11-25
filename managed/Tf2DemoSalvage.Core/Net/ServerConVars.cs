@@ -143,6 +143,10 @@ public sealed class ServerConVars
     /// <remarks>
     /// A method, not a property: `TimelineFingerprint` walks public properties, and a delegate's `Target` leads back here
     /// without end — the test host died of the stack overflow while reporting a passing, truncated total.
+    ///
+    /// **Ask it only of a set that is never applied again** (B843 review 2, Fable, Sonnet): `ServerConVarsAt`'s snapshots
+    /// and the defaults. `StateCopy` shares delegates, so a copy of a set whose lookup was made keeps one bound to the
+    /// original; on the walk's live set, an `Apply` to either would leave the other answering from it.
     /// </remarks>
     public Func<string, string?> Lookup() => _lookup ??= Value;
 

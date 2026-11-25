@@ -28,7 +28,12 @@ public readonly record struct HudConVars(
     /// <summary>The values as a demo tick reads them: the server's (<see cref="ServerAt"/>) and <see cref="ClientAt"/>'s for it.</summary>
     /// <param name="tick">The demo tick whose packet is read.</param>
     /// <returns>The ConVars that tick reads.</returns>
-    public HudConVars At(int tick) => ServerAt(tick) is var server && ClientAt?.Invoke(tick) is { } client ? server with { Client = client } : server;
+    public HudConVars At(int tick)
+    {
+        HudConVars server = ServerAt(tick);
+
+        return ClientAt?.Invoke(tick) is { } client ? server with { Client = client } : server;
+    }
 
     /// <summary>The values with the server's as a demo tick reads them (<see cref="FindAt"/>), the client's unchanged.</summary>
     /// <param name="tick">The demo tick whose packet is read.</param>

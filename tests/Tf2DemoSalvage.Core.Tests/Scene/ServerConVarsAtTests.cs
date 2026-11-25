@@ -44,5 +44,20 @@ public sealed class ServerConVarsAtTests
         new ServerConVars().Number("tf_clamp_airducks").ShouldBe(1f);
     }
 
+    /// <remarks>
+    /// **Each lookup is one delegate, made once** (B843 review 2, Gemini, Sonnet): the HUD asks for them every frame, so a
+    /// fresh delegate per call is an allocation a frame the fix removed. The control: the delegates answer.
+    /// </remarks>
+    [Test]
+    public void Lookup_AskedTwice_IsTheSameDelegate()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt((10, [SetConVar("sv_gravity", "400")])));
+        ServerConVars atTen = timeline.ServerConVarsAt(10);
+
+        atTen.Lookup().ShouldBeSameAs(atTen.Lookup());
+        timeline.ServerLookupAt().ShouldBeSameAs(timeline.ServerLookupAt());
+        timeline.ServerLookupAt()(10)!("sv_gravity").ShouldBe("400", "the control");
+    }
+
     private static SetConVarMessage SetConVar(string name, string value) => new([new KeyValuePair<string, string>(name, value)]);
 }

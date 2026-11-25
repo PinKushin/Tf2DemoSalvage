@@ -122,21 +122,23 @@ public sealed class FramePresenterTests
 
     /// <remarks>
     /// **The voice icons are gated by the server's ConVars as of the frame's tick** (B843 review 1): `mp_tournament` was
-    /// turned on at tick 10 and off at 20, so a frame at 15 reads 1 where the recording's last value is 0, and one at 25
-    /// reads 0.
+    /// set to 1 at tick 10 and 2 at 20, so a frame at 15 reads 1 where the recording's last value is 2, and one at 25
+    /// reads 2, which is not the default either (review 2, Sonnet). Drawing with no demo then lets the timeline go (Fable).
     /// </remarks>
     [TestCase(15, "1")]
-    [TestCase(25, "0")]
+    [TestCase(25, "2")]
     public void DrawOver_AFrameBetweenTwoSets_GatesTheVoiceIconsByItsTicksValues(int tick, string expected)
     {
         FramePresenter frames = Presenter();
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithMessagesAt(
             (10, [new Core.Net.SetConVarMessage([new("mp_tournament", "1")])]),
-            (20, [new Core.Net.SetConVarMessage([new("mp_tournament", "0")])])));
+            (20, [new Core.Net.SetConVarMessage([new("mp_tournament", "2")])])));
 
         frames.DrawOver(Frame(timeline, tick), AlongX, new FakeFrameDevice());
+        string? gated = frames.VoiceIconConVars.GetString("mp_tournament");
+        frames.DrawOver(Frame(), AlongX, new FakeFrameDevice());
 
-        frames.VoiceIconConVars.GetString("mp_tournament").ShouldBe(expected);
+        (gated, frames.VoiceIconConVars.FindAt).ShouldBe((expected, null));
     }
 
     /// <remarks>
