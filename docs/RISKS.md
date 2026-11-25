@@ -46534,7 +46534,7 @@ Review 8 (Fable, Sonnet; Gemini after):
 - **Known bound** (Fable): a trailing dot or space (`exec shots.cfg.`) reaches the same loose file on Windows and is
   keyed apart. `RecordPath`'s `?? path` is unreachable, as `exec` refuses `..` first (Sonnet, Fable); kept as the
   engine's own null return handled.
-- Gemini's review 8 was still running when this was written. 2,229 of 2,229 pass.
+- Gemini, after: the same `ABOVE-VALVE.md` blind spot, already closed above; nothing else. 2,229 of 2,229 pass.
 
 The session test first failed with a config of `wait` and `demo_togglepause` on two lines. That is the engine's
 behaviour, not a defect: `Cmd_Exec_f` adds a config one line at a time, and `AddText` restarts its delay for each text
