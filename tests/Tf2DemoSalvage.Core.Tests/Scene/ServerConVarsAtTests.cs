@@ -109,6 +109,30 @@ public sealed class ServerConVarsAtTests
         }
     }
 
+    /// <remarks>
+    /// **The history stays in tick order whatever the stream does** (B843 review 8, Fable, Sonnet): a packet that repeats
+    /// tick 7 after a late signon sets 50; stamped 7 it would sit behind the signon's 8 and blind the binary search, so it
+    /// takes 8, and tick 8 on reads 50 where an unsorted history would read 100.
+    /// </remarks>
+    [Test]
+    public void ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                .. Enumerable.Range(1, 7).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 900, SetConVar("sv_gravity", "100")) with
+                {
+                    Type = Core.Container.DemoCommandType.Signon,
+                },
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 7, SetConVar("sv_gravity", "50")),
+                .. Enumerable.Range(8, 3).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+            ]));
+
+        (timeline.ServerConVarsAt(7).Number("sv_gravity"), timeline.ServerConVarsAt(9).Number("sv_gravity")).ShouldBe((800f, 50f));
+    }
+
     /// <summary>Sets of 300 at 2 and 200 at 5, packets on to 7, a signon setting 100 stamped 900, then packets 8 to 10.</summary>
     private static byte[] LateSignonDemo() =>
         SyntheticDemo.From(

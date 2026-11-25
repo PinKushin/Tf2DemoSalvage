@@ -4286,12 +4286,20 @@ public sealed class DemoTimeline
                         // (B843 review 4, Fable), as the light styles' does below. A signon after a packet (none is known)
                         // is taken to apply when read, after that packet's events (*interpolated*: the demo player's command
                         // loop is closed), so it holds from the tick after the last packet read (reviews 5 to 7, Fable,
-                        // Sonnet); packet ticks rise, so the history stays in tick order.
+                        // Sonnet). Every stamp is at least the one before it, so `ServerConVarsAt`'s binary search holds
+                        // whatever the stream does (review 8, Fable, Gemini, Sonnet; a POV demo's packets can repeat a tick,
+                        // finding 106): a packet repeating a tick after a late signon
+                        // takes the signon's stamp, a recorded bound beside the same-tick one.
                         int stamp = command.Tick;
 
                         if (command.Type == DemoCommandType.Signon)
                         {
                             stamp = lastPacketTick == int.MinValue ? int.MinValue : lastPacketTick + 1;
+                        }
+
+                        if (conVarHistory.Count > 0)
+                        {
+                            stamp = Math.Max(stamp, conVarHistory[conVarHistory.Count - 1].Tick);
                         }
 
                         conVarHistory.Add((stamp, serverConVars.Snapshot()));

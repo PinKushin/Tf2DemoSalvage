@@ -46813,7 +46813,7 @@ began, not a playback tick (container ticks, measured by Fable: `z1800` signon 7
 about the first seventeen minutes of `z1800`, and the history fell out of tick order once a packet set followed. The HUD
 read the recording's last value before this branch, so it never showed; now it reads per tick. Fixed as the light
 styles already are (`DemoTimeline`, the signon's update holds from the start): a signon's set is stamped `int.MinValue`
-(narrowed in reviews 5 and 6 to a signon read before any packet).
+(narrowed in reviews 5 to 8 to a signon read before any packet; see review 8 for the rule as it stands).
 `ServerConVarsAtTests.ServerConVarsAt_ASetFromTheSignon_HoldsFromTheFirstTick` failed before the fix; the output-level
 control `CorpusServerConVarTests.ServerConVarsAt_TheFirstTick_IsWhatTheSignonSent` reads `sv_turbophysics` at tick 0 of
 `tf2-2011-build4604-spec-stv-cp_granary` and reddens with the old stamp (measured, real bytes). This is also B450's
@@ -46850,13 +46850,27 @@ Presentation 2,269 of 2,269.
 
 Review 7 (Fable, Gemini, Sonnet). No blocking finding. Fixed: a late signon stamped with the last packet's own tick
 held at that packet, whose events the engine runs before the signon is read (Gemini, Sonnet): it holds from the tick
-after, and the arm reading the last set's stamp, dead while packet ticks rise, is gone (Fable, Gemini, Sonnet); no test
+after, and the arm reading the last set's stamp was removed as dead while packet ticks rise (Fable, Gemini, Sonnet) —
+**wrong premise, corrected in review 8** (Gemini): a POV demo's packets can repeat a tick
+(`docs/findings/106-a-pov-packet-is-stamped-on-arrival.md`), and the clamp came back as review 8's; no test
 carried `lastPacketTick` across a resume (Fable, Sonnet):
 `ServerConVarsAt_ALateSignonAfterAResumeFromAnyCut_IsStampedAsAStraightBuild` resumes from every cut and reads the
 history directly, since the fingerprint cannot see it; the user-message path had no server-tick case (Fable): the chat
 heard at tick 1000 reads that tick's value; "applied when read" is marked *interpolated* (the demo player's command loop
 is closed, Fable); `ConVarChanges`'s summary said "the tick it was read at" (Fable). Sabotage, each restored: the field
-not copied reddens the resume test. Presentation `VguiHudTickConVarsTests` 10 of 10, Core `ServerConVarsAtTests` 8 of 8.
+not copied reddens the resume test. Presentation `VguiHudTickConVarsTests` 10 of 10, Core `ServerConVarsAtTests` 8 of 8;
+full: Core 3,302 (40 skipped), Scene 5,421 of 5,421, Presentation 2,269 of 2,269.
+
+Review 8 (Fable, Gemini, Sonnet). No engine divergence. **The rule as it stands:** a packet's set holds from its tick; a
+signon's before any packet from the start; a signon's after packets from the tick after the last packet read; and every
+stamp is at least the one before it. Fixed: the `+1` put the history out of tick order when a later packet repeated the
+last tick (Fable, Sonnet), which would blind the binary search: each stamp is clamped to the one before it, so a packet
+repeating a tick after a late signon takes the signon's stamp, a recorded bound beside the same-tick one
+(`ServerConVarsAt_APacketRepeatingATickAfterALateSignon_KeepsTheHistoryInOrder`). Review 7's sabotage line listed one
+run; these were run this round, each restored: the clamp dropped reddens the repeat test; the `+1` dropped reddens the
+late-signon, resume and repeat tests; user messages heard a tick late redden the chat case and three older cases.
+Review 4's parenthetical now points here (Sonnet). Not taken: the chat case keeps only the first sound (Fable), as one
+message makes one. Core `ServerConVarsAtTests` 9 of 9.
 
 The original entry follows. Found in B839 review 1 (Sonnet). `HudConVars.Find`, the server's replicated values (`mp_timelimit`,
 `tf_flag_caps_per_round`), is taken at the HUD's frame tick for every event the frame delivers. The engine applies a
