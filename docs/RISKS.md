@@ -47151,8 +47151,9 @@ weapon's cycle at a frame first. *Not fixed*.
   whole-tick frame's starting delay; a step resyncs the sample.
 - *Predictable entities* (part 3): in a point-of-view demo the recorder and his TF weapons are predicted and take
   `InterpolationSchedule.Predicted`, one tick, whatever the amount; `sv_client_predict` (declared, default −1) at 0
-  predicts nothing. That they draw from prediction's history at the predicted time is **B862**. Client-created entities
-  (corpses, gibs) are simulated by the viewer and never sampled under the schedule.
+  predicts nothing. **What they then draw is an interim**: the engine also samples them at the predicted time from
+  prediction's history, which is **B862**, so the values `PredictedEntityInterimTests` holds are no engine frame's.
+  Client-created entities (corpses, gibs) are simulated by the viewer and never sampled under the schedule.
 - *Alternate ticks* and *`cl_interp_npcs`* (read, no code): neither can apply to TF2 — `maxClients` is at least 2, and no
   TF2 client class is an NPC (findings 115).
 
@@ -47165,6 +47166,36 @@ a fall), `MomentPresenterTests` (the frame starts announced). Each reddened unde
 restored: the frame read as the tick, the face's frame read as now, the presenter's frame read as the tick,
 `MaxTargetBefore` unlagged, the hold taken a tick early, the weapon's owner never the recorder, the player never the
 recorder, prediction never off. *Not verified by looking*: no gcor demo changes its interp bounds mid-recording.
+
+Review 1 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The pruning was credited to every frame; only a listed variable is pruned** (Fable). `Interpolate` prunes only while
+  the variable is listed (`interpolatedvar.h:1057`; a settled one is skipped, `c_baseentity.cpp:879-887`) and
+  `NoteChanged` prunes at a latch (`interpolatedvar.h:667`, read). So a variable that settled before the rise was last
+  cut on its settle frame. `ScenePropTrack.LastListedTarget` takes the latest listed frame on each side of the rise;
+  `At_AnEntitySettledBeforeTheRiseThenUpdated_ReachesTheHistoryItsSettleFrameKept` (340, where every-frame pruning drew
+  360) reddens with settling disabled.
+- **The frame start leaked to every other reader of the timeline** (Sonnet, Fable): prediction's look-ahead, a seek's
+  scan, the effect feeds sampled under the presenter's frame. `FrameStart(lastRead, frameTick)` applies only to a sample
+  at exactly that tick; `PropsAt_AnotherReadersTickAfterAFrameStart_IsSampledUnderItsOwnTick` reddens without the scope.
+- **A jump forward took the pre-jump tick as the frame start** (Sonnet, Fable). While skipping, `CDemoPlayer::ReadPacket`
+  counts its calls and returns nothing after the hundredth (`engine.dll` 0x1800741e0, *disassembled*), and every frame of
+  the skip has a `FRAME_START`; so the frame that reaches the target had read to within a hundred packets of it.
+  `DemoTimeline.FrameStart` raises the frame start to the packet a hundred before the frame's (where in that batch the
+  skip really began is *interpolated*); `PropsAt_AFrameAfterAJumpForward_KnowsWhatTheLastSkipBatchRead` reddens without it.
+- **The predicted values asserted the implementation inside a conformance suite** (Fable): moved to
+  `PredictedEntityInterimTests`, interim until B862; the entry above says so.
+- `InterpolationSchedule.Predicted` keeps the interval it validated (Sonnet, Fable).
+
+Not taken: Codex's "an unrelated update on the rise tick skips the hold" — a history entry is appended only where the
+engine latches (`ScenePropTrack.Add`: origin, angles or simulation time changed, `c_baseentity.cpp:2570`), so such an
+update adds no arrival; an arrival on the rise tick is a latch, which lists the entity, as the floor path assumes. Fable's
+"a sample at the rise tick with no frame start uses the new delay while the pruning credits that frame with the old" —
+recorded: a reader that names no frame samples each tick as a frame that had read that tick, and the pruning models
+frames a tick apart, the frame reading a step still under the old one (findings 115, *interpolated* at real frame rates).
+Fable's "predictability follows the owner per tick, where the engine only initialises it" — `CPrediction` shuts every
+predictable down at each packet while `cl_predict` is off (`prediction.cpp:306-309`) and re-initialises them when it comes
+back (`:579-583`); a TF weapon's owner does not change while it lives (a dropped weapon is a new entity, *interpolated*).
+Records: part 1's commit cites `m_bNeedsToInterpolate` at `interpolatedvar.h:887`; it is `c_baseentity.cpp:887` (Fable).
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

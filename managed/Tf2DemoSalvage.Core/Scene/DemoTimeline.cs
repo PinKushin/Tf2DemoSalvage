@@ -8197,6 +8197,9 @@ public sealed class DemoTimeline
     /// <summary>The last tick read before this frame's <c>FRAME_START</c>, or infinity when no frame has said (B860).</summary>
     private double _frameStart = double.PositiveInfinity;
 
+    /// <summary>The tick of the frame <see cref="_frameStart"/> belongs to; NaN when no frame has said (B860 review 1).</summary>
+    private double _frameTick = double.NaN;
+
     /// <summary>
     /// <c>FRAME_START</c>: the frame about to be sampled starts with the recording read through
     /// <paramref name="lastRead"/>, so it interpolates under the delay as that tick left it (B860).
@@ -8204,22 +8207,38 @@ public sealed class DemoTimeline
     /// <param name="lastRead">
     /// The tick the previous frame was drawn at, or the frame's own tick after a seek or when nothing came before.
     /// </param>
+    /// <param name="frameTick">The tick this frame draws: only a sample at exactly this tick is the frame's.</param>
     /// <remarks>
     /// <c>CEngine::Frame</c> calls <c>ClientDLL_FrameStageNotify( FRAME_START )</c> and only then runs the host frame whose
     /// <c>CL_ReadPackets</c> reads this frame's packets (<see cref="InterpolationSchedule.AsOf"/>), and <c>FRAME_START</c>
-    /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A reader
-    /// that never calls this samples each tick under the delay of that tick, as if every frame were a tick apart.
+    /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A sample
+    /// at any other tick — another reader's, such as prediction looking ahead or a seek's scan — is no frame of this one,
+    /// and samples under the delay of its own tick, as if every frame were a tick apart (B860 review 1, Sonnet).
     /// </remarks>
-    public void FrameStart(double lastRead)
+    public void FrameStart(double lastRead, double frameTick)
     {
+        // **A jump is read a hundred packets at a time** (B860 review 1, Fable, Sonnet): while the demo skips,
+        // `CDemoPlayer::ReadPacket` counts its calls and returns nothing past the hundredth (`engine.dll` 0x1800741e0), and
+        // every frame of the skip has its own `FRAME_START`. So the frame that reaches the target started having read to
+        // within a hundred packets of it, however far the jump began. Where in that batch it began depends on where the
+        // skip started and on how many ticks each frame ran: taken as the batch's far end, the most the engine can lag
+        // (*interpolated*).
+        int frame = FrameIndexAt((int)Math.Floor(frameTick));
+        double batch = frame >= SkipBatchPackets ? _frames.TickAt(frame - SkipBatchPackets) : double.NegativeInfinity;
+
         lock (_sampling)
         {
-            _frameStart = lastRead;
+            _frameStart = Math.Max(lastRead, batch);
+            _frameTick = frameTick;
         }
     }
 
+    /// <summary>How many packets `CDemoPlayer::ReadPacket` reads in one go while skipping (its `99 &lt; count` stop).</summary>
+    private const int SkipBatchPackets = 100;
+
     /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
-    private double FrameRead(double tick) => Math.Min(_frameStart, tick);
+    private double FrameRead(double tick) =>
+        !(tick < _frameTick) && !(tick > _frameTick) ? Math.Min(_frameStart, tick) : tick;
 
     /// <summary><see cref="InterpolationSchedule.Predicted"/> at this recording's rate, made once.</summary>
     private InterpolationSchedule? _predicted;
@@ -9254,7 +9273,10 @@ public sealed class DemoTimeline
     /// than requiring an exact match — the same rule <see cref="PlayersAt(int)"/> has always used,
     /// lifted out so the round state and the props answer from the same frame the players do.
     /// </remarks>
-    private TimelineFrame? FrameAt(int tick)
+    private TimelineFrame? FrameAt(int tick) => FrameIndexAt(tick) is var found && found >= 0 ? _frames[found] : null;
+
+    /// <summary>The index of <see cref="FrameAt"/>'s frame, or -1 before the first.</summary>
+    private int FrameIndexAt(int tick)
     {
         int low = 0;
         int high = _frames.Count - 1;
@@ -9275,7 +9297,7 @@ public sealed class DemoTimeline
             }
         }
 
-        return found >= 0 ? _frames[found] : null;
+        return found;
     }
 
     /// <summary>The interpolation track for one entity, when it has one.</summary>

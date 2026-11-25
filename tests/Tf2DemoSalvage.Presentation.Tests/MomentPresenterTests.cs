@@ -583,7 +583,7 @@ public sealed class MomentPresenterTests
         /// <summary>Every <c>FRAME_START</c> the presenter announced, in order (B860).</summary>
         public List<double> FrameStarts { get; } = [];
 
-        public void FrameStart(double lastRead) => FrameStarts.Add(lastRead);
+        public void FrameStart(double lastRead, double frameTick) => FrameStarts.Add(lastRead);
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {

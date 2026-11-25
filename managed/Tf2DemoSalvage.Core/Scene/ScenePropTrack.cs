@@ -2391,12 +2391,92 @@ public sealed class ScenePropTrack
             }
         }
 
+        // A target at or past every earlier frame's binds on no floor: each entry the pruning dropped is older than it.
+        if (target >= schedule.MaxTargetBefore(tick) || LastListedTarget(history, tick, rise, schedule) is not { } prunedAt)
+        {
+            return target;
+        }
+
         // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
         double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
-        double cut = schedule.MaxTargetBefore(tick) - (0.05d / interval);
+        double cut = prunedAt - (0.05d / interval);
 
         return history.PrunedFloor(cut, now) is { } floor && target < floor ? floor : target;
     }
+
+    /// <summary>
+    /// The furthest target any earlier frame pruned this history at, frames a tick apart (B860 review 1, Fable): only a
+    /// frame the variable was LISTED in prunes it.
+    /// </summary>
+    /// <remarks>
+    /// The engine prunes a history in two places, `Interpolate` (<c>interpolatedvar.h:1057</c>), which a settled variable
+    /// skips (<c>c_baseentity.cpp:879-887</c>), and `NoteChanged` at a latch (<c>interpolatedvar.h:667</c>), which lists the
+    /// entity on the frame that reads it. So a variable that settled before the rise last pruned on its settle frame, not
+    /// on every frame since. Targets rise with the frame inside one delay step, so the latest listed frame on each side of
+    /// the rise is the furthest on that side; the frame that reads the rise still runs under the old delay.
+    /// </remarks>
+    private static double? LastListedTarget(InterpolatedHistory history, double tick, int rise, InterpolationSchedule schedule)
+    {
+        int last = (int)Math.Ceiling(tick) - 1;
+        double? most = null;
+
+        for (int frame = last; frame > rise; frame--)
+        {
+            if (Listed(history, frame, schedule))
+            {
+                most = FrameTarget(frame, schedule);
+                break;
+            }
+        }
+
+        int oldest = Math.Min(rise, last);
+
+        if (history.LatestArrival(oldest) is { } arrived)
+        {
+            int settled = oldest;
+
+            for (int frame = arrived; frame < oldest; frame++)
+            {
+                if (Settles(history, frame, schedule))
+                {
+                    settled = frame;
+                    break;
+                }
+            }
+
+            double old = FrameTarget(settled, schedule);
+            most = most is { } newer ? Math.Max(newer, old) : old;
+        }
+
+        return most;
+    }
+
+    /// <summary>Whether the frame at a tick interpolated a history: an arrival latched it, and no frame since settled it.</summary>
+    private static bool Listed(InterpolatedHistory history, int frame, InterpolationSchedule schedule)
+    {
+        if (history.LatestArrival(frame) is not { } arrived)
+        {
+            return false;
+        }
+
+        for (int earlier = arrived; earlier < frame; earlier++)
+        {
+            if (Settles(history, earlier, schedule))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the frame at a tick found nothing more to interpolate (`bNoMoreChanges`) and left the list.</summary>
+    private static bool Settles(InterpolatedHistory history, int frame, InterpolationSchedule schedule) =>
+        history.Bracket(FrameTarget(frame, schedule), frame) is { NoMoreChanges: true };
+
+    /// <summary>The target of the frame at a whole tick, which started knowing the schedule through the tick before.</summary>
+    private static double FrameTarget(int frame, InterpolationSchedule schedule) =>
+        frame - schedule.AsOf(frame - 1).TicksAt(frame);
 
     /// <summary>The pose to draw at a moment, interpolated between keyframes.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>

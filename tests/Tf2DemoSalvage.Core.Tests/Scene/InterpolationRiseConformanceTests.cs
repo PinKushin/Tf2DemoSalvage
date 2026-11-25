@@ -22,7 +22,7 @@ public sealed class InterpolationRiseConformanceTests
     private const double Interval = 0.015d;
 
     /// <summary>A delay of 8 ticks (TF2's defaults) until tick 50, then 34 (both ratio bounds 10: 0.5 s).</summary>
-    private static InterpolationSchedule RiseAtFifty()
+    internal static InterpolationSchedule RiseAtFifty()
     {
         ServerConVars raised = new();
         raised.Apply(new SetConVarMessage(
@@ -72,6 +72,29 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A variable that had settled was last pruned on its settle frame** (B860 review 1, Fable): `Interpolate` prunes
+    /// only a listed variable (`interpolatedvar.h:1057`, skipped once settled, `c_baseentity.cpp:879-887`), and
+    /// `NoteChanged` prunes at a latch (`interpolatedvar.h:667`). Updates every tick to 40, then the next at 55. The frame at
+    /// 48 aims at 40, settles, and cuts at 40 − 3.33 = 36.67, keeping 36, 35 and 34; the latch at 55 cuts at 55 − 34 − 3.33
+    /// and drops nothing. Aiming at 21, the frame at 55 draws the oldest it holds, 34: 340. Pruning on every frame to the
+    /// rise would have cut at 42 − 3.33 and drawn 36, 360.
+    /// </summary>
+    [Test]
+    public void At_AnEntitySettledBeforeTheRiseThenUpdated_ReachesTheHistoryItsSettleFrameKept()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 40; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(55, new ScenePose { X = 550f });
+
+        crate.At(55)!.Value.X.ShouldBe(340f);
+    }
+
+    /// <summary>
     /// **A moving entity cannot reach history the old delay pruned.** The crate slides on, an update every three ticks
     /// at ten units a tick. At 49 the target was 41 and the frame pruned before 41 − 3.33 = 37.67 (0.05 s at 0.015 s a
     /// tick): the first entry older than that is 36, kept with the two before it, 33 and 30. At 50 the new delay aims
@@ -110,11 +133,11 @@ public sealed class InterpolationRiseConformanceTests
         DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
         List<SceneProp> props = [];
 
-        timeline.FrameStart(49);
+        timeline.FrameStart(49, 50);
         timeline.PropsAt(50, props);
         float atTheRise = props.ShouldHaveSingleItem().Pose.X;
 
-        timeline.FrameStart(50);
+        timeline.FrameStart(50, 51);
         timeline.PropsAt(51, props);
 
         new[] { atTheRise, props.ShouldHaveSingleItem().Pose.X }.ShouldBe([420f, 300f], 0.01f);
@@ -137,14 +160,66 @@ public sealed class InterpolationRiseConformanceTests
         DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
         List<SceneProp> props = [];
 
-        timeline.FrameStart(50);
+        timeline.FrameStart(50, 50);
         timeline.PropsAt(50, props);
 
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(300f, 0.01f);
     }
 
+    /// <summary>
+    /// **A jump forward is read a hundred packets at a time** (B860 review 1): while skipping, `CDemoPlayer::ReadPacket`
+    /// stops after its hundredth call (`engine.dll` 0x1800741e0) and every frame of the skip starts afresh. A packet a tick,
+    /// a jump from 10 to 180 across the rise at 50: the frame at 180 had read at least to 80, so it knows the rise and
+    /// aims at 180 − 34 = 146, 1460; started at 10 it would aim at 180 − 8 = 172, 1720.
+    /// </summary>
+    [Test]
+    public void PropsAt_AFrameAfterAJumpForward_KnowsWhatTheLastSkipBatchRead()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+        List<TimelineFrame> frames = [];
+
+        for (int tick = 0; tick <= 199; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+            frames.Add(new TimelineFrame(tick, []));
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate], frames);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(10, 180);
+        timeline.PropsAt(180, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(1460f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A frame's start is that frame's, not the timeline's** (B860 review 1, Sonnet): the presenter's frame at 50 started
+    /// having read 49, and another reader then asks for 51 — prediction looking ahead, a seek's scan. That is no frame of
+    /// the presenter's and samples under its own tick, 51 − 34 = 17 floored at 30, so 300; carrying the frame start over
+    /// would aim at 51 − 8 = 43, 430.
+    /// </summary>
+    [Test]
+    public void PropsAt_AnotherReadersTickAfterAFrameStart_IsSampledUnderItsOwnTick()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(49, 50);
+        timeline.PropsAt(51, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(300f, 0.01f);
+    }
+
     /// <summary>A rocket launcher, entity 2, updated every tick at ten units a tick, owned by <paramref name="owner"/>.</summary>
-    private static ScenePropTrack Launcher(int? owner)
+    internal static ScenePropTrack Launcher(int? owner)
     {
         ScenePropTrack weapon = new(entityIndex: 2, "models/weapons/w_models/w_rocketlauncher.mdl")
         {
@@ -160,24 +235,6 @@ public sealed class InterpolationRiseConformanceTests
         }
 
         return weapon;
-    }
-
-    /// <summary>
-    /// **The local player's weapon takes one tick, whatever the amount** (B860): `GetInterpolationAmount` returns
-    /// `TICK_INTERVAL * serverTickMultiple` for a predictable entity before it reads `GetClientInterpAmount`
-    /// (`c_baseentity.cpp:5925-5928`), and `CTFWeaponBase::ShouldPredict` holds while the local player owns it
-    /// (`tf_weaponbase.cpp:3433-3441`); `sv_client_predict` at its default -1 leaves `cl_predict` at the client's 1. So
-    /// the recorder's launcher at 60 aims at 59, 590, across the rise to 34 ticks that puts anyone else's further back.
-    /// </summary>
-    [Test]
-    public void PropsAt_TheRecordersOwnWeapon_IsOneTickBehindWhateverTheDelay()
-    {
-        DemoTimeline timeline = DemoTimeline.ForTracks([Launcher(owner: 1)], recorder: 1);
-        List<SceneProp> props = [];
-
-        timeline.PropsAt(60, props);
-
-        props.ShouldHaveSingleItem().Pose.X.ShouldBe(590f, 0.01f);
     }
 
     /// <summary>
@@ -214,29 +271,13 @@ public sealed class InterpolationRiseConformanceTests
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
     }
 
-    /// <summary>
-    /// **The local player no view placed is predicted too** (B860): `C_BasePlayer::ShouldPredict` is `IsLocalPlayer()`
-    /// (`c_baseplayer.cpp:2324-2333`), and he is eligible once his data arrives as the local player (`:1017-1020`). With no
-    /// viewpoint for the frame his own track draws, one tick behind: 590 at 60. Anyone else's player track: 360.
-    /// </summary>
-    [TestCase(1, 590f)]
-    [TestCase(null, 360f)]
-    public void PlayersAt_ThePlayerWithNoViewpoint_IsOneTickBehindOnlyWhenHeIsTheRecorder(int? recorder, float expected)
+    /// <summary>The control for <see cref="PredictedEntityInterimTests"/>: a player nobody records takes the schedule, 360.</summary>
+    [Test]
+    public void PlayersAt_APlayerWhoIsNotTheRecorder_TakesTheSchedulesDelay()
     {
-        ScenePropTrack soldier = new(entityIndex: 1, "models/player/soldier.mdl") { Interpolation = RiseAtFifty() };
+        ScenePlayer drawn = PredictedEntityInterimTests.SoldierAt60(recorder: null);
 
-        for (int tick = 0; tick <= 99; tick++)
-        {
-            soldier.Add(tick, new ScenePose { X = tick * 10f });
-        }
-
-        DemoTimeline timeline = DemoTimeline.ForPlayerTracks(
-            [soldier], [new ScenePlayer(EntityIndex: 1, X: 0f, Y: 0f, Z: 0f, Team: 2, Health: 100, PlayerClass: 3)], recorder);
-        List<ScenePlayer> players = [];
-
-        timeline.PlayersAt(60d, players);
-
-        players.ShouldHaveSingleItem().X.ShouldBe(expected, 0.01f);
+        drawn.X.ShouldBe(360f, 0.01f);
     }
 
     /// <summary>The control: with the delay constant the same crate is drawn at its target, 50 − 8 = 42, so 420.</summary>

@@ -70,7 +70,7 @@ public sealed class InterpolationSchedule
     {
         double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
 
-        return new([int.MinValue], [interval], [1], intervalPerTick);
+        return new([int.MinValue], [interval], [1], interval);
     }
 
     /// <summary>One delay for every tick: Valve's defaults, or a track built for a test.</summary>

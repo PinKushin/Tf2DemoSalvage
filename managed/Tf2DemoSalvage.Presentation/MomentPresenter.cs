@@ -261,7 +261,7 @@ public sealed class MomentPresenter
             _framedAt = tick;
         }
 
-        source.FrameStart(_frameRead);
+        source.FrameStart(_frameRead, tick);
         source.PlayersAt(tick, _players, view.Playing);
         _shownTick = (int)Math.Floor(tick);
 

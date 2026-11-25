@@ -59,8 +59,15 @@ widest delay anywhere in the recording (B849). Since B860 a rise and the frame s
   timeline the tick the previous frame showed (`FrameStart`), and a step read since is not used until the next frame.
   The face lags its own `m_iv_flexWeight` amount the same way.
 - **A rise holds what had settled**, including an entity that settles on the very frame that reads the rise, and
-  **floors what is still moving** at the oldest entry the earlier frames' pruning kept, taking frames a tick apart (the
-  sampler is stateless; the face, which keeps its history frame by frame, prunes at the real frame times).
+  **floors what is still moving** at the oldest entry the earlier frames' pruning kept. Only a frame that had the
+  variable listed pruned it (`Interpolate`, `interpolatedvar.h:1057`, skipped once settled; `NoteChanged` at a latch,
+  `:667`, **read**), so a variable that settled before the rise was last cut on its settle frame. The sampler is
+  stateless and takes frames a tick apart, each reading a step a frame late (**interpolated** at real frame rates, where
+  a frame's prune cut falls between ticks; the face, which keeps its history frame by frame, prunes at the real times).
+- **A jump forward is read in batches**: while skipping, `CDemoPlayer::ReadPacket` stops after its hundredth call
+  (**disassembled**, `engine.dll` 0x1800741e0), and each frame of the skip has a frame start, so the frame that reaches the
+  target had read to within a hundred packets of it; the viewer takes the far end of that batch (where the batch began is
+  **interpolated**). A sample by any other reader, at any other tick, is no frame of the presenter's and reads its own tick.
 - **What a point-of-view demo predicts takes one tick whatever the amount.** `CheckInitPredictable`
   (`c_baseentity.cpp:2674-2712`, **read**) needs `cl_predict`, a local player, eligibility and `ShouldPredict()`.
   `cl_predict` reads `sv_client_predict` unless that is −1 (`cdll_bounded_cvars.cpp:36-48`, **read**), whose registered
