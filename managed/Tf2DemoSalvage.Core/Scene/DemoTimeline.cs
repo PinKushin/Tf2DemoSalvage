@@ -7533,7 +7533,7 @@ public sealed class DemoTimeline
         }
 
         // **A parity change means this animation began again, so its clock restarts**
-        // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
+        // (`C_BaseAnimating::PostDataUpdate`, `c_baseanimating.cpp:4738`). Everything downstream
         // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
         // `elapsed` the whole recording — a one-shot sequence finished before its first frame drew.
         //
@@ -7544,9 +7544,9 @@ public sealed class DemoTimeline
         // An entity that never sends the field keeps the clock it was created with, which is right:
         // nothing has told it to restart.
         // **Two signals, because the engine has two modes and reads a different field in each.**
-        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5021`) checks
-        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and resets cycle
-        // interpolation on `m_nNewSequenceParity` (`:4737`) regardless. Measured on `cp_fulgur`, the
+        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5022-5025`) checks
+        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and `PostDataUpdate` resets cycle
+        // interpolation on `m_nNewSequenceParity` (`:4738`) regardless. Measured on `cp_fulgur`, the
         // spawn cabinets are client-side animated — they send `m_bClientSideAnimation` 1 and no
         // `DT_ServerAnimationData.m_flCycle` whatsoever — so the toggle is their restart, and a fix
         // built on parity alone did not move them.
@@ -7557,7 +7557,8 @@ public sealed class DemoTimeline
         // boolean "should reset" would restart on every update where it happened to be one.
         // **A first sighting is not a restart.** An entity's opening update states whatever value
         // it holds, and treating that as a change would stamp the clock for every prop the moment
-        // it appears — wrong for one that has been idling since the map loaded.
+        // it appears — wrong for one that has been idling since the map loaded. **But the engine's new entity DOES
+        // compare its first values**, against −1 and `false` (B878, open).
         bool restarted = false;
 
         // **Held until after the keyframe is added, because the engine's reset runs after the latch.**
@@ -7584,7 +7585,7 @@ public sealed class DemoTimeline
         // **And the toggle counts only in CLIENT-side mode**, which is the guard Valve puts around
         // it and which a first version of this left out — caught by auditing every EntityState
         // accessor for a production caller and finding `ClientSideAnimation` had none.
-        // `c_baseanimating.cpp:5021`:
+        // `c_baseanimating.cpp:5022-5025`:
         //
         //     if ( m_bClientSideAnimation )
         //         if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
