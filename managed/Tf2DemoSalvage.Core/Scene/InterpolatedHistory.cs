@@ -667,8 +667,14 @@ public sealed class InterpolatedHistory
     /// its target passes the reset; every entry it can bracket then holds that one value, so no drawn value differs —
     /// extra listed frames only (*reasoned*, B860 review 16, Fable).
     /// </remarks>
-    public int? LatestChange(int arrivedBy, int first, int count) =>
-        LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _received[index] : null;
+    public int? LatestChange(int arrivedBy, int first, int count)
+    {
+        // Under the memo's lock with the index it reads, so a trim cannot move the entry between (B860 merge review 2).
+        lock (_memoLock)
+        {
+            return LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _received[index] : null;
+        }
+    }
 
     /// <summary>The changetime of the entry <see cref="LatestChange"/> names: the value a held variable keeps (B860 review 3).</summary>
     /// <param name="arrivedBy">The tick being played.</param>
@@ -682,17 +688,20 @@ public sealed class InterpolatedHistory
     /// </remarks>
     public int? LatestChangeTime(int arrivedBy, int first, int count)
     {
-        int last = LastReceivedAtOrBefore(arrivedBy);
-
-        for (int index = LatestChangeIndex(arrivedBy, first, count); index >= 0 && index <= last; index++)
+        lock (_memoLock)
         {
-            if (_flushedAt[index] > arrivedBy)
-            {
-                return _changeTimes[index];
-            }
-        }
+            int last = LastReceivedAtOrBefore(arrivedBy);
 
-        return null;
+            for (int index = LatestChangeIndex(arrivedBy, first, count); index >= 0 && index <= last; index++)
+            {
+                if (_flushedAt[index] > arrivedBy)
+                {
+                    return _changeTimes[index];
+                }
+            }
+
+            return null;
+        }
     }
 
     /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
@@ -703,15 +712,16 @@ public sealed class InterpolatedHistory
     /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
     /// </remarks>
     /// <remarks>
-    /// **Memoized per variable** (B860 merge review): a player standing still latches the same origin every tick, so the
-    /// walk back to his last real change ran the whole rest on every call. Each entry's answer depends only on it and the
-    /// one before, so it is kept per index and extended forward; a trim clears it.
+    /// **Memoized per variable as the run of entries already examined and the changes in it** (B860 merge reviews 1 and
+    /// 2): a player standing still latches the same origin every tick, so the walk back to his last real change ran the
+    /// whole rest on every call; and a memo of every entry from the first cost a scan of the whole history on the first
+    /// call and one int per entry for the timeline's life. The run starts where the first call's walk back stopped and
+    /// grows only as far as later calls ask, forward or back, so both the work and the memory follow the entries actually
+    /// examined; a trim clears it.
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
-        // `last` inside the lock too, so a trim cannot shorten the lists between reading it and filling to it (review 19).
-        // This keeps the memo's extension whole; the callers' other list reads stay unlocked, safe by the build order
-        // (review 20, Sonnet).
+        // `last` inside the lock too, so a trim cannot shorten the lists between reading it and examining to it (review 19).
         lock (_memoLock)
         {
             int last = LastReceivedAtOrBefore(arrivedBy);
@@ -723,19 +733,68 @@ public sealed class InterpolatedHistory
 
             Memos memos = _memos ??= new Memos();
 
-            if (!memos.ChangeOf.TryGetValue((first, count), out List<int>? changeOf))
+            if (!memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run))
             {
-                changeOf = [];
-                memos.ChangeOf[(first, count)] = changeOf;
+                int change = last;
+
+                while (!IsChange(change, first, count))
+                {
+                    change--;
+                }
+
+                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change]);
+                return change;
             }
 
-            for (int index = changeOf.Count; index <= last; index++)
+            for (int index = run.Through + 1; index <= last; index++)
             {
-                changeOf.Add(index == _generationStarts[index] || !Same(index, index - 1, first, count) ? index : changeOf[index - 1]);
+                if (IsChange(index, first, count))
+                {
+                    run.Changes.Add(index);
+                }
             }
 
-            return changeOf[last];
+            run.Through = Math.Max(run.Through, last);
+
+            // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
+            // ends at the latest at the generation start, which is a change and is at or before `last`.
+            if (last < run.Start)
+            {
+                int index = run.Start - 1;
+
+                while (!IsChange(index, first, count) || index > last)
+                {
+                    if (IsChange(index, first, count))
+                    {
+                        run.Changes.Insert(0, index);
+                    }
+
+                    index--;
+                }
+
+                run.Changes.Insert(0, index);
+                run.Start = index;
+            }
+
+            int at = run.Changes.BinarySearch(last);
+
+            return run.Changes[at >= 0 ? at : ~at - 1];
         }
+    }
+
+    /// <summary>Whether an entry changed a variable from the one before it, or starts a generation.</summary>
+    private bool IsChange(int index, int first, int count) =>
+        index == _generationStarts[index] || !Same(index, index - 1, first, count);
+
+    /// <summary>The entries a variable's latest-change memo has examined, and the changes among them, ascending.</summary>
+    /// <param name="Start">The first entry examined, always a change.</param>
+    /// <param name="Through">The last entry examined.</param>
+    /// <param name="Changes">The changes from <paramref name="Start"/> through <paramref name="Through"/>.</param>
+    private sealed record ChangeRun(int Start, int Through, List<int> Changes)
+    {
+        public int Start { get; set; } = Start;
+
+        public int Through { get; set; } = Through;
     }
 
     /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
@@ -754,8 +813,8 @@ public sealed class InterpolatedHistory
     /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
     private sealed class Memos
     {
-        /// <summary>For each variable, the latest change at or before each entry.</summary>
-        public Dictionary<(int First, int Count), List<int>> ChangeOf { get; } = [];
+        /// <summary>For each variable, the run of entries examined and its changes.</summary>
+        public Dictionary<(int First, int Count), ChangeRun> ChangeOf { get; } = [];
 
         /// <summary>Scan cursors, keyed by what the scan depends on.</summary>
         public Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> Settles { get; } = [];
@@ -1019,21 +1078,24 @@ public sealed class InterpolatedHistory
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count; negative for the whole entry.</param>
     /// <remarks>
-    /// **A variable an entry is too narrow to hold is not the same** (B860 reviews 18 and 20, Sonnet). Two entries of one
-    /// generation share a width (`SetMaxCount` resets on a change), but <see cref="LatestChangeIndex"/>'s memo fills from
-    /// the first entry, so it compares inside an OLDER, narrower generation for a variable only the newer width holds —
-    /// which sliced past the entry and threw. Review 19 withdrew this guard as unreachable; that was wrong
-    /// (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
+    /// **Entries of two widths are not the same; a span neither holds fails loudly** (B860 reviews 18-21 and merge review
+    /// 2). Two entries of one generation share a width (`SetMaxCount` resets on a change), and since merge review 2 the
+    /// change memo walks back only to the latest change, which a generation start always is, so it no longer examines an
+    /// older, narrower generation for a variable only the newer width holds. A span that does not fit a same-width pair is
+    /// a caller asking the wrong history, and B386's slice exception is the right answer to that, not a silent "changed"
+    /// on every entry (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
     /// </remarks>
     private bool Same(int left, int right, int first, int count)
     {
         ReadOnlySpan<float> a = ValuesAt(left);
         ReadOnlySpan<float> b = ValuesAt(right);
 
-        return count < 0
-            ? a.SequenceEqual(b)
-            : a.Length >= first + count && b.Length >= first + count &&
-              a.Slice(first, count).SequenceEqual(b.Slice(first, count));
+        if (count < 0 || a.Length != b.Length)
+        {
+            return a.SequenceEqual(b);
+        }
+
+        return a.Slice(first, count).SequenceEqual(b.Slice(first, count));
     }
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>

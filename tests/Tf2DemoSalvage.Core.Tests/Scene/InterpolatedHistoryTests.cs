@@ -77,7 +77,7 @@ public sealed class InterpolatedHistoryTests
     /// asked under two schedules settles where each says, not where the first one asked found.
     /// </summary>
     [Test]
-    public void Memos_TwoVariablesAndTwoSchedules_AnswerEachOwn()
+    public void LatestChangeAndSettleFrame_EachKeyPartVaried_AnswerTheirOwn()
     {
         InterpolatedHistory history = new(2);
 
@@ -103,11 +103,9 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **A variable an older, narrower generation cannot hold is not compared past its end** (B860 review 20, Sonnet,
-    /// Fable): the memo fills from the first entry, so it DOES ask `Same` for components 3 to 5 of one-wide entries, and
-    /// the guard answers them "not the same" where the slice threw; the reset then answers the boundary itself. Five
-    /// one-wide entries, then six-wide from 10 with component 4 stepping to 1 at 13: the change in (3, 3) is 13, and at
-    /// 11 it is the reset at 10. Before the guard came back this threw.
+    /// **The memo stops at a width change and never reads the older generation** (B860 reviews 20 and 21, merge review 2):
+    /// five one-wide entries, then six-wide from 10 with component 4 stepping to 1 at 13, asked for (3, 3): 10 at 11 (the
+    /// reset) and 13 at 15. A memo that filled from the first entry sliced (3, 3) out of a one-wide entry and threw.
     /// </summary>
     [Test]
     public void LatestChange_AcrossAWidthChange_StopsAtTheReset()
@@ -126,9 +124,36 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [0f, 0f, 0f, 0f, tick >= 13 ? 1f : 0f, 0f]);
         }
 
-        // At 5, inside the one-wide generation, "not the same" makes each entry a change (5); a guard answering "same"
-        // would give the generation's first, 1 (review 21, Fable).
-        (history.LatestChange(5, 3, 3), history.LatestChange(11, 3, 3), history.LatestChange(15, 3, 3)).ShouldBe((5, 10, 13));
+        (history.LatestChange(11, 3, 3), history.LatestChange(15, 3, 3)).ShouldBe((10, 13));
+
+        // Asked inside the one-wide generation for a span it cannot hold: a caller asking the wrong history, which fails
+        // loudly rather than reading as a change on every entry (merge review 2).
+        Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(5, 3, 3));
+    }
+
+    /// <summary>
+    /// **Asked before what the memo has examined, it walks back and keeps what it met** (B860 merge review 2): values 1, 2,
+    /// 2, 2, 5, 5, 7 at ticks 1 to 7. Asked at 7 first (the run starts at the change at 7), then at 3 (2, the walk passing
+    /// the change at 5 on the way and keeping it), at 6 (5, from what the walk kept), at 4 (2) and at 7 again (7).
+    /// </summary>
+    [Test]
+    public void LatestChange_AskedBackwardsAfterForwards_IsTheChangeAtOrBefore()
+    {
+        InterpolatedHistory history = new(1);
+        float[] values = [1, 2, 2, 2, 5, 5, 7];
+
+        for (int tick = 1; tick <= 7; tick++)
+        {
+            history.Add(tick, tick, [values[tick - 1]]);
+        }
+
+        int?[] answers =
+        [
+            history.LatestChange(7, 0, -1), history.LatestChange(3, 0, -1), history.LatestChange(6, 0, -1),
+            history.LatestChange(4, 0, -1), history.LatestChange(7, 0, -1),
+        ];
+
+        answers.ShouldBe([7, 2, 5, 2, 7]);
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

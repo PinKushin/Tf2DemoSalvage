@@ -47630,14 +47630,6 @@ built through the frames asked, which the timeline's build-before-sample order g
 after a trim the first kept entry counts as a change though it may restate — pre-existing, and no drawn value differs
 because the held entry and the true change carry one value.
 
-Review 21 (Fable, Sonnet, Codex: no blocker). Fixed: **no test read the prediction flag the builder sets** (Fable): every
-weapon test set it by hand. `Build_AClassReachingTheTfWeaponTable_PredictsForItsOwner` builds a `CTFKnife` whose table
-reaches `DT_TFWeaponBase` from demo bytes (the fixture's knife now carries an item index and an origin, so the builder
-gives it a track) and the player beside it as the control; it reddens with the flag lookup broken. The width-guard test
-asks inside the old generation too, telling "not the same" (5) from "same" (1) (Fable). Filed into B869: a frame between
-ticks cuts at its own fractional time, which findings 115 had labelled *interpolated* and is *arithmetic* on read source
-(Fable). Not taken: the build-before-sample assumption (Codex, recorded in review 20).
-
 Review 20 (Fable, Sonnet, Codex: no blocker; Fable's should-fix is this guard). Not taken (Fable): the signon's bounds
 read as a rise from Valve's defaults at the first packet — no frame ran under the defaults, but every entry arrived at that
 packet, so a held variable keeps its only value, the floor is null and the first pose answers: no drawn difference, by
@@ -47650,11 +47642,33 @@ today — pose parameters compare the whole entry and the other histories keep o
 a drawn value. Recorded: the memo lock guards memo extension only; `LatestChange`'s and `LatestChangeTime`'s other list
 reads stay unlocked, safe by the build-before-sample order (Sonnet). Not taken: B869 again (Codex); `_predicted` made
 eager (Sonnet) — two instances at worst, each immutable, and a missed memo hit costs one scan.
-Filed into B869 (cavecrew): the frame that reads a rise can sit more than a tick past it whenever frames run more than a
-tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback), the same root without a jump — frames at 48, 51, 54 across a rise at
-50 with the last change at 43 draw 430 at 51 and 360 at 54 where the engine holds 430. Not taken (cavecrew): the skip
-batch counting a windowed timeline's sparse frames as packets — latent, no window-backed timeline announces a frame
-(`WindowCache` is reached only by `WindowCheck`); it belongs with the first presenter that does.
+
+(From review 18, the merge's cavecrew reviewer.) Filed into B869: the frame that reads a rise can sit more than a tick
+past it whenever frames run more than a tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback),
+the same root without a jump — frames at 48, 51, 54 across a rise at 50 with the last change at 43 draw 430 at 51 and 360
+at 54 where the engine holds 430. Not taken: the skip batch counting a windowed timeline's sparse frames as packets —
+latent, no window-backed timeline announces a frame (`WindowCache` is reached only by `WindowCheck`); it belongs with the
+first presenter that does.
+
+Review 21 (Fable, Sonnet, Codex: no blocker). Fixed: **no test read the prediction flag the builder sets** (Fable): every
+weapon test set it by hand. `Build_AClassReachingTheTfWeaponTable_PredictsForItsOwner` builds a `CTFKnife` whose table
+reaches `DT_TFWeaponBase` from demo bytes (the fixture's knife now carries an item index and an origin, so the builder
+gives it a track) and the player beside it as the control; it reddens with the flag lookup broken. Filed into B869: a
+frame between ticks cuts at its own fractional time, which findings 115 had labelled *interpolated* and is *arithmetic*
+on read source (Fable). Not taken: the build-before-sample assumption (Codex, recorded in review 20).
+
+Merge review 2 (the lead's `/code-review high`; the cavecrew reviewer found nothing). Fixed: **the change memo filled
+from the first entry** — the first call scanned the whole history and the memo kept one int per entry for the timeline's
+life, a hitch at the first rise of a long demo and megabytes per track. It now keeps the run of entries it has examined,
+seeded where the first call's walk back to the latest change stopped, and the changes in it; later calls extend it
+forward or back only as far as they ask (`LatestChange_AskedBackwardsAfterForwards_IsTheChangeAtOrBefore`, which reddens
+when the backward walk drops the changes it passes). Since a generation start is a change, the memo no longer enters an
+older generation, so `Same` again fails loudly on a span a same-width pair cannot hold (a caller asking the wrong
+history) and answers "not the same" only across two widths. `LatestChange` and `LatestChangeTime` read under the lock
+with the index they use. A test renamed to its methods. Not taken: the settle scan running its callback under the lock
+(single scan per key, samplers effectively single-threaded per history); the knife fixture's origin arriving through the
+non-local player table rather than `DT_BaseEntity`, whose fixture copy carries no origin — the test asserts the class
+flag, which is independent of where the origin comes from.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
