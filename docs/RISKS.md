@@ -47194,15 +47194,18 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
   SERVER-animated entity** that is the value just latched, so one updated but not yet drawn holds only its latest
   arrival, where the viewer's track holds every latched pair: at the first drawn frame the engine draws the latest
   cycle and the viewer blends. A client-side-animated entity's cycle history is reset too (from the restored
-  `m_flOldCycle`, `:4689-4691`) but never drawn: its `m_iv_flCycle` is `EXCLUDE_AUTO_INTERPOLATE` (`:892-896`) — no
-  divergence there (review 9, Fable, Sonnet, the cavecrew reviewer). B871's `ResetLatched` covers the creating update
-  only. *Not read*: when the engine first sets up a never-drawn entity's bones in a demo, and the six
-  `StandardBlendingRules` overrides (`c_baseflex.h:144`, `tf_weapon_grenadelauncher.cpp:610`,
-  `tf_weapon_minigun.cpp:1068`, `econ_entity.cpp:890`, `tf_viewmodel.cpp:313`, `c_barnacle.cpp:203`), any of which that
-  never calls the base would reset for the entity's whole life.
+  `m_flOldCycle`, `:4689-4691`) but never interpolated: its `m_iv_flCycle` is `EXCLUDE_AUTO_INTERPOLATE` (`:892-896`),
+  a flag set when the variable is re-added — `UpdateRelevantInterpolatedVars` (`:872-884`) from `OnNewModel` (`:1186`)
+  and from joining or leaving the client-side animation list (`:6326`, `:6362`), `C_BaseEntity::AddVar` swapping the
+  mode (`c_baseentity.cpp:6380-6383`) — no divergence there (reviews 9-10, Fable, Sonnet, the cavecrew reviewer).
+  B871's `ResetLatched` covers the creating update only. All six `StandardBlendingRules` overrides (clangd
+  implementations, review 10, Fable) call the base first: `client/c_baseflex.cpp:227-229`,
+  `shared/tf/tf_weapon_grenadelauncher.cpp:610-612`, `shared/tf/tf_weapon_minigun.cpp:1068-1070`,
+  `shared/econ/econ_entity.cpp:890-892`, `shared/tf/tf_viewmodel.cpp:313-315`, `client/hl2/c_barnacle.cpp:203-205`
+  (paths under `game/`). *Not read*: when the engine first sets up a never-drawn entity's bones in a demo.
 
-Fix shape: read when a demo entity's bones are first set up (and those overrides), then reset a server-animated
-entity's cycle history at every update before it, with a conformance test.
+Fix shape: read when a demo entity's bones are first set up, then reset a server-animated entity's cycle history at
+every update before it, with a conformance test.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
@@ -47389,7 +47392,8 @@ Fable, Sonnet, the cavecrew reviewer): the building case is unreachable in the S
 cited, and the re-seed from the latched value read. Review 9 (Codex: no findings; Fable, Sonnet, the cavecrew
 reviewer): B878 scoped to server-animated entities (a client-side-animated cycle history is excluded from
 interpolation, `c_baseanimating.cpp:892-896`), its early-return citation corrected to `:1959-1960`, and the six
-`StandardBlendingRules` overrides named. Review 2 also moved the late-track
+`StandardBlendingRules` overrides named. Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the six
+overrides read — each calls the base first — and the exclusion flag's re-add path cited. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876
