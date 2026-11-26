@@ -1516,7 +1516,7 @@ public sealed partial class EntityState
     private const string WearableTable = "DT_TFWearable";
 
     /// <summary>Where a TF weapon declares the same.</summary>
-    private const string TfWeaponTable = "DT_TFWeaponBase";
+    internal const string TfWeaponTable = "DT_TFWeaponBase";
 
     /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
     /// <remarks>

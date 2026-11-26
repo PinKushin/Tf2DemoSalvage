@@ -244,6 +244,13 @@ public sealed class InterpolatedHistory
         }
 
         int values = _offsets[drop];
+
+        lock (_memoLock)
+        {
+            _changeOf.Clear();
+            _settles.Clear();
+        }
+
         _changeTimes.RemoveRange(0, drop);
         _received.RemoveRange(0, drop);
         _flushedAt.RemoveRange(0, drop);
@@ -694,17 +701,94 @@ public sealed class InterpolatedHistory
     /// this latch flushes is still the head it compares with; and an entry appended earlier cannot have been flushed before
     /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
     /// </remarks>
+    /// <remarks>
+    /// **Memoized per variable** (B860 merge review): a player standing still latches the same origin every tick, so the
+    /// walk back to his last real change ran the whole rest on every call. Each entry's answer depends only on it and the
+    /// one before, so it is kept per index and extended forward; a trim clears it.
+    /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
-        for (int index = LastReceivedAtOrBefore(arrivedBy); index >= 0; index--)
+        int last = LastReceivedAtOrBefore(arrivedBy);
+
+        if (last < 0)
         {
-            if (index == _generationStarts[index] || !Same(index, index - 1, first, count))
-            {
-                return index;
-            }
+            return -1;
         }
 
-        return -1;
+        lock (_memoLock)
+        {
+            if (!_changeOf.TryGetValue((first, count), out List<int>? changeOf))
+            {
+                changeOf = [];
+                _changeOf[(first, count)] = changeOf;
+            }
+
+            for (int index = changeOf.Count; index <= last; index++)
+            {
+                changeOf.Add(index == _generationStarts[index] || !Same(index, index - 1, first, count) ? index : changeOf[index - 1]);
+            }
+
+            return changeOf[last];
+        }
+    }
+
+    /// <summary>For each variable, the latest change at or before each entry (<see cref="LatestChangeIndex"/>).</summary>
+    private readonly Dictionary<(int First, int Count), List<int>> _changeOf = [];
+
+    /// <summary>Guards the memos, which a read extends: samplers read one history from more than one thread.</summary>
+    private readonly object _memoLock = new();
+
+    /// <summary>Scan cursors for <see cref="SettleFrame"/>, keyed by what the scan depends on.</summary>
+    private readonly Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> _settles = [];
+
+    /// <summary>
+    /// The first frame from <paramref name="changed"/> through <paramref name="last"/> at which
+    /// <paramref name="settles"/> holds, memoized (B860 merge review).
+    /// </summary>
+    /// <param name="schedule">The schedule the frames' targets come from: part of the key, since another gives other frames.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count.</param>
+    /// <param name="changed">The re-arming latch's tick, where the scan starts.</param>
+    /// <param name="last">The last frame to ask.</param>
+    /// <param name="settles">Whether a frame settled the variable: a function of the frame alone for one key.</param>
+    /// <returns>That frame, or null when none through <paramref name="last"/> did.</returns>
+    /// <remarks>
+    /// A variable that never settles — a standing player re-latched every tick never has its newest entry as `newer` —
+    /// scanned every frame since its last change on every call. The scan's answer at a frame does not depend on when it
+    /// is asked, so the cursor carries on from where the last call stopped; a trim clears it.
+    /// </remarks>
+    internal int? SettleFrame(object schedule, int first, int count, int changed, int last, Func<int, bool> settles)
+    {
+        ArgumentNullException.ThrowIfNull(settles);
+
+        lock (_memoLock)
+        {
+            (object, int, int, int) key = (schedule, first, count, changed);
+            (int through, int? settled) = _settles.TryGetValue(key, out (int Through, int? Settled) known)
+                ? known
+                : (changed - 1, null);
+
+            if (settled is { } found)
+            {
+                return found <= last ? found : null;
+            }
+
+            for (int frame = through + 1; frame <= last; frame++)
+            {
+                if (settles(frame))
+                {
+                    _settles[key] = (frame, frame);
+                    return frame;
+                }
+            }
+
+            if (last > through)
+            {
+                _settles[key] = (last, null);
+            }
+
+            return null;
+        }
     }
 
     /// <summary>

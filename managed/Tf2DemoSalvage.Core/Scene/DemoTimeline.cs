@@ -1295,9 +1295,9 @@ public sealed class DemoTimeline
     /// </remarks>
     private const string CombatWeaponTable = "DT_BaseCombatWeapon";
 
-    /// <summary><c>CTFWeaponBase</c>'s table (<c>IMPLEMENT_NETWORKCLASS_ALIASED( TFWeaponBase, DT_TFWeaponBase )</c>), so a
-    /// class reaching it predicts for its owner (B860).</summary>
-    private const string TfWeaponTable = "DT_TFWeaponBase";
+    /// <summary><c>CTFWeaponBase</c>'s table, so a class reaching it predicts for its owner (B860): the one constant
+    /// <see cref="EntityState"/> also reads it by.</summary>
+    private const string TfWeaponTable = EntityState.TfWeaponTable;
 
     /// <summary>The entity that carries the round.</summary>
     /// <remarks>

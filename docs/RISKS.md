@@ -47579,6 +47579,20 @@ why that is safe (Sonnet); the handoff lists B862-B869 (Fable). Not taken (Sonne
 `sv_client_predict -1` is the recorder's own setting, which no demo carries" — the client forces its own to 1 on a level
 of more than one client (`cdll_client_int.cpp:1645-1652`, *read*, findings 115), so a recorder's `cl_predict 0` does
 not survive into a multiplayer recording.
+Merge review (the lead's `/code-review high`). Fixed:
+- **`SettleFrame` and `LatestChangeIndex` walked back to the last real change on every call**, eight calls per track per
+  frame inside a rise window. A player standing still is re-latched with the same origin every tick and never settles —
+  in the engine too, whose newest entry is never `newer` — so after a long rest each call walked thousands of frames.
+  Review 12's "cost only, a handful of rises" is **reversed**: standing players are common. Both are now memoized on the
+  history (a change index per entry, a scan cursor per schedule, variable and change), extended forward and cleared on
+  a trim, under a lock since samplers read one history from more than one thread;
+  `SettleFrame_AskedAgainFurther_ScansOnlyTheNewFrames` (41, then 5, then 0 frames asked) and
+  `LatestChange_AfterARunOfRestatementsAndATrim_IsTheLastRealChange` redden with the cursor unsaved and the memo kept
+  across a trim. Still not measured on a populated demo.
+- `DT_TFWeaponBase` had two owners; `DemoTimeline` takes `EntityState`'s. A comment claiming the angles and origin
+  targets differ only by whole ticks was wrong.
+Not taken: the skip batch on a long playing frame (review 15's reason) and the face after a jump (B865).
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. Bounded by the
 window's frames and a recording's handful of rises; a `--measure` across a rise on a populated demo is the number.

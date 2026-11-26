@@ -18,6 +18,53 @@ public sealed class InterpolatedHistoryTests
         return history;
     }
 
+    /// <summary>
+    /// **A settle scan carries on from where the last one stopped** (B860 merge review): a variable that never settles was
+    /// scanned from its last change on every call. Frames 10 to 50 asked (41), then 10 to 60 settling at 55: the second
+    /// asks only 51 to 55 (5).
+    /// A scan that found its frame answers again without asking anything, and a trim starts over.
+    /// </summary>
+    [Test]
+    public void SettleFrame_AskedAgainFurther_ScansOnlyTheNewFrames()
+    {
+        InterpolatedHistory history = Twenty();
+        object schedule = new();
+        System.Collections.Generic.List<int> asked = [];
+
+        history.SettleFrame(schedule, 0, -1, 10, 50, frame => { asked.Add(frame); return false; }).ShouldBeNull();
+        int firstScan = asked.Count;
+        history.SettleFrame(schedule, 0, -1, 10, 60, frame => { asked.Add(frame); return frame == 55; }).ShouldBe(55);
+        int secondScan = asked.Count - firstScan;
+        history.SettleFrame(schedule, 0, -1, 10, 70, frame => { asked.Add(frame); return true; }).ShouldBe(55);
+        int thirdScan = asked.Count - firstScan - secondScan;
+        history.SettleFrame(schedule, 0, -1, 10, 54, frame => { asked.Add(frame); return true; }).ShouldBeNull();
+
+        history.DropReceivedBefore(5, tail: 2);
+        history.SettleFrame(schedule, 0, -1, 10, 12, frame => { asked.Add(frame); return false; }).ShouldBeNull();
+
+        (firstScan, secondScan, thirdScan, asked[^1]).ShouldBe((41, 5, 0, 12));
+    }
+
+    /// <summary>
+    /// **The latest change is memoized and a trim does not corrupt it** (B860 merge review): twenty entries where 11 to 20
+    /// restate 10, asked at 20 (10), then trimmed and asked again (still 10, now at a shifted index).
+    /// </summary>
+    [Test]
+    public void LatestChange_AfterARunOfRestatementsAndATrim_IsTheLastRealChange()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 20; tick++)
+        {
+            history.Add(tick, tick, [System.Math.Min(tick, 10)]);
+        }
+
+        int? before = history.LatestChange(20, 0, -1);
+        history.DropReceivedBefore(5, tail: 2);
+
+        (before, history.LatestChange(20, 0, -1), history.LatestChange(9, 0, -1)).ShouldBe((10, 10, 9));
+    }
+
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
     {
         Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();

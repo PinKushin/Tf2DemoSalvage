@@ -2568,17 +2568,10 @@ public sealed class ScenePropTrack
     /// </summary>
     private static int? SettleFrame(
         InterpolatedHistory history, int changed, int last, InterpolationSchedule schedule, HistoryVariable variable)
-    {
-        for (int frame = changed; frame <= last; frame++)
-        {
-            if (Settles(history, frame, schedule, variable))
-            {
-                return frame;
-            }
-        }
-
-        return null;
-    }
+        // Memoized on the history, since a variable that never settles would otherwise be scanned from its last change on
+        // every call (B860 merge review).
+        => history.SettleFrame(
+            schedule, variable.First, variable.Count, changed, last, frame => Settles(history, frame, schedule, variable));
 
     /// <summary>Whether the frame at a tick found nothing more to interpolate (`bNoMoreChanges`) and left the list.</summary>
     private static bool Settles(InterpolatedHistory history, int frame, InterpolationSchedule schedule, HistoryVariable variable) =>
@@ -2736,7 +2729,8 @@ public sealed class ScenePropTrack
 
         // **`m_iv_angRotation` is its own variable** (B860 review 2, Fable): after a rise it can hold while the origin
         // sharing its entries moves on, or the reverse. Linear either way — "Can't do hermite with QAngles".
-        // Targets differ by whole ticks or not at all: the tolerance only satisfies the analyzer.
+        // The targets can differ by any amount — a held or floored one is a whole changetime, the other `tick − delay` at a
+        // fractional tick — so this is a real comparison; the tolerance is the analyzer's (B860 merge review).
         if (Math.Abs(anglesTarget - target) > 1e-9d &&
             _simulation.Bracket(anglesTarget, (int)Math.Floor(tick)) is { } anglesPair)
         {
