@@ -8288,6 +8288,12 @@ public sealed class DemoTimeline
     /// <param name="track">Its track at <paramref name="tick"/>.</param>
     /// <param name="tick">The moment.</param>
     /// <returns>The pose, or null when the track has none then.</returns>
+    /// <remarks>
+    /// **Not every rule of the drawn moment** (review 14, Fable, Sonnet; B867): it always blends, where a paused or
+    /// non-interpolating sample holds, and it cannot see the recorded view a point-of-view frame places the recorder at
+    /// (B56), which the presenter hands <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, PredictedMotion?)"/>
+    /// and this timeline never holds. The frame start applies only at the frame's own tick.
+    /// </remarks>
     public ScenePose? DrawnPose(int entityIndex, ScenePropTrack track, double tick)
     {
         ArgumentNullException.ThrowIfNull(track);

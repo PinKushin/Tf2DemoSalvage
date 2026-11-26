@@ -443,6 +443,27 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// The same frame through the timeline with no frame start (B860 review 14, Fable): `PropsAt(50.5)` unannounced reads
+    /// through 50, aims at 16.5 and is floored at 36: 360. Through 49.5 it ran under the old delay: 425.
+    /// </summary>
+    [Test]
+    public void PropsAt_AFrameBetweenTicksWithNoFrameStart_IsUnderTheNewDelay()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        List<SceneProp> props = [];
+
+        DemoTimeline.ForTracks([crate]).PropsAt(50.5, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
+    }
+
+    /// <summary>
     /// The control (B860 review 13, Sonnet): a latch on the rise's frame that its target does NOT pass keeps moving. X ten
     /// a tick, an update every tick: the frame at 50 aims at 42, short of the head at 50, cuts at 38.67 and keeps 38, 37,
     /// 36; the frame at 51 aims at 17 and is floored at 36: 360. Holding it gave the head, 500.

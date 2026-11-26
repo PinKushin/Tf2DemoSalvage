@@ -21483,10 +21483,11 @@ condition cannot hold, so holding the newest value — which is what this projec
 branch the engine takes.
 
 **That conclusion was wrong** (B860 review 13, Fable; filed as B866). The timestamp passes an entity's update only with
-a LATER packet: on the frame that reads the update, `GetLastTimeStamp()` equals that variable's `m_LastNetworkedTime`,
-so an update whose changetime the frame's target has already passed — a simulation time lagging its packet by more
-than the delay — extrapolates, and the variable settles holding the result. Kept as the reasoning that failed: it asked
-whether the server chokes, not whether the frame's own packet passes the test.
+a LATER packet: from the frame that reads the update until the next packet, `GetLastTimeStamp()` equals that variable's
+`m_LastNetworkedTime`, so any of those frames whose target has passed the head extrapolates, and the variable settles
+holding the result — on a packet gap longer than the delay as well as on a lagging simulation time (review 14). "Every
+packet is in the file" is true and beside the point: a gap in the file is a gap on playback. Kept as the reasoning that
+failed: it asked whether the server chokes, not whether the frame's own packet passes the test.
 
 `pInfo->frac = MIN( pInfo->frac, 2.0f )` is defensive for the same reason and never binds: the walk
 only reaches that line with `targettime` strictly between two changetimes, so the fraction is
@@ -47138,15 +47139,34 @@ is above zero, and `GetLastTimeStamp() <= m_LastNetworkedTime` (`interpolatedvar
 `:1344-1368`). The extrapolation audit (B271 era, "What the audit found in the rest of the family") says the last
 clause **cannot hold on a demo**; that is wrong. `m_LastNetworkedTime` is the packet timestamp of this variable's last
 latch (`NoteLastNetworkedValue`, `:995-999`; `Interpolation_SetLastPacketTimeStamp` at `FRAME_NET_UPDATE_START`,
-`cdll_client_int.cpp:2303`), so on the frame that reads an update the two are equal, and an update whose changetime is
-already older than that frame's target extrapolates. That takes a simulation time lagging its packet by more than the
-delay. The variable then settles (`noMoreChanges`) holding the extrapolated value until a latch changes it, though an
-update that only restates it puts the networked value back.
-Worked case: delay 8 ticks, X ten a tick to 40, an update stamped 41 (410) read at 50: the engine draws 420 at 50 and
-holds it; the viewer holds 410. How often a real demo lags that far is **not measured**: the simulation-lag histogram
-(`DemoTimeline.SimulationLag`) is the instrument. Fix shape: a conformance test of the worked case, then the branch in
-`ScenePropTrack`'s sample where the target passes a head read on that frame, with the settle holding the result; correct
-the audit paragraph in the same commit. *Not fixed*.
+`cdll_client_int.cpp:2303`), so from the frame that reads an update until the next packet the two are equal (the context
+is set once per `InterpolateServerEntities`, `c_baseentity.cpp:3256`), and any of those frames whose target has passed
+the head extrapolates. Two routes (B860 review 14, Fable): **a packet gap longer than the delay**, with no simulation lag
+at all — a point-of-view demo holding the recorder's own choke or loss, or a watcher delay shorter than the packet
+interval, such as a SourceTV demo at a low snapshot rate under `cl_interp 0; cl_interp_ratio 1` (a config D69 loads);
+and **a simulation time lagging its packet by more than the delay**. The variable then settles (`noMoreChanges`) holding
+the extrapolated value until a latch changes it, though an update that only restates it puts the networked value back.
+Worked cases: delay 8 ticks, X ten a tick to 40, an update stamped 41 (410) read at 50: the engine draws 420 at 50 and
+holds it; the viewer holds 410. Packets at 40, 44, 48, delay 1 tick: the frame at 45.5 aims at 44.5, past 44, and draws
+445; the viewer 440. That `GetLastTimeStamp()` is the last packet's time is recalled from the closed engine, not re-read.
+How often either happens is **not measured**: the packet-interval distribution against the watcher's delay is the
+instrument for the first, the simulation-lag histogram (`DemoTimeline.SimulationLag`) for the second. Fix shape: a
+conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
+packet has followed, with the settle holding the result. *Not fixed*.
+
+## B867 — readers that ask where an entity is sample at the whole tick and never at the recorded view (2026-11-25) — OPEN
+
+Found in B860 review 14 (Fable, Sonnet), *read*, not measured. `DemoTimeline.DrawnPose` (B860 review 13) gives the
+holiday lights' local player, a sound's origin and the observer's building target the frame start and prediction, but:
+- **Two of them pass a whole tick.** `EffectEntityFrame.Tick` is whole by design and `SpectatorView.EntityOf` takes
+  `(int, int)`, so above the tick rate the frame start never matches and a frame at 50.5 after a rise at 50 places a
+  moving building under the old delay (420) where the frame draws it under the new (360). Before B860 these sampled at the
+  whole tick too.
+- **The recorder of a point-of-view demo is drawn at the recorded view** (B56, `LocalPlayer`), which the presenter hands
+  `PlayersAt` and the timeline never holds, so a sound or a holiday light anchors on his network track a tick back rather
+  than on the body drawn. Nor does it hold while paused or follow the dead-player branch of `Sampled`.
+Fix shape: carry the frame's fractional tick to both readers; give the timeline the frame's drawn recorder (or have the
+readers take the frame's drawn players), with a test per reader predicting the view's origin. *Not fixed*.
 
 ## B865 — an entity's first delay window draws its birth state, and a re-parent in a rise's packet takes the new amount a frame late (2026-11-25) — OPEN
 
@@ -47461,6 +47481,20 @@ Review 12 (Fable, Sonnet, Codex: no blocker). Fixed:
   `PropsAt_TheRisesTickWithNoFrameStart_DrawsUnderTheOldDelay` (420; 300) redden with the own tick.
 - The prune test asks the cheap arrival before `Listed` (Fable); the second-rise case of "no frame draws the difference"
   is worded as reasoned (Fable, Sonnet); B849's test summary names the frame at 50's target, 42 (Fable).
+
+Review 14 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The timeline's unannounced fallback had no test that could fail** (Fable): only `At(double)` was pinned;
+  `PropsAt_AFrameBetweenTicksWithNoFrameStart_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1` there. The unused
+  `Motion(tick, blend)` overload, the third site, is deleted.
+- **B866 understated when extrapolation fires** (Fable): a packet gap longer than the delay fires it with no simulation
+  lag, so the entry, its instrument and the audit paragraph now say so.
+- **`UnannouncedRead` assumed at least two frames a tick without saying so** (Fable, Sonnet): stated, *interpolated*.
+- **Review 13's "the frame start and prediction included" overclaimed for two readers** (Fable, Sonnet): the observer's
+  building and the holiday lights pass a whole tick, and no reader sees the recorded view a point-of-view frame places the
+  recorder at; filed as B867, and `DrawnPose` says what it is not.
+
+Not taken: a non-recorder control through the two Presentation tests (Sonnet) — the Core test holds another owner's
+launcher at 360 through the same method.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
 

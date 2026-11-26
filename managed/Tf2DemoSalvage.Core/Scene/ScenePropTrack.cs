@@ -1833,15 +1833,10 @@ public sealed class ScenePropTrack
     /// **<c>Changing</c> errs the same way**: true means only "re-sample every frame", so a
     /// window judged slightly wide re-samples a constant answer, while one judged narrow freezes
     /// a moving prop. It is true from the gate opening to a tick past the window closing.
+    ///
+    /// Under the delay schedule a frame knows (B860); the overload without one, read by no caller, went in review 14.
     /// </remarks>
-    internal (bool Changing, double NextWake) Motion(double tick, bool blend) =>
-        Motion(tick, blend, Interpolation.AsOf(UnannouncedRead(tick)));
-
-    /// <summary><see cref="Motion(double, bool)"/> under the delay schedule a frame knows (B860).</summary>
-    /// <param name="tick">The moment being sampled.</param>
-    /// <param name="blend">Whether this track samples through <see cref="At(double)"/> rather than <see cref="Held"/>.</param>
     /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
-    /// <returns>As <see cref="Motion(double, bool)"/>.</returns>
     internal (bool Changing, double NextWake) Motion(double tick, bool blend, InterpolationSchedule schedule)
     {
         // **The state fields, the track's birth and its death are `Held`'s boundaries**, and a settled
@@ -1995,7 +1990,7 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **Everything a track's state fields and its visibility can do between two samples.** `Held` is the
     /// keyframe at or before the tick, and `Alive` bounds it, so its answer moves only at those three.
-    /// Shared by <see cref="Motion(double, bool)"/>, whose own state wakes these are, and by a move PARENT whose
+    /// Shared by <see cref="Motion(double, bool, InterpolationSchedule)"/>, whose own state wakes these are, and by a move PARENT whose
     /// interpolation turns on this track's visibility (B438): `ShouldInterpolate`'s fourth clause asks a
     /// child, so the parent has to be looked at again when the child's answer can change.
     /// </remarks>
@@ -2635,6 +2630,11 @@ public sealed class ScenePropTrack
     /// 13): the last whole tick below it. A frame at a whole tick follows the one a tick before; a frame between ticks
     /// follows one at or after the tick below it, which had read that tick's packets.
     /// </summary>
+    /// <remarks>
+    /// **Assumes at least two frames a tick** (*interpolated*, review 14, Fable, Sonnet): the first frame past a tick
+    /// follows one below it, so at or below the tick rate a frame at 50.2 after one at 49.9 had read only 49, and this says
+    /// 50. The presenter announces its frames and never reaches this; only readers that name no frame do.
+    /// </remarks>
     /// <param name="tick">The moment drawn.</param>
     /// <returns>The tick read through.</returns>
     public static double UnannouncedRead(double tick) => Math.Ceiling(tick) - 1d;
