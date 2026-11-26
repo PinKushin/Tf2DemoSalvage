@@ -198,9 +198,9 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **A call far past what the memo examined starts it again and answers the same** (B860 review 24, Fable): values
-    /// change at ticks 1, 5 and 1,500 over 2,000 entries. Asked at 10 (5), then at 2,000 (1,500 — past the reseed gap), then
-    /// back at 1,000 (5, found by walking back from the new run) and at 1,600 (1,500).
+    /// **A call far past what the memo examined answers the same** (B860 review 24, Fable): values change at ticks 1, 5 and
+    /// 1,500 over 2,000 entries. Asked at 10 (5), then at 2,000 (1,500, a second stretch), then back at 1,000 (5, a walk
+    /// from 1,000 down to the first stretch) and at 1,600 (1,500).
     /// </summary>
     [Test]
     public void LatestChange_FarPastTheRun_AnswersTheSame()
@@ -229,9 +229,9 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **Far past the run with nothing changed in the gap, the run reaches the new tick** (B860 merge review 5): a value
-    /// that changes at 5 and then rests to 2,000. Asked at 10 (5), at 2,000 (5 — the walk back finds no change after 10 and
-    /// keeps the run), then at 1,000 and 7 (5 each), then at 3 (the change before, 1).
+    /// **Far past a stretch with nothing changed in the gap, the stretch reaches the new tick** (B860 merge review 5): a
+    /// value that changes at 5 and then rests to 2,000. Asked at 10 (5), at 2,000 (5 — the walk back finds no change after
+    /// 10 and extends the stretch), then at 1,000 and 7 (5 each), then at 3 (the change before, 1).
     /// </summary>
     [Test]
     public void LatestChange_FarPastARestingRun_KeepsTheRun()
@@ -254,16 +254,99 @@ public sealed class InterpolatedHistoryTests
 
         // Entries (index = tick - 1) examined: 9..4 for 10 (6), 1999..10 for 2,000, stopped by the stretch ending at 9
         // (1,990), 2..0 for 3 (3); the rest answer from the memo. 1,999 — a walk past the floor would make it 2,005.
-        history.EntriesExamined.ShouldBe(1999);
+        history.EntriesExamined.ShouldBe(1999L);
     }
 
     /// <summary>
-    /// **Far before the run, a second run serves it and the first is kept** (B860 review 26, merge reviews 8-10): values
-    /// change at 1, 300, 1,500 and 1,900 over 2,000 entries. Asked at 2,000 (1,900; one run, one change), then at 800 —
-    /// more than 512 before it — (300; a second run, two changes in all), then at 1,600 (1,500) and 2,000 (1,900) again.
+    /// The engine compares a latch with the head by <c>memcmp</c> (<c>interpolatedvar.h:636</c>, and
+    /// <c>COMPARE_HISTORY</c> at <c>:22-23</c>), so −0 after +0 is a change, a NaN after the same NaN is not, and a NaN
+    /// after a NaN of other bits is — where float equality would answer the other way on the first and the last.
     /// </summary>
     [Test]
-    public void LatestChange_FarBeforeTheRun_KeepsASecondRun()
+    public void LatestChange_NegativeZeroAfterZeroAndNaNAfterNaN_ComparesBits()
+    {
+        InterpolatedHistory history = new(1);
+        history.Add(1, 1, [0f]);
+        history.Add(2, 2, [-0f]);
+        history.Add(3, 3, [float.NaN]);
+        history.Add(4, 4, [float.NaN]);
+        history.Add(5, 5, [System.BitConverter.Int32BitsToSingle(0x7FC00001)]);
+
+        (history.LatestChange(2, 0, -1), history.LatestChange(4, 0, -1), history.LatestChange(5, 0, -1)).ShouldBe((2, 3, 5));
+    }
+
+    /// <summary>
+    /// Stepping forward or back one entry at a time past a stretch costs no allocation: a step forward appends to the
+    /// stretch below and a step back prepends to the one above (merge reviews 3-5 and review 24; B860 merge review 12). The
+    /// list's own growth allocates now and then, so the least over a hundred steps is what must be zero.
+    /// </summary>
+    [Test]
+    public void LatestChange_SteppedForwardThenBack_AllocatesNothingPerStep()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 4000; tick++)
+        {
+            history.Add(tick, tick, [tick]);
+        }
+
+        history.LatestChange(2000, 0, -1);
+        long forward = LeastAllocated(history, 2001, 1);
+        long back = LeastAllocated(history, 1999, -1);
+
+        (forward, back, history.LatestChange(1950, 0, -1), history.LatestChange(2050, 0, -1)).ShouldBe((0L, 0L, 1950, 2050));
+    }
+
+    /// <summary>
+    /// A stretch filling the gap below a larger one joins into it from beneath, and the answers inside both keep naming
+    /// the latest change. Values change every tenth tick. 100 to 200 stepped forward holds 11 changes; 75 to 85 holds 70
+    /// and 80; 99 finds 90 and prepends it to the stretch above; 89 fills the gap, and the two-change stretch joins the
+    /// larger one from beneath, newest first. 72 is 70, 82 is 80, 95 and 99 are 90, 105 is 100; 14 changes held.
+    /// </summary>
+    [Test]
+    public void LatestChange_GapFilledBelowALargerStretch_JoinsAndAnswersBoth()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 200; tick++)
+        {
+            history.Add(tick, tick, [tick / 10]);
+        }
+
+        int[] asked = [.. System.Linq.Enumerable.Range(100, 101), .. System.Linq.Enumerable.Range(75, 11), 99, 89];
+
+        foreach (int tick in asked)
+        {
+            history.LatestChange(tick, 0, -1);
+        }
+
+        int?[] answers = [.. System.Linq.Enumerable.Select(new[] { 72, 82, 95, 99, 105 }, tick => history.LatestChange(tick, 0, -1))];
+
+        answers.ShouldBe([70, 80, 90, 90, 100]);
+        history.ChangesHeld(0, -1).ShouldBe(14);
+    }
+
+    private static long LeastAllocated(InterpolatedHistory history, int from, int step)
+    {
+        long least = long.MaxValue;
+
+        for (int i = 0, tick = from; i < 100; i++, tick += step)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            history.LatestChange(tick, 0, -1);
+            least = System.Math.Min(least, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        return least;
+    }
+
+    /// <summary>
+    /// **Far before a stretch, a second stretch serves it and the first is kept** (B860 review 26, merge reviews 8-10):
+    /// values change at 1, 300, 1,500 and 1,900 over 2,000 entries. Asked at 2,000 (1,900; one stretch, one change), then at
+    /// 800 (300; a second stretch, two changes in all), then at 1,600 (1,500) and 2,000 (1,900) again.
+    /// </summary>
+    [Test]
+    public void LatestChange_FarBeforeAStretch_KeepsASecondStretch()
     {
         InterpolatedHistory history = new(1);
 
@@ -324,7 +407,8 @@ public sealed class InterpolatedHistoryTests
     /// <summary>
     /// **Far-apart asks keep a stretch each, and asking again examines nothing new** (B860 merge reviews 10 and 11): values
     /// change at 1, 1,000, 2,000, 3,000, 4,000 and 5,000 over 5,000 entries. Asked at 4,500 (4,000), 2,500 (2,000) and 500 (1):
-    /// three stretches, one change each. Then at 4,500 again (4,000), still three.
+    /// three stretches, one change each, 501 + 501 + 500 = 1,502 entries examined. Then at 4,500 again (4,000), still three
+    /// and still 1,502.
     /// </summary>
     [Test]
     public void LatestChange_ThreeFarApartAsks_KeepAStretchEach()
@@ -338,10 +422,11 @@ public sealed class InterpolatedHistoryTests
 
         int?[] answers = [history.LatestChange(4500, 0, -1), history.LatestChange(2500, 0, -1), history.LatestChange(500, 0, -1)];
         int heldAfterThree = history.ChangesHeld(0, -1);
+        long examinedAfterThree = history.EntriesExamined;
         int? again = history.LatestChange(4500, 0, -1);
 
-        (answers[0], answers[1], answers[2], heldAfterThree, again, history.ChangesHeld(0, -1))
-            .ShouldBe((4000, 2000, 1, 3, 4000, 3));
+        (answers[0], answers[1], answers[2], heldAfterThree, examinedAfterThree, again, history.ChangesHeld(0, -1), history.EntriesExamined)
+            .ShouldBe((4000, 2000, 1, 3, 1502L, 4000, 3, 1502L));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

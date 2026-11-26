@@ -718,7 +718,8 @@ public sealed class InterpolatedHistory
     /// filling from the first entry scanned the whole history; one run thrashed, kept a gap or walked every time; two runs
     /// overlapped and evicted the one in use. A call inside a stretch is a binary search; any other walks back from its tick
     /// only to the first change or to the end of the stretch below, records what it found, and joins touching stretches —
-    /// so each entry is examined at most once in the memo's life, and nothing is evicted. A trim clears it. The memo is asked
+    /// so each entry is examined at most once per walk that completes (a throw records nothing, and a retry walks again),
+    /// and nothing is evicted. A trim clears it. The memo is asked
     /// only inside rise windows, so what it holds is the changes in the stretches those windows reached (*reasoned*).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
@@ -739,30 +740,37 @@ public sealed class InterpolatedHistory
 
             if (at >= 0 && last <= stretches[at].End)
             {
-                return NewestAtOrBefore(stretches[at].Changes, last);
+                return stretches[at].NewestAtOrBefore(last);
             }
 
             // Nothing examined at `last`: walk back from it to the first change, or to the stretch below, examining each entry
             // once. The walk mutates nothing, so a throw from `Same` leaves the memo as it was.
             Stretch? below = at >= 0 ? stretches[at] : null;
+            Stretch? above = at + 1 < stretches.Count ? stretches[at + 1] : null;
             int change = WalkBackToChange(last, below?.End ?? -1, first, count);
-            int answer;
-            int joined;
+            int answer = below is not null && change <= below.End ? below.Newest : change;
 
-            if (below is not null && change <= below.End)
+            // A step forward appends to the stretch below and a step back prepends to the one above, so neither allocates
+            // nor copies (merge reviews 3-5 and review 24 had made both so; B860 merge review 12, lead and cavecrew).
+            if (below is not null && change <= below.End + 1)
             {
+                if (change > below.End)
+                {
+                    below.Later.Add(change);
+                }
+
                 below.End = last;
-                answer = below.Changes[^1];
-                joined = at;
+                JoinAbove(stretches, at);
+            }
+            else if (above is not null && last + 1 == above.Start)
+            {
+                above.Earlier.Add(change);
             }
             else
             {
-                stretches.Insert(at + 1, new Stretch(change, last, [change]));
-                answer = change;
-                joined = JoinBelow(stretches, at + 1);
+                stretches.Insert(at + 1, new Stretch(change, last));
             }
 
-            JoinAbove(stretches, joined);
             memos.ChangeOf[(first, count)] = stretches;
 
             return answer;
@@ -794,28 +802,40 @@ public sealed class InterpolatedHistory
         return found;
     }
 
-    /// <summary>Joins a stretch into the one below when they touch; returns where the joined stretch now is.</summary>
-    private static int JoinBelow(List<Stretch> stretches, int at)
-    {
-        if (at > 0 && stretches[at - 1].End + 1 == stretches[at].Start)
-        {
-            stretches[at - 1].End = stretches[at].End;
-            stretches[at - 1].Changes.AddRange(stretches[at].Changes);
-            stretches.RemoveAt(at);
-            return at - 1;
-        }
-
-        return at;
-    }
-
-    /// <summary>Joins the stretch above into one when they touch.</summary>
+    /// <summary>
+    /// Joins the stretch above into one when they touch, moving the smaller one's changes into the larger, so filling gaps
+    /// one at a time costs what it moves at most log-many times per change rather than the whole memo each time.
+    /// </summary>
     private static void JoinAbove(List<Stretch> stretches, int at)
     {
-        if (at + 1 < stretches.Count && stretches[at].End + 1 == stretches[at + 1].Start)
+        if (at + 1 >= stretches.Count || stretches[at].End + 1 != stretches[at + 1].Start)
         {
-            stretches[at].End = stretches[at + 1].End;
-            stretches[at].Changes.AddRange(stretches[at + 1].Changes);
+            return;
+        }
+
+        Stretch lower = stretches[at];
+        Stretch upper = stretches[at + 1];
+
+        if (lower.Count >= upper.Count)
+        {
+            for (int i = upper.Earlier.Count - 1; i >= 0; i--)
+            {
+                lower.Later.Add(upper.Earlier[i]);
+            }
+
+            lower.Later.AddRange(upper.Later);
+            lower.End = upper.End;
             stretches.RemoveAt(at + 1);
+        }
+        else
+        {
+            for (int i = lower.Later.Count - 1; i >= 0; i--)
+            {
+                upper.Earlier.Add(lower.Later[i]);
+            }
+
+            upper.Earlier.AddRange(lower.Earlier);
+            stretches.RemoveAt(at);
         }
     }
 
@@ -843,7 +863,7 @@ public sealed class InterpolatedHistory
     }
 
     /// <summary>How many entries the latest-change walks have examined, for a test of the walk's floor.</summary>
-    internal int EntriesExamined
+    internal long EntriesExamined
     {
         get
         {
@@ -868,7 +888,7 @@ public sealed class InterpolatedHistory
             {
                 foreach (Stretch stretch in stretches)
                 {
-                    held += stretch.Changes.Count;
+                    held += stretch.Count;
                 }
             }
 
@@ -876,25 +896,75 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>The newest change at or before <paramref name="last"/> in an ascending list whose first is at or before it.</summary>
-    private static int NewestAtOrBefore(List<int> ascending, int last)
-    {
-        int at = ascending.BinarySearch(last);
-
-        return ascending[at >= 0 ? at : ~at - 1];
-    }
-
     /// <summary>Whether an entry changed a variable from the one before it, or starts a generation.</summary>
     private bool IsChange(int index, int first, int count) =>
         index == _generationStarts[index] || !Same(index, index - 1, first, count);
 
-    /// <summary>A stretch of entries the latest-change memo examined, and the changes in it, ascending.</summary>
-    /// <param name="Start">The first entry, always a change.</param>
-    /// <param name="End">The last entry examined.</param>
-    /// <param name="Changes">Every change from <paramref name="Start"/> through <paramref name="End"/>, ascending.</param>
-    private sealed record Stretch(int Start, int End, List<int> Changes)
+    /// <summary>
+    /// A stretch of entries the latest-change memo examined, from its first change through <see cref="End"/>, and every
+    /// change in it: <see cref="Earlier"/> newest first, then <see cref="Later"/> ascending, never empty.
+    /// </summary>
+    private sealed class Stretch
     {
-        public int End { get; set; } = End;
+        /// <summary>A stretch holding one change, examined through <paramref name="end"/>.</summary>
+        /// <param name="change">The change, its first entry.</param>
+        /// <param name="end">The last entry examined.</param>
+        public Stretch(int change, int end)
+        {
+            Later.Add(change);
+            End = end;
+        }
+
+        /// <summary>Changes below <see cref="Later"/>, newest first: a step back adds here.</summary>
+        public List<int> Earlier { get; } = [];
+
+        /// <summary>Changes ascending: a step forward adds here.</summary>
+        public List<int> Later { get; } = [];
+
+        /// <summary>The last entry examined.</summary>
+        public int End { get; set; }
+
+        /// <summary>The first entry, always a change.</summary>
+        public int Start => Earlier.Count > 0 ? Earlier[^1] : Later[0];
+
+        /// <summary>The newest change.</summary>
+        public int Newest => Later[^1];
+
+        /// <summary>How many changes it holds.</summary>
+        public int Count => Earlier.Count + Later.Count;
+
+        /// <summary>The newest change at or before <paramref name="index"/>, which is at or past <see cref="Start"/>.</summary>
+        /// <param name="index">An entry in the stretch.</param>
+        /// <returns>The change.</returns>
+        public int NewestAtOrBefore(int index)
+        {
+            if (Later[0] <= index)
+            {
+                int at = Later.BinarySearch(index);
+
+                return Later[at >= 0 ? at : ~at - 1];
+            }
+
+            // Earlier descends, so the first at or before `index` is the newest; Start guarantees there is one.
+            int low = 0;
+            int high = Earlier.Count - 1;
+
+            while (low < high)
+            {
+                int middle = (low + high) / 2;
+
+                if (Earlier[middle] <= index)
+                {
+                    high = middle;
+                }
+                else
+                {
+                    low = middle + 1;
+                }
+            }
+
+            return Earlier[low];
+        }
     }
 
     /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
@@ -911,7 +981,7 @@ public sealed class InterpolatedHistory
     private readonly object _memoLock = new();
 
     /// <summary>Entries the walks examined, under <see cref="_memoLock"/>; read by <see cref="EntriesExamined"/>.</summary>
-    private int _entriesExamined;
+    private long _entriesExamined;
 
     /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
     private sealed class Memos
@@ -1200,11 +1270,18 @@ public sealed class InterpolatedHistory
 
         if (count < 0 || a.Length != b.Length)
         {
-            return a.SequenceEqual(b);
+            return SameBits(a, b);
         }
 
-        return a.Slice(first, count).SequenceEqual(b.Slice(first, count));
+        return SameBits(a.Slice(first, count), b.Slice(first, count));
     }
+
+    /// <summary>
+    /// Bit for bit, as the engine's <c>memcmp</c> is (<c>interpolatedvar.h:22-23</c>, <c>:636</c>): +0 and −0 differ, and
+    /// a NaN matches only its own bits (B860 review 28, Fable).
+    /// </summary>
+    private static bool SameBits(ReadOnlySpan<float> a, ReadOnlySpan<float> b) =>
+        System.Runtime.InteropServices.MemoryMarshal.AsBytes(a).SequenceEqual(System.Runtime.InteropServices.MemoryMarshal.AsBytes(b));
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>

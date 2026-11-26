@@ -47808,6 +47808,31 @@ misses; `LatestChange_RetriedAfterAThrow_LeavesTheMemoAsItWas` holds one after t
 retention is stated (Fable). Not taken: the first walk for a variable at rest is as long as the rest (Codex) — paid once,
 recorded since merge review 2.
 
+Review 28 and merge review 12 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; every reviewer traced the stretches as disjoint with no change missed or duplicated for any order of calls).
+**Fixed:** the stretch memo had brought back two costs earlier rounds removed — a step forward built a stretch and joined
+it (allocating every frame in a window, which review 24 had made append-only; lead, cavecrew), and a step back copied
+every change above into a new one-change stretch (quadratic over a rewind, which merge reviews 3-5 had made O(1); lead).
+A stretch now holds `Earlier` newest first and `Later` ascending: a step forward appends to the stretch below, a step
+back prepends to the one above, and a join moves the smaller stretch's changes into the larger.
+`LatestChange_SteppedForwardThenBack_AllocatesNothingPerStep` takes the least allocation over a hundred steps each way
+and reddened at 144 bytes under each sabotage in turn; `LatestChange_GapFilledBelowALargerStretch_JoinsAndAnswersBoth`
+reddens when the join adds the lower stretch's changes oldest first. **Fixed, parity:** `Same` compared floats, where the
+engine `memcmp`s (`NoteChanged`, `interpolatedvar.h:636`; `COMPARE_HISTORY`, `:22-23`) — so −0 after +0 is a change, and
+a NaN after a NaN of other bits is (Fable); `LatestChange_NegativeZeroAfterZeroAndNaNAfterNaN_ComparesBits` reddens under
+float equality. **Corrected record:** commit `289d5b58c`'s message says a value equal to the head is not added; it is —
+`AddToHead` at `:649` is unconditional, and only the return value reports the difference (Fable). Also fixed: the
+"examined at most once" wording (once per walk that completes: a throw records nothing; lead, Fable), test summaries
+still naming the removed 512 gap and runs (lead), `ThreeFarApartAsks` now asserts 1,502 examined before and after the
+repeat (cavecrew), and the counter is a `long` (lead). Not taken: the `MaxTargetBefore` paragraph below is stale
+(Sonnet) — it is not: `TargetFor` calls it on every frame after the first rise (`ScenePropTrack.cs:2445`), and only the
+memo work stops at the window's end. A trim's clamp makes the first kept entry a change (Sonnet): the change it names is
+gone with the trim, and trims run before any sampler (review 19), so no failing input was found and none is filed.
+`Memos.Settles` holds a cursor per schedule object until a trim (Sonnet): how many schedule objects production builds
+is not traced this round, so its retention is stated only for one schedule. The memo never shrinks while sampling (lead): it holds one int per examined change, asked only in
+rise windows — *reasoned*, and the `--measure` below is the number. A `JoinAbove` after an extension has no test of its
+own (Fable): it is compaction, so answers are the same without it.
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
 long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the
