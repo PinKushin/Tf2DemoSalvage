@@ -28,6 +28,22 @@ public sealed class StudioModelFactsTests
         read.SequenceLoops.ShouldNotBeNull()(0).ShouldBeFalse("a model with no sequences loops nothing");
     }
 
+    /// <summary>
+    /// **Each merged sequence's `STUDIO_LOOPING`, asked of the sequence the model PLAYS**: sequence 0 loops and 1 does not;
+    /// −1 and one past the end play 0 (`c_baseanimating.cpp:1967-1970`), so they loop too.
+    /// </summary>
+    [Test]
+    public void AsPlayed_TwoSequencesOneLooping_AnswersByThePlayedSequence()
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+            [(0, [new StudioSequence(0, StudioFlags.SequenceLooping), new StudioSequence(0, 0)])];
+
+        Func<int, bool> loops = StudioModelFacts.AsPlayed(
+            StudioModelFacts.LoopingFlags(StudioSequenceTable.Merge(groups), groups));
+
+        (loops(0), loops(1), loops(-1), loops(5)).ShouldBe((true, false, true, true));
+    }
+
     /// <summary>The control: no flags and no parameters read as none, not as a default model.</summary>
     [Test]
     public void FactsOf_AHeaderWithNoParametersOrFlags_ReportsNone()

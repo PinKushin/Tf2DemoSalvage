@@ -23,20 +23,27 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
     private readonly ConcurrentDictionary<string, ModelFacts?> _facts = new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
-    public ModelFacts? FactsOf(string modelPath) => _facts.GetOrAdd(modelPath, Read);
-
-    private ModelFacts? Read(string path)
+    public ModelFacts? FactsOf(string modelPath)
     {
+        if (_facts.TryGetValue(modelPath, out ModelFacts? known))
+        {
+            return known;
+        }
+
         try
         {
-            return readFile(path) is { } root ? Read(root) : null;
+            return _facts.GetOrAdd(modelPath, readFile(modelPath) is { } root ? Read(root) : null);
         }
-        catch (Exception failure) when (failure is InvalidDataException or IOException)
+        catch (InvalidDataException)
         {
-            // Not a studio model the engine could load, or a file the archives could not read (`PropModels.Find` catches
-            // the same pair), which is the no-header answer: `OnNewModel` returns before `SetMaxCount`
-            // (`c_baseanimating.cpp:1042-1072`). One bad file must not stop the demo opening; the viewer reports the same
-            // file when it loads it to draw.
+            // Not a studio model this reader can load: no facts, which the build treats as unknown for a `.mdl` (B873),
+            // and stays so. One bad file must not stop the demo opening; the viewer reports it when it loads it to draw.
+            return _facts.GetOrAdd(modelPath, value: null);
+        }
+        catch (IOException)
+        {
+            // A file the archives could not read this time (`PropModels.Find` catches the same): no facts NOW, and not
+            // cached, since a lock passes and the next update that sets the model asks again.
             return null;
         }
     }
@@ -54,21 +61,35 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
         (IReadOnlyList<StudioPoseParameter> pose, _) =
             StudioPoseParameterMerge.Merge([.. files.Select(file => StudioSequences.PoseParameters(file))]);
 
-        // One flag per merged sequence, so the cache holds a bool each rather than every parsed sequence of every include.
-        bool[] looping = [.. Enumerable.Range(0, table.Count).Select(sequence => Looping(table, groups, sequence))];
-
-        // `IsSequenceLooping( GetSequence() )` of the sequence the model PLAYS — 0 for one out of range
-        // (`c_baseanimating.cpp:1967-1970`), as `PropModels.SkinnedModel.Played` answers it.
         return new ModelFacts(
-            [.. pose.Select(parameter => parameter.Loop != 0f)],
-            model.IsStaticProp,
-            sequence => looping.Length > 0 && looping[sequence >= 0 && sequence < looping.Length ? sequence : 0]);
+            [.. pose.Select(parameter => parameter.Loop != 0f)], model.IsStaticProp, AsPlayed(LoopingFlags(table, groups)));
     }
 
-    private static bool Looping(
-        StudioSequenceTable table, List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups, int sequence) =>
-        table.At(sequence) is { } where &&
-        where.Group < groups.Count &&
-        where.Local < groups[where.Group].Sequences.Count &&
-        groups[where.Group].Sequences[where.Local].Loops;
+    /// <summary>One flag per merged sequence, so the cache holds a bool each rather than every parsed sequence.</summary>
+    /// <remarks>
+    /// **Its own method so the returned delegate closes over the array alone** (B870 review 3, Sonnet): two lambdas in one
+    /// scope share one closure object, which kept the table and every include's sequences alive per cached model.
+    /// </remarks>
+    internal static bool[] LoopingFlags(
+        StudioSequenceTable table, List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups)
+    {
+        bool[] looping = new bool[table.Count];
+
+        for (int sequence = 0; sequence < looping.Length; sequence++)
+        {
+            looping[sequence] = table.At(sequence) is { } where &&
+                where.Group < groups.Count &&
+                where.Local < groups[where.Group].Sequences.Count &&
+                groups[where.Group].Sequences[where.Local].Loops;
+        }
+
+        return looping;
+    }
+
+    /// <summary>
+    /// `IsSequenceLooping( GetSequence() )` of the sequence the model PLAYS — 0 for one out of range
+    /// (`c_baseanimating.cpp:1967-1970`), as `PropModels.SkinnedModel.Played` answers it.
+    /// </summary>
+    internal static Func<int, bool> AsPlayed(bool[] looping) =>
+        sequence => looping.Length > 0 && looping[sequence >= 0 && sequence < looping.Length ? sequence : 0];
 }

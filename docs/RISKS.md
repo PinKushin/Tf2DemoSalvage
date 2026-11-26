@@ -47156,9 +47156,10 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B874 — the probes build without the install's class scripts or model facts (2026-11-27) — OPEN
+## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
 
-Found in B870 review 2 (the cavecrew reviewer), *read*. 103 probes call `DemoTimeline.Build(file)` with neither `classes`
+Found in B870 review 2 (the cavecrew reviewer), *read*. The probes (over ninety files under `tools/Tf2DemoSalvage.Probe`)
+call `DemoTimeline.Build(file)` with neither `classes`
 (B437) nor `models` (B870), where the viewer passes both from the install. So a probe that reports a pose, a cycle or an
 anim-state answer reads a timeline the viewer never builds — against the rule that probes run the production path.
 Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
@@ -47321,6 +47322,16 @@ the visible change is parts 1, 3-5 and the end-of-recording seed no longer reach
 Not taken: Codex's `LoopingLerp_Hermite` claim (`LoopingCurve` already wraps, Sonnet confirmed `lerp_functions.h:117-159`;
 now tested). An empty model path after a studio model (Sonnet, Fable): consistent with `Follow`'s rule that index 0 keeps the
 model; not confirmed TF2 sends it. A missing `$includemodel` (cavecrew): the engine's client lacks it too.
+
+**Review 3** (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). Fixed: the sequence-loop flags were still pinned
+with every parsed sequence, because two lambdas in one scope share one closure (Sonnet, Fable) — built now in a static
+method, so the delegate holds the array alone; an `IOException` reading a model is no longer cached for the session
+(Sonnet); `IModelFacts`' doc and the catch comment now say null is "no facts", which the build reads by path (cavecrew);
+dates and the probe count in B874. Tests: the loop flags on a two-sequence table, with −1 and one past the end playing 0
+(Fable); `WindowCheck.For` walking with what the demo was read with, its control the read's own asks (Sonnet, Fable).
+Both sabotages reddened. Not taken: a bit-level guard on `PoseBetween`'s own lerp line (Fable, minor) — it already
+spells Valve's `A + (B - A) * t`, and the pose tests' 1e-6 tolerances would need bit pairs chosen to separate the two
+roundings.
 
 Not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
 and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,

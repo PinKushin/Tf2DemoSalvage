@@ -23,8 +23,10 @@ public sealed record ModelFacts(IReadOnlyList<bool> PoseParameterLoops, bool Sta
 /// </remarks>
 public interface IModelFacts
 {
-    /// <summary>The model's facts, or null when it has no studio header — the engine's `OnNewModel` returns before
-    /// `SetMaxCount` then (`c_baseanimating.cpp:1042-1072`).</summary>
+    /// <summary>The model's facts, or null when the install has none for it — the file is absent, unreadable or not a
+    /// studio model. The build tells the two kinds of null apart by path (B870): a brush model or a sprite has no studio
+    /// header, which is the engine's early return before `SetMaxCount` (`c_baseanimating.cpp:1042-1043`); a `.mdl` without
+    /// facts is unknown (B873).</summary>
     /// <param name="modelPath">The model, as the precache table names it.</param>
     /// <returns>The facts, or null.</returns>
     public ModelFacts? FactsOf(string modelPath);

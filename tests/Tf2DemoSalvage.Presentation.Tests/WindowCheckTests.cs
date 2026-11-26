@@ -53,6 +53,36 @@ public sealed class WindowCheckTests
         asking.Asked.ShouldBeGreaterThan(0);
     }
 
+    /// <remarks>
+    /// **`For` walks with what the demo was READ with** (B872): the asks after the read come from the walk's builder.
+    /// </remarks>
+    [Test]
+    public async Task For_ADemoReadWithModelFacts_WalksWithThem()
+    {
+        byte[] demo = Core.Tests.SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl"], (0, 1, [0.5f], null, null), (10, 1, [0.6f], null, null));
+        string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"b872-{Guid.NewGuid():N}.dem");
+        await System.IO.File.WriteAllBytesAsync(path, demo).ConfigureAwait(false);
+
+        try
+        {
+            Asking asking = new();
+            Scene.DecodedDemo decoded = Scene.DecodedDemo.Read(
+                path, new RecordingLogger(), keepBytes: true, models: asking);
+            int byTheRead = asking.Asked;
+
+            using WindowCheck check = WindowCheck.For(decoded, Settings, new RecordingLogger()).ShouldNotBeNull();
+            await check.Walking.ConfigureAwait(false);
+
+            byTheRead.ShouldBeGreaterThan(0, "the control: the read's own build asks");
+            asking.Asked.ShouldBeGreaterThan(byTheRead);
+        }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+    }
+
     private sealed class Asking : IModelFacts
     {
         private int _asked;
