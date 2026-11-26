@@ -167,6 +167,53 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
+    /// **The same, with every frame announced as the presenter announces it** (B860 review 15, Sonnet): each frame starts
+    /// having read the one before, so the cache must key on the read it was given. Each frame is compared with a fresh timeline told the same frame start.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedWithFrameStartsAcrossADelayChange_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Sliding()
+        {
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationRiseConformanceTests.RiseAtFifty(),
+            };
+
+            // An update every twenty ticks from 5, so the crate is still moving at the rise (the frame at 50 aims at 42,
+            // between 25 and 45) and no keyframe wake re-derives it between the step and the frame that must resync for
+            // it — a wake would hide a resync the cache missed.
+            for (int tick = 5; tick <= 100; tick += 20)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [crate];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Sliding());
+        List<SceneProp> props = [];
+        double previous = 40.5d;
+
+        // Three quarters of a tick apart, so a frame start's read and `ceil(tick) − 1` disagree across the step: the frame at
+        // 50.25 read 49.5 (old) where `ceil − 1` is 50, and the frame at 51 read 50.25 (new) — the step a cache keyed on the
+        // wrong read would never see change, leaving the frame at 51 under the old delay.
+        for (double tick = 41.25d; tick <= 60d; tick += 0.75)
+        {
+            stepped.FrameStart(previous, tick);
+            stepped.PropsAt(tick, props);
+
+            DemoTimeline fresh = DemoTimeline.ForTracks(Sliding());
+            List<SceneProp> expected = [];
+            fresh.FrameStart(previous, tick);
+            fresh.PropsAt(tick, expected);
+
+            ShouldMatch(props, expected, $"at tick {tick}");
+            previous = tick;
+        }
+    }
+
+    /// <summary>
     /// **A server turning prediction off is a moment of its own** (B860 review 5, Fable): the recorder's launcher, updated
     /// every ten ticks from 5, is predicted (one tick) until `sv_client_predict 0` at 50, and then takes the delay. No track wake
     /// names that tick, so the stepped sample must resync there to agree with a fresh one.

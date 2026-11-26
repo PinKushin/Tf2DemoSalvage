@@ -1854,7 +1854,7 @@ public sealed class ScenePropTrack
         // The same targets `At` samples at, per engine variable (B860).
         double target = TargetFor(_simulation, tick, schedule, OriginVariable);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
-        double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable);
+        double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
@@ -1886,7 +1886,7 @@ public sealed class ScenePropTrack
         bool settled = !FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget)
             && Settled(_simulation, target, now, OriginVariable)
             && Settled(_simulation, anglesTarget, now, AnglesVariable)
-            && Settled(_animation, animationTarget, now, WholeVariable)
+            && Settled(_animation, animationTarget, now, CycleVariable)
             && Settled(_poseParameters, poseTarget, now, WholeVariable);
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
@@ -1981,8 +1981,14 @@ public sealed class ScenePropTrack
     /// <summary>`m_iv_angRotation`: the simulation entry's last three.</summary>
     private static readonly HistoryVariable AnglesVariable = new(3, 3);
 
-    /// <summary>A history that is one engine variable: the cycle's, the pose parameters'.</summary>
+    /// <summary>A history that is one engine variable: the pose parameters'.</summary>
     private static readonly HistoryVariable WholeVariable = new(0, -1);
+
+    /// <summary>
+    /// `m_iv_flCycle`: the animation entry's first component (B860 review 15, Fable). The sequence beside it is this
+    /// project's, and a latch that changes only the sequence changes nothing `NoteChanged` compares.
+    /// </summary>
+    private static readonly HistoryVariable CycleVariable = new(0, 1);
 
     /// <summary>The next tick at which <see cref="Held"/> can answer differently, or infinity when never.</summary>
     /// <param name="tick">The moment being sampled.</param>
@@ -2631,9 +2637,11 @@ public sealed class ScenePropTrack
     /// follows one at or after the tick below it, which had read that tick's packets.
     /// </summary>
     /// <remarks>
-    /// **Assumes at least two frames a tick** (*interpolated*, review 14, Fable, Sonnet): the first frame past a tick
-    /// follows one below it, so at or below the tick rate a frame at 50.2 after one at 49.9 had read only 49, and this says
-    /// 50. The presenter announces its frames and never reaches this; only readers that name no frame do.
+    /// **Wrong for the first frame past each tick, at any frame rate** (*interpolated*; reviews 14 and 15, Fable, Sonnet):
+    /// that frame follows one below the tick, so a frame at 50.2 after one at 49.9 had read only 49, where this says 50 —
+    /// one unannounced fractional sample in N at N frames a tick, and every one at or below the tick rate. Which frame is
+    /// first past a tick is not knowable without the previous frame, which is what the presenter's frame start carries; it
+    /// announces its frames and never reaches this, only readers that name no frame do.
     /// </remarks>
     /// <param name="tick">The moment drawn.</param>
     /// <returns>The tick read through.</returns>
@@ -2653,7 +2661,7 @@ public sealed class ScenePropTrack
         // The moment being drawn, one interpolation window behind the moment being asked for, per engine variable (B860).
         double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
-        double animationTarget = TargetFor(_animation, tick, schedule, WholeVariable, out int? animationFloor);
+        double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable, out int? animationFloor);
         double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
         if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))

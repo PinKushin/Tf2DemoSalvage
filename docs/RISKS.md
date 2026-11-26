@@ -47143,12 +47143,14 @@ latch (`NoteLastNetworkedValue`, `:995-999`; `Interpolation_SetLastPacketTimeSta
 is set once per `InterpolateServerEntities`, `c_baseentity.cpp:3256`), and any of those frames whose target has passed
 the head extrapolates. Two routes (B860 review 14, Fable): **a packet gap longer than the delay**, with no simulation lag
 at all — a point-of-view demo holding the recorder's own choke or loss, or a watcher delay shorter than the packet
-interval, such as a SourceTV demo at a low snapshot rate under `cl_interp 0; cl_interp_ratio 1` (a config D69 loads);
+interval, such as a SourceTV demo at a low snapshot rate under `cl_interp 0; cl_interp_ratio 1` (a config D69 loads; at
+`cl_updaterate 66` that is two ticks, `c_baseentity.cpp:5937`);
 and **a simulation time lagging its packet by more than the delay**. The variable then settles (`noMoreChanges`) holding
 the extrapolated value until a latch changes it, though an update that only restates it puts the networked value back.
 Worked cases: delay 8 ticks, X ten a tick to 40, an update stamped 41 (410) read at 50: the engine draws 420 at 50 and
-holds it; the viewer holds 410. Packets at 40, 44, 48, delay 1 tick: the frame at 45.5 aims at 44.5, past 44, and draws
-445; the viewer 440. That `GetLastTimeStamp()` is the last packet's time is recalled from the closed engine, not re-read.
+holds it; the viewer holds 410. Packets at 40, 44, 48, delay 2 ticks (the config above): the frame at 46.5 aims at 44.5,
+past 44, and draws 445; the viewer 440 (review 15, Fable: the case was first written at 1 tick, which that config cannot
+give). That `GetLastTimeStamp()` is the last packet's time is recalled from the closed engine, not re-read.
 How often either happens is **not measured**: the packet-interval distribution against the watcher's delay is the
 instrument for the first, the simulation-lag histogram (`DemoTimeline.SimulationLag`) for the second. Fix shape: a
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
@@ -47222,12 +47224,19 @@ the last networked value for a predictable (`c_baseentity.cpp:2593-2598`). Since
 one tick behind (the amount `GetInterpolationAmount` gives them), but along the NETWORK history at the frame's tick. The
 recorder is drawn where the demo's view put him (B56) whenever there is a view, so this reaches his weapons' own animated
 variables — a bone-merged weapon draws its merged bones from his skeleton, and only the rest from its own cycle — and the
-recorder on a frame with no view. **And prediction turning off is a delay rise B860 does not see** (B860 review 6, Fable):
+recorder on a frame with no view. **The weapon half waits on B863** (B860 review 15, Fable): `BaseInterpolatePart1`
+stops a follower before the predictable branch (`c_baseentity.cpp:2845-2850` before `:2853-2862`), and a carried TF
+weapon follows, so it interpolates nothing and none of this applies to it until B863 is fixed; it applies to a predicted
+weapon that is not following. **And prediction turning off is a delay rise B860 does not see** (B860 review 6, Fable):
 when `sv_client_predict` goes to 0 an entity's schedule swaps from one tick to the plain one, which holds no rise, so a
 settled weapon re-blends where `SetPredictable(false)` only stores the amount (`Interp_UpdateInterpolationAmounts`,
 `c_baseentity.cpp:4596`, *read*) and the engine holds it until its next latch; and a young one can be sent back before
 birth, bringing back its birth state. Scenario: updates at 5, 15, …, `sv_client_predict 0` at 50: the engine holds X = 450
-from frame 46 to the latch at 55; the viewer blends 35 to 45 at 51-54. Fix shape: model the swap as a step of the
+from frame 46 to the latch at 55; the viewer blends 35 to 45 at 51-54. **And a weapon taken from the recorder stays
+predicted** (B860 review 15, Sonnet): prediction is only initialised per entity (`CheckInitPredictable`,
+`c_baseentity.cpp:2674-2712`) and shut down wholesale (`prediction.cpp:205-245`), so it keeps one tick where the viewer's
+`ScheduleFor` drops it to the full delay at the keyframe that changes `OwnedBy`, *read*; how often a live TF weapon
+changes owner is not measured. Fix shape: model the swap as a step of the
 entity's own schedule, which B860's hold then sees; and run the recorded user commands through the weapons' prediction as D205 does the recorder's movement, keep the history it latches,
 and sample it at the predicted time; a conformance test predicting a weapon's cycle at a frame first. *Not fixed*.
 
@@ -47495,6 +47504,35 @@ Review 14 (Fable, Sonnet, Codex: no blocker). Fixed:
 
 Not taken: a non-recorder control through the two Presentation tests (Sonnet) — the Core test holds another owner's
 launcher at 360 through the same method.
+
+Review 15 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **No stepped-against-fresh test announced its frames** (Sonnet), so a cache keyed on `ceil(tick) − 1` instead of the
+  read it was given passed. `PropsAt_SteppedWithFrameStartsAcrossADelayChange_MatchesAFreshTimelineEverywhere` steps frames
+  three quarters of a tick apart, each told the read before, over a crate still moving at the rise with no keyframe wake
+  near it; it reddens at 51 with the step count keyed on `ceil(tick) − 1`. (A quarter-tick spacing and an every-3-tick
+  crate both stayed green under that sabotage: the reads agreed, and wakes re-derived what the resync missed.)
+
+Not taken (Sonnet):
+- `was` in the motion window after a seek reads under a different step than `now` — review 11's reason; after a seek the
+  window is one or two frames.
+- The skip batch applies to a playing frame more than a hundred packets past the last (a hitch of about 1.5 s): the
+  presenter cannot tell that frame from a forward scrub while playing, which the engine does read as a skip, and the
+  scrub is the common one.
+- A TF weapon changing owner: `CheckInitPredictable` runs at every `PostDataUpdate` (`c_baseentity.cpp:2622`), so a weapon
+  given to the recorder predicts from that update, which `ScheduleFor`'s `OwnedBy` at the keyframe matches; one taken
+  from him stays predicted in the engine where the viewer stops: `CheckInitPredictable` only ever initialises (it returns
+  early once the intermediate data exists, `:2706-2711`), and prediction is shut down only wholesale
+  (`CPrediction::ShutdownPredictables`, `prediction.cpp:205-245`), *read*. A TF weapon is destroyed rather than handed on
+  (a dropped one is a new `tf_dropped_weapon`), so how often a live one changes owner is **not measured**; filed with the
+  prediction-off case under B862.
+
+Fable, review 15. Fixed:
+- **The cycle's hold compared the sequence too**: this project's animation entry holds the sequence beside the cycle,
+  and `LatestChange` counted a latch changing only the sequence as re-arming `m_iv_flCycle`, which `NoteChanged`
+  compares alone (`interpolatedvar.h:633-639`). `CycleVariable` is the entry's first component;
+  `PropsAt_ASequenceOnlyLatchAfterTheRise_HoldsTheCycle` (0.30; 0.22) reddens with the whole entry.
+- `UnannouncedRead`'s remark now says it misjudges the first frame past each tick at any frame rate, not only at or
+  below the tick rate; B866's second worked case uses the two ticks its config gives; B862's weapon half waits on B863.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
 

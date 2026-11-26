@@ -464,6 +464,34 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **A latch that changes only the sequence does not re-arm the cycle** (B860 review 15, Fable): `m_iv_flCycle` is one
+    /// float, and `NoteChanged` compares it alone (`interpolatedvar.h:633-639`, `c_baseentity.cpp:2828-2829`). Cycle 0.01 a
+    /// tick, an update every 3 ticks to 30, settled by the frame at 38; at 55 an update carries another sequence at the same
+    /// cycle, 0.30. The frame at 56 holds 0.30; re-armed by the sequence it was floored back to about 0.22.
+    /// </summary>
+    [Test]
+    public void PropsAt_ASequenceOnlyLatchAfterTheRise_HoldsTheCycle()
+    {
+        ScenePropTrack windmill = new(entityIndex: 1, "models/props_farm/windmill_blades.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 30; tick += 3)
+        {
+            // Divided, not multiplied: `30 * 0.01f` is not `0.30f`, and the latch at 55 must restate the same float.
+            windmill.Add(tick, new ScenePose { Cycle = tick / 100f, Sequence = 1 });
+        }
+
+        windmill.Add(55, new ScenePose { Cycle = 0.30f, Sequence = 2 });
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([windmill]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(55, 56);
+        timeline.PropsAt(56, props);
+
+        props.ShouldHaveSingleItem().Pose.Cycle.ShouldBe(0.30f, 1e-4f);
+    }
+
+    /// <summary>
     /// The control (B860 review 13, Sonnet): a latch on the rise's frame that its target does NOT pass keeps moving. X ten
     /// a tick, an update every tick: the frame at 50 aims at 42, short of the head at 50, cuts at 38.67 and keeps 38, 37,
     /// 36; the frame at 51 aims at 17 and is floored at 36: 360. Holding it gave the head, 500.
