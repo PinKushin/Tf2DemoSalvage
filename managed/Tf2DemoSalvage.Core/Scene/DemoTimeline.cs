@@ -7565,7 +7565,8 @@ public sealed class DemoTimeline
         // `C_BaseAnimating::PostDataUpdate` calls `BaseClass::PostDataUpdate` FIRST — that is where
         // `OnLatchInterpolatedVariables` appends the entry (`c_baseentity.cpp:2584`) — and only then does
         // the parity block reach `m_iv_flCycle.Reset()` (`c_baseanimating.cpp:4738-4747`). So the reset wipes
-        // the entry that has just landed and re-seeds from the value that came with it. Resetting first
+        // the entry that has just landed and re-seeds from the value that came with it (a server-animated entity's; a
+        // client-side-animated one's cycle is restored first, `:4689-4691`, and never interpolated, `:892-896`). Resetting first
         // would seed from the PREVIOUS update's cycle, which is a different animation's.
         bool newSequenceStarted = false;
 

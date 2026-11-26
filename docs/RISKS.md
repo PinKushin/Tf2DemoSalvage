@@ -47156,7 +47156,7 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B878 — a created entity's parity compares against −1 until its first bone setup, so its cycle history resets on every update before it is drawn (2026-11-26) — OPEN
+## B878 — a created entity's parity compares against −1 until its first bone setup, so a server-animated entity's cycle history resets on every update before it is drawn (2026-11-26) — OPEN
 
 Found in B871 reviews 5-6 (Fable, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` restarts an animation only
 when `m_nNewSequenceParity` or `m_bClientSideFrameReset` DIFFERS from the value its track last held, and a track's first
@@ -47188,16 +47188,21 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
 - **The cycle history resets on every update until the first bone setup** — open. `m_nPrevNewSequenceParity` is
   written only at `:716`, `:1824` and `:1835`, never in `PostDataUpdate`, so the compare at `:4738` stays true and
   `m_iv_flCycle.Reset()` runs (non-static-prop model, `:4745-4747`) on every update until `MaintainSequenceTransitions`
-  first runs — its one caller, `StandardBlendingRules` (`:1990`), returns earlier without a studio header (`:1819`) or
-  with no sequences (`:1962`). Each `Reset()` re-seeds three entries at `curtime` from the value just latched
-  (`interpolatedvar.h:740-751`), so an entity updated but not yet drawn holds only its latest arrival, where the
-  viewer's track holds every latched pair: at the first drawn frame the engine draws the latest cycle and the viewer
-  blends. B871's `ResetLatched` covers the creating update only. *Not read*: when the engine first sets up a
-  never-drawn entity's bones in a demo, and the `StandardBlendingRules` overrides that may never call the base (which
-  would reset for the entity's whole life).
+  first runs — its one caller, `StandardBlendingRules` (`:1990`), returns earlier without a studio header
+  (`:1959-1960`) or with no sequences (`:1962`), and it skips the overwrite itself without one (`:1819`). Each `Reset()`
+  re-seeds three entries at `curtime` from the current `m_flCycle` (`interpolatedvar.h:740-751`). **For a
+  SERVER-animated entity** that is the value just latched, so one updated but not yet drawn holds only its latest
+  arrival, where the viewer's track holds every latched pair: at the first drawn frame the engine draws the latest
+  cycle and the viewer blends. A client-side-animated entity's cycle history is reset too (from the restored
+  `m_flOldCycle`, `:4689-4691`) but never drawn: its `m_iv_flCycle` is `EXCLUDE_AUTO_INTERPOLATE` (`:892-896`) — no
+  divergence there (review 9, Fable, Sonnet, the cavecrew reviewer). B871's `ResetLatched` covers the creating update
+  only. *Not read*: when the engine first sets up a never-drawn entity's bones in a demo, and the six
+  `StandardBlendingRules` overrides (`c_baseflex.h:144`, `tf_weapon_grenadelauncher.cpp:610`,
+  `tf_weapon_minigun.cpp:1068`, `econ_entity.cpp:890`, `tf_viewmodel.cpp:313`, `c_barnacle.cpp:203`), any of which that
+  never calls the base would reset for the entity's whole life.
 
-Fix shape: read when a demo entity's bones are first set up (and the `StandardBlendingRules` overrides), then reset the
-cycle history at every update before it, with a conformance test.
+Fix shape: read when a demo entity's bones are first set up (and those overrides), then reset a server-animated
+entity's cycle history at every update before it, with a conformance test.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
@@ -47381,7 +47386,10 @@ the first bone setup; the 3-bit width cited and the constructor read for the tog
 Fable, Sonnet, the cavecrew reviewer): the building case is unreachable in the SDK — no building calls the server's
 `ResetClientsideFrame` (clangd callers) — so B878 is the cycle history alone; its forced-call sites completed
 (`AddToClientSideAnimationList`, `SetSequence`), the new layer's zero animtime and the deferral of `OnDataChanged`
-cited, and the re-seed from the latched value read. Review 2 also moved the late-track
+cited, and the re-seed from the latched value read. Review 9 (Codex: no findings; Fable, Sonnet, the cavecrew
+reviewer): B878 scoped to server-animated entities (a client-side-animated cycle history is excluded from
+interpolation, `c_baseanimating.cpp:892-896`), its early-return citation corrected to `:1959-1960`, and the six
+`StandardBlendingRules` overrides named. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876
