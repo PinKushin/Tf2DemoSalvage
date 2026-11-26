@@ -47156,7 +47156,7 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B878 — a server-animated entity's cycle history resets on every update whose parity differs from the one at its last bone setup, which is a view-time event (2026-11-26) — OPEN
+## B878 — a server-animated entity's cycle history resets on every update whose parity differs from the one at its last bone setup, which is a view-time event (2026-11-26) — FIXED
 
 Found in B871 reviews 5-6 (Fable, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` restarts an animation only
 when `m_nNewSequenceParity` or `m_bClientSideFrameReset` DIFFERS from the value its track last held, and a track's first
@@ -47229,6 +47229,26 @@ extra generation floor, the last arrival after that setup whose parity differs �
 camera decides it. A seek starts with no setup recorded (*our choice*: the engine's demo seek is not read). A
 conformance test: a prop updated across a parity change while unposed, then posed, draws the latest arrival's cycle
 for that window; posed every frame, it draws today's blend.
+
+**Fixed (2026-11-26, `fix/b878-predraw-cycle-reset`).** Each cycle entry carries its update's `m_nNewSequenceParity`
+(`ScenePose.NewSequenceParity`, 0 when never sent). `BoneSetups` is one view's record per track: the tick of its last
+setup, the parity then, and an anchor still in force. `InterpolatedHistory.BracketAnchored` reads the history as the
+engine holds it after an unseen reset — the live entries after the anchor plus three at its arrival with its value; out
+of reach the plain answer, before the anchor's arrival nothing brackets and the latest received value holds
+(`_Interpolate`'s early return). `ScenePropTrack.At` finds the anchor (`CycleAnchor`: the newest update after the setup
+with a different parity, else the kept one, searched only down to `AnchorReach`, so a long-unseen prop costs a few
+entries) for a server-animated, non-static studio model; `Motion` keeps the track lerping while it is in reach.
+`DemoTimeline.PropsAt(…, setups)` samples under it and records each anchor as pending; `NoteBonesSetUp` promotes it at
+the setup. `MomentPresenter.Show` reports the last posed frame's setups (`EntityModelSet.BonesSetUpSinceWorldPass`:
+every skeleton built since the world pass began — viewmodel, undrawn and attachment builds included) to the source
+before sampling, the engine's order; `TimelineMoments` makes its record at the first report, so a reader that never
+reports samples as before. A seek back forgets every setup (*our choice*). Tested by `AnchoredBracketConformanceTests`
+(6), `BoneSetupConformanceTests` (4: unposed across 40 holds 0.8 where posed every frame blends from the reset at 30;
+posed every frame equals no view; never posed holds; a seek forgets), `BoneSetupsReportTests`,
+`TimelineMomentsBoneSetupTests` and `Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling`; each sabotage reddened its
+test. Left: an attachment asked of an entity the frame did not pose sets its bones up in the engine (`CalcAttachments`)
+and answers null here, so it is not a setup — the effects' attachment queries read posed entities only. *Not measured on
+a real demo; not verified by looking.*
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 

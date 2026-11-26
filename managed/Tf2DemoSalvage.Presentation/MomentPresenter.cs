@@ -111,6 +111,9 @@ public sealed class MomentPresenter
     /// <summary>Whether the held build has already been posed, so a repaint does not pose it again.</summary>
     private bool _posed;
 
+    /// <summary>The entities the last posed frame set bones up for, refilled each frame (B878).</summary>
+    private readonly HashSet<int> _bonesSetUp = [];
+
     // **`_rebuilt` was here until B385**, guarding the first frame against an empty interpolation set
     // so that a cold start interpolated everything. There is no set to be empty any more: the source
     // answers `ShouldInterpolate` from the recording, and a freshly created entity answers it the same
@@ -301,6 +304,14 @@ public sealed class MomentPresenter
         }
         else
         {
+            // **The last posed frame's bone setups, before this frame's sample** (B878): the engine's frame interpolates and
+            // then sets bones up, so what a frame posed is what the next sample's cycle resets are judged against.
+            if (_posed && _builtFor is { } shown)
+            {
+                _moment.BonesSetUp(_bonesSetUp);
+                source.BonesSetUp(_bonesSetUp, shown.Tick);
+            }
+
             source.PropsAt(tick, _props, view.Followed, view.Playing);
         }
 

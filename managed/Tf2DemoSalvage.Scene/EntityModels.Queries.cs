@@ -692,6 +692,27 @@ public sealed partial class EntityModelSet
     /// <returns><c>true</c> once a pass has built its skeleton.</returns>
     public bool IsPosed(int entity) => _entities.ContainsKey(entity);
 
+    /// <summary>The entities whose bones were set up since the frame's world pass began (B878).</summary>
+    /// <param name="into">Filled with their indices; cleared first.</param>
+    /// <remarks>
+    /// **Every build counts, not only the world pass's**: the engine sets bones up on demand — drawing, an attachment, a
+    /// merge (`docs/RISKS.md` B878) — and each stores `m_nPrevNewSequenceParity` (`c_baseanimating.cpp:1835`), so the
+    /// viewmodel and undrawn passes and an attachment asked later in the frame are setups too.
+    /// </remarks>
+    public void BonesSetUpSinceWorldPass(ISet<int> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+        into.Clear();
+
+        foreach ((int entity, AnimatingEntity animating) in _entities)
+        {
+            if (animating.BuiltSince(_worldBoneFrame))
+            {
+                into.Add(entity);
+            }
+        }
+    }
+
     /// <summary>
     /// An entity's model, skinning matrices and body as the last pass drew it — the pose `CModelRender::AddDecal` sets up
     /// bones for when a decal lands (B415); null for an entity not in this pass or with no skinned model.

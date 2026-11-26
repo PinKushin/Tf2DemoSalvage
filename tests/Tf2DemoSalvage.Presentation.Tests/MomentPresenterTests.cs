@@ -91,6 +91,28 @@ public sealed class MomentPresenterTests
         source.FrameTicks.ShouldBe([10d, 10.5d, 10.5d, 11.25d, 9d, 12d, 12d]);
     }
 
+    /// <summary>
+    /// **A posed frame's bone setups are reported at the next frame, before its sample** (B878): the engine's frame
+    /// interpolates, then sets bones up, so the next sample's cycle resets are judged against what this frame posed. Shown at
+    /// 10 and posed, shown at 11: one report, for 10, made before 11's sample (the second). Shown at 12 with 11 never posed:
+    /// no report — nothing was set up.
+    /// </summary>
+    [Test]
+    public void Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling()
+    {
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.Show(10d, View());
+        source.SetUpReports.ShouldBeEmpty("the control: nothing posed yet");
+        presenter.PoseNow();
+        presenter.Show(11d, View());
+        presenter.Show(12d, View());
+
+        source.SetUpReports.ShouldBe([(10d, 1)]);
+    }
+
     [Test]
     public void Show_WhilePlaying_LeavesInterpolationOn()
     {
@@ -596,6 +618,11 @@ public sealed class MomentPresenterTests
             FrameStarts.Add(lastRead);
             FrameTicks.Add(frameTick);
         }
+
+        /// <summary>Each bone-setup report's tick, and the props sampled before it in the same call order (B878).</summary>
+        public List<(double Tick, int PropCallsBefore)> SetUpReports { get; } = [];
+
+        public void BonesSetUp(IReadOnlySet<int> entities, double tick) => SetUpReports.Add((tick, PropCalls));
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {
