@@ -47697,6 +47697,19 @@ unknown to the landing frame, where the engine's batch may have read it — the 
 (Fable); the owner-flip wake for a predicted weapon has no test of its own (Sonnet), held by the keyframe wake every owner
 change makes.
 
+Review 24 and merge review 4 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker). Fixed (lead): **merge review 3's collect-then-commit for the forward extension allocated a list on most frames
+inside a rise window** and bought nothing — a throw part way leaves `Through` behind, and a retry appends the same changes
+again, equal and still ascending, which the search answers the same — so it appends directly again; `Earliest` is
+renamed `NewestAtOrBefore`, which is what it returns; `LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore` walks
+back twice and asks between the walks, reddening when a later walk's changes are inserted at the front. And (Fable):
+**a forward ask far past the run scanned and kept every entry between** — a second rise window long after the first
+brought back the hitch the seed removed — so a call more than 512 entries past what the run examined starts a new run
+from its own tick (`LatestChange_FarPastTheRun_ReseedsAndAnswersTheSame` pins that the answers do not change; the cost
+saved is *reasoned*, not measured); and a throw part way through the forward extension rolls its appends back, since
+two or more changes appended before it left the list unsorted on a retry (*reasoned*, no production variable asks such a
+span).
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
 long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the

@@ -176,6 +176,58 @@ public sealed class InterpolatedHistoryTests
         (history.LatestChange(7, 0, -1), history.LatestChange(2, 0, -1), history.LatestChange(5, 0, -1)).ShouldBe((7, 2, 4));
     }
 
+    /// <summary>
+    /// **A rewind walks back in several steps, each appending what it met** (B860 merge review 4): values 1, 2, 3, 3, 5,
+    /// 5, 7, 8 at ticks 1 to 8. Asked at 8 (8), then 5 (5), then 2 (2) — two walks back — then between them at 4 (3), 6 (5)
+    /// and 3 (3): every answer the latest change at or before the tick.
+    /// </summary>
+    [Test]
+    public void LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore()
+    {
+        InterpolatedHistory history = new(1);
+        float[] values = [1, 2, 3, 3, 5, 5, 7, 8];
+
+        for (int tick = 1; tick <= 8; tick++)
+        {
+            history.Add(tick, tick, [values[tick - 1]]);
+        }
+
+        int[] asked = [8, 5, 2, 4, 6, 3];
+
+        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([8, 5, 2, 3, 5, 3]);
+    }
+
+    /// <summary>
+    /// **A call far past what the memo examined starts it again and answers the same** (B860 review 24, Fable): values
+    /// change at ticks 1, 5 and 1,500 over 2,000 entries. Asked at 10 (5), then at 2,000 (1,500 — past the reseed gap), then
+    /// back at 1,000 (5, found by walking back from the new run) and at 1,600 (1,500).
+    /// </summary>
+    [Test]
+    public void LatestChange_FarPastTheRun_ReseedsAndAnswersTheSame()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 2000; tick++)
+        {
+            float value = 1f;
+
+            if (tick >= 1500)
+            {
+                value = 3f;
+            }
+            else if (tick >= 5)
+            {
+                value = 2f;
+            }
+
+            history.Add(tick, tick, [value]);
+        }
+
+        int[] asked = [10, 2000, 1000, 1600];
+
+        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([5, 1500, 5, 1500]);
+    }
+
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
     {
         Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();

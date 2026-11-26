@@ -733,6 +733,14 @@ public sealed class InterpolatedHistory
 
             Memos memos = _memos ??= new Memos();
 
+            // **Far past the run, start a new one** (B860 review 24, Fable): a second rise window long after the first would
+            // otherwise scan and keep every entry between them, the hitch the seed exists to avoid. Seeding again answers the
+            // same; only the remembered earlier changes go.
+            if (memos.ChangeOf.TryGetValue((first, count), out ChangeRun? kept) && last - kept.Through > ReseedGap)
+            {
+                memos.ChangeOf.Remove((first, count));
+            }
+
             if (!memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run))
             {
                 int change = last;
@@ -746,23 +754,28 @@ public sealed class InterpolatedHistory
                 return change;
             }
 
-            // Each extension is collected first and committed once, so a throw from `Same` leaves the run as it was (review
-            // 22, Sonnet; merge review 3).
-            if (last > run.Through)
-            {
-                List<int> later = [];
+            // Appended directly: this runs most frames inside a rise window, and a list collected first allocated every time
+            // (merge review 4). A throw from `Same` part way rolls the appends back, so a retry cannot leave the list
+            // unsorted (review 24, Fable).
+            int appended = run.Later.Count;
 
+            try
+            {
                 for (int index = run.Through + 1; index <= last; index++)
                 {
                     if (IsChange(index, first, count))
                     {
-                        later.Add(index);
+                        run.Later.Add(index);
                     }
                 }
-
-                run.Later.AddRange(later);
-                run.Through = last;
             }
+            catch (ArgumentOutOfRangeException)
+            {
+                run.Later.RemoveRange(appended, run.Later.Count - appended);
+                throw;
+            }
+
+            run.Through = Math.Max(run.Through, last);
 
             // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
             // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
@@ -799,12 +812,19 @@ public sealed class InterpolatedHistory
                 return run.Later[at >= 0 ? at : ~at - 1];
             }
 
-            return Earliest(run.Earlier, last);
+            return NewestAtOrBefore(run.Earlier, last);
         }
     }
 
-    /// <summary>The first change at or before <paramref name="last"/> in a newest-first list that holds one.</summary>
-    private static int Earliest(List<int> newestFirst, int last)
+    /// <summary>How far past what a run examined a call may ask before the run is started again from that call.</summary>
+    /// <remarks>
+    /// Rise windows are tens of ticks; a gap this wide is a later window, where walking back from the new tick costs what
+    /// the first call did and a forward scan would cost the whole gap.
+    /// </remarks>
+    private const int ReseedGap = 512;
+
+    /// <summary>The newest change at or before <paramref name="last"/> in a newest-first list that holds one.</summary>
+    private static int NewestAtOrBefore(List<int> newestFirst, int last)
     {
         int low = 0;
         int high = newestFirst.Count - 1;
