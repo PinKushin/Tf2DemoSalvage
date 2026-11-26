@@ -14,6 +14,20 @@ networked variable rather than a value per tick.
 performs. So this project's storage is not a departure from the engine — it arrived at the same
 shape for the same reason.
 
+> **Both halves of that paragraph turned out wrong, and it is kept for that reason.** The engine
+> de-duplicates nothing: `NoteChanged` calls `AddToHead` unconditionally (`interpolatedvar.h:649`)
+> and its compare only reports whether the latch differed (B382, which replaced this project's
+> collapse). And the compare is not "by value" in the float sense: `COMPARE_HISTORY` and
+> `NoteChanged` are both `memcmp` (`:22-23`, `:636`, **read**), so +0 and −0 differ and a NaN
+> matches only its own bits — while the gate that decides whether a latch happens at all is
+> `originChanged || anglesChanged || simTimeChanged` (`c_baseentity.cpp:2571-2576`, **read**), whose
+> first two are `Vector::operator!=` and `QAngle::operator!=`, float `!=`s (`vector.h:663-668`,
+> `:2042-2047`, **read**): at one simulation time +0 equals −0 and a NaN differs from itself. Two
+> compares, two semantics; B860 reviews 28 and 29 found this project had them the other way round,
+> the history compare float-equal (fixed in 28) and `ScenePropTrack.DiffersFrom` bitwise (fixed in
+> 29). Review 30 found a third: the angle-lerp shortcut `if ( q1 == q2 ) return q1;`
+> (`mathlib.h:663-665`, `QAngle::operator==` at `vector.h:2035-2040`, **read**) compared bits too.
+
 **The divergence is lifetime.** The client streams, so it discards:
 
 ```cpp

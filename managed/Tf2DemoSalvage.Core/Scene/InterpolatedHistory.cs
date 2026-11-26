@@ -56,6 +56,9 @@ public readonly record struct Bracketing(int Older, int Newer, int Oldest, bool 
 /// bounded instead, by <c>arrivedBy</c> alone. The owner set that requirement: *"we
 /// should be able to get valve parity there and still scrub and rewind the demo, we just have to make it
 /// work in both directions."*
+///
+/// **After a delay rise the prune is visible, so it is answered too** (B860): the delayed target can fall below what the
+/// earlier frames' cuts left, and <see cref="PrunedFloor"/> answers the oldest entry the engine would still hold.
 /// </remarks>
 public sealed class InterpolatedHistory
 {
@@ -101,6 +104,13 @@ public sealed class InterpolatedHistory
     private int _generation;
 
     private int _lastGeneration = -1;
+
+    /// <summary>The furthest any entry's changetime has run past its arrival, never below zero.</summary>
+    /// <remarks>
+    /// Kept across generations and trims and never lowered, so it can only widen a walk that stops by it: one outlier makes
+    /// the walk longer, never wrong (B860 review 11, Sonnet).
+    /// </remarks>
+    private int _maxLead;
 
     /// <summary>A history whose entries carry a fixed number of components.</summary>
     /// <param name="width">How many floats an entry holds — the engine's <c>m_nMaxCount</c>.</param>
@@ -234,17 +244,25 @@ public sealed class InterpolatedHistory
         }
 
         int values = _offsets[drop];
-        _changeTimes.RemoveRange(0, drop);
-        _received.RemoveRange(0, drop);
-        _flushedAt.RemoveRange(0, drop);
-        _offsets.RemoveRange(0, drop);
-        _generationStarts.RemoveRange(0, drop);
-        _values.RemoveRange(0, values);
 
-        for (int index = 0; index < _offsets.Count; index++)
+        // The shift and the clear together under the memo's lock, so no memoized read can rebuild from the old indices
+        // between them (B860 review 18, Sonnet); other readers are kept off by the build order, not by this (review 19).
+        lock (_memoLock)
         {
-            _offsets[index] -= values;
-            _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
+            _changeTimes.RemoveRange(0, drop);
+            _received.RemoveRange(0, drop);
+            _flushedAt.RemoveRange(0, drop);
+            _offsets.RemoveRange(0, drop);
+            _generationStarts.RemoveRange(0, drop);
+            _values.RemoveRange(0, values);
+
+            for (int index = 0; index < _offsets.Count; index++)
+            {
+                _offsets[index] -= values;
+                _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
+            }
+
+            _memos = null;
         }
 
         // A trim runs before every checkpoint, and a copy copies a list's whole capacity, not its count (D217 step 4).
@@ -403,6 +421,7 @@ public sealed class InterpolatedHistory
         _changeTimes.Add(changeTime);
         _received.Add(received);
         _flushedAt.Add(Never);
+        _maxLead = Math.Max(_maxLead, changeTime - received);
 
         // **Before the components, so it records where they land** (B386). This is the entry's
         // address; `index * _width` was a guess about it that a width change falsifies.
@@ -451,7 +470,19 @@ public sealed class InterpolatedHistory
     /// older one it has. Refusing it would be this project's own rule rather than Valve's — the pruning
     /// bounds how MANY entries are kept, never how old the bracketing pair may be.
     /// </remarks>
-    public Bracketing? Bracket(double target, int arrivedBy)
+    public Bracketing? Bracket(double target, int arrivedBy) => BracketVariable(target, arrivedBy, 0, -1);
+
+    /// <summary>
+    /// <see cref="Bracket"/> for one engine variable of several this history holds (B860 review 2, Fable):
+    /// `bNoMoreChanges` compares that variable's own entries (`COMPARE_HISTORY`, <c>interpolatedvar.h:865</c>), so origin
+    /// can settle while the angles sharing its entries still turn.
+    /// </summary>
+    /// <param name="target">The moment being drawn.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    /// <returns>As <see cref="Bracket"/>, settled by those components alone.</returns>
+    public Bracketing? BracketVariable(double target, int arrivedBy, int first, int count)
     {
         // **The history the client would have held**, which is every entry received by now and no others.
         // Nothing is deleted to achieve it, so playing the same moment again after a scrub gives the same
@@ -531,7 +562,7 @@ public sealed class InterpolatedHistory
                 return new Bracketing(index, index, oldest, NoMoreChanges: true);
             }
 
-            return new Bracketing(index, newer, oldest, Settled(index, newer, oldest, floor, arrivedBy));
+            return new Bracketing(index, newer, oldest, Settled(index, newer, oldest, floor, arrivedBy, first, count));
         }
 
         // The target precedes every entry this run holds: the oldest is all a client would have had.
@@ -572,7 +603,9 @@ public sealed class InterpolatedHistory
     /// curve between two identical endpoints, so the answer keeps moving even though the pair does not.
     /// </remarks>
     /// <param name="floor">The generation boundary the walk stopped at, so the head is the same one.</param>
-    private bool Settled(int older, int newer, int oldest, int floor, int arrivedBy)
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    private bool Settled(int older, int newer, int oldest, int floor, int arrivedBy, int first, int count)
     {
         // **The SAME floor the walk used, and passing a different one was a defect.** `Head` searched the
         // whole array while `Bracket`'s walk stops at the generation boundary, so on granary it reported an
@@ -580,16 +613,18 @@ public sealed class InterpolatedHistory
         // answer was called settled against a comparison the sampler never makes. Two functions that had to
         // agree, with nothing making them: the track then parked past the moment it started moving, drawing
         // 12.47 units behind.
-        if (newer != Head(floor, arrivedBy) || !Same(newer, older))
+        if (newer != Head(floor, arrivedBy) || !Same(newer, older, first, count))
         {
             return false;
         }
 
-        // `!pInfo->m_bHermite` — with no third sample in play the pair alone decides.
-        int longer = _changeTimes[newer] - _changeTimes[older];
+        // `!pInfo->m_bHermite` — with no third sample in play the pair alone decides. The engine reaches this only inside
+        // `if ( dt > 0.0001f )` (`interpolatedvar.h:844`), which always holds here: `Bracket` picks `newer` with a
+        // changetime past the target and `older` at or before it, so the pair is a tick apart at least (B860 review 31,
+        // Sonnet — a `longer <= 0` term that called such a pair settled was dead, and is gone).
         int shorter = _changeTimes[older] - _changeTimes[oldest];
 
-        return longer <= 0 || shorter <= 0 || Same(newer, oldest);
+        return shorter <= 0 || Same(newer, oldest, first, count);
     }
 
     /// <summary>The changetime of the newest entry held, or null when nothing is live.</summary>
@@ -608,6 +643,589 @@ public sealed class InterpolatedHistory
         Head(_generationStarts[last], arrivedBy) is var head && head >= 0
             ? _changeTimes[head]
             : null;
+
+    /// <summary>The tick the newest entry received by a tick arrived on — the last latch (B860).</summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>Its arrival tick, or null when nothing has arrived.</returns>
+    public int? LatestArrival(int arrivedBy) =>
+        LastReceivedAtOrBefore(arrivedBy) is var last && last >= 0 ? _received[last] : null;
+
+    /// <summary>
+    /// The tick the newest entry received by a tick that CHANGED some of the components arrived on — the last latch that
+    /// re-armed that variable (B860 review 2, Fable).
+    /// </summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component in an entry.</param>
+    /// <param name="count">How many components the variable has; negative for the whole entry.</param>
+    /// <returns>Its arrival tick, or null when nothing has arrived.</returns>
+    /// <remarks>
+    /// `NoteChanged` adds the entry whatever it holds, but returns true only when the value differs from the history's head
+    /// (`memcmp` against `m_VarHistory[0]`, <c>interpolatedvar.h:633-639</c>), and only then does the latch set the
+    /// variable's `m_bNeedsToInterpolate` (<c>c_baseentity.cpp:2828-2829</c>). One history here holds several engine
+    /// variables (origin and angles share an entry), so the caller names which components are the one variable. An entry
+    /// that starts a generation counts as a change, as the first entry of an empty history does. **That is not the
+    /// engine's**: `Reset()` is `ClearHistory` and three `AddToHead`s with no `NoteChanged` (<c>interpolatedvar.h:740-752</c>),
+    /// so it arms nothing, and a restart at the head's value leaves the variable settled. Counted here, it is listed until
+    /// its target passes the reset; every entry it can bracket then holds that one value, so no drawn value differs —
+    /// extra listed frames only (*reasoned*, B860 review 16, Fable).
+    /// </remarks>
+    public int? LatestChange(int arrivedBy, int first, int count)
+    {
+        // Under the memo's lock with the index it reads, so a trim cannot move the entry between (B860 merge review 2).
+        lock (_memoLock)
+        {
+            return LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _received[index] : null;
+        }
+    }
+
+    /// <summary>The changetime of the entry <see cref="LatestChange"/> names: the value a held variable keeps (B860 review 3).</summary>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">How many components; negative for the whole entry.</param>
+    /// <returns>Its changetime, or null when nothing has arrived.</returns>
+    /// <remarks>
+    /// The entry that changed it may since have been flushed by a later same-valued latch (B860 review 7, Fable): the first
+    /// entry from it on that is still held carries the same value — nothing changed the variable since — and a live
+    /// changetime, so sampling there is a fraction of zero on a real entry.
+    /// </remarks>
+    public int? LatestChangeTime(int arrivedBy, int first, int count)
+    {
+        lock (_memoLock)
+        {
+            int last = LastReceivedAtOrBefore(arrivedBy);
+
+            for (int index = LatestChangeIndex(arrivedBy, first, count); index >= 0 && index <= last; index++)
+            {
+                if (_flushedAt[index] > arrivedBy)
+                {
+                    return _changeTimes[index];
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>The newest entry received by a tick that changed the components, or −1.</summary>
+    /// <remarks>
+    /// Compared with the entry appended before it, which is the head it met: `NoteChanged` `memcmp`s against
+    /// `m_VarHistory[0]` BEFORE its `AddToHead` flushes the newer entries (<c>interpolatedvar.h:633-649</c>), so an entry
+    /// this latch flushes is still the head it compares with; and an entry appended earlier cannot have been flushed before
+    /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
+    ///
+    /// **Memoized per variable as the stretches of entries already examined, each starting at a change, with the changes in
+    /// them** (B860 merge reviews 1-11). A player standing still latches the same origin every tick, so the walk back to his
+    /// last real change ran the whole rest on every call. Every bounded single-cache design that followed lost one way:
+    /// filling from the first entry scanned the whole history; one run thrashed, kept a gap or walked every time; two runs
+    /// overlapped and evicted the one in use. A call inside a stretch is a binary search; any other walks back from its tick
+    /// only to the first change or to the end of the stretch below, records what it found, and joins touching stretches —
+    /// so each entry is examined at most once per walk that completes (a throw records nothing, and a retry walks again),
+    /// and nothing is evicted. A trim clears it. The memo is asked
+    /// only inside rise windows, so what it holds is the changes in the stretches those windows reached (*reasoned*).
+    /// </remarks>
+    private int LatestChangeIndex(int arrivedBy, int first, int count)
+    {
+        // `last` inside the lock too, so a trim cannot shorten the lists between reading it and examining to it (review 19).
+        lock (_memoLock)
+        {
+            int last = LastReceivedAtOrBefore(arrivedBy);
+
+            if (last < 0)
+            {
+                return -1;
+            }
+
+            Memos memos = _memos ??= new Memos();
+            List<Stretch> stretches = memos.ChangeOf.TryGetValue((first, count), out List<Stretch>? known) ? known : [];
+            int at = StretchAtOrBefore(stretches, last);
+
+            if (at >= 0 && last <= stretches[at].End)
+            {
+                return stretches[at].NewestAtOrBefore(last);
+            }
+
+            // Nothing examined at `last`: walk back from it to the first change, or to the stretch below. The walk records
+            // nothing in the memo (only the examined count), so a throw from `Same` leaves the memo as it was.
+            Stretch? below = at >= 0 ? stretches[at] : null;
+            Stretch? above = at + 1 < stretches.Count ? stretches[at + 1] : null;
+            int change = WalkBackToChange(last, below?.End ?? -1, first, count);
+            int answer = below is not null && change <= below.End ? below.Newest : change;
+
+            // A step forward appends to the stretch below and a step back prepends to the one above, so neither allocates
+            // nor copies (merge reviews 3-5 and review 24 had made both so; B860 merge review 12, lead and cavecrew).
+            if (below is not null && change <= below.End + 1)
+            {
+                if (change > below.End)
+                {
+                    below.Later.Add(change);
+                }
+
+                below.End = last;
+                JoinAbove(stretches, at);
+            }
+            else if (above is not null && last + 1 == above.Start)
+            {
+                above.Earlier.Add(change);
+            }
+            else
+            {
+                stretches.Insert(at + 1, new Stretch(change, last));
+            }
+
+            memos.ChangeOf[(first, count)] = stretches;
+
+            return answer;
+        }
+    }
+
+    /// <summary>The last stretch starting at or before <paramref name="index"/>, or -1.</summary>
+    private static int StretchAtOrBefore(List<Stretch> stretches, int index)
+    {
+        int low = 0;
+        int high = stretches.Count - 1;
+        int found = -1;
+
+        while (low <= high)
+        {
+            int middle = (low + high) / 2;
+
+            if (stretches[middle].Start <= index)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Joins the stretch above into one when they touch, moving the smaller one's changes into the larger, so filling gaps
+    /// one at a time costs what it moves at most log-many times per change rather than the whole memo each time.
+    /// </summary>
+    private static void JoinAbove(List<Stretch> stretches, int at)
+    {
+        if (at + 1 >= stretches.Count || stretches[at].End + 1 != stretches[at + 1].Start)
+        {
+            return;
+        }
+
+        Stretch lower = stretches[at];
+        Stretch upper = stretches[at + 1];
+
+        if (lower.Count >= upper.Count)
+        {
+            for (int i = upper.Earlier.Count - 1; i >= 0; i--)
+            {
+                lower.Later.Add(upper.Earlier[i]);
+            }
+
+            lower.Later.AddRange(upper.Later);
+            lower.End = upper.End;
+            stretches.RemoveAt(at + 1);
+        }
+        else
+        {
+            for (int i = lower.Later.Count - 1; i >= 0; i--)
+            {
+                upper.Earlier.Add(lower.Later[i]);
+            }
+
+            upper.Earlier.AddRange(lower.Earlier);
+            stretches.RemoveAt(at);
+        }
+    }
+
+    /// <summary>
+    /// Walking back from <paramref name="from"/>: the first change above <paramref name="floor"/>, or the floor when none
+    /// lies above it. With a floor of -1 the walk always ends on a change, since a generation start is one.
+    /// </summary>
+    private int WalkBackToChange(int from, int floor, int first, int count)
+    {
+        int change = from;
+
+        while (change > floor)
+        {
+            _entriesExamined++;
+
+            if (IsChange(change, first, count))
+            {
+                break;
+            }
+
+            change--;
+        }
+
+        return change;
+    }
+
+    /// <summary>How many entries the latest-change walks have examined, for a test of the walk's floor.</summary>
+    internal long EntriesExamined
+    {
+        get
+        {
+            lock (_memoLock)
+            {
+                return _entriesExamined;
+            }
+        }
+    }
+
+    /// <summary>How many changes a variable's latest-change memo holds, for a test to see what a walk kept.</summary>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count.</param>
+    /// <returns>The count, or zero when the variable has no memo.</returns>
+    internal int ChangesHeld(int first, int count)
+    {
+        lock (_memoLock)
+        {
+            int held = 0;
+
+            if (_memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out List<Stretch>? stretches))
+            {
+                foreach (Stretch stretch in stretches)
+                {
+                    held += stretch.Count;
+                }
+            }
+
+            return held;
+        }
+    }
+
+    /// <summary>Whether an entry changed a variable from the one before it, or starts a generation.</summary>
+    private bool IsChange(int index, int first, int count) =>
+        index == _generationStarts[index] || !Same(index, index - 1, first, count);
+
+    /// <summary>
+    /// A stretch of entries the latest-change memo examined, from its first change through <see cref="End"/>, and every
+    /// change in it: <see cref="Earlier"/> newest first, then <see cref="Later"/> ascending, never empty.
+    /// </summary>
+    private sealed class Stretch
+    {
+        /// <summary>A stretch holding one change, examined through <paramref name="end"/>.</summary>
+        /// <param name="change">The change, its first entry.</param>
+        /// <param name="end">The last entry examined.</param>
+        public Stretch(int change, int end)
+        {
+            Later.Add(change);
+            End = end;
+        }
+
+        /// <summary>Changes below <see cref="Later"/>, newest first: a step back adds here.</summary>
+        public List<int> Earlier { get; } = [];
+
+        /// <summary>Changes ascending: a step forward adds here.</summary>
+        public List<int> Later { get; } = [];
+
+        /// <summary>The last entry examined.</summary>
+        public int End { get; set; }
+
+        /// <summary>The first entry, always a change.</summary>
+        public int Start => Earlier.Count > 0 ? Earlier[^1] : Later[0];
+
+        /// <summary>The newest change.</summary>
+        public int Newest => Later[^1];
+
+        /// <summary>How many changes it holds.</summary>
+        public int Count => Earlier.Count + Later.Count;
+
+        /// <summary>The newest change at or before <paramref name="index"/>, which is at or past <see cref="Start"/>.</summary>
+        /// <param name="index">An entry in the stretch.</param>
+        /// <returns>The change.</returns>
+        public int NewestAtOrBefore(int index)
+        {
+            if (Later[0] <= index)
+            {
+                int at = Later.BinarySearch(index);
+
+                return Later[at >= 0 ? at : ~at - 1];
+            }
+
+            // Earlier descends, so the first at or before `index` is the newest; Start guarantees there is one.
+            int low = 0;
+            int high = Earlier.Count - 1;
+
+            while (low < high)
+            {
+                int middle = (low + high) / 2;
+
+                if (Earlier[middle] <= index)
+                {
+                    high = middle;
+                }
+                else
+                {
+                    low = middle + 1;
+                }
+            }
+
+            return Earlier[low];
+        }
+    }
+
+    /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
+    private Memos? _memos;
+
+    /// <summary>Guards the memos, which a read extends: samplers read one history from more than one thread.</summary>
+    /// <remarks>
+    /// A trim shifts the lists and clears the memos under it too, which protects the MEMO reads only: `BracketVariable`,
+    /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
+    /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
+    /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
+    /// build-before-sample order — except a view-time model reset: B870.
+    /// </remarks>
+    private readonly object _memoLock = new();
+
+    /// <summary>Entries the walks examined, under <see cref="_memoLock"/>; read by <see cref="EntriesExamined"/>.</summary>
+    private long _entriesExamined;
+
+    /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
+    private sealed class Memos
+    {
+        /// <summary>For each variable, the stretches of entries examined, ascending and disjoint.</summary>
+        public Dictionary<(int First, int Count), List<Stretch>> ChangeOf { get; } = [];
+
+        /// <summary>Scan cursors, keyed by what the scan depends on.</summary>
+        /// <remarks>
+        /// One per schedule, variable and re-arming tick, freed only by a trim: for a variable that changes every tick, one
+        /// per frame a rise window examined — bounded by the windows' frames (*reasoned*, review 27, Fable).
+        /// </remarks>
+        public Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> Settles { get; } = [];
+    }
+
+    /// <summary>
+    /// The first frame from <paramref name="changed"/> through <paramref name="last"/> at which
+    /// <paramref name="settles"/> holds, memoized (B860 merge review).
+    /// </summary>
+    /// <param name="schedule">The schedule the frames' targets come from: part of the key, since another gives other frames.</param>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count.</param>
+    /// <param name="changed">The re-arming latch's tick, where the scan starts.</param>
+    /// <param name="last">The last frame to ask.</param>
+    /// <param name="state">What <paramref name="settles"/> needs, passed so the callback captures nothing (review 18).</param>
+    /// <param name="settles">Whether a frame settled the variable: a function of the frame alone for one key.</param>
+    /// <typeparam name="TState">The callback's state.</typeparam>
+    /// <returns>That frame, or null when none through <paramref name="last"/> did.</returns>
+    /// <remarks>
+    /// A variable that never settles — a standing player re-latched every tick never has its newest entry as `newer` —
+    /// scanned every frame since its last change on every call. The scan's answer at a frame does not depend on when it
+    /// is asked, so the cursor carries on from where the last call stopped; a trim clears it. The first scan for a key
+    /// still walks from the change, once (*not measured* on a populated demo).
+    /// **Valid only once the history is built through the frames asked**: an entry appended later at a tick a cursor has
+    /// passed would change that frame's answer. The timeline builds every track before any sample (review 19, Sonnet);
+    /// an incremental build would have to clear the memos on such an append.
+    /// </remarks>
+    internal int? SettleFrame<TState>(
+        object schedule, int first, int count, int changed, int last, TState state, Func<int, TState, bool> settles)
+    {
+        ArgumentNullException.ThrowIfNull(settles);
+
+        lock (_memoLock)
+        {
+            Memos memos = _memos ??= new Memos();
+            (object, int, int, int) key = (schedule, first, count, changed);
+            (int through, int? settled) = memos.Settles.TryGetValue(key, out (int Through, int? Settled) known)
+                ? known
+                : (changed - 1, null);
+
+            if (settled is { } found)
+            {
+                return found <= last ? found : null;
+            }
+
+            for (int frame = through + 1; frame <= last; frame++)
+            {
+                if (settles(frame, state))
+                {
+                    memos.Settles[key] = (frame, frame);
+                    return frame;
+                }
+            }
+
+            if (last > through)
+            {
+                memos.Settles[key] = (last, null);
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The changetime of the oldest entry a client still held after pruning before a threshold (B860).
+    /// </summary>
+    /// <param name="threshold">The prune cut: an earlier frame's target less the extra history kept.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <returns>That changetime, or null when no live entry is older than the cut.</returns>
+    /// <remarks>
+    /// `RemoveEntriesPreviousTo` walks newest first, and at the first entry older than the cut keeps it and two more
+    /// (`m_VarHistory.Truncate( i + 3 )`, <c>interpolatedvar.h:782-795</c>): the third is the oldest the client holds.
+    /// The engine deletes; this keeps every entry for a scrub and answers the bound instead, skipping an entry an earlier
+    /// frame's cut had already deleted (<paramref name="cutEarlier"/>, B860 review 10, Fable).
+    /// </remarks>
+    /// <param name="cutEarlier">Whether an entry, by index, was already gone from the engine's history.</param>
+    private int? KeptFloor(double threshold, int arrivedBy, Func<int, bool> cutEarlier)
+    {
+        int last = LastReceivedAtOrBefore(arrivedBy);
+
+        if (last < 0)
+        {
+            return null;
+        }
+
+        int floor = _generationStarts[last];
+
+        for (int index = last; index >= floor; index--)
+        {
+            if (_flushedAt[index] <= arrivedBy || _changeTimes[index] >= threshold || cutEarlier(index))
+            {
+                continue;
+            }
+
+            int kept = index;
+
+            for (int more = 0; more < 2; more++)
+            {
+                int older = Older(kept, floor, arrivedBy);
+
+                if (older == kept || cutEarlier(older))
+                {
+                    break;
+                }
+
+                kept = older;
+            }
+
+            return _changeTimes[kept];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a frame before <paramref name="cutAt"/> had already cut an entry out of the engine's history (B860 review
+    /// 10, Fable).
+    /// </summary>
+    /// <param name="index">The entry.</param>
+    /// <param name="cutAt">The frame whose cut is being taken; only frames before it are asked.</param>
+    /// <param name="cutOf">A frame's cut: its target less the extra history kept.</param>
+    /// <param name="prunes">Whether a frame pruned this variable at all: listed, or reading a latch.</param>
+    /// <returns>True when some such frame from the entry's arrival on held three live entries newer than it below its cut.</returns>
+    /// <remarks>
+    /// `Truncate( i + 3 )` keeps the newest entry below the cut and two more (<c>interpolatedvar.h:782-795</c>), so an entry
+    /// is deleted exactly when three live entries newer than it are below the cut. An entry that arrived before this one
+    /// with a later changetime was flushed by it (`AddToHead`, <c>:649</c>), so every newer entry counted arrived after it,
+    /// and none of them can have been cut before it without cutting it too: counting the unflushed ones is enough.
+    /// </remarks>
+    private bool CutBefore(int index, int cutAt, Func<int, double> cutOf, Func<int, bool> prunes)
+    {
+        int changeTime = _changeTimes[index];
+        int generation = _generationStarts[index];
+
+        // **No frame before the third newer entry arrived held three** (B860 review 11, Sonnet): the walk starts there, so
+        // an entry at rest for a long time costs the frames since its third newer arrival, not every frame since its own.
+        int? third = null;
+
+        for (int other = index + 1, newer = 0; other < _received.Count && _received[other] < cutAt; other++)
+        {
+            if (_generationStarts[other] == generation && _changeTimes[other] > changeTime && ++newer == 3)
+            {
+                third = _received[other];
+                break;
+            }
+        }
+
+        if (third is not { } earliest)
+        {
+            return false;
+        }
+
+        for (int frame = cutAt - 1; frame >= earliest; frame--)
+        {
+            double cut = cutOf(frame);
+
+            if (cut <= changeTime)
+            {
+                continue;
+            }
+
+            int newer = 0;
+            int last = LastReceivedAtOrBefore(frame);
+
+            for (int other = index + 1; other <= last && newer < 3; other++)
+            {
+                if (_generationStarts[other] == generation && _flushedAt[other] > frame &&
+                    _changeTimes[other] > changeTime && _changeTimes[other] < cut)
+                {
+                    newer++;
+                }
+            }
+
+            if (newer == 3 && prunes(frame))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The changetime of the oldest entry a client holds now, after a frame cut the history and later updates arrived
+    /// (B860 review 9, Fable).
+    /// </summary>
+    /// <param name="threshold">The cut.</param>
+    /// <param name="cutAt">The frame that made it: the three it kept are chosen from what had arrived by then.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="cutOf">A frame's cut: its target less the extra history kept.</param>
+    /// <param name="prunes">Whether a frame pruned this variable at all: listed, or reading a latch.</param>
+    /// <returns>That changetime, or null when the cut dropped nothing.</returns>
+    /// <remarks>
+    /// After the cut the history holds the three kept entries and whatever arrived since, less what a later update's
+    /// `AddToHead` flushed (every entry at or after its changetime, <c>interpolatedvar.h:649</c>): a late update stamped
+    /// below the kept three deletes them and is itself the oldest held. The three are chosen from what earlier frames'
+    /// cuts left (B860 review 10, Fable): a late update arriving BEFORE the cutting frame flushes the entries after it, and
+    /// the two older than it may already be gone.
+    /// </remarks>
+    /// <remarks>
+    /// **Not exact for entries arriving after the cut** (B860 review 11, Fable): frames after <paramref name="cutAt"/> prune
+    /// too, at their lower cuts, and can delete an old late arrival this still counts as held. With one rise no frame draws
+    /// the difference, because a frame's cut that reaches such an entry sits below that frame's own target, which is then
+    /// above it; a second rise inside the window can drop a later target below it again (review 12, Fable), which needs a
+    /// late update tens of ticks back as well (*reasoned*, not measured).
+    /// </remarks>
+    public int? PrunedFloor(
+        double threshold, int cutAt, int arrivedBy, Func<int, double> cutOf, Func<int, bool> prunes)
+    {
+        if (KeptFloor(threshold, cutAt, index => CutBefore(index, cutAt, cutOf, prunes)) is not { } kept)
+        {
+            return null;
+        }
+
+        int last = LastReceivedAtOrBefore(arrivedBy);
+        int? oldest = null;
+
+        // An entry received well before the kept changetime was stamped before it too, so it is neither kept nor late: the
+        // walk stops there. "Well before" is by the furthest any entry's changetime has led its arrival (B860 review 10,
+        // Sonnet): a simulation time carried onto the demo's axis can sit after the packet that carried it.
+        for (int index = last; index >= 0 && index >= _generationStarts[last] && _received[index] + _maxLead >= kept; index--)
+        {
+            bool held = _flushedAt[index] > arrivedBy &&
+                (_received[index] > cutAt || _changeTimes[index] >= kept);
+
+            if (held && (oldest is not { } so || _changeTimes[index] < so))
+            {
+                oldest = _changeTimes[index];
+            }
+        }
+
+        return oldest;
+    }
 
     /// <summary>The newest entry the client still holds — the engine's <c>m_VarHistory.Head()</c>.</summary>
     /// <param name="floor">The generation boundary, so this is the same head the walk can reach.</param>
@@ -635,7 +1253,36 @@ public sealed class InterpolatedHistory
     /// <param name="left">One entry.</param>
     /// <param name="right">The other.</param>
     /// <returns><c>true</c> when every component matches.</returns>
-    private bool Same(int left, int right) => ValuesAt(left).SequenceEqual(ValuesAt(right));
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count; negative for the whole entry.</param>
+    /// <remarks>
+    /// **Entries of two widths are not the same; a span neither holds fails loudly** (B860 reviews 18-21 and merge review
+    /// 2). Two entries of one generation share a width (`SetMaxCount` resets on a change), and since merge review 2 the
+    /// change memo walks back only to the latest change, which a generation start always is, so a call at or after a
+    /// generation's start never examines an older, narrower generation; only a call asked at a tick inside the older one
+    /// does (review 22, Fable). A span that does not fit a same-width pair is
+    /// a caller asking the wrong history, and B386's slice exception is the right answer to that, not a silent "changed"
+    /// on every entry (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
+    /// </remarks>
+    private bool Same(int left, int right, int first, int count)
+    {
+        ReadOnlySpan<float> a = ValuesAt(left);
+        ReadOnlySpan<float> b = ValuesAt(right);
+
+        if (count < 0 || a.Length != b.Length)
+        {
+            return SameBits(a, b);
+        }
+
+        return SameBits(a.Slice(first, count), b.Slice(first, count));
+    }
+
+    /// <summary>
+    /// Bit for bit, as the engine's <c>memcmp</c> is (<c>interpolatedvar.h:22-23</c>, <c>:636</c>): +0 and −0 differ, and
+    /// a NaN matches only its own bits (B860 review 28, Fable).
+    /// </summary>
+    private static bool SameBits(ReadOnlySpan<float> a, ReadOnlySpan<float> b) =>
+        System.Runtime.InteropServices.MemoryMarshal.AsBytes(a).SequenceEqual(System.Runtime.InteropServices.MemoryMarshal.AsBytes(b));
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>
@@ -772,7 +1419,8 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// **Exact rather than a starting point, because arrival IS monotonic.** Entries are appended as
     /// packets are read, so the received tick ascends down the list where the changetime does not —
-    /// which is why the reach bound is a binary search and the neighbour choice is a walk.
+    /// which is why the reach bound is a binary search and the neighbour choice is a walk. Except after a view-time
+    /// model reset, which appends out of arrival order: B870.
     /// </remarks>
     private int LastReceivedAtOrBefore(int arrivedBy)
     {

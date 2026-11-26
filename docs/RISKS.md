@@ -21470,7 +21470,7 @@ on a mini-sentry being built, or anything else TF2 rescales while it exists.
 | `EXCLUDE_AUTO_LATCH` | `c_npc_hydra` only | nothing to do |
 | `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | excluded from a TF player's send table, and the eyes are not drawn by flex (B513), so nothing to do |
 | `INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED` | passed by `OnLatchInterpolatedVariables`' caller, never set on a var | nothing to do |
-| extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | **cannot fire on a demo** — see below |
+| extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | ~~cannot fire on a demo~~ **wrong: it can, B866** — see below |
 
 **Extrapolation is the one branch of `Interpolate` this project does not have, and it is
 unreachable here rather than missing.** Valve's own comment says what it is for: *"we only want to
@@ -21481,6 +21481,13 @@ the server since this entity's own last update. **A demo never chokes**: every p
 file, and playback advances the last-received timestamp past every entity's update as it goes. The
 condition cannot hold, so holding the newest value — which is what this project does — is the same
 branch the engine takes.
+
+**That conclusion was wrong** (B860 review 13, Fable; filed as B866). The timestamp passes an entity's update only with
+a LATER packet: from the frame that reads the update until the next packet, `GetLastTimeStamp()` equals that variable's
+`m_LastNetworkedTime`, so any of those frames whose target has passed the head extrapolates, and the variable settles
+holding the result — on a packet gap longer than the delay as well as on a lagging simulation time (review 14). "Every
+packet is in the file" is true and beside the point: a gap in the file is a gap on playback. Kept as the reasoning that
+failed: it asked whether the server chokes, not whether the frame's own packet passes the test.
 
 `pInfo->frac = MIN( pInfo->frac, 2.0f )` is defensive for the same reason and never binds: the walk
 only reaches that line with `targettime` strictly between two changetimes, so the fraction is
@@ -47123,7 +47130,867 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
-## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — OPEN
+## B866 — a variable whose target passes an update that came in the latest packet is held, where the engine extrapolates (2026-11-25) — OPEN
+
+Found in B860 review 13 (Fable), *read*, not measured. When the target is past the newest entry (`info.newer ==
+info.older`), `Interpolate` extrapolates along the last two entries, up to `cl_extrapolate_amount` (0.25 s), if
+extrapolation is on (`cl_extrapolate` 1, not paused, `c_baseentity.cpp:3254-3260`), there is an older entry, the amount
+is above zero, and `GetLastTimeStamp() <= m_LastNetworkedTime` (`interpolatedvar.h:953-1024`, `_Extrapolate`
+`:1344-1368`). The extrapolation audit (B271 era, "What the audit found in the rest of the family") says the last
+clause **cannot hold on a demo**; that is wrong. `m_LastNetworkedTime` is the packet timestamp of this variable's last
+latch (`NoteLastNetworkedValue`, `:995-999`; `Interpolation_SetLastPacketTimeStamp` at `FRAME_NET_UPDATE_START`,
+`cdll_client_int.cpp:2303`), so from the frame that reads an update until the next packet the two are equal (the context
+is set once per `InterpolateServerEntities`, `c_baseentity.cpp:3256`), and any of those frames whose target has passed
+the head extrapolates. Two routes (B860 review 14, Fable): **a packet gap longer than the delay**, with no simulation lag
+at all — a point-of-view demo holding the recorder's own choke or loss, or a watcher delay shorter than the packet
+interval, such as a SourceTV demo at a low snapshot rate under `cl_interp 0; cl_interp_ratio 1` (a config D69 loads; at
+`cl_updaterate 66` that is two ticks, `c_baseentity.cpp:5937`);
+and **a simulation time lagging its packet by more than the delay**. The variable then settles (`noMoreChanges`) holding
+the extrapolated value until a latch changes it, though an update that only restates it puts the networked value back.
+Worked cases: delay 8 ticks, X ten a tick to 40, an update stamped 41 (410) read at 50: the engine draws 420 at 50 and
+holds it; the viewer holds 410. Packets at 40, 44, 48, delay 2 ticks (the config above): the frame at 46.5 aims at 44.5,
+past 44, and draws 445; the viewer 440 (review 15, Fable: the case was first written at 1 tick, which that config cannot
+give). That `GetLastTimeStamp()` is the last packet's time is recalled from the closed engine, not re-read.
+How often either happens is **not measured**: the packet-interval distribution against the watcher's delay is the
+instrument for the first, the simulation-lag histogram (`DemoTimeline.SimulationLag`) for the second. Fix shape: a
+conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
+packet has followed, with the settle holding the result. *Not fixed*.
+
+## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — OPEN
+
+Found in B860 reviews 31 and 32 (Fable, the lead, the cavecrew reviewer), traced by reading, not run. Five parts, and
+the first cannot be fixed without the second — a fix of it alone was made in B860 review 31 and reverted in 32.
+
+1. **`ScenePropTrack.PoseBetween` returns the ARRIVAL keyframe's parameters whenever the delayed pair agrees.**
+   `_Interpolate` (`interpolatedvar.h:1310-1341`, **read**) copies `end` when the pair is ONE entry (`start == end`,
+   the quick exit at `:1315`) and otherwise lerps it, `LoopingLerp` for a looping element, with no value compare.
+   Scenario: entries at 0, 1, 2 of (0.2, 1.0), (0.2, 1.0), (0.8, 0.5), the second looping; at a target of 0.5 the
+   engine draws (0.2, 0) — `LoopingLerp(1, 1, ½)` is `s − (int)s` of 1.0 — and the viewer (0.8, 0.5), a delay early,
+   then snaps back to blend from 0.2. A rise widens it, on main as here; B860 does not — its floor only raises the
+   target, so the early span is equal or shorter (review 33, Fable).
+2. **`OnNewModel` runs at VIEW time** (`IMomentSource.Inform`, when a track is first drawn under a model) and, when the
+   model's parameter count differs from the history's width (`SetMaxCount`; the width starts at 1), resets the
+   pose-parameter history with values from `_keyframes[^1]`, the END of the recording, stamped at the view tick and
+   appended after entries that arrived later — out of the arrival order `LastReceivedAtOrBefore`'s search assumes. The
+   engine's `OnNewModel` runs when the model is set, from the networked values then. Part 1's shortcut hides this: the
+   reset's three equal entries return the live keyframe. Blending them (review 31's fix) drew the end of the recording.
+   Its appends also run after sampling began, beside unlocked readers and the memos (review 32, lead and cavecrew).
+3. **The same-entry quick exit for angles**: `SlerpAngles` takes `!DiffersFrom` as `Lerp<QAngle>`'s `q1 == q2`, right
+   for two entries, but for ONE entry the engine's `start == end` copies it first — so a NaN component, which fails
+   `==`, still draws the entry, where the viewer slerps to NaN everywhere (Fable).
+4. **`poseFraction = animationFraction`** (`ScenePropTrack.cs`, "stamped with the cycle, so the same fraction"):
+   `SequenceRestarted` resets the cycle history only and `OnNewModel` the pose history only, so one target can bracket
+   different pairs. Pose entries at 96 and 104, a restart at 100, target 101: the cycle pair (100, 104) gives 0.25, the
+   pose pair's own is 0.625; the engine computes each variable's fraction (Fable; `AnimationNeighbours` not read, so the
+   fraction after a reset is *inferred*).
+5. Parameters past the history's width take the arrival keyframe's value, a delay early (lead) — and not only until
+   `OnNewModel` widens it: an entry is sized by the width when it is appended, so entries built before the view-time
+   widening stay one float wide, and a bracket on them never blends parameter 1 and up (review 33, Fable; build order
+   against `Inform` not traced, *reasoned*). Linear where the engine splines is recorded at `PoseBetween` already.
+
+Fix shape: inform each track of its model's facts when its model is SET in the recording (or at build, from the
+model index), seeding from the keyframe in force then; then make `PoseBetween` the engine's — copy one entry, lerp two,
+reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above; a
+looping parameter at 1.0 with the target past the head, ONE entry, drawing 1.0 (the quick exit — two distinct entries
+both 1.0 draw 0, as part 1); and a view-time model with a later arrival. *Not fixed*.
+
+## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
+
+Found in B860 review 17 (Fable), traced by reading, not run. B860's two halves disagree after a jump: `FrameStart` runs
+the landing frame under the delay as the skip batch had read it, which is the OLD one when the batch began before the
+rise, while `TargetFor`'s hold and floor model every earlier frame a tick apart, so they place the switch at the step's
+own tick plus one. Scenario (an update a tick, X ten a tick, rise 8 → 34 at 50, a jump landing at 60):
+`FrameStart(−∞, 60)` reads 0 and draws 520; the frame at 61 aims at 27, and the viewer floors it at the modelled frame
+at 50's cut (38.67, keeping 38, 37, 36): 360, a 160-unit snap back. The engine's landing frame latched at 60 and pruned
+at 60 − 8 − 3.33 = 48.67 (`NoteChanged`, `interpolatedvar.h:667`), keeping 48, 47, 46, so the frame at 61 answers 460 and
+holds it until 61 + 19. Hold variant: last update at 55, landing at 64 — the engine's landing frame aims at 56, past the
+head, settles and holds 550; the viewer at 65 sees a change after the rise, does not hold, and floors near 360. Reach:
+a seek, scrub or first frame landing within about 1.5 s after a rise — **and plain playback** whenever frames run more
+than a tick apart (B860 review 18, the merge's cavecrew reviewer): frames at 48, 51 (read 48) and 54 (read 51) across a
+rise at 50, X ten a tick, last update stamped 43 — the frame at 51 still runs the old delay, aims at 43, settles and draws
+430, which the engine then holds; the viewer's frame at 54 models a frame at 50 aiming at 42, not settled, and floors
+at 360. Needs the last change in the tick or two before the rise. **And a frame between ticks cuts at its own
+fractional time** (B860 review 21, Fable): `Interpolate` prunes at `currentTime − amount − 0.05` (`interpolatedvar.h:1057`)
+with a fractional `currentTime` — *arithmetic* on read source, not an interpolation as findings 115 called it. An update
+every tick, X ten a tick, rise 8 → 34 at 50, frames at 49.9, 50.5, 50.9: the engine's frame at 50.5 reads 50 under the old
+delay, aims at 42.5, cuts at 39.17 and keeps 39, 38, 37, so the frame at 50.9 draws the oldest, 370; the viewer models the
+cutting frame at whole tick 50 (cut 38.67, keeping 38, 37, 36) and draws 360. One entry, for the window, whenever the
+frame reading the rise sits a third of a tick or more past it. The presenter already announces the real frame tick, so
+the fix is to carry it. The engine side of a skip is *interpolated*, as B860 records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
+samples under, re-anchoring every step between the landing's read and the landing tick at the landing, so the modelled
+frames before it run under the old delay; a conformance test of each scenario (460, 550) first. *Not fixed*.
+
+## B868 — a cycle pair across a sequence change is cut, where the engine blends it unless a parity reset came between (2026-11-25) — OPEN
+
+Found in B860 review 16 (Sonnet), *read*, not measured. `ScenePropTrack.InterpolateCycle` returns the older cycle whenever
+the bracketing entries name different sequences, and drops a third sample from another sequence. The engine's
+`m_iv_flCycle` holds floats alone and knows no sequence; what separates two animations is `m_iv_flCycle.Reset()` on a
+sequence-parity change (`c_baseanimating.cpp:4738-4748`), which this project models as `SequenceRestarted` since the
+cut was written. So a sequence change WITHOUT a parity bump — a renumber the server did not announce — blends in the
+engine (looping or straight per `m_bLooping`) and is cut here, as is any change on a `STUDIOHDR_FLAGS_STATIC_PROP` model,
+which never resets. Scenario: cycle 0.10 at 40 in sequence 1, 0.40 at 43 in sequence 2, no parity change: the engine
+blends toward 0.40; the viewer holds 0.10 until 43 plus the delay. How often a demo changes sequence without the parity
+bump is **not measured** (a probe counting sequence changes against parity changes per entity is the instrument). Fix
+shape: a conformance test of the scenario, then drop the sequence cut and let the parity reset alone separate
+animations. *Not fixed*.
+
+## B867 — readers that ask where an entity is sample at the whole tick and never at the recorded view (2026-11-25) — OPEN
+
+Found in B860 review 14 (Fable, Sonnet), *read*, not measured. `DemoTimeline.DrawnPose` (B860 review 13) gives the
+holiday lights' local player, a sound's origin and the observer's building target the frame start and prediction, but:
+- **Two of them pass a whole tick.** `EffectEntityFrame.Tick` is whole by design and `SpectatorView.EntityOf` takes
+  `(int, int)`, so above the tick rate the frame start never matches and a frame at 50.5 after a rise at 50 places a
+  moving building under the old delay (420) where the frame draws it under the new (360). Before B860 these sampled at the
+  whole tick too.
+- **The recorder of a point-of-view demo is drawn at the recorded view** (B56, `LocalPlayer`), which the presenter hands
+  `PlayersAt` and the timeline never holds, so a sound or a holiday light anchors on his network track a tick back rather
+  than on the body drawn. Nor does it hold while paused or follow the dead-player branch of `Sampled`.
+Fix shape: carry the frame's fractional tick to both readers; give the timeline the frame's drawn recorder (or have the
+readers take the frame's drawn players), with a test per reader predicting the view's origin. *Not fixed*.
+
+## B865 — an entity's first delay window draws its birth state, and a re-parent in a rise's packet takes the new amount a frame late (2026-11-25) — OPEN
+
+Found in B860 reviews 5 and 7 (Fable, Sonnet). Three small divergences of the frame's state, all *read*, none measured:
+- **The first pose is answered whole.** `ScenePropTrack.At` returns `FirstPose` while the delayed target is before birth,
+  state fields included. The engine answers the oldest entry for the interpolated variables (`interpolatedvar.h:877-882`),
+  but `m_nSkin`, the effects, the sequence and the scale are plain networked members, live from the latest update: an
+  entity born at 40 whose skin changes at 45 draws skin 0 at 46 (delay 8), where TF2 draws 1. Fix shape: fall through to
+  the bracket, which already answers the oldest entry, with `from = earlier`; `At_SeededHistories_MatchMainsFingerprintBitForBit`
+  and `PropsAt_PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList` encode the current behaviour and need
+  their expectations re-derived from the engine.
+- **A re-parent in a rise's packet** takes the new amount at the packet read (`Interp_UpdateInterpolationAmounts` from
+  `LinkChild`/`UnlinkChild`, `c_baseentity.cpp:2239`, `:2268`), one frame before `FRAME_START` hands it to everything else
+  (B860); so does a predictable's `SetPredictable` (`:4596`), an every-tick flag flip (`recvproxy.cpp:139-150`), and an
+  entity's creation, whose `Interp_SetupMappings` sets each variable from `GetInterpolationAmount` at once
+  (`c_baseentity.cpp:798-814`, *read*; its call site not read — B860 review 19, Fable), so an entity born in the rise's
+  packet has the new amount on the frame the viewer still gives the old (drawn-neutral by reasoning: that frame's target
+  is at or before birth under either delay). The viewer gives every variable the amount at the frame start.
+- **The face's frame start ignores jumps** (B860 review 7, Sonnet): `ActorFace.BeginFrame` takes the previous step's time
+  for any forward step, where the timeline takes the skip batch's after a jump and its own tick when paused; a scrub across
+  a rise runs the face under the old delay for one frame while the props run under the new.
+*Not fixed*.
+
+## B864 — a settled variable re-blends toward a latch that changed nothing, where the engine leaves it settled (2026-11-25) — OPEN
+
+Found in B860 review 4 (Fable). `NoteChanged` adds the entry whatever it holds but returns true only when the value
+differs from the history's head (`interpolatedvar.h:633-639`, *read*), and only then does the latch set
+`m_bNeedsToInterpolate` (`c_baseentity.cpp:2828-2829`); a variable that settled is skipped by `Interp_Interpolate`
+(`:879-880`) and stays at its value. The sampler is stateless and always brackets the delayed target: once a later latch
+that left the variable alone sits in the history, a target between the variable's last change and that latch has a newer
+sample equal to the older and a third, earlier sample that differs, and the hermite bends off the held value. Scenario
+(Fable): X slides to 400 by tick 40 and settles at frame 48; a latch at 49 only turns; with no rise, ticks 50-57 draw X off
+400. B860 holds such a variable only in the frames after a delay rise. *Not measured* how large or how common the bend is.
+Fix shape: apply B860's per-variable armed state (`LatestChange`, `SettleFrame`) in `At` generally — a variable not re-armed
+since it settled is sampled at its last change — with a conformance test predicting 400 at 50-57. *Not fixed*.
+
+## B863 — a bone-merged follower's variables are interpolated, where the engine interpolates none of them (2026-11-25) — OPEN
+
+Found on B860's branch (review 2). `C_BaseEntity::BaseInterpolatePart1` returns `INTERPOLATE_STOP` after
+`MoveToLastReceivedPosition()` for an entity that `IsFollowingEntity() || !IsInterpolationEnabled()`
+(`c_baseentity.cpp:2845-2850`, *read*), before `Interp_Interpolate` runs over its var map — so a bone-merged follower (a
+worn item, a carried weapon) draws its last received cycle and pose parameters, not a blend. `DemoTimeline.Interpolates`
+answers `ShouldInterpolate`'s four clauses and has no follower clause, so such a track blends its own animation
+variables. *Not measured* how much of a follower's drawing reads them (its merged bones come from the parent). Fix shape:
+read `IsFollowingEntity` (`EF_BONEMERGE`, `MOVETYPE_NONE`, a move parent) for every era's property names, add the clause
+before the blend with a conformance test predicting a follower's held cycle. *Not fixed*.
+
+## B862 — the recorder's predicted entities are interpolated from the network history at the network's time, where the engine uses prediction's history at the predicted time (2026-11-25) — OPEN
+
+Found on B860's branch, by the read that settled its predictable part. In a point-of-view demo the recorder, every TF
+weapon he owns and his view models (`CTFViewModel::ShouldPredict`, `tf_viewmodel.h:40-46`) are predicted (findings 115). For a predicted entity `BaseInterpolatePart1` replaces the frame's time with
+`localplayer->GetFinalPredictedTime() − TICK_INTERVAL + interpolation_amount × TICK_INTERVAL` (`c_baseentity.cpp:2853-2862`,
+*read*), and its interpolated variables are latched by prediction after each predicted command
+(`entity->OnLatchInterpolatedVariables`, `prediction.cpp:1276`, *read*), not by the network: `PostDataUpdate` only stores
+the last networked value for a predictable (`c_baseentity.cpp:2593-2598`). Since B860 the viewer samples those entities
+one tick behind (the amount `GetInterpolationAmount` gives them), but along the NETWORK history at the frame's tick. The
+recorder is drawn where the demo's view put him (B56) whenever there is a view, so this reaches his weapons' own animated
+variables — a bone-merged weapon draws its merged bones from his skeleton, and only the rest from its own cycle — and the
+recorder on a frame with no view. **The weapon half waits on B863** (B860 review 15, Fable): `BaseInterpolatePart1`
+stops a follower before the predictable branch (`c_baseentity.cpp:2845-2850` before `:2853-2862`), and a carried TF
+weapon follows, so it interpolates nothing and none of this applies to it until B863 is fixed; it applies to a predicted
+weapon that is not following. **And prediction turning off is a delay rise B860 does not see** (B860 review 6, Fable):
+when `sv_client_predict` goes to 0 an entity's schedule swaps from one tick to the plain one, which holds no rise, so a
+settled weapon re-blends where `SetPredictable(false)` only stores the amount (`Interp_UpdateInterpolationAmounts`,
+`c_baseentity.cpp:4596`, *read*) and the engine holds it until its next latch; and a young one can be sent back before
+birth, bringing back its birth state. Scenario: updates at 5, 15, …, `sv_client_predict 0` at 50: the engine holds X = 450
+from frame 46 to the latch at 55; the viewer blends 35 to 45 at 51-54. **And a weapon taken from the recorder stays
+predicted** (B860 review 15, Sonnet): prediction is only initialised per entity (`CheckInitPredictable`,
+`c_baseentity.cpp:2674-2712`) and shut down wholesale (`prediction.cpp:205-245`), so it keeps one tick where the viewer's
+`ScheduleFor` drops it to the full delay at the keyframe that changes `OwnedBy`, *read*; how often a live TF weapon
+changes owner is not measured. Fix shape: model the swap as a step of the
+entity's own schedule, which B860's hold then sees; and run the recorded user commands through the weapons' prediction as D205 does the recorder's movement, keep the history it latches,
+and sample it at the predicted time; a conformance test predicting a weapon's cycle at a frame first. *Not fixed*.
+
+## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25; predicted entities' drawn values interim, B862)
+
+**Fixed**, every part this entry names (the evidence is findings 115), short of what its reviews filed open: B862
+(prediction's own history and time), B863 (followers), B864 (a latch that changed nothing), B865 (the first window,
+re-parenting, the face's jump, creation), B866 (extrapolation), B867 (readers of where an entity is), B868 (the cycle
+across a sequence change) and B869 (frames a fractional tick or several ticks from the step, and jumps landing just past
+it; review 26, Fable):
+
+- *A settled entity holds; a moving one is floored at the history the old amount kept* (part 1): `ScenePropTrack.TargetFor`
+  per history, through `InterpolationSchedule.LastRiseAtOrBefore`/`MaxTargetBefore` and
+  `InterpolatedHistory.LatestArrival`/`PrunedFloor`; `ActorFace` already kept the engine's per-frame state.
+- *The frame-start lag* (part 2, disassembled): `CEngine::Frame` sends `FRAME_START` before the host frame reads its
+  packets. `InterpolationSchedule.AsOf`, `DemoTimeline.FrameStart`, `IMomentSource.FrameStart` called by
+  `MomentPresenter` with the tick the last frame showed, `ActorFace` lagging its own amount; `MaxTargetBefore` takes each
+  whole-tick frame's starting delay; a step resyncs the sample.
+- *Predictable entities* (part 3): in a point-of-view demo the recorder and his TF weapons are predicted and take
+  `InterpolationSchedule.Predicted`, one tick, whatever the amount; `sv_client_predict` (declared, default −1) at 0
+  predicts nothing. **What they then draw is an interim**: the engine also samples them at the predicted time from
+  prediction's history, which is **B862**, so the values `PredictedEntityInterimTests` holds are no engine frame's; and
+  prediction turning off mid-recording is a step this branch's hold does not see (B862, review 6).
+  Client-created entities (corpses, gibs) are simulated by the viewer and never sampled under the schedule.
+- *Alternate ticks* and *`cl_interp_npcs`* (read, no code): neither can apply to TF2 — `maxClients` is at least 2, and no
+  TF2 client class is an NPC (findings 115).
+
+The synthetic single-subject SourceTV demos now put the SourceTV client in slot 32, as a real one does, so their subject
+is not the (now predicted) local player. Tests: `InterpolationRiseConformanceTests` (held, floored, settled on the rise's
+frame, the frame that reads a rise and the next, a frame started at the rise, the recorder's weapon, somebody else's, the
+weapon with prediction forced off, the player with no viewpoint with and without being the recorder),
+`InterpolationScheduleTests` (`AsOf`; `MaxTargetBefore` across a rise and a fall), `FaceFlexTests` (the frame that reads
+a fall), `MomentPresenterTests` (the frame starts announced). Each reddened under a sabotage of its own fix, each
+restored: the frame read as the tick, the face's frame read as now, the presenter's frame read as the tick,
+`MaxTargetBefore` unlagged, the hold taken a tick early, the weapon's owner never the recorder, the player never the
+recorder, prediction never off. *Not verified by looking*: no gcor demo changes its interp bounds mid-recording.
+
+Review 1 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The pruning was credited to every frame; only a listed variable is pruned** (Fable). `Interpolate` prunes only while
+  the variable is listed (`interpolatedvar.h:1057`; a settled one is skipped, `c_baseentity.cpp:879-887`) and
+  `NoteChanged` prunes at a latch (`interpolatedvar.h:667`, read). So a variable that settled before the rise was last
+  cut on its settle frame. `ScenePropTrack.LastListedTarget` takes the latest listed frame on each side of the rise;
+  `At_AnEntitySettledBeforeTheRiseThenUpdated_ReachesTheHistoryItsSettleFrameKept` (340, where every-frame pruning drew
+  360) reddens with settling disabled.
+- **The frame start leaked to every other reader of the timeline** (Sonnet, Fable): prediction's look-ahead, a seek's
+  scan, the effect feeds sampled under the presenter's frame. `FrameStart(lastRead, frameTick)` applies only to a sample
+  at exactly that tick; `PropsAt_AnotherReadersTickAfterAFrameStart_IsSampledUnderItsOwnTick` reddens without the scope.
+- **A jump forward took the pre-jump tick as the frame start** (Sonnet, Fable). While skipping, `CDemoPlayer::ReadPacket`
+  counts its calls and returns nothing after the hundredth (`engine.dll` 0x1800741e0, *disassembled*), and every frame of
+  the skip has a `FRAME_START`; so the frame that reaches the target had read to within a hundred packets of it.
+  `DemoTimeline.FrameStart` raises the frame start to the packet a hundred before the frame's (where in that batch the
+  skip really began is *interpolated*); `PropsAt_AFrameAfterAJumpForward_KnowsWhatTheLastSkipBatchRead` reddens without it.
+- **The predicted values asserted the implementation inside a conformance suite** (Fable): moved to
+  `PredictedEntityInterimTests`, interim until B862; the entry above says so.
+- `InterpolationSchedule.Predicted` keeps the interval it validated (Sonnet, Fable).
+
+Not taken: Codex's "an unrelated update on the rise tick skips the hold" — a history entry is appended only where the
+engine latches (`ScenePropTrack.Add`: origin, angles or simulation time changed, `c_baseentity.cpp:2570`), so such an
+update adds no arrival; an arrival on the rise tick is a latch, which lists the entity, as the floor path assumes. Fable's
+"a sample at the rise tick with no frame start uses the new delay while the pruning credits that frame with the old" —
+recorded: a reader that names no frame samples each tick as a frame that had read that tick, and the pruning models
+frames a tick apart, the frame reading a step still under the old one (findings 115, *interpolated* at real frame rates).
+Fable's "predictability follows the owner per tick, where the engine only initialises it" — `CPrediction` shuts every
+predictable down at each packet while `cl_predict` is off (`prediction.cpp:306-309`) and re-initialises them when it comes
+back (`:579-583`); a TF weapon's owner does not change while it lives (a dropped weapon is a new entity, *interpolated*).
+Records: part 1's commit cites `m_bNeedsToInterpolate` at `interpolatedvar.h:887`; it is `c_baseentity.cpp:887` (Fable).
+
+Review 2 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **One history held several engine variables, and the hold treated them as one** (Fable). `m_iv_vecOrigin`,
+  `m_iv_angRotation` and `m_iv_flPoseParameter` each keep their own `m_bNeedsToInterpolate`, set at a latch only where
+  that variable's value changed (`NoteChanged`, `interpolatedvar.h:633-639`; `c_baseentity.cpp:2828-2829`, read). The
+  hold, the listed-frame pruning and the settle test now run per variable (`InterpolatedHistory.LatestChange`,
+  `BracketVariable`; `ScenePropTrack.HistoryVariable`), and `At` samples the angles and the pose parameters at their own
+  targets. The hold is "settled on or before the frame that read the rise, and not re-armed since", where it asked
+  whether the variable was settled AT the rise — a question about a variable nobody interpolates. Tests:
+  `At_AnOriginSettledBeforeTheRiseAndALatchThatOnlyTurned_HoldsWhereItRested` (400; 360 as one variable) and
+  `At_APoseParameterStillBlendingWhenTheCycleSettled_IsFlooredOnItsOwn` (0.5; 0 at the cycle's target), each reddened by
+  its sabotage.
+- **A jump that was not forward-while-playing read its own tick** (Sonnet): a rewind, a scrub and the first frame are
+  skips too. The presenter hands negative infinity for any jump and `FrameStart` takes the batch;
+  `PropsAt_AFrameAfterAJump_KnowsWhatTheLastSkipBatchRead` covers a rewind and a jump inside the first hundred packets.
+- **No test held the presenter's frame tick** (Fable): the stub records it, and `Show_FrameAfterFrame…` asserts it.
+- The frame start is one immutable snapshot, so the lock-free player path never pairs one frame's start with another's
+  tick (Sonnet).
+
+Not taken, recorded: the skip batch also bounds a frame of fast playback reading more than a hundred packets, which is no
+skip (Fable; the engine reads at most a hundred per `CL_ReadPackets` call either way, and a host frame can call it once
+per tick, so how far behind such a frame starts is frame-timing, *interpolated*). The motion window's earlier sample is
+another reader's tick and samples under its own (Sonnet; a heuristic, not the engine's). `ActorFace` has no skip batch:
+after a jump it lags the timeline for a frame (Fable). `LastListedTarget` walks are bounded by the early return to the
+frames after a rise in which the target is still behind an earlier frame's, a delay difference long (Sonnet). Two rises,
+a rise then a fall, a latch on the rise tick are covered by the general recursion and the per-variable re-arm and not
+tested one by one (Sonnet). The recorder's view models are predicted too (`CTFViewModel::ShouldPredict`,
+`tf_viewmodel.h:40-46`, Fable); they are drawn from the per-tick viewmodel list, not under the schedule — B862 names them.
+Found while checking: `BaseInterpolatePart1` stops before any variable is interpolated for an entity that
+`IsFollowingEntity()` (`c_baseentity.cpp:2845-2850`), where `Interpolates` has no such clause — **B863**.
+
+Review 3 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A jump inside the first hundred packets forgot the signon** (Sonnet): the signon's `net_SetConVar`s are read when
+  playback starts or restarts, before a skip counts a call, so the batch is floored at the first packet's tick;
+  `PropsAt_AJumpInsideTheFirstHundredPackets_KnowsWhatTheFirstPacketStated` (660; 920 under defaults) reddens without it.
+- **The first-pose answer, gated on every variable's target, brought back the birth state of an entity held at its first
+  entry** (Fable): it is gated on the delayed moment itself again, as before the branch, so state fields come from the
+  latest update; `At_AnEntityHeldAtItsFirstEntryAfterTheRise_KeepsItsLatestState` (skin 1) reddens without it. Review 2's
+  "the first-pose answer waits for every variable's target" is withdrawn.
+- **A held variable was re-sampled at its settle target against today's history** (Fable), where a later latch that left
+  it alone could become `newer` and bend a spline: it is sampled at exactly the changetime of the entry that last changed
+  it (`InterpolatedHistory.LatestChangeTime`), a fraction of zero.
+- **Unpausing on the paused tick read as a skip** (Fable): a paused frame has read to its own tick, so the next playing
+  frame starts there; the presenter test asserts it.
+
+Not taken, recorded: Codex's follower clause is B863, filed. `SoundOrigins` and `TimelineAnswers` sample through the
+stateless `At(tick)` — readers that name no frame, as recorded in review 1 (Fable). `_predicted ??=` from the lock-free
+player path makes at worst two equal immutable instances (Fable). `LatestChange` walks back to the last change, bounded to
+the frames after a rise by `TargetFor`'s early return (Sonnet).
+
+Review 4 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The first-pose gate on the delayed moment alone dropped the floor for an entity younger than the new delay** (Fable):
+  born at 30 and moving, at 51 it drew its birth pose, 300, where the engine answers the oldest entry the frame at 50 kept,
+  360. The first pose now needs the delayed moment AND every variable's target at or before birth (review 3's held-skin
+  case still holds); `At_AYoungEntityAfterTheDelayRises_IsFlooredAboveItsBirth` reddens with the target clause removed.
+- **No test held the hold's `LatestChangeTime`** (Fable): `At_AHeldVariableAfterTheRise_KeepsTheEntryThatLastChangedIt`
+  (an update stamped 30 that arrives at 44, then a turn at 49: 300 exactly) reddens when the hold samples its settle
+  frame's target instead.
+- **Every `net_SetConVar` resynced the sample** (Fable): only a change that turns `cl_predict` on or off is a step now.
+- A jump on a timeline with no packets read negative infinity and ran the whole sample under the first step; it reads its
+  own tick (Sonnet).
+`SyntheticPlayer.DemoOfSnapshots` got its doc back from the constant inserted under it (Sonnet). The header names the
+interim. Not taken: a variable held at its last change is not `Settled` while same-valued latches follow, so `Motion` keeps
+the track re-sampling for the window after a rise; the drawn answer is right (fraction zero) and the rule is the engine's
+`bNoMoreChanges` (Sonnet). `PredictsForItsOwner` is set where `NoIk` is and copied the same way by a checkpoint (Sonnet
+asked; the windowed corpus builds agree with the whole build). Fable's "the hold ends in a bend the engine never draws"
+is real and not the rise's: a latch that changed nothing does not re-arm a variable at any tick (`NoteChanged`,
+`interpolatedvar.h:633-639`), so a settled variable stays put where the sampler, past the rise window or with no rise at
+all, splines toward that latch's identical entry through an older differing one — **B864**.
+
+Review 5 (Fable, Sonnet, Codex: no blocker). Fixed (Fable):
+- **A rise sent a drawn young entity back to its birth pose**, state fields included (born 40, skin 1 from 45: skin 0 at
+  60). The first pose now also needs no earlier frame to have aimed past birth, which a rise cannot undo;
+  `At_AYoungEntitySentBeforeItsBirthByTheRise_KeepsItsLatestState` reddens without the clause. Removing the shortcut
+  outright, Fable's suggestion, changes every entity's first delay window, which predates this branch: **B865**.
+- **The `cl_predict` flip and the jump on a packetless timeline had no test that could fail**:
+  `PropsAt_SteppedAcrossPredictionTurningOff_MatchesAFreshTimelineEverywhere` (updates off the flip's tick, so no arrival
+  wakes the track there) and `PropsAt_AJumpOnATimelineWithNoPackets_ReadsItsOwnTick` (360; 520 under the first step), each
+  reddened by its sabotage.
+- *(Withdrawn in review 6.)* `LatestChange` was changed to skip an entry the latch flushes; `NoteChanged` compares before
+  it flushes, so the entry appended before is the head it met, as the original code had it.
+- The born clause `Motion` gained in review 4 is the same first-pose test, now one helper (`FirstPoseAnswers`).
+
+Recorded, not modelled (Fable, *read*): `FRAME_START` is not the only place a variable takes a new amount —
+`Interp_UpdateInterpolationAmounts` also runs during the packet read from `LinkChild`/`UnlinkChild`
+(`c_baseentity.cpp:2239`, `:2268`), `SetPredictable` (`:4596`), the every-tick flags' receive proxy (`recvproxy.cpp:139-150`)
+and their setters (`baseentity_shared.h:151-171`). An entity that gains or loses a move parent in the rise's own packet
+takes the new amount one frame before the viewer has it — one frame, on one tick, only there; in **B865**'s neighbourhood
+of first-window and per-frame state, filed with it.
+
+Review 6 (Fable, Sonnet: one blocker, the same; Codex: none). Fixed: **review 5's `LatestChange` change was wrong
+and its test asserted it** (Sonnet, Fable). `NoteChanged` `memcmp`s against `m_VarHistory[0]` and only then `AddToHead` flushes
+the newer entries (`interpolatedvar.h:633-649`, *read*), so an entry this latch flushes is the head it compares with; and
+no earlier-appended entry can have been flushed before a later one arrives. Restored to the entry appended before;
+`LatestChange_ALatchThatFlushesItsHead_ComparesWithItFirst` asserts 11, which the review-5 code answered 12. Not taken:
+re-asking `ScheduleFor` per lerping frame — `SampledUnder` changes only at a wake or a resync, which re-derives it
+(Sonnet); `_predicted` built off the lock is two equal immutable instances at worst (Sonnet); a foreign sample costs a
+resync (performance only, Sonnet). The `engine.dll` reads were not re-read in this round (Sonnet). Filed under B862
+(Fable): prediction turning off is a delay rise the hold does not see.
+
+Review 7 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The hold sampled the changetime of an entry a later same-valued latch had flushed** (Fable): `LatestChangeTime` takes
+  the first entry from the change on that is still held, same value by construction;
+  `At_AHeldVariableWhoseChangingEntryWasFlushed_HoldsItsValue` (400) reddens without it.
+- **A pair starting on the pruned floor splined through an entry the engine had dropped** (Fable): `Truncate( i + 3 )`
+  leaves nothing older (`interpolatedvar.h:782-795`), so there is no valid `oldestindex` (`:851`) and the origin runs
+  linear; `At_APairStartingOnThePrunedFloor_RunsLinear` (303.33) reddens without it. *(Corrected in reviews 8 and 9: the cycle
+  takes its third sample from its own history, not the simulation's; the pose parameters blend linearly HERE, which is
+  itself a recorded divergence — the engine splines them, `m_iv_flPoseParameter` having no `INTERPOLATE_LINEAR_ONLY` — so
+  the floor has no effect on them in this viewer.)*
+- The stateless `At` test asserted the rise tick, where the stateless sampler reads its own tick and the frame model the
+  old delay; it asserts 51, where both agree (Sonnet).
+
+Recorded (Fable, *read*): `Interp_Interpolate` re-arms every variable when the time goes backwards
+(`c_baseentity.cpp:864-871`) — a second re-arm site besides a latch, unreachable for a network-interpolated entity in
+forward playback, and the mechanism of B862's prediction-off transition (the time drops from the predicted to `curtime`).
+A stepped test lagging the frame start each step is not added: the stepped tests sample with no frame start, and the
+frame's own lag is held by the two-frame test, which reddens when the steps are counted from the tick (Fable traced it).
+
+Review 8 (Fable, Sonnet, Codex: no blocker; Codex's first run read the wrong checkout and was repeated). Fixed (Fable):
+- **The cycle splined through an entry its own pruning dropped**: `m_iv_flCycle` is its own variable, pruned the same way;
+  `AnimationNeighbours` refuses the third sample when the pair starts on the cycle's floor.
+  `At_ACyclePairStartingOnThePrunedFloor_RunsLinear` (0.3033) reddens without it. Review 7's sentence that the cycle
+  shares the simulation's spline choice was wrong and is corrected.
+- **The floor counted an update that arrived after the cutting frame**: `Truncate( i + 3 )` ran on the history as that
+  frame held it, so `LastListedTarget` names the frame and `PrunedFloor` chooses from what had arrived by it.
+  `At_ALateUpdateBelowTheCut_DoesNotMoveTheFloor` (310; 330 counting the late entry) reddens without it.
+- Findings 115 gains the hold's held entry and the floor's linear pair.
+
+Not taken (Sonnet): the frame start persisting after its presenter goes away needs a later reader at exactly that tick
+with no presenter, and that reader would be asking for the shown moment; the motion window's two reads, recorded in
+review 1.
+
+Review 9 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A later flush could delete the kept entries, where the floor still named them** (Fable): `AddToHead` drops every
+  entry at or after the new changetime (`interpolatedvar.h:649`), so a late update stamped below the kept three is the
+  oldest held. `InterpolatedHistory.PrunedFloor(cut, cutAt, arrivedBy)` takes the oldest of the kept three and every later
+  arrival still held; `At_ALateUpdateThatFlushesTheKeptEntries_IsTheOldestHeld` (250) reddens with the floor as of the cut.
+- **Two rises in one window took the floor from the last rise only** (Fable). Review 2's "covered by the general
+  recursion" was wrong: there was none. `LastListedTarget` now walks back frame by frame over every step, taking every
+  frame that pruned, until no earlier frame aimed further; `At_TwoRisesInOneWindow_KeepTheFirstRisesFloor` (300; 100 from
+  the last rise) reddens without the walk.
+- **The record said the pose parameters are linear**, where that is this viewer's, itself a recorded divergence (the
+  engine splines them) (Sonnet, Fable); corrected.
+- A control: the cycle pair one above the floor still splines (`At_ACyclePairOneAboveThePrunedFloor_StillSplines`),
+  which reddens when every third sample is refused after a rise (Sonnet).
+
+Not taken: `Settled` judges the hermite clause with an `oldest` the engine has dropped, which can only call unsettled what
+the engine calls settled — an extra wake, never a missed one (Sonnet).
+
+Review 10 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The kept three could be entries an earlier frame had already cut** (Fable): a late update arriving BEFORE the cutting
+  frame flushes the entries after it, and the two older than it were gone since an earlier frame's cut. The floor now skips
+  an entry some frame from its arrival on had three live newer entries below the cut of (`InterpolatedHistory.CutBefore`,
+  `Truncate( i + 3 )`, `interpolatedvar.h:782-795`); `At_ALateUpdateBeforeTheCuttingFrame_LeavesWhatEarlierCutsDeleted`
+  (205; 170 with one cut over everything) reddens when the count needs four.
+- **The walk after a later flush assumed a changetime never leads its arrival** (Sonnet). It does when a simulation time
+  sits after its packet, so the walk now stops by the furthest lead any entry has had;
+  `At_AKeptEntryStampedAfterItArrived_IsStillTheFloor` (320; 350 without the lead) reddens with the lead dropped.
+- **`LastListedTarget` stepped back over every frame of a long rest** (Fable). It now jumps to the later of the settle
+  frame and the last arrival, which are the only frames between that can prune; the answer is unchanged.
+- **The cycle control test detected an effect rather than a value** (Sonnet, Fable): it now asserts the spline,
+  0.312037 from `Hermite_Spline` (`mathlib_base.cpp:2535-2538`).
+- Records: findings 115 carries reviews 9 and 10's mechanisms; B865 counts its three bullets.
+
+Review 11 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **`CutBefore` walked every frame back to an old entry's arrival** (Sonnet, Fable): it now starts at the arrival of the
+  third newer entry, before which no frame could hold three; the answer is unchanged.
+- Records: `_maxLead` says it only widens; the class remark points at the floor after a rise; `PrunedFloor` says entries
+  arriving after the cut are counted as held when a later, lower cut could delete them — undrawable, since such a cut sits
+  below that frame's own target (Fable).
+
+Not taken: the camera sampling players before the frame start is announced (Fable) does not happen. While playing,
+`Simulate` advances the playback, whose `MomentChanged` shows the moment and announces the frame start before
+`PlaceCamera`; while paused the frame start reads its own tick, the camera's too. `was` in the player's motion window is
+an earlier frame, sampled as the stateless sampler models one (Sonnet). The angles share `TargetFor`'s floor and the
+engine's `QAngle` hermite is a lerp (`lerp_functions.h:104`), so the origin's tests cover the new path (Sonnet).
+Evidence class: findings 115 marks the frame order **disassembled** (Sonnet).
+
+Review 12 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A latch read on the rise's own frame that settles there was floored, not held** (Fable): that frame still runs under
+  the old delay, and a target past the latch settles it (`c_baseentity.cpp:879-887`). The hold now takes a change at the
+  rise tick as well; `PropsAt_ALatchThatSettlesOnTheRisesFrame_Holds` (410; 360 floored) reddens with `changed < rise`.
+  Review 1's not-taken reason ("an arrival on the rise tick lists the entity, as the floor path assumes") was wrong:
+  listed is not unsettled that frame.
+- **A sample with no frame start read its own tick** (Sonnet), so a step's own tick took the new delay where the history
+  walks model that frame under the old. It now samples as a frame a tick after the last, through the tick before, in the
+  timeline and in `ScenePropTrack.At(tick)`; `At_TheRisesOwnTick_IsUnderTheOldDelay` (420; 350) and
+  `PropsAt_TheRisesTickWithNoFrameStart_DrawsUnderTheOldDelay` (420; 300) redden with the own tick.
+- The prune test asks the cheap arrival before `Listed` (Fable); the second-rise case of "no frame draws the difference"
+  is worded as reasoned (Fable, Sonnet); B849's test summary names the frame at 50's target, 42 (Fable).
+
+Review 13 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **Readers asking where an entity is took the full delay for the recorder and his weapons** (Sonnet, Fable), which Part
+  3 draws a tick back: the holiday lights' local player, a sound's origin and the observer's building target now take
+  `DemoTimeline.DrawnPose`, the frame start and prediction included. `DrawnPose_TheRecorderAndHisWeapon_AreAtTheirPredictedTick`,
+  `For_TheRecorder_IsWhereHeIsDrawn` and `LocalPlayerOrigin_ThePredictedRecorder_IsATickBack` (590) redden on the stateless
+  sample.
+- **A sample between ticks read through the tick below its own** (Fable): above the tick rate the frame at 50.3 follows
+  one that read 50, so a sample no frame start announced reads through `ceil(tick) − 1`
+  (`ScenePropTrack.UnannouncedRead`), in the timeline, `At(tick)` and `Motion(tick, blend)`;
+  `At_AFrameBetweenTicksAfterTheRise_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1`.
+- **Review 12's hold test asserted 410 where the frame at 50 extrapolates to 420** (Fable): the test now adds the same
+  410 at 51, which puts the networked value back without re-arming, and the extrapolation is filed as B866; the
+  "cannot fire on a demo" paragraph of the extrapolation audit is corrected there.
+- A control: a latch on the rise's frame that does not settle is floored (`…ThatDoesNotSettle_IsFloored`, 360; Sonnet).
+- Records: findings 115 and the jump and other-reader tests no longer say "own tick" (Fable).
+
+Not taken: `was` in the player's motion window is an earlier frame, sampled as one (Sonnet, review 11's reason).
+
+Review 14 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **The timeline's unannounced fallback had no test that could fail** (Fable): only `At(double)` was pinned;
+  `PropsAt_AFrameBetweenTicksWithNoFrameStart_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1` there. The unused
+  `Motion(tick, blend)` overload, the third site, is deleted.
+- **B866 understated when extrapolation fires** (Fable): a packet gap longer than the delay fires it with no simulation
+  lag, so the entry, its instrument and the audit paragraph now say so.
+- **`UnannouncedRead` assumed at least two frames a tick without saying so** (Fable, Sonnet): stated, *interpolated*.
+- **Review 13's "the frame start and prediction included" overclaimed for two readers** (Fable, Sonnet): the observer's
+  building and the holiday lights pass a whole tick, and no reader sees the recorded view a point-of-view frame places the
+  recorder at; filed as B867, and `DrawnPose` says what it is not.
+
+Not taken: a non-recorder control through the two Presentation tests (Sonnet) — the Core test holds another owner's
+launcher at 360 through the same method.
+
+Review 15 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **No stepped-against-fresh test announced its frames** (Sonnet), so a cache keyed on `ceil(tick) − 1` instead of the
+  read it was given passed. `PropsAt_SteppedWithFrameStartsAcrossADelayChange_MatchesAFreshTimelineEverywhere` steps frames
+  three quarters of a tick apart, each told the read before, over a crate still moving at the rise with no keyframe wake
+  near it; it reddens at 51 with the step count keyed on `ceil(tick) − 1`. (A quarter-tick spacing and an every-3-tick
+  crate both stayed green under that sabotage: the reads agreed, and wakes re-derived what the resync missed.)
+
+Not taken (Sonnet):
+- `was` in the motion window after a seek reads under a different step than `now` — review 11's reason; after a seek the
+  window is one or two frames.
+- The skip batch applies to a playing frame more than a hundred packets past the last (a hitch of about 1.5 s): the
+  presenter cannot tell that frame from a forward scrub while playing, which the engine does read as a skip, and the
+  scrub is the common one.
+- A TF weapon changing owner: `CheckInitPredictable` runs at every `PostDataUpdate` (`c_baseentity.cpp:2622`), so a weapon
+  given to the recorder predicts from that update, which `ScheduleFor`'s `OwnedBy` at the keyframe matches; one taken
+  from him stays predicted in the engine where the viewer stops: `CheckInitPredictable` only ever initialises (it returns
+  early once the intermediate data exists, `:2706-2711`), and prediction is shut down only wholesale
+  (`CPrediction::ShutdownPredictables`, `prediction.cpp:205-245`), *read*. A TF weapon is destroyed rather than handed on
+  (a dropped one is a new `tf_dropped_weapon`), so how often a live one changes owner is **not measured**; filed with the
+  prediction-off case under B862.
+
+Fable, review 15. Fixed:
+- **The cycle's hold compared the sequence too**: this project's animation entry holds the sequence beside the cycle,
+  and `LatestChange` counted a latch changing only the sequence as re-arming `m_iv_flCycle`, which `NoteChanged`
+  compares alone (`interpolatedvar.h:633-639`). `CycleVariable` is the entry's first component;
+  `PropsAt_ASequenceOnlyLatchAfterTheRise_HoldsTheCycle` (0.30; 0.22) reddens with the whole entry.
+- `UnannouncedRead`'s remark now says it misjudges the first frame past each tick at any frame rate, not only at or
+  below the tick rate; B866's second worked case uses the two ticks its config gives; B862's weapon half waits on B863.
+
+Review 16 (Fable, Sonnet, Codex: no blocker). Fixed: the sequence-only test asserts the frame after too (Sonnet) and
+states its reach — a sequence change without a parity bump, or a static-prop model (Fable); `LatestChangeIndex` says
+a generation start counting as a change is not the engine's (`Reset()` arms nothing, `interpolatedvar.h:740-752`), and
+why no drawn value differs (*reasoned*); a test comment names the frame at 49.5 (Fable). Filed: `InterpolateCycle`
+refusing to blend across any sequence change, where the engine blends unless a parity reset cleared the history, as
+B868 (Sonnet). Not taken: `_predicted ??=` (recorded since review 2); the cache test compares stepped with fresh, not an
+engine value (Sonnet), which is its purpose — the conformance tests hold the values.
+
+Review 17 (Fable, Sonnet, Codex: no blocker). Filed: the jump that lands just past a rise, where the landing frame runs
+under the old delay and the next frame floors at a cut no frame made, as B869 (Fable). Records: findings 115 names the
+open siblings and B867's exceptions (Fable); `Motion`'s remarks say the first-pose clause has no wake of its own and
+why that is safe (Sonnet); the handoff lists B862-B869 (Fable). Not taken (Sonnet): "`cl_predict` under
+`sv_client_predict -1` is the recorder's own setting, which no demo carries" — the client forces its own to 1 on a level
+of more than one client (`cdll_client_int.cpp:1645-1652`, *read*, findings 115), so a recorder's `cl_predict 0` does
+not survive into a multiplayer recording.
+Merge review (the lead's `/code-review high`). Fixed:
+- **`SettleFrame` and `LatestChangeIndex` walked back to the last real change on every call**, eight calls per track per
+  frame inside a rise window. A player standing still is re-latched with the same origin every tick and never settles —
+  in the engine too, whose newest entry is never `newer` — so after a long rest each call walked thousands of frames.
+  Review 12's "cost only, a handful of rises" is **reversed**: standing players are common. Both are now memoized on the
+  history (a change index per entry, a scan cursor per schedule, variable and change), extended forward and cleared on
+  a trim, under a lock since samplers read one history from more than one thread;
+  `SettleFrame_AskedAgainFurther_ScansOnlyTheNewFrames` (41, then 5, then 0 frames asked) and
+  `LatestChange_AfterARunOfRestatementsAndATrim_IsTheLastRealChange` redden with the cursor unsaved and the memo kept
+  across a trim. Still not measured on a populated demo.
+- `DT_TFWeaponBase` had two owners; `DemoTimeline` takes `EntityState`'s. A comment claiming the angles and origin
+  targets differ only by whole ticks was wrong.
+Not taken: the skip batch on a long playing frame (review 15's reason) and the face after a jump (B865).
+
+Review 18 (Fable, Sonnet, Codex, and the merge's cavecrew reviewer: no blocker). Fixed:
+- **A trim cleared the memos before shifting the lists** (Sonnet, Fable): a read between the two would rebuild them from
+  the old indices. The shift and the clear now run together under the memo lock. Trims run before any sampler exists
+  today (the build refuses samples while it trims), so this keeps that true rather than fixing a live race.
+- **The memo tests could not fail on a wrong key, nor on a fill that restarts** (Sonnet, Fable):
+  `Memos_TwoVariablesAndTwoSchedules_AnswerEachOwn` and the latest-change test asked early, then later, then after an
+  append, redden with the key dropped and the fill restarted.
+- `Same` answers false for entries of two widths rather than slicing past the narrower (Sonnet); the memos are made by
+  the first read that needs one (Fable); the settle callback captures nothing (Fable, `a-capturing-cache-factory`).
+- Records: the merge review's "the answer is unchanged" is *reasoned*, not differential; the first scan for a key still
+  walks from the change, once, under the lock, and is not measured (Fable).
+
+Review 19 (Fable, Sonnet, Codex: no blocker; Fable's settle-key and width-guard findings are the same as Sonnet's; its
+lock-remark overclaim is corrected — the lock guards the memo reads only — and `Interp_SetupMappings` joins B865). Fixed: `LatestChangeIndex` read the last index before
+taking the memo lock, so a trim between could still leave it filling past the shortened lists — it now reads it under
+the lock; review 18's width guard in `Same` was withdrawn as unreachable "since a width change starts a generation, which
+is answered before any comparison" (Sonnet, Fable) — **reversed in review 20**: the memo fills from the first entry and
+compares inside an older generation, where the slice threw; the settle-memo test varies every part of the key and reddens with the key
+cut to the schedule; the latest-change test asserts the trim shifted the history (Codex). Recorded, *reasoned* and not
+tested: the trim race only matters under concurrency, which no test drives; the settle memo holds only once a history is
+built through the frames asked, which the timeline's build-before-sample order guarantees (Sonnet). Not taken (Sonnet):
+after a trim the first kept entry counts as a change though it may restate — pre-existing, and no drawn value differs
+because the held entry and the true change carry one value.
+
+Review 20 (Fable, Sonnet, Codex: no blocker; Fable's should-fix is this guard). Not taken (Fable): the signon's bounds
+read as a rise from Valve's defaults at the first packet — no frame ran under the defaults, but every entry arrived at that
+packet, so a held variable keeps its only value, the floor is null and the first pose answers: no drawn difference, by
+reasoning; the cost is memos made on those frames. Fixed: **review 19's withdrawal of the width guard was
+wrong** (Sonnet asked for a test; the test threw). `LatestChangeIndex`'s memo fills from the first entry, so it compares
+inside an older, narrower generation for a variable only the newer width holds, and `Same` sliced past the entry:
+`ArgumentOutOfRangeException`, B386's failure. The guard is back, answering such a pair "not the same", and
+`LatestChange_AcrossAWidthChange_StopsAtTheReset` (10 at 11, 13 at 15) threw without it. No production caller reaches it
+today — pose parameters compare the whole entry and the other histories keep one width — so it is a guard, not a fix of
+a drawn value. Recorded: the memo lock guards memo extension only; `LatestChange`'s and `LatestChangeTime`'s other list
+reads stay unlocked, safe by the build-before-sample order (Sonnet). Not taken: B869 again (Codex); `_predicted` made
+eager (Sonnet) — two instances at worst, each immutable, and a missed memo hit costs one scan.
+
+(From review 18, the merge's cavecrew reviewer.) Filed into B869: the frame that reads a rise can sit more than a tick
+past it whenever frames run more than a tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback),
+the same root without a jump — frames at 48, 51, 54 across a rise at 50 with the last change at 43 draw 430 at 51 and 360
+at 54 where the engine holds 430. Not taken: the skip batch counting a windowed timeline's sparse frames as packets —
+latent, no window-backed timeline announces a frame (`WindowCache` is reached only by `WindowCheck`); it belongs with the
+first presenter that does.
+
+Review 21 (Fable, Sonnet, Codex: no blocker). Fixed: **no test read the prediction flag the builder sets** (Fable): every
+weapon test set it by hand. `Build_AClassReachingTheTfWeaponTable_PredictsForItsOwner` builds a `CTFKnife` whose table
+reaches `DT_TFWeaponBase` from demo bytes (the fixture's knife now carries an item index and an origin, so the builder
+gives it a track) and the player beside it as the control; it reddens with the flag lookup broken. Filed into B869: a
+frame between ticks cuts at its own fractional time, which findings 115 had labelled *interpolated* and is *arithmetic*
+on read source (Fable). Not taken: the build-before-sample assumption (Codex, recorded in review 20).
+
+Merge review 2 (the lead's `/code-review high`; the cavecrew reviewer found nothing). Fixed: **the change memo filled
+from the first entry** — the first call scanned the whole history and the memo kept one int per entry for the timeline's
+life, a hitch at the first rise of a long demo and megabytes per track. It now keeps the run of entries it has examined,
+seeded where the first call's walk back to the latest change stopped, and the changes in it; later calls extend it
+forward or back only as far as they ask (`LatestChange_AskedBackwardsAfterForwards_IsTheChangeAtOrBefore`, which reddens
+when the backward walk drops the changes it passes). Since a generation start is a change, a call at or after a
+generation's start never enters an older one (review 22, Fable: only a call asked inside the older one does, and then a
+span the older width cannot hold throws), and `Same` again fails loudly on a span a same-width pair cannot hold (a caller asking the wrong
+history) and answers "not the same" only across two widths. `LatestChange` and `LatestChangeTime` read under the lock
+with the index they use. A test renamed to its methods. Not taken: the settle scan running its callback under the lock
+(single scan per key, samplers effectively single-threaded per history); the knife fixture's origin arriving through the
+non-local player table rather than `DT_BaseEntity`, whose fixture copy carries no origin — the test asserts the class
+flag, which is independent of where the origin comes from.
+
+Review 22 (Fable, Sonnet, Codex: no blocker). Fixed (Sonnet, Fable): the memo's backward walk collects what
+it meets and splices it in once — linear rather than an insert per change, one change test per entry, and a throw
+mid-walk leaves the run as it was; the backward test still reddens when the walk drops the changes it passes; a test asks
+backwards across a same-width `Reset` (Fable); "the memo never enters an older generation" is narrowed to calls at or
+after a generation's start (Fable). Not taken
+(Codex): "the frame that prunes is not the frame the sampler assumes" is B869, filed, and B860 is no regression there
+(before it the viewer re-blended every rise); "`LatestChangeTime` returns null when every later entry is flushed" cannot
+happen — only a later append flushes, so the newest entry received by the tick asked is live and the walk from the change
+reaches it. Recorded (Sonnet): the memo holds one int per change examined, not per entry — a saving for a variable that
+rests, none for one that changes every tick; the lock protects the memos and the readers that use their indices, not the
+history as a whole.
+
+Review 23 and merge review 3 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker). Fixed: **a backward ask shifted the whole memo** (lead): `InsertRange(0, …)` moved every change held, so a rewind
+asking one step back at a time paid the memo's size per frame. Changes before the seed are now kept newest first in their
+own list and appended; `LatestChange_AskedBackwardsAfterForwards_IsTheChangeAtOrBefore` and
+`LatestChange_AskedBackAcrossAReset_FindsTheChangeBeforeIt` redden with that list's search answering its oldest. The
+forward extension also collects before committing, so a throw leaves the run as it was either way (lead, Fable) —
+*reasoned*, not tested: a duplicate the old order made could not change an answer, only grow the list. Recorded: `Same`
+throws on a span a same-width pair cannot hold for every caller, `BracketVariable`'s settle test included, and no
+production variable asks such a span (lead). Not taken: B862 as a merge blocker (Codex) — filed and open, not part of
+this branch; a jump into the first hundred packets starts its frame at the first packet's tick, so a step inside them is
+unknown to the landing frame, where the engine's batch may have read it — the batch's position is already *interpolated*
+(Fable); the owner-flip wake for a predicted weapon has no test of its own (Sonnet), held by the keyframe wake every owner
+change makes.
+
+Review 24 and merge review 4 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker). Fixed (lead): **merge review 3's collect-then-commit for the forward extension allocated a list on most frames
+inside a rise window, so it appends directly again (and, from Fable's review 24 below, rolls back on a throw); `Earliest` is
+renamed `NewestAtOrBefore`, which is what it returns; `LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore` walks
+back twice and asks between the walks, reddening when a later walk's changes are inserted at the front. And (Fable):
+**a forward ask far past the run scanned and kept every entry between** — a second rise window long after the first
+brought back the hitch the seed removed — so a call more than 512 entries past what the run examined walks back from its
+own tick to the run: a change met starts a new run; none met means the gap held no change and the run reaches the tick
+(merge review 5, lead: a first version reseeded unconditionally, which for a resting variable walked the whole gap anyway
+and dropped the earlier changes). `LatestChange_FarPastTheRun_AnswersTheSame` pins unchanged answers;
+`LatestChange_FarPastARestingRun_KeepsTheRun` reddens when the walk's boundary seeds a run on an entry that is not a
+change; the cost saved is *reasoned*, not measured. The backward walk appends directly too (merge review 5: it allocated
+a list per rewind step).
+
+Review 25 and merge review 5 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker) — the fixes above, and (Fable) a backward ask far before the run seeds from its own tick as a forward one does
+(withdrawn by merge review 8 and replaced by merge review 9: a far-before ask is answered without remembering).
+**The rollback on a throw is withdrawn** (Fable): no production variable asks a span its history cannot hold.
+(Superseded by merge review 7: `Through` moves past each entry examined and `Start` to each change kept, so a throw
+leaves nothing for a retry to repeat, and the question whether a retry over repeated appends still answers right no
+longer arises.) B860's review 13 record is moved back
+between 12 and 14.
+
+Review 26 and merge review 6 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`).
+Fixed: **no test reached the far-before reseed** (lead, Sonnet, cavecrew) — the asks in the reseed tests sat within 512 of
+the run's start; `LatestChange_FarBeforeTheRun_SeedsFromTheTickAsked` asks 1,100 entries before it (300 at 800) and
+reddens when that branch seeds without walking back to a change. Deleting the branch leaves the answers the same (it
+saves work), so the test pins the branch's correctness, not its presence. A test comment that called an ask "past the
+reseed gap" is corrected; the gap's remarks cover both directions; two stacked comments merged. Not taken: Codex's
+"blocker" that a rewind sets `Start` past the tick asked — the walk keeps every change it passes and stops on a change at or
+before the tick, so `Start` is at or before it (its own example, a run from 100, a change at 90, an ask at 89: `Start`
+becomes 80 and an ask at 90 answers 90); two callers alternating far apart would repeat walks (lead, Sonnet) — no caller
+alternates, recorded on the constant (corrected by merge review 7: the seek scan can); after a throw a retry may leave
+repeated appends (Sonnet, lead) — fixed in merge review 7.
+
+Merge review 7 (the lead's `/code-review high`; the cavecrew reviewer found nothing). Fixed: `Through` moves past each
+entry as it is examined and `Start` to each change as it is kept, so a throw from `Same` leaves the run describing exactly
+what it examined and a retry repeats nothing — simpler than either the rollback or the caveat it replaces, and
+allocation-free (the forward half tested in merge review 8; the backward half by reading only). The `ReseedGap` remark no longer
+says no caller alternates: the seek scan asks earlier ticks between the presenter's frames (`RecorderPrediction`, D233), so
+it can when both land in a rise window; answers are unaffected and the cost is *reasoned*. Not taken: a test that sees the
+far-before reseed fire rather than what it answers — it saves work and changes no answer, so only an instrument on the
+memo's size could see it, and its correctness is pinned.
+
+Merge review 8 (the lead's `/code-review high`; the cavecrew reviewer found nothing). **The far-before reseed is
+deleted**: the seek scan asks earlier ticks between the presenter's frames, and each such ask threw away the presenter's
+run, which the next frame then rebuilt — the walk the memo exists to remove, on every alternation. The ordinary walk back
+keeps what it met, so each caller pays its walk once; the branch changed no answer and no test could see it fire, the
+case D6 calls deleting the path. `LatestChange_FarBeforeTheRun_SeedsFromTheTickAsked` now covers the long walk back.
+`LatestChange_RetriedAfterAThrow_RepeatsNoAppend` asserts the memo holds two changes after two failed asks where the old
+order held three, through an internal `ChangesHeld`; it reddens with `Through` set after the loop. RISKS now says `Start`
+moves to each change kept, not past each entry.
+
+Merge review 9 (the lead's `/code-review high`; the cavecrew reviewer found only the test name). **Deleting the far-before
+reseed brought back the memory cost** review 25 had removed: one rewind from mid-recording to the signon kept every
+change between in the run for the timeline's life. A far-before ask is now answered by a one-off walk to its change and
+not remembered — neither throwing the presenter's run away (merge review 8) nor keeping the gap (review 25).
+`LatestChange_FarBeforeTheRun_AnswersWithoutRemembering` (renamed from `…SeedsFromTheTickAsked`) asserts the run still
+holds one change after the far ask, and reddens with the branch removed. The cost is a walk per far-before ask, *reasoned*.
+
+Merge review 10 (the lead's `/code-review high`; the cavecrew reviewer found nothing). **A far-before ask remembered
+nothing, so a rise window at an older tick walked back on every call of every frame.** Each of the three single-run
+designs lost one way: replace (thrash), extend (keep the gap) or skip (walk every time). A variable now keeps up to two
+runs; a call within `ReseedGap` of one is served by it, any other seeds a new run — looking back no further than a run that
+ended before it — and the run used longest ago goes when there are two. `LatestChange_FarBeforeTheRun_KeepsASecondRun`
+(two changes held, one per run) and `LatestChange_ThreeFarApartAsks_HoldTwoRuns` (reddens with eviction off: three held)
+cover it; the three seed walks share `WalkBackToChange`. Which run is evicted changes no answer and is not tested. Not
+taken: a rewind stepping back less than 512 entries at a time growing a run (lead) — the memo is asked only inside rise
+windows, tens of ticks long and a handful a recording, so a run grows only between windows that close (*reasoned*); a
+boundary test at exactly 512 (lead) — either side of it answers the same, only the run serving it differs.
+
+Review 27 and merge review 11 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker). **The two-run memo overlapped** (lead, Fable): the first run in range served a call, not the nearest, so a
+run's backward walk re-collected the other's changes and the one in use could be evicted — and every bounded cache in
+reviews 24 to merge 10 had lost the same way at some other edge. **Replaced by a memo of stretches**: each variable keeps
+the stretches of entries it has examined, disjoint and ascending, each starting at a change, with the changes in it. A
+call inside a stretch is a binary search; any other walks back from its tick only to the first change or to the end of
+the stretch below, records what it found, and joins touching stretches. Each entry is examined at most once in the memo's
+life; nothing is evicted, so nothing thrashes; the walk mutates nothing, so a throw leaves the memo as it was; and
+`ReseedGap`, the runs, `Later`/`Earlier` and the LRU are gone. What it holds is the changes in the stretches rise windows
+reached (*reasoned*: it is asked only there). `LatestChange_FarPastARestingRun_KeepsTheRun` now asserts two changes held
+and 1,999 entries examined, and reddens at 2,005 when the walk ignores the stretch below — the floor bounds cost only, so
+the held count and every answer stay the same under that sabotage, and an earlier version asserting only them stayed
+green (lead, caught by sabotage); `LatestChange_ThreeFarApartAsks_KeepAStretchEach` holds three and
+asking again adds none; `LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore` reddens when the stretch lookup
+misses; `LatestChange_RetriedAfterAThrow_LeavesTheMemoAsItWas` holds one after two throws. Records: `Memos.Settles`
+retention is stated (Fable). Not taken: the first walk for a variable at rest is as long as the rest (Codex) — paid once,
+recorded since merge review 2.
+
+Review 28 and merge review 12 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; every reviewer traced the stretches as disjoint with no change missed or duplicated for any order of calls).
+**Fixed:** the stretch memo had brought back two costs earlier rounds removed — a step forward built a stretch and joined
+it (allocating every frame in a window, which review 24 had made append-only; lead, cavecrew), and a step back copied
+every change above into a new one-change stretch (quadratic over a rewind, which merge reviews 3-5 had made O(1); lead).
+A stretch now holds `Earlier` newest first and `Later` ascending: a step forward appends to the stretch below, a step
+back prepends to the one above, and a join moves the smaller stretch's changes into the larger.
+`LatestChange_SteppedForwardThenBack_AllocatesNothingPerStep` takes the least allocation over a hundred steps each way
+and reddened at 144 bytes under each sabotage in turn; `LatestChange_GapFilledBelowALargerStretch_JoinsAndAnswersBoth`
+reddens when the join adds the lower stretch's changes oldest first. **Fixed, parity:** `Same` compared floats, where the
+engine `memcmp`s (`NoteChanged`, `interpolatedvar.h:636`; `COMPARE_HISTORY`, `:22-23`) — so −0 after +0 is a change, and
+a NaN after a NaN of other bits is (Fable); `LatestChange_NegativeZeroAfterZeroAndNaNAfterNaN_ComparesBits` reddens under
+float equality. **Corrected record:** commit `289d5b58c`'s message says a value equal to the head is not added; it is —
+`AddToHead` at `:649` is unconditional, and only the return value reports the difference (Fable). Also fixed: the
+"examined at most once" wording (once per walk that completes: a throw records nothing; lead, Fable), test summaries
+still naming the removed 512 gap and runs (lead), `ThreeFarApartAsks` now asserts 1,502 examined before and after the
+repeat (cavecrew), and the counter is a `long` (lead). Not taken: the `MaxTargetBefore` paragraph below is stale
+(Sonnet) — it is not: `TargetFor` calls it on every frame after the first rise (`ScenePropTrack.cs:2445`), and only the
+memo work stops at the window's end. A trim's clamp makes the first kept entry a change (Sonnet): the change it names is
+gone with the trim, and trims run before any sampler (review 19), so no failing input was found and none is filed.
+`Memos.Settles` holds a cursor per schedule object until a trim (Sonnet): how many schedule objects production builds
+is not traced this round, so its retention is stated only for one schedule. The memo never shrinks while sampling (lead): it holds one int per examined change, asked only in
+rise windows — *reasoned*, and the `--measure` below is the number. A `JoinAbove` after an extension has no test of its
+own (Fable): it is compaction, so answers are the same without it.
+
+Review 29 and merge review 13 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; all traced the stretches correct for any order of calls). **Fixed, parity (lead):** the append gate
+`ScenePropTrack.DiffersFrom` compared bits, where the engine's `m_vecOldOrigin != GetLocalOrigin()`
+(`c_baseentity.cpp:2571`) is a float `!=` — +0 equals −0, a NaN differs from itself. It had hidden behind the old
+float-equal history compare; once that became `memcmp`, a −0/+0 flip at one simulation time appended an entry the
+engine never latches and `LatestChange` named it. Now a float compare (`CompareTo`, since S1244 refuses `!=` and a
+`<`/`>` pair); `Add_SignedZeroAndNaNAtOneSimulationTime_AppendAsTheEngineCompares` counts entries 1, 1, 2, 3 and reddens
+at 1, 2, 3, 3 under the bit compare. **Tests added:** the join where the lower stretch absorbs an upper one holding
+steps back (lead, cavecrew; reddens when `Earlier` is added newest first); `Settled` comparing bits through `Bracket`
+(lead; reddens under float equality); the allocation test now also times steps that change nothing and asserts 201
+changes held on the history where every step changes, so a change step that re-collects fails (cavecrew, Fable) — but a
+prepend that shifts the list in place (`Insert(0, …)`, merge review 3's fault) allocates nothing and holds 201, so it
+would pass: copy cost is not measured. The resting half, as first written, took one least over mixed kinds of step and
+asserted no held count, so it was blind to one kind of step allocating and to a step recording a non-change — it
+still reddened if every step allocated or 1,955 answered wrong (review 30, corrected in 31); see below; a
+seeded random-order oracle of 600 asks against a plain scan (Sonnet; reddens alone when the `Earlier` search starts at
+its end). **Records:** findings 20's "compares by value, the same de-duplication" is kept and corrected beside itself,
+and findings 115 states the two compares (lead, Fable); the walk comment no longer says each entry is examined once
+(lead). Not taken: `InterpolationSchedule`'s prefix schedules are O(n²) in its steps (Sonnet) — n is the cvar-bound
+changes in a recording, a handful (*reasoned*); `stretches.Insert` is O(stretches) for far-apart descending asks
+(Sonnet) — bounded by the asks in rise windows; a non-frame `Sample` at another step count forces a resync (Sonnet) —
+cost only, and it re-derives every track.
+
+Review 30 and merge review 14 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; every reviewer confirmed `DiffersFrom` equals C++ float `!=` for ±0, NaN, infinities and subnormals, and that
+its six callers then were the origin and angle terms of `c_baseentity.cpp:2571-2572`; the fix below adds three, for
+`mathlib.h:663-665`, which `DiffersFrom`'s remarks now name). **Fixed, parity (lead):** the angle
+lerp's shortcut compared bits, where the engine's `Lerp<QAngle>` opens with `if ( q1 == q2 ) return q1;`
+(`mathlib.h:663-665`) under `QAngle::operator==` (`vector.h:2035-2040`), a float compare. A pitch of +0 then −0 went
+through the quaternion round trip, which perturbs the angles: `At_AnglesDifferingOnlyInTheSignOfZero_ReturnTheStoredAngles`
+draws five yaws to the bit and, under the bit compare, drew 37.29999 for 37.3 and −159.29999 for 200.7. It now uses
+`!DiffersFrom`, and `SameBits` is gone. **Fixed, tests:** the resting half of the allocation test times each kind of
+step on its own in one pass (forward still and change steps; back walking and memo-answered steps), asserts 21 held and
+2,055 answering 2,050 (lead, cavecrew) — it reddens when a forward step records a non-change (`>` to `>=`) and when a
+still step inserts a stretch instead of extending; `LargerStretchBelowAbsorbsStepsBack` is four against three rather
+than a tie (cavecrew). **Records:** findings 20 and 115 name all three gate terms (`simTimeChanged` too), say "at one
+simulation time", cite `QAngle::operator!=` read, and date the two fixes to reviews 28 and 29 (cavecrew, Fable).
+**Closed by reading (Fable's open item):** `m_iv_angRotation` is added with `LATCH_SIMULATION_VAR` only
+(`c_baseentity.cpp:1183`), no `INTERPOLATE_LINEAR_ONLY`, so `GetInterpolationInfo` takes a third sample for it
+(`interpolatedvar.h:851`) and `Settled` comparing the oldest is right. Not taken: a random oracle across a trim and a
+reset (Fable) — a generation start stops every walk, held by the fixed-order reset tests; a note on `_delaySteps` for a
+props-less timeline (Sonnet) — production builds props.
+
+Review 31 and merge review 15 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; Sonnet found no other float compare on the wrong side in what the branch touches, and Fable found one outside
+it). **Made and then reverted in review 32 — now B870:** `PoseBetween` returning the arrival keyframe's parameters
+whenever the delayed pair agrees (Fable). Review 31 made it always blend; review 32 showed that wrong twice — the
+engine's `_Interpolate` DOES have a quick exit, copying a pair that is one entry (`interpolatedvar.h:1315`), so a held
+looping parameter at 1.0 drew 0 (Fable, cavecrew); and the shortcut was hiding a view-time `OnNewModel` reset seeded
+from the end of the recording, which blending drew (lead). Likewise a `Reset` clearing the memos, which cleared them
+before its own appends (lead, cavecrew). Both reverted; B870 files the five parts.
+**Fixed:** the angle test asserted only the yaw, equal at both ends, so returning `q2` instead of the engine's `q1`
+passed (lead, cavecrew) — it now asserts the pitch is the older entry's +0 by its bits, and reddens at −0 when the
+shortcut returns the newer; the NaN half of `QAngle::operator==` had no test at the shortcut (cavecrew) —
+`At_AnglesWithANaNPitchAtBothEnds_SkipTheShortcut` draws a NaN yaw, and reddens with the gate's two `IsNaN` terms
+dropped, beside the append-gate test; `Settled`'s `longer <= 0` called a pair with one changetime settled, where the
+engine reaches the settle test only inside `if ( dt > 0.0001f )` (`interpolatedvar.h:844`) — dead, since `Bracket`
+picks a newer entry past the target and an older one at or before it, so it is deleted rather than kept beside a
+branch the engine lacks (Sonnet; no test, since no input reaches it). Records: `DiffersFrom`'s remarks name both engine
+sites; findings 115 points to findings 20 for the third compare; the review-30 caller count says six then, nine now
+(lead, cavecrew); the resting half's "could not fail" is narrowed to what it was blind to (cavecrew). Not taken: a
+`TargetFor` floor under a second, later cut (Codex) — review 11 records it as undrawable (such a cut sits below that
+frame's own target), and the frame-timing cases are B869; `FrameStart`'s announcement survives a seek, so a non-frame
+sample at exactly the announced tick reads the old frame's read (Sonnet) — no production caller asks there, and the
+presenter announces every frame; the allocation test's zero could flake on a one-off runtime allocation (Sonnet) — a
+least over ten samples per kind, and a flake is a defect to chase if it ever shows.
+
+Review 32 and merge review 16 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker in the memo or the compares). **Reverted:** review 31's `PoseBetween` and `Reset` changes, for the reasons in the
+paragraph above; their test goes with them, and B870 carries its expected values. **Fixed:** the NaN angle test is named
+for what it observes, `…_DrawANaNYaw` (lead); `LatestChangeIndex`'s two `<remarks>` blocks are one (Sonnet). Not taken:
+the "unnecessary" reading of the `Reset` clear (Sonnet) — moot, reverted.
+
+Review 33 and merge review 17 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; the revert is byte-exact apart from comments and the `Settled` deletion, and deferring B870 is agreed — B860
+does not worsen any part of it). Records only: B870 part 1 no longer says B860 widens it (Fable); part 2 says the reset
+happens when the parameter count differs from the width (cavecrew); part 5 says pre-widening entries stay one wide
+(Fable, *reasoned*); the quick-exit test names one entry, past the head (cavecrew); `PoseBetween`'s and the lock's
+remarks are one-line pointers to B870 (lead); `LastReceivedAtOrBefore`'s "arrival IS monotonic" and the shared pose
+fraction name the B870 exception (cavecrew, Fable); findings 115 rewrapped (lead). Not taken: `Memos.Settles` growth on a
+very long recording kept in rise windows (Sonnet) — recorded since review 27, *reasoned*.
+
+Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
+of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
+long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the
+window's frames and the first scan per key, *reasoned*. A `--measure` across a rise on a populated demo is the number.
+
+Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
+
+Not taken (review 12): `SettleFrame` and `LatestChangeIndex` walk back to the last change, long for a variable that never changes
+beside a sibling that does (Fable) — cost only, inside the window after a rise, which a recording has a handful of. The
+round-11 bound has no test of its own (Sonnet): it can only start a walk early, and the 205 test reddens when it skips
+the walk. The face after a jump is B865. Locally recorded demos and `GetInterpolationAmount`'s fall-through
+(`c_baseentity.cpp:5930-5938`, Sonnet) is B861.
+
+Not taken (Sonnet, review 10): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
+same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken
+(**reversed in review 13**: the recorder is predicted since Part 3, so these readers did anchor on him; they now take
+`DrawnPose`): the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+`ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
+anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
+before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`
+reads prop tracks only because only props are cached (Sonnet). Codex's "a fall after a rise returns a target before the
+floor": `TargetFor` returns the floor for any target before it, and the rise is still the last one. Records: alternate
+ticks and `cl_interp_npcs` are closed by reading, not measuring; TF weapons are prediction-eligible from
+`CTFWeaponBase`'s constructor (`SetPredictionEligible( true )`, `tf_weaponbase.cpp`, *read*).
+
+Not taken, each with its reason:
+- *The end of the hold is no wake* (Sonnet). After the window a held variable is sampled at the plain target, and that
+  answer differs from the held one only where a differing older sample bends the curve — which makes the held sample
+  unsettled too, so the track is never parked there and is re-sampled every frame. A window wake was written and its
+  test, `PropsAt_SteppedAcrossTheEndOfARisesHold_MatchesAFreshTimelineEverywhere`, passed with the wake disabled, so the
+  wake was deleted and the test kept as a guard. The step in the answer at the window's end is B864's.
+- *`_delaySteps` is built once* (Sonnet): a timeline's tracks are fixed at construction (the builder hands them over
+  whole; a window is a new timeline), so no track arrives after the first sample.
+- *The frame start outlives its frame* (Sonnet): a later sample at exactly that tick is that frame's answer, which is
+  what any reader asking for the shown moment wants.
+- *The floor vanishes once the target reaches the furthest earlier one* (Codex): past that target the bracket's older
+  entry is at least the first entry older than the cut, so the spline's third sample is one the engine kept.
+- Records: the frames-a-tick-apart model is tagged *interpolated* in findings 115 (Sonnet).
 
 Found in B848 review 2 (Fable). `C_BaseEntity::CheckCLInterpChanged` (`c_baseentity.cpp:6443-6465`) notices
 `GetClientInterpAmount()` changing and sets each interpolated variable's own amount through

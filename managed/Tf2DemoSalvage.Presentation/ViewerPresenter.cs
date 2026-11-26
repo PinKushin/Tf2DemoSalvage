@@ -572,7 +572,9 @@ public sealed partial class ViewerPresenter : IDisposable
 
         foreach (SceneBuilding building in timeline.BuildingsAt(tick))
         {
-            if (building.EntityIndex == entity && timeline.TrackFor(entity, tick)?.At(tick) is { } pose)
+            // Where the building is drawn, `GetAbsOrigin()` (B860 review 13, Fable).
+            if (building.EntityIndex == entity && timeline.TrackFor(entity, tick) is { } track &&
+                timeline.DrawnPose(entity, track, tick) is { } pose)
             {
                 return (
                     new Vector3(pose.X, pose.Y, pose.Z),

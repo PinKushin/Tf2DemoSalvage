@@ -22,12 +22,31 @@ public sealed class InterpolationSchedule
     private readonly double[] _amounts;
     private readonly int[] _ticks;
 
+    /// <summary>The schedule as it stood through each step: entry k holds steps 0..k, the last is this one (B860).</summary>
+    private readonly InterpolationSchedule[] _asOf;
+
     private InterpolationSchedule(int[] from, double[] amounts, int[] ticks, double interval)
     {
         _from = from;
         _amounts = amounts;
         _ticks = ticks;
         IntervalPerTick = interval;
+        _asOf = new InterpolationSchedule[from.Length];
+        _asOf[^1] = this;
+
+        for (int last = 0; last + 1 < from.Length; last++)
+        {
+            _asOf[last] = new InterpolationSchedule(from[..(last + 1)], amounts[..(last + 1)], ticks[..(last + 1)], interval, _asOf);
+        }
+    }
+
+    private InterpolationSchedule(int[] from, double[] amounts, int[] ticks, double interval, InterpolationSchedule[] asOf)
+    {
+        _from = from;
+        _amounts = amounts;
+        _ticks = ticks;
+        IntervalPerTick = interval;
+        _asOf = asOf;
     }
 
     /// <summary>Valve's defaults at TF2's tick interval, one instance every track starts from.</summary>
@@ -35,6 +54,24 @@ public sealed class InterpolationSchedule
 
     /// <summary>Seconds per tick the delays were converted at.</summary>
     public double IntervalPerTick { get; }
+
+    /// <summary>The delay of a predicted entity: one tick, whatever the amount (B860).</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>The schedule.</returns>
+    /// <remarks>
+    /// <c>GetInterpolationAmount</c> returns <c>TICK_INTERVAL * serverTickMultiple</c> for an entity that
+    /// <c>GetPredictable()</c> or <c>IsClientCreated()</c> (<c>c_baseentity.cpp:5925-5928</c>), before it reads
+    /// <c>GetClientInterpAmount</c> at all. The multiple is 2 only on alternate ticks, which need <c>maxClients == 1</c>
+    /// (<c>baseentity_shared.cpp:2544-2552</c>), and a TF2 server is never one: <c>GetPlayerLimits</c> sets the minimum to 2
+    /// (<c>tf_gameinterface.cpp:22</c>) and the engine clamps <c>maxplayers</c> to it (<c>engine.dll</c>'s maxplayers setter).
+    /// The amount it reports is that tick's seconds.
+    /// </remarks>
+    public static InterpolationSchedule Predicted(double intervalPerTick)
+    {
+        double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
+
+        return new([int.MinValue], [interval], [1], interval);
+    }
 
     /// <summary>One delay for every tick: Valve's defaults, or a track built for a test.</summary>
     /// <param name="intervalPerTick">Seconds per tick.</param>
@@ -101,6 +138,69 @@ public sealed class InterpolationSchedule
     /// <remarks>A millionth of a tick added before the floor, as `FireTick` does, so an exact tick that division leaves a
     /// hair short is not read as the one before (B848 review 2, Sonnet).</remarks>
     public double SecondsAtTime(double seconds) => TicksAt((seconds / Interval) + 1e-6d) * Interval;
+
+    /// <summary>
+    /// The schedule a frame interpolates under when its <c>FRAME_START</c> had read the recording through
+    /// <paramref name="frameStart"/>: the steps from then on are not yet known to it (B860).
+    /// </summary>
+    /// <param name="frameStart">The last tick read before the frame started.</param>
+    /// <returns>The schedule through the step holding that tick; the same instance for every tick of one step.</returns>
+    /// <remarks>
+    /// <c>CEngine::Frame</c> calls <c>ClientDLL_FrameStageNotify( FRAME_START )</c> before <c>HostState_Frame</c> runs the
+    /// ticks whose <c>CL_ReadPackets</c> reads the frame's packets (the x64 <c>engine.dll</c>, disassembled: <c>CEngine::Frame</c>, <c>_Host_RunFrame</c>, <c>_Host_RunFrame_Client</c>),
+    /// and <c>FRAME_START</c> is where <c>CheckCLInterpChanged</c> hands each variable the new amount
+    /// (<c>cdll_client_int.cpp:2344</c>, <c>c_baseentity.cpp:6443-6465</c>). So a change read this frame is interpolated
+    /// under from the next.
+    /// </remarks>
+    public InterpolationSchedule AsOf(double frameStart) => _asOf[IndexAt(frameStart)];
+
+    /// <summary>The ticks the steps after the first start at, ascending: where <see cref="AsOf"/> changes its answer.</summary>
+    internal ReadOnlySpan<int> StepStarts => _from.AsSpan(1);
+
+    /// <summary>The start of the last step at or before a tick whose delay is longer than the step before it (B860).</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The step's first tick, or null when the delay has not risen by then.</returns>
+    public int? LastRiseAtOrBefore(double tick)
+    {
+        for (int index = _from.Length - 1; index >= 1; index--)
+        {
+            if (_from[index] <= tick && _ticks[index] > _ticks[index - 1])
+            {
+                return _from[index];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The furthest the delayed target reached on any whole tick before this one, a frame a tick: what every earlier frame
+    /// pruned its history against (B860).
+    /// </summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The target, or negative infinity before the first tick.</returns>
+    /// <remarks>
+    /// The frame at tick u interpolates under the delay the tick before it left (<see cref="AsOf"/>): a step from tick s is
+    /// first used by the frame at s + 1, and the frame at s still aims <c>s − </c>the step before's delay.
+    /// </remarks>
+    public double MaxTargetBefore(double tick)
+    {
+        double last = Math.Ceiling(tick) - 1d;
+        double most = double.NegativeInfinity;
+
+        for (int index = 0; index < _from.Length; index++)
+        {
+            double end = index + 1 < _from.Length ? _from[index + 1] : double.PositiveInfinity;
+            double latest = Math.Min(end, last);
+
+            if (latest >= (double)_from[index] + 1d)
+            {
+                most = Math.Max(most, latest - _ticks[index]);
+            }
+        }
+
+        return most;
+    }
 
     /// <summary>The first tick after this one at which the delay changes, or null when it never does again.</summary>
     /// <param name="tick">The tick.</param>

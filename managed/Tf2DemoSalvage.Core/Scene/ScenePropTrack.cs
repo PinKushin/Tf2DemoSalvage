@@ -1682,6 +1682,15 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int? OwnedBy { get; internal set; }
 
+    /// <summary>
+    /// Whether its class predicts while its owner is the local player — <c>CTFWeaponBase::ShouldPredict</c>
+    /// (<c>tf_weaponbase.cpp:3433-3441</c>), any class reaching <c>DT_TFWeaponBase</c> (B860).
+    /// </summary>
+    public bool PredictsForItsOwner { get; internal set; }
+
+    /// <summary>The delay schedule the timeline's last derivation sampled this track under (B860); null before one.</summary>
+    internal InterpolationSchedule? SampledUnder { get; set; }
+
     /// <summary>The wire's attribute inputs, or null for an entity that carries none.</summary>
     /// <remarks>
     /// **A track scalar by the B244 test — can it change while the entity stays itself?** — and it
@@ -1801,7 +1810,7 @@ public sealed class ScenePropTrack
 
     /// <summary>Whether the pose is mid-lerp at this tick, and when its answer next changes.</summary>
     /// <param name="tick">The moment being sampled.</param>
-    /// <param name="blend">Whether this track samples through <see cref="At"/> rather than <see cref="Held"/>.</param>
+    /// <param name="blend">Whether this track samples through <see cref="At(double)"/> rather than <see cref="Held"/>.</param>
     /// <returns>
     /// <c>Changing</c>: the sampled pose varies continuously right now, so it must be re-sampled
     /// every rebuild until the next wake. <c>NextWake</c>: the next tick at which the answer can
@@ -1810,7 +1819,7 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **This is <c>NoteChanged</c> computed ahead of time.** The engine is told when an update
     /// changes a variable and marks the entity for interpolation; a demo's future is on disk, so a
-    /// track can name every tick where its own <see cref="At"/> changes behaviour: a keyframe
+    /// track can name every tick where its own <see cref="At(double)"/> changes behaviour: a keyframe
     /// arriving (the causality gate at <c>toTick &gt; tick</c> opening), a lerp window opening
     /// (`heldUntil + delay`) or closing (`keyframe + delay`), and the track's own birth and death.
     ///
@@ -1824,8 +1833,16 @@ public sealed class ScenePropTrack
     /// **<c>Changing</c> errs the same way**: true means only "re-sample every frame", so a
     /// window judged slightly wide re-samples a constant answer, while one judged narrow freezes
     /// a moving prop. It is true from the gate opening to a tick past the window closing.
+    ///
+    /// Under the delay schedule a frame knows (B860); the overload without one, read by no caller, went in review 14.
+    ///
+    /// **One boundary has no wake of its own** (B860 review 17, Sonnet): the first-pose clause of `settled` also asks
+    /// <see cref="InterpolationSchedule.MaxTargetBefore"/>, which moves with the frame, and nothing wakes the track when it
+    /// crosses birth. Safe because what the first pose answers there is the settled value either way, so `At`'s answer
+    /// does not change at that tick; a change that made the two differ would need a wake added here.
     /// </remarks>
-    internal (bool Changing, double NextWake) Motion(double tick, bool blend)
+    /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
+    internal (bool Changing, double NextWake) Motion(double tick, bool blend, InterpolationSchedule schedule)
     {
         // **The state fields, the track's birth and its death are `Held`'s boundaries**, and a settled
         // interpolation says nothing about any of them — so they are wakes whatever else is true.
@@ -1838,7 +1855,12 @@ public sealed class ScenePropTrack
 
         int born = _keyframes.FirstTick;
         int now = (int)Math.Floor(tick);
-        double target = tick - Interpolation.TicksAt(tick);
+
+        // The same targets `At` samples at, per engine variable (B860).
+        double target = TargetFor(_simulation, tick, schedule, OriginVariable);
+        double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
+        double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable);
+        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
         // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
@@ -1866,10 +1888,11 @@ public sealed class ScenePropTrack
         // stated pose there without asking any history. A history whose changetimes precede the entity's
         // arrival settles before that answer changes: a sticky bomb on the 2026 pub POV was held 352 units
         // from where a scrub drew it, for the three ticks between its origin settling and `born + delay`.
-        bool settled = target > born
-            && Settled(_simulation, target, now)
-            && Settled(_animation, target, now)
-            && Settled(_poseParameters, target, now);
+        bool settled = !FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget)
+            && Settled(_simulation, target, now, OriginVariable)
+            && Settled(_simulation, anglesTarget, now, AnglesVariable)
+            && Settled(_animation, animationTarget, now, CycleVariable)
+            && Settled(_poseParameters, poseTarget, now, WholeVariable);
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
         // none because the packet arriving IS the notification; a reader holding the whole recording has to
@@ -1899,11 +1922,12 @@ public sealed class ScenePropTrack
             [
                 _simulation.ArrivesAfter(now),
                 _animation.ArrivesAfter(now),
-                _simulation.HeadChangeTime(now) is { } simulated ? Interpolation.Reaches(simulated, tick) : null,
-                _animation.HeadChangeTime(now) is { } animated ? Interpolation.Reaches(animated, tick) : null,
+                _simulation.HeadChangeTime(now) is { } simulated ? schedule.Reaches(simulated, tick) : null,
+                _animation.HeadChangeTime(now) is { } animated ? schedule.Reaches(animated, tick) : null,
                 // One past `born`: at a target of exactly `born` the answer is still the first keyframe.
-                Interpolation.Reaches(born + 1, tick),
-                Interpolation.NextChangeAfter(tick),
+                schedule.Reaches(born + 1, tick),
+                // A frame's schedule ends at its frame start; the step after is the timeline's to notice (B860).
+                schedule.NextChangeAfter(tick),
             ])
         {
             if (moment is { } at && at > tick && at < next)
@@ -1925,8 +1949,51 @@ public sealed class ScenePropTrack
     /// simulation falls back to the stated keyframe, the cycle to the simulation pair, the pose parameters
     /// to the stated list. Each of those changes only at a keyframe or an arrival, both of them wakes.
     /// </remarks>
-    private static bool Settled(InterpolatedHistory history, double target, int now) =>
-        history.Bracket(target, now) is not { NoMoreChanges: false };
+    /// <param name="variable">Which of the history's engine variables (B860 review 2).</param>
+    private static bool Settled(InterpolatedHistory history, double target, int now, HistoryVariable variable) =>
+        history.BracketVariable(target, now, variable.First, variable.Count) is not { NoMoreChanges: false };
+
+    /// <summary>Whether <see cref="At(double)"/> answers the first stated pose whole: nothing drawn yet has passed birth.</summary>
+    /// <remarks>
+    /// The delayed moment and every variable's target at or before birth (B860 reviews 3 and 4), and **no earlier frame aimed
+    /// past it** (review 5, Fable): once a frame was drawn from the history, a rise that sends the target back before birth
+    /// must not bring back the skin and visibility the entity was born with, which are plain networked members, live from
+    /// the latest update. With no rise the last clause follows from the first. That the first pose carries birth state for
+    /// the delay's length after birth at all is B865.
+    /// </remarks>
+    private bool FirstPoseAnswers(
+        double tick, InterpolationSchedule schedule, double target, double anglesTarget, double animationTarget, double poseTarget)
+    {
+        int born = _keyframes.FirstTick;
+
+        return tick - schedule.TicksAt(tick) <= born
+            && Math.Max(Math.Max(target, anglesTarget), Math.Max(animationTarget, poseTarget)) <= born
+            && schedule.MaxTargetBefore(tick) <= born;
+    }
+
+    /// <summary>
+    /// One engine variable's components inside a history entry (B860 review 2, Fable): `m_iv_vecOrigin` and
+    /// `m_iv_angRotation` are separate `CInterpolatedVar`s with their own `m_bNeedsToInterpolate`, which share this
+    /// project's simulation entries.
+    /// </summary>
+    /// <param name="First">The first component.</param>
+    /// <param name="Count">How many; negative for the whole entry.</param>
+    private readonly record struct HistoryVariable(int First, int Count);
+
+    /// <summary>`m_iv_vecOrigin`: the simulation entry's first three components.</summary>
+    private static readonly HistoryVariable OriginVariable = new(0, 3);
+
+    /// <summary>`m_iv_angRotation`: the simulation entry's last three.</summary>
+    private static readonly HistoryVariable AnglesVariable = new(3, 3);
+
+    /// <summary>A history that is one engine variable: the pose parameters'.</summary>
+    private static readonly HistoryVariable WholeVariable = new(0, -1);
+
+    /// <summary>
+    /// `m_iv_flCycle`: the animation entry's first component (B860 review 15, Fable). The sequence beside it is this
+    /// project's, and a latch that changes only the sequence changes nothing `NoteChanged` compares.
+    /// </summary>
+    private static readonly HistoryVariable CycleVariable = new(0, 1);
 
     /// <summary>The next tick at which <see cref="Held"/> can answer differently, or infinity when never.</summary>
     /// <param name="tick">The moment being sampled.</param>
@@ -1934,7 +2001,7 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **Everything a track's state fields and its visibility can do between two samples.** `Held` is the
     /// keyframe at or before the tick, and `Alive` bounds it, so its answer moves only at those three.
-    /// Shared by <see cref="Motion"/>, whose own state wakes these are, and by a move PARENT whose
+    /// Shared by <see cref="Motion(double, bool, InterpolationSchedule)"/>, whose own state wakes these are, and by a move PARENT whose
     /// interpolation turns on this track's visibility (B438): `ShouldInterpolate`'s fourth clause asks a
     /// child, so the parent has to be looked at again when the child's answer can change.
     /// </remarks>
@@ -2140,9 +2207,7 @@ public sealed class ScenePropTrack
         // **Exact comparison, because Valve's is exact.** `m_vecOldOrigin != GetLocalOrigin()` is
         // `Vector::operator!=`, a component-wise float compare with no tolerance — a position that
         // differs in its last bit IS a change to the engine, and a tolerance here would drop an entry
-        // the engine appends. `.Equals` says the same thing in a form the analyzer accepts; a bare `!=`
-        // on floats is refused by S1244, which is a good rule that this one case has to opt out of by
-        // spelling the comparison rather than by suppressing the warning.
+        // the engine appends. `DiffersFrom` spells the float `!=` in a form S1244 accepts.
         bool movedOrTurned = _lastReceived is not { } before ||
             DiffersFrom(before.X, received.X) || DiffersFrom(before.Y, received.Y) ||
             DiffersFrom(before.Z, received.Z) || DiffersFrom(before.Pitch, received.Pitch) ||
@@ -2221,24 +2286,30 @@ public sealed class ScenePropTrack
         _animationAppliedAt.Add(animationAppliedAt);
     }
 
-    /// <summary>Whether two received floats are not the same value, bit for bit.</summary>
+    /// <summary>Whether two received floats differ as the engine's float <c>!=</c> says.</summary>
     /// <remarks>
+    /// **Two engine sites, one semantics**: the append gate's `Vector`/`QAngle` `!=` (`c_baseentity.cpp:2571-2572`), and,
+    /// negated, the angle lerp's `if ( q1 == q2 ) return q1;` (`mathlib.h:663-665`, `QAngle::operator==`,
+    /// `vector.h:2035-2040`) in <see cref="SlerpAngles(in HistoryEntry, in HistoryEntry, float)"/>. Both are float
+    /// compares; the history's own compare is the other kind, a <c>memcmp</c> (<c>InterpolatedHistory.Same</c>).
+    ///
     /// **The engine's test is exact and this has to be too.** `m_vecOldOrigin != GetLocalOrigin()` is
-    /// `Vector::operator!=`, a component-wise compare with no tolerance, so a position differing in its
-    /// last bit IS a change and gets a history entry. A tolerance here would drop an entry the engine
-    /// appends, which is the collapse B382 is about, one step smaller.
+    /// `Vector::operator!=`, a component-wise float compare with no tolerance (`c_baseentity.cpp:2571`), so
+    /// a position differing in its last bit IS a change and gets a history entry. A tolerance here would
+    /// drop an entry the engine appends, which is the collapse B382 is about, one step smaller.
     ///
-    /// **Written as a bit compare rather than `!=` or `.Equals` because S1244 refuses both**, and the
+    /// **A float compare, not a bit compare**: +0 and −0 are equal and a NaN differs from everything,
+    /// itself included. Until B860 review 29 this compared bits, which said the opposite on both; it hid
+    /// behind a float-equal history compare, and showed once that compare became the engine's `memcmp`
+    /// (`interpolatedvar.h:636`), which is bitwise where this gate is not.
+    ///
+    /// **Written with `CompareTo` because S1244 refuses `!=`, `.Equals` and a `&lt;`/`&gt;` pair**, and the
     /// rule it enforces is a good one — an exact float compare is nearly always a defect. This is the
-    /// exception, so it says so in a form that is exact by construction rather than suppressing the
-    /// analyzer and leaving the next reader to wonder which it was.
-    ///
-    /// **What this does differently from the engine, stated:** two NaNs compare EQUAL here and unequal in
-    /// `Vector::operator!=`. A networked origin is never NaN — `SendPropVector` has no encoding for one —
-    /// so no input reaches that difference.
+    /// exception, spelled rather than suppressed: `CompareTo` orders −0 with +0, and orders a NaN equal to a
+    /// NaN, which the NaN tests ahead of it overrule.
     /// </remarks>
     private static bool DiffersFrom(float first, float second) =>
-        BitConverter.SingleToInt32Bits(first) != BitConverter.SingleToInt32Bits(second);
+        float.IsNaN(first) || float.IsNaN(second) || first.CompareTo(second) != 0;
 
 
     /// <summary>Records that the entity ceased to exist.</summary>
@@ -2328,6 +2399,198 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int EndTick => _endTick;
 
+    /// <summary>The target a history is sampled at for a tick: the delayed moment, as the engine has it after a rise (B860).</summary>
+    /// <param name="history">The variable's history.</param>
+    /// <param name="tick">The tick asked for.</param>
+    /// <returns>The target.</returns>
+    /// <remarks>
+    /// With the delay never having risen this is <c>tick − <see cref="InterpolationSchedule.TicksAt"/>(tick)</c>. After a
+    /// rise the engine differs in two ways, both because `CheckCLInterpChanged` only sets each variable's amount
+    /// (<c>c_baseentity.cpp:6443-6465</c>):
+    ///
+    /// - **A variable that had settled holds.** Once its target passed the newest entry it stopped being interpolated
+    ///   (`m_bNeedsToInterpolate`, <c>c_baseentity.cpp:887</c>) and nothing but an update's latch starts it again
+    ///   (<c>:2806-2836</c>), so with no arrival since the rise it keeps the value it had just before.
+    /// - **A variable still interpolating reaches no further back than its pruned history.** Every earlier frame cut
+    ///   its history at <c>currentTime − amount − EXTRA_INTERPOLATION_HISTORY_STORED</c> (<c>interpolatedvar.h:1057</c>),
+    ///   and a target older than every entry it kept answers the oldest (<c>:877-882</c>).
+    ///
+    /// The amount takes effect at the next `FRAME_START` (<c>cdll_client_int.cpp:2344</c>), which comes before that
+    /// frame's packets are read: <paramref name="schedule"/> is the schedule as that frame start knew it
+    /// (<see cref="InterpolationSchedule.AsOf"/>).
+    /// </remarks>
+    /// <param name="schedule">The delay schedule the frame interpolates under.</param>
+    /// <param name="variable">
+    /// Which engine variable of the history (B860 review 2, Fable): each has its own `m_bNeedsToInterpolate`, set at a
+    /// latch only where that variable's value changed (<c>c_baseentity.cpp:2828-2829</c>).
+    /// </param>
+    private static double TargetFor(InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable) =>
+        TargetFor(history, tick, schedule, variable, out _);
+
+    /// <summary><see cref="TargetFor(InterpolatedHistory, double, InterpolationSchedule, HistoryVariable)"/>, and the oldest entry still held.</summary>
+    /// <param name="history">The variable's history.</param>
+    /// <param name="tick">The tick asked for.</param>
+    /// <param name="schedule">The delay schedule the frame interpolates under.</param>
+    /// <param name="variable">Which engine variable of the history.</param>
+    /// <param name="floor">
+    /// The changetime of the oldest entry the pruning left, or null when no rise's pruning reaches the target: nothing older
+    /// is held, so a pair starting there has no third sample (B860 review 7, Fable).
+    /// </param>
+    /// <returns>The target.</returns>
+    private static double TargetFor(
+        InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable, out int? floor)
+    {
+        floor = null;
+        double target = tick - schedule.TicksAt(tick);
+
+        // **A target at or past every earlier frame's ends the rise's effect**: nothing pruned is that recent, and from here
+        // a held variable is sampled as one that never saw a rise is. That a latch which changed nothing does not re-arm a
+        // variable at any tick, rise or not, is B864; this keeps the walks below to the few frames after a rise.
+        if (schedule.LastRiseAtOrBefore(tick) is not { } rise || target >= schedule.MaxTargetBefore(tick))
+        {
+            return target;
+        }
+
+        int now = (int)Math.Floor(tick);
+
+        if (history.LatestChange(now, variable.First, variable.Count) is not { } changed)
+        {
+            return target;
+        }
+
+        // **Held when no latch has re-armed it since it settled, on or before the frame that read the rise** — that frame
+        // still ran under the old delay. It holds what its settle frame drew. Asking whether it is settled AT the rise
+        // instead would ask a variable nobody interpolates, and a latch that changed only another variable sharing its
+        // entries would make the answer no (B860 review 2, Fable).
+        // Its value is the entry that last changed it, which the settle frame reached: sampled at exactly that entry's
+        // changetime, a fraction of zero, so no later latch that left it alone can bend a spline through it (review 3).
+        // A latch read on the rise's own frame counts too (B860 review 12, Fable): that frame still runs under the old delay,
+        // and if its target passed the latch it settled there.
+        if (changed <= rise && SettleFrame(history, changed, rise, schedule, variable) is not null &&
+            history.LatestChangeTime(now, variable.First, variable.Count) is { } heldAt)
+        {
+            return heldAt;
+        }
+
+        if (LastListedTarget(history, tick, schedule, variable) is not { } pruned)
+        {
+            return target;
+        }
+
+        // `EXTRA_INTERPOLATION_HISTORY_STORED` is 0.05 s (`interpolatedvar.h:41`).
+        double interval = schedule.IntervalPerTick > 0d ? schedule.IntervalPerTick : Tf2TickInterval;
+        double extra = 0.05d / interval;
+        double cut = pruned.Target - extra;
+
+        // **Chosen from the history as the cutting frame held it** (B860 review 8, Fable): `Truncate( i + 3 )` ran then,
+        // so an update arriving later with a changetime below the cut is not one of its three; and the frames before it had
+        // cut too, which a late update arriving between them exposes (review 10).
+        floor = history.PrunedFloor(
+            cut,
+            pruned.Frame,
+            now,
+            frame => FrameTarget(frame, schedule) - extra,
+            frame => history.LatestArrival(frame) == frame || Listed(history, frame, schedule, variable));
+
+        return floor is { } oldest && target < oldest ? oldest : target;
+    }
+
+    /// <summary>
+    /// The furthest target any earlier frame pruned this history at, frames a tick apart (B860 review 1, Fable): only a
+    /// frame the variable was LISTED in prunes it.
+    /// </summary>
+    /// <remarks>
+    /// The engine prunes a history in two places, `Interpolate` (<c>interpolatedvar.h:1057</c>), which a settled variable
+    /// skips (<c>c_baseentity.cpp:879-887</c>), and `NoteChanged` at a latch (<c>interpolatedvar.h:667</c>), which lists the
+    /// entity on the frame that reads it. So a variable that settled before the rise last pruned on its settle frame, not
+    /// on every frame since. Targets rise with the frame inside one delay step, so the latest listed frame on each side of
+    /// the rise is the furthest on that side; the frame that reads the rise still runs under the old delay.
+    /// </remarks>
+    /// <remarks>
+    /// A latch prunes whether or not it re-armed the variable (`NoteChanged` always calls `RemoveEntriesPreviousTo`), but
+    /// on the frame that reads it, so its cut is that frame's target, which a listed frame no older already covers — except
+    /// a latch that did not re-arm, which prunes on a frame the variable is not listed in. Those are counted too.
+    /// </remarks>
+    /// <remarks>
+    /// **Every step, not only the last rise's** (B860 review 9, Fable): two rises inside one window leave the furthest cut
+    /// on the frame before the first. So the walk goes back frame by frame, taking every frame that pruned — listed, or
+    /// reading a latch — and stops once no earlier frame aimed further (<see cref="InterpolationSchedule.MaxTargetBefore"/>
+    /// is the furthest any frame up to there reached), or nothing had arrived.
+    /// </remarks>
+    private static (double Target, int Frame)? LastListedTarget(
+        InterpolatedHistory history, double tick, InterpolationSchedule schedule, HistoryVariable variable)
+    {
+        (double Target, int Frame)? most = null;
+
+        int frame = (int)Math.Ceiling(tick) - 1;
+
+        while (history.LatestArrival(frame) is { } arrived)
+        {
+            if (most is { } best && schedule.MaxTargetBefore(frame + 1) <= best.Target)
+            {
+                break;
+            }
+
+            if (arrived == frame || Listed(history, frame, schedule, variable))
+            {
+                double target = FrameTarget(frame, schedule);
+
+                if (most is not { } so || target > so.Target)
+                {
+                    most = (target, frame);
+                }
+
+                frame--;
+                continue;
+            }
+
+            // **Nothing prunes between here and the frame that settled it or the last arrival** (B860 review 10, Fable): a
+            // variable is listed from a re-arming latch to its settle frame and an arrival is a latch, so the walk jumps to
+            // the later of the two rather than stepping back over every frame of a long rest.
+            int? settled = history.LatestChange(frame, variable.First, variable.Count) is { } changed
+                ? SettleFrame(history, changed, frame - 1, schedule, variable)
+                : null;
+
+            frame = Math.Max(arrived, settled ?? arrived);
+        }
+
+        return most;
+    }
+
+    /// <summary>
+    /// Whether the frame at a tick interpolated a variable: a latch that changed it re-armed it, and no frame since settled it.
+    /// </summary>
+    private static bool Listed(InterpolatedHistory history, int frame, InterpolationSchedule schedule, HistoryVariable variable)
+    {
+        return history.LatestChange(frame, variable.First, variable.Count) is { } changed &&
+            SettleFrame(history, changed, frame - 1, schedule, variable) is null;
+    }
+
+    /// <summary>
+    /// The first frame from a re-arming latch through <paramref name="last"/> that settled a variable, or null when it was
+    /// still being interpolated after <paramref name="last"/>.
+    /// </summary>
+    private static int? SettleFrame(
+        InterpolatedHistory history, int changed, int last, InterpolationSchedule schedule, HistoryVariable variable)
+        // Memoized on the history, since a variable that never settles would otherwise be scanned from its last change on
+        // every call (B860 merge review).
+        => history.SettleFrame(
+            schedule,
+            variable.First,
+            variable.Count,
+            changed,
+            last,
+            (History: history, Schedule: schedule, Variable: variable),
+            static (frame, state) => Settles(state.History, frame, state.Schedule, state.Variable));
+
+    /// <summary>Whether the frame at a tick found nothing more to interpolate (`bNoMoreChanges`) and left the list.</summary>
+    private static bool Settles(InterpolatedHistory history, int frame, InterpolationSchedule schedule, HistoryVariable variable) =>
+        history.BracketVariable(FrameTarget(frame, schedule), frame, variable.First, variable.Count) is { NoMoreChanges: true };
+
+    /// <summary>The target of the frame at a whole tick, which started knowing the schedule through the tick before.</summary>
+    private static double FrameTarget(int frame, InterpolationSchedule schedule) =>
+        frame - schedule.AsOf(frame - 1).TicksAt(frame);
+
     /// <summary>The pose to draw at a moment, interpolated between keyframes.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <returns>The pose, or <c>null</c> when the entity did not exist then.</returns>
@@ -2374,17 +2637,42 @@ public sealed class ScenePropTrack
     /// Together those turn a long gap into exactly what a client shows: the old pose held, then the
     /// movement rendered over the interpolation window once the update lands.
     /// </remarks>
-    public ScenePose? At(double tick)
+    public ScenePose? At(double tick) => At(tick, Interpolation.AsOf(UnannouncedRead(tick)));
+
+    /// <summary>
+    /// What a frame drawing <paramref name="tick"/> had read when it started, when no frame start says (B860 reviews 12,
+    /// 13): the last whole tick below it. A frame at a whole tick follows the one a tick before; a frame between ticks
+    /// follows one at or after the tick below it, which had read that tick's packets.
+    /// </summary>
+    /// <remarks>
+    /// **Wrong for the first frame past each tick, at any frame rate** (*interpolated*; reviews 14 and 15, Fable, Sonnet):
+    /// that frame follows one below the tick, so a frame at 50.2 after one at 49.9 had read only 49, where this says 50 —
+    /// one unannounced fractional sample in N at N frames a tick, and every one at or below the tick rate. Which frame is
+    /// first past a tick is not knowable without the previous frame, which is what the presenter's frame start carries; it
+    /// announces its frames and never reaches this, only readers that name no frame do.
+    /// </remarks>
+    /// <param name="tick">The moment drawn.</param>
+    /// <returns>The tick read through.</returns>
+    public static double UnannouncedRead(double tick) => Math.Ceiling(tick) - 1d;
+
+    /// <summary><see cref="At(double)"/> under the delay schedule a frame knows (B860).</summary>
+    /// <param name="tick">The moment, which may fall between ticks.</param>
+    /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
+    /// <returns>As <see cref="At(double)"/>.</returns>
+    internal ScenePose? At(double tick, InterpolationSchedule schedule)
     {
         if (AtKeyframe((int)Math.Floor(tick)) is not { } earlier)
         {
             return null;
         }
 
-        // The moment being drawn, one interpolation window behind the moment being asked for.
-        double target = tick - Interpolation.TicksAt(tick);
+        // The moment being drawn, one interpolation window behind the moment being asked for, per engine variable (B860).
+        double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
+        double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
+        double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable, out int? animationFloor);
+        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
 
-        if (target <= _keyframes.FirstTick)
+        if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))
         {
             // Nothing had been received yet, so the first stated pose is all a client would have.
             return _keyframes.FirstPose;
@@ -2449,6 +2737,25 @@ public sealed class ScenePropTrack
 
         (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
 
+        // **`m_iv_angRotation` is its own variable** (B860 review 2, Fable): after a rise it can hold while the origin
+        // sharing its entries moves on, or the reverse. Linear either way — "Can't do hermite with QAngles".
+        // The targets can differ by any amount — a held or floored one is a whole changetime, the other `tick − delay` at a
+        // fractional tick — so this is a real comparison; the tolerance is the analyzer's (B860 merge review).
+        if (Math.Abs(anglesTarget - target) > 1e-9d &&
+            _simulation.Bracket(anglesTarget, (int)Math.Floor(tick)) is { } anglesPair)
+        {
+            int anglesFrom = _simulation.ChangeTimeAt(anglesPair.Older);
+            int anglesTo = _simulation.ChangeTimeAt(anglesPair.Newer);
+            float anglesFraction = anglesTo > anglesFrom
+                ? (float)Math.Clamp((anglesTarget - anglesFrom) / (anglesTo - anglesFrom), 0.0, 1.0)
+                : 0f;
+
+            (pitch, yaw, roll) = SlerpAngles(
+                new HistoryEntry(_simulation.ValuesAt(anglesPair.Older)),
+                new HistoryEntry(_simulation.ValuesAt(anglesPair.Newer)),
+                anglesFraction);
+        }
+
         // Hermite when a third sample exists, which is the engine's default rather than an extra:
         // the client splines whenever there is an older entry, and falls back to linear only when
         // there is not, or when INTERPOLATE_LINEAR_ONLY is set on the variable.
@@ -2468,7 +2775,13 @@ public sealed class ScenePropTrack
         // per-component loop. `null` is its empty-older-interval case and means linear.
         Span<float> oldestEntry = stackalloc float[SimulationComponents];
 
-        HistoryEntry? previous = _simulation.TimeFixup(pair, oldestEntry) ? new HistoryEntry(oldestEntry) : null;
+        // **No third sample older than the pruned floor** (B860 review 7, Fable): `Truncate( i + 3 )` left nothing before it
+        // (`interpolatedvar.h:782-795`), so a pair starting on it has no valid `oldestindex` and runs linear (`:851`).
+        HistoryEntry? previous =
+            (originFloor is not { } oldestHeld || _simulation.ChangeTimeAt(pair.Older) > oldestHeld) &&
+            _simulation.TimeFixup(pair, oldestEntry)
+                ? new HistoryEntry(oldestEntry)
+                : null;
 
         // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).
         // `OnLatchInterpolatedVariables` is called once per latch group and stamps each with its own
@@ -2492,7 +2805,8 @@ public sealed class ScenePropTrack
 
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
-            AnimationNeighbours(target, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops);
+            AnimationNeighbours(
+                animationTarget, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops, animationFloor);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -2520,6 +2834,19 @@ public sealed class ScenePropTrack
         // fraction, which for a viewmodel is a different pair again, and the error stopped being
         // smooth.
         // Asked AT the tick: the flag is networked per update, so the end value would decide every earlier frame (B548).
+        // `m_iv_flPoseParameter` is its own variable (B860 review 2, Fable): stamped with the cycle, so the same fraction
+        // while both run at one target; its own pair's fraction once a rise holds one and not the other. Not after a
+        // sequence restart or a model reset, which reset one history and not the other: B870.
+        Bracketing? posePair = _poseParameters.Bracket(poseTarget, (int)Math.Floor(tick));
+        float poseFraction = animationFraction;
+
+        if (Math.Abs(poseTarget - animationTarget) > 1e-9d && posePair is { } held)
+        {
+            int poseFrom = _poseParameters.ChangeTimeAt(held.Older);
+            int poseTo = _poseParameters.ChangeTimeAt(held.Newer);
+            poseFraction = poseTo > poseFrom ? (float)Math.Clamp((poseTarget - poseFrom) / (poseTo - poseFrom), 0.0, 1.0) : 0f;
+        }
+
         float cycle = FactsAt(tick).ClientSideAnimated
             ? animationFrom.Cycle
             : InterpolateCycle(
@@ -2709,8 +3036,8 @@ public sealed class ScenePropTrack
             // one `CInterpolatedVar`, and asking the cycle's pair for them was the merge B382 undoes.
             PoseParameters = PoseBetween(
                 from.PoseParameters,
-                _poseParameters.Bracket(target, (int)Math.Floor(tick)),
-                animationFraction),
+                posePair,
+                poseFraction),
 
             // Discrete: a counter part-way between two values names neither.
             ResetEventsParity = from.ResetEventsParity,
@@ -2996,8 +3323,13 @@ public sealed class ScenePropTrack
     /// last. Holding the caller's pair there gives the behaviour this had before the second clock
     /// existed, which is the right thing for an entity whose animation is not moving.
     /// </remarks>
+    /// <param name="oldestHeld">
+    /// The changetime of the oldest cycle entry a rise's pruning left, or null: a pair starting on it has no third sample
+    /// (B860 review 8, Fable).
+    /// </param>
     private (CycleSample From, CycleSample To, CycleSample? Previous, float Fraction) AnimationNeighbours(
-        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops)
+        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops,
+        int? oldestHeld = null)
     {
         if (_animation.Bracket(target, arrivedBy) is not { } pair)
         {
@@ -3033,9 +3365,10 @@ public sealed class ScenePropTrack
         // The respacing's blend follows the same flag (`TimeFixup2_Hermite`, `interpolatedvar.h:1393-1400`); the
         // sequence component never wraps.
         bool[] flags = cycleLoops ? LoopingCycle : StraightCycle;
-        CycleSample? older = _animation.TimeFixup(pair, oldestCycle, flags)
-            ? Animated(pair.Oldest, oldestCycle[0])
-            : null;
+        CycleSample? older =
+            (oldestHeld is not { } floor || fromTick > floor) && _animation.TimeFixup(pair, oldestCycle, flags)
+                ? Animated(pair.Oldest, oldestCycle[0])
+                : null;
 
         return (
             Animated(pair.Older, _animation.ValuesAt(pair.Older)[0]),
@@ -3241,7 +3574,8 @@ public sealed class ScenePropTrack
     /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
     /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
     /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
-    /// treated as immutable throughout, which is what makes handing one out safe.
+    /// treated as immutable throughout, which is what makes handing one out safe. **Differs from
+    /// `_Interpolate`: B870.**
     ///
     /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
     /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged
@@ -3357,17 +3691,17 @@ public sealed class ScenePropTrack
     private static (float Pitch, float Yaw, float Roll) SlerpAngles(
         in HistoryEntry from, in HistoryEntry to, float fraction)
     {
-        if (SameBits(from.Pitch, to.Pitch) &&
-            SameBits(from.Yaw, to.Yaw) &&
-            SameBits(from.Roll, to.Roll))
+        if (!DiffersFrom(from.Pitch, to.Pitch) &&
+            !DiffersFrom(from.Yaw, to.Yaw) &&
+            !DiffersFrom(from.Roll, to.Roll))
         {
-            // Valve's own first line ("Avoid precision errors"), and not only a shortcut: a round
-            // trip through quaternions and back perturbs the angles slightly, so a still prop
-            // would jitter.
+            // Valve's own first line ("Avoid precision errors", `if ( q1 == q2 ) return q1;`,
+            // `mathlib.h:663-665`), and not only a shortcut: a round trip through quaternions and back
+            // perturbs the angles slightly, so a still prop would jitter.
             //
-            // Exact equality is deliberate and Equals says so without a suppression: the question
-            // is whether the demo repeated the same stored bits, not whether two computed angles
-            // are close. A tolerance here would freeze genuinely slow rotations.
+            // `QAngle::operator==` is a float compare with no tolerance (`vector.h:2035-2040`): +0
+            // equals −0, a NaN equals nothing. A tolerance here would freeze genuinely slow rotations;
+            // a bit compare, used until B860 review 30, sent +0 and −0 through the round trip.
             return (from.Pitch, from.Yaw, from.Roll);
         }
 
@@ -3386,14 +3720,4 @@ public sealed class ScenePropTrack
     internal static (float Pitch, float Yaw, float Roll) SlerpAngles(
         (float Pitch, float Yaw, float Roll) from, (float Pitch, float Yaw, float Roll) to, float fraction) =>
         ValveQuaternion.InterpolateAngles(from, to, fraction);
-
-    /// <summary>Whether two angles are the same stored value, bit for bit.</summary>
-    /// <remarks>
-    /// **A question about storage, not about magnitude**, which is why it is not a tolerance
-    /// comparison and why the analyzer's usual advice does not apply (S1244). The demo either
-    /// repeated a value or stated a new one; comparing bits says exactly that. A tolerance here
-    /// would treat a slow rotation as stillness and freeze it.
-    /// </remarks>
-    private static bool SameBits(float left, float right) =>
-        BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 }

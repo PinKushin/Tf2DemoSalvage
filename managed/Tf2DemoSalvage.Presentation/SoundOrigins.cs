@@ -91,7 +91,7 @@ internal static class SoundOrigins
                 timeline.TrackFor(entity, tick) is { } track &&
                 !timeline.Dormancy.IsDormant(entity, (int)tick) &&
                 track.FactsAt(tick).AttachedTo is null &&
-                track.At(tick) is { } pose
+                timeline.DrawnPose(entity, track, tick) is { } pose
                     ? (pose, track.ModelPath)
                     : null,
             brushes,

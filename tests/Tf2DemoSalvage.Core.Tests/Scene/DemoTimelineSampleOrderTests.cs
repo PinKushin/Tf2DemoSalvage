@@ -121,11 +121,10 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
-    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 300 over ticks 0 to 30 and rests;
-    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, so the sampler's target falls back to 16. This
-    /// holds only that the cache agrees with the sampler across the change, which a reader asleep since the slide settled
-    /// would not; what the ENGINE draws there is not this (a settled entity is not put back on the interpolation list):
-    /// B860.
+    /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 480 over ticks 0 to 48 and rests;
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, while it is still moving (the frame at 50 aims at 42, short of
+    /// 48), so its target falls back as far as the history the old delay kept (B860). This holds that the cache agrees
+    /// with the sampler across the change; what the sampler answers is `InterpolationRiseConformanceTests`'.
     /// </summary>
     [Test]
     public void PropsAt_SteppedAcrossADelayChange_MatchesAFreshTimelineEverywhere()
@@ -143,7 +142,7 @@ public sealed class DemoTimelineSampleOrderTests
                 Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
             };
 
-            for (int tick = 0; tick <= 30; tick += 3)
+            for (int tick = 0; tick <= 48; tick += 3)
             {
                 crate.Add(tick, new ScenePose { X = tick * 10f });
             }
@@ -162,9 +161,145 @@ public sealed class DemoTimelineSampleOrderTests
             ShouldMatch(props, Fresh(Sliding, tick), $"at tick {tick}");
         }
 
-        // Past 30 + 34 = 64 the target has re-reached the last changetime, so the track leaves the lerping set (review 3,
-        // Fable): `Motion` woke there, which answering the first reach ever (16 ticks after the slide) could not.
-        cast[0].Lerping.ShouldBeFalse("the re-reach at 64 settled it");
+        // Past 48 + 34 = 82 the target has re-reached the last changetime, so the track leaves the lerping set (B848 review
+        // 3, Fable): `Motion` woke there, which answering the first reach ever (56, before the rise) could not.
+        cast[0].Lerping.ShouldBeFalse("the re-reach at 82 settled it");
+    }
+
+    /// <summary>
+    /// **The same, with every frame announced as the presenter announces it** (B860 review 15, Sonnet): each frame starts
+    /// having read the one before, so the cache must key on the read it was given. Each frame is compared with a fresh timeline told the same frame start.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedWithFrameStartsAcrossADelayChange_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Sliding()
+        {
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationRiseConformanceTests.RiseAtFifty(),
+            };
+
+            // An update every twenty ticks from 5, so the crate is still moving at the rise (the frame at 49.5 aims at 41.5,
+            // between 25 and 45) and no keyframe wake re-derives it between the step and the frame that must resync for
+            // it — a wake would hide a resync the cache missed.
+            for (int tick = 5; tick <= 100; tick += 20)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [crate];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Sliding());
+        List<SceneProp> props = [];
+        double previous = 40.5d;
+
+        // Three quarters of a tick apart, so a frame start's read and `ceil(tick) − 1` disagree across the step: the frame at
+        // 50.25 read 49.5 (old) where `ceil − 1` is 50, and the frame at 51 read 50.25 (new) — the step a cache keyed on the
+        // wrong read would never see change, leaving the frame at 51 under the old delay.
+        for (double tick = 41.25d; tick <= 60d; tick += 0.75)
+        {
+            stepped.FrameStart(previous, tick);
+            stepped.PropsAt(tick, props);
+
+            DemoTimeline fresh = DemoTimeline.ForTracks(Sliding());
+            List<SceneProp> expected = [];
+            fresh.FrameStart(previous, tick);
+            fresh.PropsAt(tick, expected);
+
+            ShouldMatch(props, expected, $"at tick {tick}");
+            previous = tick;
+        }
+    }
+
+    /// <summary>
+    /// **A server turning prediction off is a moment of its own** (B860 review 5, Fable): the recorder's launcher, updated
+    /// every ten ticks from 5, is predicted (one tick) until `sv_client_predict 0` at 50, and then takes the delay. No track wake
+    /// names that tick, so the stepped sample must resync there to agree with a fresh one.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossPredictionTurningOff_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Launcher()
+        {
+            ScenePropTrack weapon = new(entityIndex: 2, "models/weapons/w_models/w_rocketlauncher.mdl")
+            {
+                PredictsForItsOwner = true,
+                OwnedBy = 1,
+            };
+
+            // Off the flip's tick, so no arrival wakes the track there.
+            for (int tick = 5; tick <= 95; tick += 10)
+            {
+                weapon.Stamp(tick);
+                weapon.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            return [weapon];
+        }
+
+        Core.Net.ServerConVars off = new();
+        off.Apply(new Core.Net.SetConVarMessage([new KeyValuePair<string, string>("sv_client_predict", "0")]));
+        List<(int Tick, Core.Net.ServerConVars ConVars)> changes = [(50, off)];
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Launcher(), recorder: 1, conVarChanges: changes);
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            List<SceneProp> fresh = [];
+            DemoTimeline.ForTracks(Launcher(), recorder: 1, conVarChanges: changes).PropsAt(tick, fresh);
+
+            ShouldMatch(props, fresh, $"at tick {tick}");
+        }
+    }
+
+    /// <summary>
+    /// **Across the end of a rise's hold the cache agrees with the sampler** (B860 review 5, Sonnet): X steps 0 to 200 by
+    /// 20, an update that arrives at 44 stamped 30 moves it to 300 and settles it, and a turn at 49 leaves it there; the
+    /// delay rises at 50. The hold ends where the delayed target catches up with every earlier frame's, a tick no history
+    /// names; the answer can change there only where a differing older sample bends the curve, which keeps the track off
+    /// the settled list and so re-sampled every frame anyway.
+    /// </summary>
+    [Test]
+    public void PropsAt_SteppedAcrossTheEndOfARisesHold_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Held()
+        {
+            Core.Net.ServerConVars raised = new();
+            raised.Apply(new Core.Net.SetConVarMessage(
+            [
+                new KeyValuePair<string, string>("sv_client_min_interp_ratio", "10"),
+                new KeyValuePair<string, string>("sv_client_max_interp_ratio", "10"),
+            ]));
+            ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl")
+            {
+                Interpolation = InterpolationSchedule.From(new Core.Net.ClientInterp(), new Core.Net.ServerConVars(), [(50, raised)], 0.015d),
+            };
+
+            for (int tick = 0; tick <= 20; tick++)
+            {
+                crate.Add(tick, new ScenePose { X = tick * 10f });
+            }
+
+            crate.Add(44, new ScenePose { X = 300f }, appliedAt: 30);
+            crate.Add(49, new ScenePose { X = 300f, Yaw = 90f });
+
+            return [crate];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Held());
+        List<SceneProp> props = [];
+
+        for (double tick = 0d; tick <= 100d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            ShouldMatch(props, Fresh(Held, tick), $"at tick {tick}");
+        }
     }
 
     /// <summary>

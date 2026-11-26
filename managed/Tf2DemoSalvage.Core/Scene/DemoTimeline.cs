@@ -1295,6 +1295,10 @@ public sealed class DemoTimeline
     /// </remarks>
     private const string CombatWeaponTable = "DT_BaseCombatWeapon";
 
+    /// <summary><c>CTFWeaponBase</c>'s table, so a class reaching it predicts for its owner (B860): the one constant
+    /// <see cref="EntityState"/> also reads it by.</summary>
+    private const string TfWeaponTable = EntityState.TfWeaponTable;
+
     /// <summary>The entity that carries the round.</summary>
     /// <remarks>
     /// **`CTFGameRulesProxy`, not the teamplay one it inherits from.** A demo's schema declares
@@ -2943,11 +2947,15 @@ public sealed class DemoTimeline
     /// Corpses are not prop tracks and never reach the track walk — see `RagdollProps` — so a
     /// timeline assembled without them answers no corpses whatever its tracks hold.
     /// </param>
+    /// <param name="recorder">The point-of-view recorder's entity, for tests of what the local player predicts (B860).</param>
+    /// <param name="conVarChanges">The server's settings by the tick each holds from (B860); none when omitted.</param>
     internal static DemoTimeline ForTracks(
         List<ScenePropTrack> tracks,
         List<TimelineFrame>? frames = null,
-        IReadOnlyList<SceneRagdoll>? corpses = null) =>
-        new(frames ?? [], tracks) { Corpses = corpses ?? [] };
+        IReadOnlyList<SceneRagdoll>? corpses = null,
+        int? recorder = null,
+        IReadOnlyList<(int Tick, ServerConVars ConVars)>? conVarChanges = null) =>
+        new(frames ?? [], tracks) { Corpses = corpses ?? [], RecorderEntityIndex = recorder, ConVarChanges = conVarChanges ?? [] };
 
     /// <summary>A point-of-view timeline with the recorder's input, for tests that drive prediction (B501).</summary>
     /// <param name="frames">The recorder's networked state; entity 1 is the recorder.</param>
@@ -2985,12 +2993,16 @@ public sealed class DemoTimeline
     /// `_playerTracks` and `PropsAt` iterates `_props`. Measured on `tf2-2026-pub-pov-clean`, zero
     /// of 79 prop groups are `CTFPlayer`.
     /// </remarks>
+    /// <param name="recorder">The point-of-view recorder's entity, for tests of what the local player predicts (B860).</param>
     internal static DemoTimeline ForPlayerTracks(
-        List<ScenePropTrack> tracks, IReadOnlyList<ScenePlayer> players) =>
+        List<ScenePropTrack> tracks, IReadOnlyList<ScenePlayer> players, int? recorder = null) =>
         new(
             [new TimelineFrame(0, players), new TimelineFrame(13, players)],
             props: null,
-            playerTracks: tracks);
+            playerTracks: tracks)
+        {
+            RecorderEntityIndex = recorder,
+        };
 
     /// <summary>A timeline carrying nothing but these sounds, for testing the precache list.</summary>
     internal static DemoTimeline ForSounds(List<SceneSound> sounds) =>
@@ -3631,6 +3643,7 @@ public sealed class DemoTimeline
         private readonly HashSet<int> mergesItself;
         private readonly HashSet<int> combatWeapons;
         private readonly HashSet<int> noIk;
+        private readonly HashSet<int> predictsForOwner;
         private readonly Dictionary<int, string> effectClassNames;
         private readonly PlayerGestureFeed gestures;
         private readonly List<(int Fires, DecodedTempEntity Effect)> queuedGestures;
@@ -3966,6 +3979,7 @@ public sealed class DemoTimeline
         // **Which classes the client gives no IK** (B739): their NextBot class sets `ENTCLIENTFLAG_DONTUSEIK`, which
         // never travels — per class, as the two above are.
         noIk = [];
+        predictsForOwner = [];
 
         // **Names for temp entities, which carry a class id and nothing else** (B282). A player's
         // animation layers are excluded from the wire entirely (`tf_player.cpp:774`), so a reload,
@@ -3991,6 +4005,12 @@ public sealed class DemoTimeline
             if (SchemaClasses.UsesNoIk(schema, serverClass.TableName))
             {
                 noIk.Add(serverClass.Id);
+            }
+
+            // `CTFWeaponBase::ShouldPredict`: predicted while its owner is the local player (`tf_weaponbase.cpp:3433-3441`, B860).
+            if (SchemaClasses.Inherits(schema, serverClass.TableName, TfWeaponTable))
+            {
+                predictsForOwner.Add(serverClass.Id);
             }
         }
 
@@ -4724,7 +4744,7 @@ public sealed class DemoTimeline
 
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, combatWeapons, noIk, protocol, command.Tick, interval,
+                        mergesItself, combatWeapons, noIk, predictsForOwner, protocol, command.Tick, interval,
                         simulationLag, animationLag, clockGap, lagByClass, corpses, replaced,
                         lastHeld, recorderSlot);
                 }
@@ -7006,6 +7026,7 @@ public sealed class DemoTimeline
         HashSet<int> mergesItself,
         HashSet<int> combatWeapons,
         HashSet<int> noIk,
+        HashSet<int> predictsForOwner,
         int protocol,
         int tick,
         float interval,
@@ -7428,6 +7449,7 @@ public sealed class DemoTimeline
 
         // **A NextBot gets no IK** (B739, `SchemaClasses.UsesNoIk`): a fact of its class, kept with the class.
         track.NoIk = noIk.Contains(entity.ClassId);
+        track.PredictsForItsOwner = predictsForOwner.Contains(entity.ClassId);
 
         // **The wire's half of `IterateAttributes`, recomputed only when this update touched an
         // attribute element** (B234). The accessor walks the whole property bag, so running it on
@@ -8079,8 +8101,17 @@ public sealed class DemoTimeline
         // the caller supplies rather than one the recording states, and a sample kept from a call
         // made from somebody else's eyes answered that call's question: a `kRenderNone` mover asked
         // for from its own eyes held its last position where a cold sample blends it.
+        //
+        // **And so does a new delay schedule** (B860): a frame learns a step only at the frame start after reading it, so
+        // the step is not a tick any track's `Motion` can name. The steps are a server's bounds arriving, a few a recording.
+        _sampledRead = FrameRead(tick);
+        int steps = DelayStepsThrough(_sampledRead);
+        bool newSchedule = steps != _sampledSteps;
+
+        _sampledSteps = steps;
+
         if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam ||
-            interpolating != _sampledInterpolating || viewEntity != _sampledView)
+            interpolating != _sampledInterpolating || viewEntity != _sampledView || newSchedule)
         {
             ResyncSample(tick, viewEntity, recorderTeam, interpolating);
         }
@@ -8154,6 +8185,189 @@ public sealed class DemoTimeline
     /// <summary>Whose eyes the held samples were built from (B438).</summary>
     private int? _sampledView;
 
+    /// <summary>How many delay steps the held samples' frame start had read (B860); -1 before the first.</summary>
+    private int _sampledSteps = -1;
+
+    /// <summary>The frame start the current sample is built under (B860).</summary>
+    private double _sampledRead;
+
+    /// <summary>Every step of every track's delay schedule, ascending; built on the first sample (B860).</summary>
+    private int[]? _delaySteps;
+
+    /// <summary>The last tick read before a frame's <c>FRAME_START</c>, and the tick that frame draws (B860).</summary>
+    /// <remarks>
+    /// One reference, replaced whole, so the player path, which takes no lock, never reads one frame's start beside
+    /// another's tick (B860 review 2, Sonnet).
+    /// </remarks>
+    private sealed record FrameStartState(double LastRead, double Tick);
+
+    /// <summary>The current frame's start, or null when no frame has said.</summary>
+    private volatile FrameStartState? _frameStartState;
+
+    /// <summary>
+    /// <c>FRAME_START</c>: the frame about to be sampled starts with the recording read through
+    /// <paramref name="lastRead"/>, so it interpolates under the delay as that tick left it (B860).
+    /// </summary>
+    /// <param name="lastRead">
+    /// The tick the previous frame was drawn at while playing on, or negative infinity after a jump.
+    /// </param>
+    /// <param name="frameTick">The tick this frame draws: only a sample at exactly this tick is the frame's.</param>
+    /// <remarks>
+    /// <c>CEngine::Frame</c> calls <c>ClientDLL_FrameStageNotify( FRAME_START )</c> and only then runs the host frame whose
+    /// <c>CL_ReadPackets</c> reads this frame's packets (<see cref="InterpolationSchedule.AsOf"/>), and <c>FRAME_START</c>
+    /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A sample
+    /// at any other tick — another reader's, such as prediction looking ahead or a seek's scan — is no frame of this one,
+    /// and samples as the frame after one that read the last whole tick below it (<see cref="ScenePropTrack.UnannouncedRead"/>;
+    /// B860 review 1, Sonnet; review 12, Sonnet: reading its own tick put a step's own tick under the new delay, where the
+    /// history walks' `FrameTarget` model that frame under the old; review 13, Fable: and a frame between ticks follows
+    /// one that read the tick below it).
+    /// </remarks>
+    public void FrameStart(double lastRead, double frameTick)
+    {
+        // **A jump is read a hundred packets at a time** (B860 review 1, Fable, Sonnet): while the demo skips,
+        // `CDemoPlayer::ReadPacket` counts its calls and returns nothing past the hundredth (`engine.dll` 0x1800741e0), and
+        // every frame of the skip has its own `FRAME_START`. So the frame that reaches the target started having read to
+        // within a hundred packets of it, however far the jump began. Where in that batch it began depends on where the
+        // skip started and on how many ticks each frame ran: taken as the batch's far end, the most the engine can lag
+        // (*interpolated*).
+        // **Never before the first packet** (B860 review 3, Sonnet): the signon, its `net_SetConVar`s among it, is read when
+        // playback starts or restarts, before any skip counts a call; this timeline holds those settings from the first
+        // packet's tick (B843). With no packets at all there is nothing to place the batch by, and the caller's start stands
+        // unless it is a jump's.
+        int frame = FrameIndexAt((int)Math.Floor(frameTick));
+        double batch = double.NegativeInfinity;
+
+        if (frame >= SkipBatchPackets)
+        {
+            batch = _frames.TickAt(frame - SkipBatchPackets);
+        }
+        else if (_frames.Count > 0)
+        {
+            batch = Math.Min(_frames.TickAt(0), frameTick);
+        }
+
+        // A jump on a timeline with no packets to place it by reads its own tick (B860 review 4, Sonnet).
+        double start = Math.Max(lastRead, batch);
+
+        _frameStartState = new FrameStartState(double.IsNegativeInfinity(start) ? frameTick : start, frameTick);
+    }
+
+    /// <summary>How many packets `CDemoPlayer::ReadPacket` reads in one go while skipping (its `99 &lt; count` stop).</summary>
+    private const int SkipBatchPackets = 100;
+
+    /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
+    private double FrameRead(double tick) =>
+        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : ScenePropTrack.UnannouncedRead(tick);
+
+    /// <summary><see cref="InterpolationSchedule.Predicted"/> at this recording's rate, made once.</summary>
+    private InterpolationSchedule? _predicted;
+
+    /// <summary>
+    /// The schedule a track samples under at a tick, for a frame that started having read <paramref name="read"/> (B860):
+    /// a predicted entity's one tick, else its own schedule as the frame start knew it.
+    /// </summary>
+    /// <remarks>
+    /// **What a point-of-view demo predicts.** `C_BaseEntity::CheckInitPredictable` needs `cl_predict`, a local player,
+    /// eligibility and `ShouldPredict()` (`c_baseentity.cpp:2674-2712`). `cl_predict` reads `sv_client_predict` unless that
+    /// is -1 (`cdll_bounded_cvars.cpp:36-48`), its registered default (`engine.dll`), and the client forces its own to 1 on
+    /// a level of more than one client (`cdll_client_int.cpp:1645-1652`). Prediction runs during playback, skipped only
+    /// while the demo skips (`CL_RunPrediction`, `engine.dll`). A TF weapon is eligible from construction and predicts while
+    /// the local player owns it; the local player himself is drawn where the demo's view put him (B56).
+    /// </remarks>
+    private InterpolationSchedule ScheduleFor(ScenePropTrack track, double tick, double read) =>
+        track.PredictsForItsOwner && RecorderEntityIndex is { } recorder && track.FactsAt(tick).OwnedBy == recorder && PredictsAt(read)
+            ? _predicted ??= InterpolationSchedule.Predicted(IntervalPerTick)
+            : track.Interpolation.AsOf(read);
+
+    /// <summary>
+    /// An entity's pose where the moment draws it: under the frame start and, for the recorder and what he predicts, one
+    /// tick (B860 review 13, Sonnet). For anything that asks the client where an entity is — `GetAbsOrigin()` — such as a
+    /// sound's origin or the holiday lights.
+    /// </summary>
+    /// <param name="entityIndex">The entity.</param>
+    /// <param name="track">Its track at <paramref name="tick"/>.</param>
+    /// <param name="tick">The moment.</param>
+    /// <returns>The pose, or null when the track has none then.</returns>
+    /// <remarks>
+    /// **Not every rule of the drawn moment** (review 14, Fable, Sonnet; B867): it always blends, where a paused or
+    /// non-interpolating sample holds, and it cannot see the recorded view a point-of-view frame places the recorder at
+    /// (B56), which the presenter hands <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, PredictedMotion?)"/>
+    /// and this timeline never holds. The frame start applies only at the frame's own tick.
+    /// </remarks>
+    public ScenePose? DrawnPose(int entityIndex, ScenePropTrack track, double tick)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        double read = FrameRead(tick);
+
+        return track.At(
+            tick,
+            entityIndex == RecorderEntityIndex ? PlayerSchedule(entityIndex, track, read) : ScheduleFor(track, tick, read));
+    }
+
+    /// <summary>A player's schedule: the local player's predicted tick (<c>C_BasePlayer::ShouldPredict</c>, `IsLocalPlayer()`), else his own (B860).</summary>
+    private InterpolationSchedule PlayerSchedule(int entityIndex, ScenePropTrack track, double read) =>
+        entityIndex == RecorderEntityIndex && PredictsAt(read)
+            ? _predicted ??= InterpolationSchedule.Predicted(IntervalPerTick)
+            : track.Interpolation.AsOf(read);
+
+    /// <summary>Whether <c>cl_predict</c> is on as a frame that read through <paramref name="read"/> has it (B860).</summary>
+    /// <remarks>
+    /// <c>cl_predict->GetInt()</c> is <c>(int)GetFloat()</c> (<c>convar_serverbounded.h:42</c>): the server's value where its
+    /// own <c>GetInt()</c> is not -1, else the client's, which is 1. Either way on exactly where the server's
+    /// <c>GetInt()</c> is not 0.
+    /// </remarks>
+    private bool PredictsAt(double read) => ServerConVarsAt((int)Math.Floor(read)).GetInt(ClientPredictConVar) != 0;
+
+    /// <summary><c>sv_client_predict</c>: -1 leaves <c>cl_predict</c> to the client, which TF2 sets to 1.</summary>
+    private const string ClientPredictConVar = "sv_client_predict";
+
+    /// <summary>How many steps of any track's delay schedule a frame start through <paramref name="read"/> knows.</summary>
+    private int DelayStepsThrough(double read)
+    {
+        if (_delaySteps is null)
+        {
+            SortedSet<int> steps = [];
+            HashSet<InterpolationSchedule> seen = new(ReferenceEqualityComparer.Instance);
+
+            foreach (ScenePropTrack track in _props)
+            {
+                if (seen.Add(track.Interpolation))
+                {
+                    foreach (int start in track.Interpolation.StepStarts)
+                    {
+                        steps.Add(start);
+                    }
+                }
+            }
+
+            // A server's settings decide whether anything predicts (`ScheduleFor`), and no track's wakes name them either:
+            // only a change that turns `cl_predict` on or off is one (B860 review 4, Fable), not every `net_SetConVar`.
+            bool predicting = _defaultConVars.GetInt(ClientPredictConVar) != 0;
+
+            foreach ((int changed, ServerConVars conVars) in ConVarChanges)
+            {
+                bool now = conVars.GetInt(ClientPredictConVar) != 0;
+
+                if (now != predicting)
+                {
+                    steps.Add(changed);
+                    predicting = now;
+                }
+            }
+
+            _delaySteps = [.. steps];
+        }
+
+        int count = 0;
+
+        while (count < _delaySteps.Length && _delaySteps[count] <= read)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     /// <summary>Rebuilds every track's sample from nothing, at one tick.</summary>
     /// <remarks>
     /// The cold path: the first call, any seek backwards, a recorder team switch, a pause and a new
@@ -8203,7 +8417,7 @@ public sealed class DemoTimeline
             // Mid-lerp tracks are blend-sampled by construction: `Motion` only reports a track
             // changing under blended sampling. Hidden is re-read because it is a field of the
             // pose, discrete at the keyframe the lerp is walking away from.
-            SetLive(track, track.At(tick) is { Hidden: false } pose
+            SetLive(track, track.At(tick, track.SampledUnder ?? ScheduleFor(track, tick, _sampledRead)) is { Hidden: false } pose
                 ? BuildProp(track, tick, pose, recorderTeam)
                 : null);
         }
@@ -8304,7 +8518,11 @@ public sealed class DemoTimeline
         // `Interpolate` produced, every frame — so a beam stands at the last position it was SENT, not between two.
         bool blend = interpolating && stated?.Beam is null && Interpolates(track, stated, tick, viewEntity, out revisit);
 
-        (bool changing, double nextWake) = track.Motion(tick, blend);
+        // Who owns it is a held fact, so it changes only at a wake, where this runs again.
+        InterpolationSchedule schedule = ScheduleFor(track, tick, _sampledRead);
+
+        track.SampledUnder = schedule;
+        (bool changing, double nextWake) = track.Motion(tick, blend, schedule);
 
         nextWake = Math.Min(nextWake, revisit);
 
@@ -8315,7 +8533,7 @@ public sealed class DemoTimeline
             nextWake = Math.Min(nextWake, WeaponLifeChangesAfter(weapon, tick));
         }
 
-        ScenePose? sampled = blend ? track.At(tick) : stated;
+        ScenePose? sampled = blend ? track.At(tick, schedule) : stated;
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
         SetLive(track, sampled is { Hidden: false } pose
@@ -8976,7 +9194,8 @@ public sealed class DemoTimeline
 
         // **One pair of samples for the speed and the heading**, where each asked for the same two: they are the
         // same differencing over the same window, and `At` is three of a frame's five track reads per player.
-        ScenePose? now = track.At(tick);
+        // A point-of-view recorder no view placed is still the local player, predicted when `cl_predict` is on (B860).
+        ScenePose? now = track.At(tick, PlayerSchedule(player.EntityIndex, track, FrameRead(tick)));
 
         if ((interpolating ? now : track.Held(tick)) is not { } pose)
         {
@@ -8985,7 +9204,8 @@ public sealed class DemoTimeline
 
         // Stryker restore all
 
-        ScenePose? was = now is null ? null : track.At(Math.Max(0d, tick - MotionWindowTicks));
+        double earlier = Math.Max(0d, tick - MotionWindowTicks);
+        ScenePose? was = now is null ? null : track.At(earlier, PlayerSchedule(player.EntityIndex, track, FrameRead(earlier)));
 
         // The eyes the anim state is handed: `m_angEyeAngles` as the interpolator left it (B749), or the angles where
         // the demo sends no eyes, as the frame's own facing reads them.
@@ -9106,7 +9326,10 @@ public sealed class DemoTimeline
     /// than requiring an exact match — the same rule <see cref="PlayersAt(int)"/> has always used,
     /// lifted out so the round state and the props answer from the same frame the players do.
     /// </remarks>
-    private TimelineFrame? FrameAt(int tick)
+    private TimelineFrame? FrameAt(int tick) => FrameIndexAt(tick) is var found && found >= 0 ? _frames[found] : null;
+
+    /// <summary>The index of <see cref="FrameAt"/>'s frame, or -1 before the first.</summary>
+    private int FrameIndexAt(int tick)
     {
         int low = 0;
         int high = _frames.Count - 1;
@@ -9127,7 +9350,7 @@ public sealed class DemoTimeline
             }
         }
 
-        return found >= 0 ? _frames[found] : null;
+        return found;
     }
 
     /// <summary>The interpolation track for one entity, when it has one.</summary>
@@ -9162,7 +9385,7 @@ public sealed class DemoTimeline
     /// threw; both produced a fully-formed wrong answer.
     ///
     /// **<see cref="ScenePropTrack.Alive"/> rather than a tick comparison written here** — it is the
-    /// bound <see cref="ScenePropTrack.At"/> and <c>Held</c> both apply, so a track this returns is a
+    /// bound <see cref="ScenePropTrack.At(double)"/> and <c>Held</c> both apply, so a track this returns is a
     /// track the sampler will answer for. A second reading of the same two ends is how expressions
     /// that must agree stop agreeing.
     ///

@@ -172,10 +172,17 @@ public sealed class MomentPresenter
         {
             _source = value;
             _moment.EarlierPlayer = value is null ? null : value.ActivityPlayerAt;
+            _framedAt = null;
         }
     }
 
     private IMomentSource? _source;
+
+    /// <summary>The tick the last frame was shown at, or null before the first of this source (B860).</summary>
+    private double? _framedAt;
+
+    /// <summary>The tick this frame's <c>FRAME_START</c> had read through (B860).</summary>
+    private double _frameRead;
 
     /// <summary>Where the players' appearance comes from, or null when nothing can build one.</summary>
     /// <remarks>
@@ -244,6 +251,26 @@ public sealed class MomentPresenter
         // moved out of the window with the sampling it measures.
         long sampledAt = Stopwatch.GetTimestamp();
 
+        // **`FRAME_START` comes before the frame's packets are read** (B860): `CEngine::Frame` notifies the client before
+        // the host frame's `CL_ReadPackets`, so a delay change read this frame is interpolated under from the next. While
+        // playing forward the frame start had read what the last frame showed. A second build at the same tick is the
+        // same frame, with the same frame start.
+        // A paused frame has read everything to its tick — a scrub while paused is a skip its own frames finish — and
+        // interpolates nothing (B399); so playing on from it starts there (B860 review 3, Fable). Anything else is a jump — a
+        // rewind, the first frame of a demo opened part-way — which the engine reads as a skip, a hundred packets a frame:
+        // negative infinity hands that to the source (review 2, Sonnet).
+        if (!view.Playing)
+        {
+            _frameRead = tick;
+            _framedAt = tick;
+        }
+        else if (_framedAt is not { } shown || shown < tick || shown > tick)
+        {
+            _frameRead = _framedAt is { } previous && previous < tick ? previous : double.NegativeInfinity;
+            _framedAt = tick;
+        }
+
+        source.FrameStart(_frameRead, tick);
         source.PlayersAt(tick, _players, view.Playing);
         _shownTick = (int)Math.Floor(tick);
 

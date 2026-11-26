@@ -38,6 +38,54 @@ public sealed class InterpolationScheduleTests
         (schedule.TicksAt(99.5), schedule.TicksAt(100)).ShouldBe((2, 5));
     }
 
+    /// <summary>
+    /// **A frame knows only the steps read before it started** (B860): `CEngine::Frame` sends `FRAME_START` before the host
+    /// frame reads its packets. A frame that started having read 99.5 interpolates at 2 ticks wherever it draws, and one
+    /// that started at 100 at 5; every frame start inside one step shares one schedule.
+    /// </summary>
+    [Test]
+    public void AsOf_AFrameStartedBeforeAndAtAStep_KnowsOnlyTheStepsItRead()
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+
+        (schedule.AsOf(99.5).TicksAt(120), schedule.AsOf(100).TicksAt(120), schedule.AsOf(3).NextChangeAfter(0))
+            .ShouldBe((2, 5, (int?)null));
+        schedule.AsOf(0).ShouldBeSameAs(schedule.AsOf(99.9));
+        schedule.AsOf(100).ShouldBeSameAs(schedule);
+    }
+
+    /// <summary>
+    /// **The furthest target a frame a tick reached** (B860): the frame at tick u starts knowing the steps through u − 1, so
+    /// a rise from 2 ticks to 5 at 100 is first used at 101 and the frame at 100 still aims at 98. Before 101: 99's frame
+    /// aimed at 97. At 103 the frames 101 and 102 aimed at 96 and 97, short of 100's 98.
+    /// </summary>
+    [TestCase(100d, 97d)]
+    [TestCase(101d, 98d)]
+    [TestCase(103d, 98d)]
+    [TestCase(200d, 194d)]
+    public void MaxTargetBefore_AFrameATickAcrossARise_TakesEachFramesStartingDelay(double tick, double expected)
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, new ServerConVars(), [(100, Set(("sv_client_min_interp_ratio", "4")))], Interval);
+
+        schedule.MaxTargetBefore(tick).ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// **And across a fall** (B860): from 5 ticks to 2 at 100, the frame at 100 still aims at 95, so before 101 the furthest
+    /// is 95, not the 98 the new delay would have given it; the frame at 101 is the first at 99.
+    /// </summary>
+    [TestCase(101d, 95d)]
+    [TestCase(102d, 99d)]
+    public void MaxTargetBefore_AFrameATickAcrossAFall_TakesEachFramesStartingDelay(double tick, double expected)
+    {
+        InterpolationSchedule schedule = InterpolationSchedule.From(
+            Owner, Set(("sv_client_min_interp_ratio", "4")), [(100, new ServerConVars())], Interval);
+
+        schedule.MaxTargetBefore(tick).ShouldBe(expected);
+    }
+
     /// <summary>A change that leaves the amount alone adds no step, so the schedule names no change for a reader to wake on.</summary>
     [Test]
     public void NextChangeAfter_ASetThatLeavesTheAmount_IsNone()
