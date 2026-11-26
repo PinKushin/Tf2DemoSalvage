@@ -758,21 +758,30 @@ public sealed class InterpolatedHistory
 
             // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
             // ends at the latest at the generation start, which is a change and is at or before `last`.
+            // Collected first and spliced in once, so a long walk is linear and a throw leaves the run as it was (review 22,
+            // Sonnet).
             if (last < run.Start)
             {
+                List<int> met = [];
                 int index = run.Start - 1;
 
-                while (!IsChange(index, first, count) || index > last)
+                while (true)
                 {
                     if (IsChange(index, first, count))
                     {
-                        run.Changes.Insert(0, index);
+                        met.Add(index);
+
+                        if (index <= last)
+                        {
+                            break;
+                        }
                     }
 
                     index--;
                 }
 
-                run.Changes.Insert(0, index);
+                met.Reverse();
+                run.Changes.InsertRange(0, met);
                 run.Start = index;
             }
 
@@ -1080,8 +1089,9 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// **Entries of two widths are not the same; a span neither holds fails loudly** (B860 reviews 18-21 and merge review
     /// 2). Two entries of one generation share a width (`SetMaxCount` resets on a change), and since merge review 2 the
-    /// change memo walks back only to the latest change, which a generation start always is, so it no longer examines an
-    /// older, narrower generation for a variable only the newer width holds. A span that does not fit a same-width pair is
+    /// change memo walks back only to the latest change, which a generation start always is, so a call at or after a
+    /// generation's start never examines an older, narrower generation; only a call asked at a tick inside the older one
+    /// does (review 22, Fable). A span that does not fit a same-width pair is
     /// a caller asking the wrong history, and B386's slice exception is the right answer to that, not a silent "changed"
     /// on every entry (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
     /// </remarks>

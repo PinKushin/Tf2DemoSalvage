@@ -156,6 +156,26 @@ public sealed class InterpolatedHistoryTests
         answers.ShouldBe([7, 2, 5, 2, 7]);
     }
 
+    /// <summary>
+    /// **A backward walk passes a reset's generation start and does not stop there** (B860 review 22, Fable): values 1, 2, 2
+    /// at ticks 1 to 3, a `Reset` at 4 to the same 2, then 2, 2, 3 at 5 to 7. Asked at 7 (7), then at 2 — the walk passes
+    /// the generation start at 4, a change above 2, and ends at the change at 2 — then at 5 (4, the reset kept on the way).
+    /// </summary>
+    [Test]
+    public void LatestChange_AskedBackAcrossAReset_FindsTheChangeBeforeIt()
+    {
+        InterpolatedHistory history = new(1);
+        history.Add(1, 1, [1f]);
+        history.Add(2, 2, [2f]);
+        history.Add(3, 3, [2f]);
+        history.Reset(4, [2f]);
+        history.Add(5, 5, [2f]);
+        history.Add(6, 6, [2f]);
+        history.Add(7, 7, [3f]);
+
+        (history.LatestChange(7, 0, -1), history.LatestChange(2, 0, -1), history.LatestChange(5, 0, -1)).ShouldBe((7, 2, 4));
+    }
+
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
     {
         Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();

@@ -47662,13 +47662,24 @@ from the first entry** — the first call scanned the whole history and the memo
 life, a hitch at the first rise of a long demo and megabytes per track. It now keeps the run of entries it has examined,
 seeded where the first call's walk back to the latest change stopped, and the changes in it; later calls extend it
 forward or back only as far as they ask (`LatestChange_AskedBackwardsAfterForwards_IsTheChangeAtOrBefore`, which reddens
-when the backward walk drops the changes it passes). Since a generation start is a change, the memo no longer enters an
-older generation, so `Same` again fails loudly on a span a same-width pair cannot hold (a caller asking the wrong
+when the backward walk drops the changes it passes). Since a generation start is a change, a call at or after a
+generation's start never enters an older one (review 22, Fable: only a call asked inside the older one does), so `Same` again fails loudly on a span a same-width pair cannot hold (a caller asking the wrong
 history) and answers "not the same" only across two widths. `LatestChange` and `LatestChangeTime` read under the lock
 with the index they use. A test renamed to its methods. Not taken: the settle scan running its callback under the lock
 (single scan per key, samplers effectively single-threaded per history); the knife fixture's origin arriving through the
 non-local player table rather than `DT_BaseEntity`, whose fixture copy carries no origin — the test asserts the class
 flag, which is independent of where the origin comes from.
+
+Review 22 (Fable, Sonnet, Codex: no blocker). Fixed (Sonnet, Fable): the memo's backward walk collects what
+it meets and splices it in once — linear rather than an insert per change, one change test per entry, and a throw
+mid-walk leaves the run as it was; the backward test still reddens when the walk drops the changes it passes; a test asks
+backwards across a same-width `Reset` (Fable); "the memo never enters an older generation" is narrowed to calls at or
+after a generation's start (Fable). Not taken
+(Codex): "the frame that prunes is not the frame the sampler assumes" is B869, filed, and B860 is no regression there
+(before it the viewer re-blended every rise); "`LatestChangeTime` returns null when every later entry is flushed" cannot
+happen — only a later append flushes, so the newest entry received by the tick asked is live and the walk from the change
+reaches it. Recorded (Sonnet): the memo holds one int per change examined, not per entry; the lock protects the memos and
+the readers that use their indices, not the history as a whole.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
