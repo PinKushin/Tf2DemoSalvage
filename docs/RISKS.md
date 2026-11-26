@@ -47534,6 +47534,24 @@ Review 12 (Fable, Sonnet, Codex: no blocker). Fixed:
 - The prune test asks the cheap arrival before `Listed` (Fable); the second-rise case of "no frame draws the difference"
   is worded as reasoned (Fable, Sonnet); B849's test summary names the frame at 50's target, 42 (Fable).
 
+Review 13 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **Readers asking where an entity is took the full delay for the recorder and his weapons** (Sonnet, Fable), which Part
+  3 draws a tick back: the holiday lights' local player, a sound's origin and the observer's building target now take
+  `DemoTimeline.DrawnPose`, the frame start and prediction included. `DrawnPose_TheRecorderAndHisWeapon_AreAtTheirPredictedTick`,
+  `For_TheRecorder_IsWhereHeIsDrawn` and `LocalPlayerOrigin_ThePredictedRecorder_IsATickBack` (590) redden on the stateless
+  sample.
+- **A sample between ticks read through the tick below its own** (Fable): above the tick rate the frame at 50.3 follows
+  one that read 50, so a sample no frame start announced reads through `ceil(tick) − 1`
+  (`ScenePropTrack.UnannouncedRead`), in the timeline, `At(tick)` and `Motion(tick, blend)`;
+  `At_AFrameBetweenTicksAfterTheRise_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1`.
+- **Review 12's hold test asserted 410 where the frame at 50 extrapolates to 420** (Fable): the test now adds the same
+  410 at 51, which puts the networked value back without re-arming, and the extrapolation is filed as B866; the
+  "cannot fire on a demo" paragraph of the extrapolation audit is corrected there.
+- A control: a latch on the rise's frame that does not settle is floored (`…ThatDoesNotSettle_IsFloored`, 360; Sonnet).
+- Records: findings 115 and the jump and other-reader tests no longer say "own tick" (Fable).
+
+Not taken: `was` in the player's motion window is an earlier frame, sampled as one (Sonnet, review 11's reason).
+
 Review 14 (Fable, Sonnet, Codex: no blocker). Fixed:
 - **The timeline's unannounced fallback had no test that could fail** (Fable): only `At(double)` was pinned;
   `PropsAt_AFrameBetweenTicksWithNoFrameStart_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1` there. The unused
@@ -47699,16 +47717,24 @@ change makes.
 
 Review 24 and merge review 4 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
 blocker). Fixed (lead): **merge review 3's collect-then-commit for the forward extension allocated a list on most frames
-inside a rise window** and bought nothing — a throw part way leaves `Through` behind, and a retry appends the same changes
-again, equal and still ascending, which the search answers the same — so it appends directly again; `Earliest` is
+inside a rise window, so it appends directly again (and, from Fable's review 24 below, rolls back on a throw); `Earliest` is
 renamed `NewestAtOrBefore`, which is what it returns; `LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore` walks
 back twice and asks between the walks, reddening when a later walk's changes are inserted at the front. And (Fable):
 **a forward ask far past the run scanned and kept every entry between** — a second rise window long after the first
-brought back the hitch the seed removed — so a call more than 512 entries past what the run examined starts a new run
-from its own tick (`LatestChange_FarPastTheRun_ReseedsAndAnswersTheSame` pins that the answers do not change; the cost
-saved is *reasoned*, not measured); and a throw part way through the forward extension rolls its appends back, since
-two or more changes appended before it left the list unsorted on a retry (*reasoned*, no production variable asks such a
-span).
+brought back the hitch the seed removed — so a call more than 512 entries past what the run examined walks back from its
+own tick to the run: a change met starts a new run; none met means the gap held no change and the run reaches the tick
+(merge review 5, lead: a first version reseeded unconditionally, which for a resting variable walked the whole gap anyway
+and dropped the earlier changes). `LatestChange_FarPastTheRun_AnswersTheSame` pins unchanged answers;
+`LatestChange_FarPastARestingRun_KeepsTheRun` reddens when the walk's boundary seeds a run on an entry that is not a
+change; the cost saved is *reasoned*, not measured. The backward walk appends directly too (merge review 5: it allocated
+a list per rewind step).
+
+Review 25 and merge review 5 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker) — the fixes above, and (Fable) a backward ask far before the run seeds from its own tick as a forward one does.
+**The rollback on a throw is withdrawn** (Fable): no production variable asks a span its history cannot hold, and Fable
+traced that even a retry over the duplicated appends answers the newest change at or before the tick; review 24's
+"left the list unsorted on a retry" was true of the list and shown for no answer. B860's review 13 record is moved back
+between 12 and 14.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
@@ -47716,24 +47742,6 @@ long rest that this once called bounded were not (the merge review reverses it a
 window's frames and the first scan per key, *reasoned*. A `--measure` across a rise on a populated demo is the number.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
-
-Review 13 (Fable, Sonnet, Codex: no blocker). Fixed:
-- **Readers asking where an entity is took the full delay for the recorder and his weapons** (Sonnet, Fable), which Part
-  3 draws a tick back: the holiday lights' local player, a sound's origin and the observer's building target now take
-  `DemoTimeline.DrawnPose`, the frame start and prediction included. `DrawnPose_TheRecorderAndHisWeapon_AreAtTheirPredictedTick`,
-  `For_TheRecorder_IsWhereHeIsDrawn` and `LocalPlayerOrigin_ThePredictedRecorder_IsATickBack` (590) redden on the stateless
-  sample.
-- **A sample between ticks read through the tick below its own** (Fable): above the tick rate the frame at 50.3 follows
-  one that read 50, so a sample no frame start announced reads through `ceil(tick) − 1`
-  (`ScenePropTrack.UnannouncedRead`), in the timeline, `At(tick)` and `Motion(tick, blend)`;
-  `At_AFrameBetweenTicksAfterTheRise_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1`.
-- **Review 12's hold test asserted 410 where the frame at 50 extrapolates to 420** (Fable): the test now adds the same
-  410 at 51, which puts the networked value back without re-arming, and the extrapolation is filed as B866; the
-  "cannot fire on a demo" paragraph of the extrapolation audit is corrected there.
-- A control: a latch on the rise's frame that does not settle is floored (`…ThatDoesNotSettle_IsFloored`, 360; Sonnet).
-- Records: findings 115 and the jump and other-reader tests no longer say "own tick" (Fable).
-
-Not taken: `was` in the player's motion window is an earlier frame, sampled as one (Sonnet, review 11's reason).
 
 Not taken (review 12): `SettleFrame` and `LatestChangeIndex` walk back to the last change, long for a variable that never changes
 beside a sibling that does (Fable) — cost only, inside the window after a rise, which a recording has a handful of. The

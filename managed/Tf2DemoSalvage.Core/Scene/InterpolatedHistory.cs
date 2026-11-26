@@ -717,7 +717,7 @@ public sealed class InterpolatedHistory
     /// whole rest on every call; and a memo of every entry from the first cost a scan of the whole history on the first
     /// call and one int per entry for the timeline's life. The run starts where the first call's walk back stopped and
     /// grows only as far as later calls ask, forward or back, so both the work and the memory follow the entries actually
-    /// examined; a trim clears it.
+    /// examined; a trim clears it, and a call far past or far before it may replace it (<see cref="ReseedGap"/>).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
@@ -733,12 +733,26 @@ public sealed class InterpolatedHistory
 
             Memos memos = _memos ??= new Memos();
 
-            // **Far past the run, start a new one** (B860 review 24, Fable): a second rise window long after the first would
-            // otherwise scan and keep every entry between them, the hitch the seed exists to avoid. Seeding again answers the
-            // same; only the remembered earlier changes go.
+            // **Far past the run, look back from the new tick first** (B860 review 24, Fable; merge review 5): a second rise
+            // window long after the first would otherwise scan forward and KEEP every change between them. The walk back stops
+            // at what the run examined: a change found there starts a new run (one entry kept, not the gap's); none found
+            // means nothing changed in the gap, and the run simply reaches the new tick.
             if (memos.ChangeOf.TryGetValue((first, count), out ChangeRun? kept) && last - kept.Through > ReseedGap)
             {
-                memos.ChangeOf.Remove((first, count));
+                int change = last;
+
+                while (change > kept.Through && !IsChange(change, first, count))
+                {
+                    change--;
+                }
+
+                if (change > kept.Through)
+                {
+                    memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
+                    return change;
+                }
+
+                kept.Through = last;
             }
 
             if (!memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run))
@@ -754,25 +768,31 @@ public sealed class InterpolatedHistory
                 return change;
             }
 
-            // Appended directly: this runs most frames inside a rise window, and a list collected first allocated every time
-            // (merge review 4). A throw from `Same` part way rolls the appends back, so a retry cannot leave the list
-            // unsorted (review 24, Fable).
-            int appended = run.Later.Count;
+            // Far before the run, the same: seed from the tick asked rather than walk and keep everything back to it (review 25,
+            // Fable — a rewind from a mid-recording window to the signon's).
+            if (run.Start - last > ReseedGap)
+            {
+                int change = last;
 
-            try
-            {
-                for (int index = run.Through + 1; index <= last; index++)
+                while (!IsChange(change, first, count))
                 {
-                    if (IsChange(index, first, count))
-                    {
-                        run.Later.Add(index);
-                    }
+                    change--;
                 }
+
+                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
+                return change;
             }
-            catch (ArgumentOutOfRangeException)
+
+            // Appended directly: this runs most frames inside a rise window, and a list collected first allocated every time
+            // (merge review 4). Nothing is rolled back on a throw from `Same`: that throw is a caller asking a span its
+            // history cannot hold, which no production variable does (review 25, Fable, who traced that even a retry answers
+            // the same).
+            for (int index = run.Through + 1; index <= last; index++)
             {
-                run.Later.RemoveRange(appended, run.Later.Count - appended);
-                throw;
+                if (IsChange(index, first, count))
+                {
+                    run.Later.Add(index);
+                }
             }
 
             run.Through = Math.Max(run.Through, last);
@@ -781,16 +801,17 @@ public sealed class InterpolatedHistory
             // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
             // its own list and APPENDED, so a rewind asking one step back at a time costs what it walks, not the whole memo
             // (merge review 3).
+            // Appended directly in walk order, which is newest first (merge review 5: a list collected first allocated on
+            // every rewind step).
             if (last < run.Start)
             {
-                List<int> met = [];
                 int index = run.Start - 1;
 
                 while (true)
                 {
                     if (IsChange(index, first, count))
                     {
-                        met.Add(index);
+                        run.Earlier.Add(index);
 
                         if (index <= last)
                         {
@@ -801,7 +822,6 @@ public sealed class InterpolatedHistory
                     index--;
                 }
 
-                run.Earlier.AddRange(met);
                 run.Start = index;
             }
 
@@ -818,8 +838,9 @@ public sealed class InterpolatedHistory
 
     /// <summary>How far past what a run examined a call may ask before the run is started again from that call.</summary>
     /// <remarks>
-    /// Rise windows are tens of ticks; a gap this wide is a later window, where walking back from the new tick costs what
-    /// the first call did and a forward scan would cost the whole gap.
+    /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
+    /// delays, not measured); a gap of this many entries is a later window. The walk back from the new tick stops at what
+    /// the run examined, so it never costs more than the forward scan would.
     /// </remarks>
     private const int ReseedGap = 512;
 

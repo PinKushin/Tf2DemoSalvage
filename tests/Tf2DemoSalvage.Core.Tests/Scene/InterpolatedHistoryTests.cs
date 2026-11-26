@@ -203,7 +203,7 @@ public sealed class InterpolatedHistoryTests
     /// back at 1,000 (5, found by walking back from the new run) and at 1,600 (1,500).
     /// </summary>
     [Test]
-    public void LatestChange_FarPastTheRun_ReseedsAndAnswersTheSame()
+    public void LatestChange_FarPastTheRun_AnswersTheSame()
     {
         InterpolatedHistory history = new(1);
 
@@ -226,6 +226,27 @@ public sealed class InterpolatedHistoryTests
         int[] asked = [10, 2000, 1000, 1600];
 
         System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([5, 1500, 5, 1500]);
+    }
+
+    /// <summary>
+    /// **Far past the run with nothing changed in the gap, the run reaches the new tick** (B860 merge review 5): a value
+    /// that changes at 5 and then rests to 2,000. Asked at 10 (5), at 2,000 (5 — the walk back finds no change after 10 and
+    /// keeps the run), then at 1,000 and 7 (5 each), then at 3 (the change before, 1).
+    /// </summary>
+    [Test]
+    public void LatestChange_FarPastARestingRun_KeepsTheRun()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 2000; tick++)
+        {
+            history.Add(tick, tick, [tick >= 5 ? 2f : 1f]);
+        }
+
+        // Then far back again (past the reseed gap) and forward once more: 3 is 1, 2,000 is 5 (review 25).
+        int[] asked = [10, 2000, 1000, 7, 3, 2000];
+
+        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([5, 5, 5, 5, 1, 5]);
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
