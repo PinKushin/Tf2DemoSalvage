@@ -1169,17 +1169,24 @@ public sealed class ScenePropTrack
     /// </remarks>
     private readonly List<int> _appliedAt = [];
 
-    /// <summary>Every update received, in arrival order — its tick, its parity, and the sequence starts counted so far (B878).</summary>
+    /// <summary>
+    /// Every update received, as runs of consecutive ticks stating one parity — each with the sequence starts counted to it
+    /// (B878).
+    /// </summary>
     /// <remarks>
     /// **Not the keyframes**: `Add` collapses a restatement into the keyframe before it, and the engine resets the cycle
-    /// history at a restatement too when its parity differs from the last bone setup's. **The count unwraps the 3-bit
-    /// parity**, so eight starts unseen — which bring the parity back to the setup's — still leave the newest update before
-    /// that run as a reset.
+    /// history at a restatement too when its parity differs from the last bone setup's. **Runs, because an animating prop
+    /// updates every tick**: one per tick was twelve bytes an update for the whole recording. **The count unwraps the
+    /// 3-bit parity**, so eight starts unseen — which bring the parity back to the setup's — still leave the newest update
+    /// before that run as a reset.
     /// </remarks>
-    private readonly List<SequenceUpdate> _updates = [];
+    private readonly List<UpdateRun> _updates = [];
 
-    /// <summary>One update's arrival, parity and running count of sequence starts (B878).</summary>
-    private readonly record struct SequenceUpdate(int Tick, int Parity, int Starts);
+    /// <summary>Updates on every tick from <c>First</c> to <c>Last</c>, stating one parity, after <c>Starts</c> sequence starts (B878).</summary>
+    private readonly record struct UpdateRun(int First, int Last, int Parity, int Starts);
+
+    /// <summary>The value a view's unseen reset seeds (B878), reused so sampling does not allocate.</summary>
+    private readonly float[] _anchorValues = new float[CycleComponents];
 
     /// <summary><c>EF_PARITY_MASK</c>: the parity is three bits (`const.h:301-302`).</summary>
     private const int ParityMask = 7;
@@ -2231,11 +2238,18 @@ public sealed class ScenePropTrack
         // **Every update, before any of it is collapsed** (B878): the parity test runs in each update's `PostDataUpdate`
         // (`c_baseanimating.cpp:4738`), a restatement included, and the counter only counts up (`:5574`), so the count of
         // sequence starts is the sum of each step modulo the 3-bit mask.
-        int starts = _updates.Count == 0
-            ? 0
-            : _updates[^1].Starts + ((pose.NewSequenceParity - _updates[^1].Parity) & ParityMask);
+        if (_updates.Count > 0 && _updates[^1] is var run && run.Parity == pose.NewSequenceParity && tick - run.Last <= 1)
+        {
+            _updates[^1] = run with { Last = Math.Max(run.Last, tick) };
+        }
+        else
+        {
+            int starts = _updates.Count == 0
+                ? 0
+                : _updates[^1].Starts + ((pose.NewSequenceParity - _updates[^1].Parity) & ParityMask);
 
-        _updates.Add(new SequenceUpdate(tick, pose.NewSequenceParity, starts));
+            _updates.Add(new UpdateRun(tick, tick, pose.NewSequenceParity, starts));
+        }
 
         // **The engine's three changed-tests, against the previous NETWORKED values** (B382).
         // `PostDataUpdate` (`c_baseentity.cpp:2570`):
@@ -2420,8 +2434,8 @@ public sealed class ScenePropTrack
             _animationAppliedAt.TrimIfSparse();
         }
 
-        // The updates from the cut on and a tail before it: a reset older than that is out of every bracket's reach (B878).
-        int firstKept = Math.Max(0, NewestUpdateAtOrBefore(cut) - HistoryTail);
+        // The update runs from the cut on and a tail before it: a reset older than that is out of every bracket's reach (B878).
+        int firstKept = Math.Max(0, NewestRunAtOrBefore(cut) - HistoryTail);
         _updates.RemoveRange(0, firstKept);
         _updates.TrimIfSparse();
 
@@ -3489,10 +3503,20 @@ public sealed class ScenePropTrack
         }
 
         // `m_pValue` at the reset: the update's networked cycle and sequence, which latched an entry only if its animation
-        // time changed (B878 review 2) — the keyframe holds them either way, a restatement included.
-        ScenePose stated = _keyframes[KeyframeAtOrBefore(at)].Pose;
+        // time changed (B878 review 2) — the keyframe holds them either way, a restatement included. Not when a trim has
+        // dropped that keyframe: the first kept one is a later update's.
+        int keyframe = KeyframeAtOrBefore(at);
 
-        return _animation.AnchorAt(at, new float[] { stated.Cycle, stated.Sequence });
+        if (_keyframes.TickAt(keyframe) > at)
+        {
+            return null;
+        }
+
+        ScenePose stated = _keyframes[keyframe].Pose;
+        _anchorValues[0] = stated.Cycle;
+        _anchorValues[CycleSequence] = stated.Sequence;
+
+        return _animation.AnchorAt(at, _anchorValues);
     }
 
     /// <summary>
@@ -3505,45 +3529,45 @@ public sealed class ScenePropTrack
     /// <remarks>
     /// **Every update whose parity differs from `m_nPrevNewSequenceParity` resets** (`c_baseanimating.cpp:4738-4747`), and
     /// that member is written only at a setup (`:1835`). **The parity only counts up** (`( m_nNewSequenceParity + 1 ) &amp;
-    /// EF_PARITY_MASK`, `:5574`), so once one update after the setup differs every later one does, and the newest update is
-    /// the reset — one keyframe read. Every update, not only those that latch the cycle: the test runs in `PostDataUpdate`
-    /// of each. **The exception, not modelled**: eight sequence starts unseen bring the 3-bit counter back to the setup's
-    /// value, where the engine stops resetting.
+    /// EF_PARITY_MASK`, `:5574`), so once one update after the setup differs, every later one does until eight starts bring
+    /// the 3-bit counter back to the setup's value — where the engine stops resetting, and the newest update before that
+    /// count is the reset. Every update counts, a restatement included, not only those that latch the cycle: the test runs
+    /// in each update's `PostDataUpdate` (<see cref="_updates"/>).
     /// </remarks>
     internal int? UnseenResetAt(int arrivedBy, BoneSetup setup)
     {
         int? kept = setup.AnchoredAt is { } anchored && anchored <= arrivedBy ? anchored : null;
-        int newest = NewestUpdateAtOrBefore(arrivedBy);
+        int newest = NewestRunAtOrBefore(arrivedBy);
 
-        if (newest < 0 || _updates[newest].Tick <= setup.SetUpAt)
+        // Every tick of a run is an update, so the newest by `arrivedBy` is its last or `arrivedBy` itself.
+        if (newest < 0 || Math.Min(_updates[newest].Last, arrivedBy) is var tick && tick <= setup.SetUpAt)
         {
             return kept;
         }
 
-        SequenceUpdate last = _updates[newest];
+        UpdateRun last = _updates[newest];
 
         if (last.Parity != setup.ParityThen)
         {
-            return last.Tick;
+            return tick;
         }
 
         // The parity is back at the setup's: either nothing started since, or eight starts wrapped it. The newest update
-        // before the current run of starts is then the newest that differed.
+        // before the current count of starts is then the newest that differed.
         int before = LastWithFewerStarts(newest, last.Starts);
 
-        return before >= 0 && _updates[before].Tick > setup.SetUpAt && _updates[before].Parity != setup.ParityThen
-            ? _updates[before].Tick
-            : kept;
+        // Its parity differs from the run's, which is the setup's, so it reset — unless the setup saw it.
+        return before >= 0 && _updates[before].Last > setup.SetUpAt ? _updates[before].Last : kept;
     }
 
     /// <summary>The parity this track's newest update by a tick stated — what a bone setup then stores (B878).</summary>
     /// <param name="arrivedBy">The tick of the setup.</param>
     /// <returns>The parity, or the constructor's −1 when nothing has arrived.</returns>
     internal int SequenceParityAt(int arrivedBy) =>
-        NewestUpdateAtOrBefore(arrivedBy) is var newest && newest >= 0 ? _updates[newest].Parity : -1;
+        NewestRunAtOrBefore(arrivedBy) is var newest && newest >= 0 ? _updates[newest].Parity : -1;
 
-    /// <summary>The newest update received by a tick, or −1.</summary>
-    private int NewestUpdateAtOrBefore(int tick)
+    /// <summary>The newest run of updates begun by a tick, or −1.</summary>
+    private int NewestRunAtOrBefore(int tick)
     {
         int low = 0;
         int high = _updates.Count - 1;
@@ -3553,7 +3577,7 @@ public sealed class ScenePropTrack
         {
             int middle = low + ((high - low) / 2);
 
-            if (_updates[middle].Tick <= tick)
+            if (_updates[middle].First <= tick)
             {
                 found = middle;
                 low = middle + 1;
@@ -3567,7 +3591,7 @@ public sealed class ScenePropTrack
         return found;
     }
 
-    /// <summary>The newest update at or before one whose count of starts is below a count, or −1 — the count only rises.</summary>
+    /// <summary>The newest run at or before one whose count of starts is below a count, or −1 — the count only rises.</summary>
     private int LastWithFewerStarts(int upTo, int starts)
     {
         int low = 0;

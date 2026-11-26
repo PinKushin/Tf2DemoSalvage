@@ -172,6 +172,46 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **Runs of updates, a restated run after the wrap, a nonzero first parity, a seen run, and a trim** (B878 review 3):
+    /// parity 5 from 100 to 104 (one run of consecutive updates), 6 at 110, then eight starts at 120 to 190 (7, 0, 1, …, 5,
+    /// 6), with 190's 6 restated every tick to 195. A setup at 104 saw 5, so 195's 6 differs: the reset is 195. A setup at
+    /// 110 saw 6: after eight starts the parity is 6 again, so the newest reset is the end of the run before (180). A setup
+    /// at 185 saw 180's, so nothing is new and its kept anchor stands. Trimmed at 192, inside the last run, the run before
+    /// survives only through the trim's tail — and the answer stands.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_RunsWrapsAndATrim_FindTheNewestUnseenReset()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+
+        for (int tick = 100; tick <= 104; tick++)
+        {
+            track.Add(tick, new ScenePose { NewSequenceParity = 5, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        track.Add(110, new ScenePose { NewSequenceParity = 6, X = 110 }, appliedAt: 110, animationAppliedAt: 107);
+
+        for (int step = 1; step <= 8; step++)
+        {
+            int tick = 110 + (step * 10);
+            track.Add(tick, new ScenePose { NewSequenceParity = (6 + step) & 7, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        for (int tick = 191; tick <= 195; tick++)
+        {
+            track.Add(tick, new ScenePose { NewSequenceParity = 6, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        track.UnseenResetAt(195, new BoneSetup(104, 5, null)).ShouldBe(195, "parity 6 differs from the setup's 5");
+        track.UnseenResetAt(195, new BoneSetup(110, 6, null)).ShouldBe(180, "back at 6 after eight starts: the run before");
+        track.UnseenResetAt(195, new BoneSetup(185, 6, 150)).ShouldBe(150, "the control: the run before was seen; the kept anchor");
+
+        track.TrimBefore(192);
+
+        track.UnseenResetAt(195, new BoneSetup(110, 6, null)).ShouldBe(180, "the run before survives the trim's tail");
+    }
+
+    /// <summary>
     /// **The reset seeds the update's networked cycle, not the last one latched** (B878 review 2, Sonnet, the cavecrew
     /// reviewer): the update at 40 starts nothing new (parity 1, as at 30) and keeps 30's animation time, so its 0.8 latches
     /// no entry — but `Reset()` seeds `m_pValue`, 0.8 (`interpolatedvar.h:745`). Never posed, at 42 the target precedes the

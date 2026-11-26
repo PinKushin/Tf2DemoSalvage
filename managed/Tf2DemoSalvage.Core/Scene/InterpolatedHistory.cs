@@ -640,7 +640,7 @@ public sealed class InterpolatedHistory
     /// </summary>
     /// <param name="target">The moment being drawn.</param>
     /// <param name="arrivedBy">The tick being played.</param>
-    /// <param name="anchor">The reset: its tick and the entry whose value it seeded.</param>
+    /// <param name="anchor">The reset: its tick, the newest entry received by then, and the value it seeded.</param>
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count; negative for the whole entry.</param>
     /// <returns>

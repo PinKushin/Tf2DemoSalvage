@@ -42,6 +42,10 @@ public sealed class BoneSetupCorpusTests
         int differentUnposed = 0;
         HashSet<int>? continuous = null;
 
+        // A prop created inside the window is set up from its creation too, so it joins the compared props there (review 3,
+        // Fable): a track's first tick is its entity's birth when the prop first appears on it.
+        HashSet<(int Entity, int Tick)> births = [.. posed.Props.Select(track => (track.EntityIndex, track.FirstTick))];
+
         for (int tick = start; tick < start + Window; tick++)
         {
             plain.PropsAt(tick, plainProps);
@@ -49,11 +53,13 @@ public sealed class BoneSetupCorpusTests
             unposed.PropsAt(tick, unposedProps, setups: unposedSetups);
 
             Dictionary<int, float> expected = plainProps.ToDictionary(prop => prop.EntityIndex, prop => prop.Pose.Cycle);
+            HashSet<int> drawnBefore = [.. drawn];
 
             drawn.Clear();
             drawn.UnionWith(posedProps.Select(prop => prop.EntityIndex));
             continuous ??= [.. drawn];
             continuous.IntersectWith(drawn);
+            continuous.UnionWith(drawn.Where(entity => !drawnBefore.Contains(entity) && births.Contains((entity, tick))));
 
             foreach (SceneProp prop in posedProps.Where(prop => continuous.Contains(prop.EntityIndex)))
             {
@@ -68,7 +74,8 @@ public sealed class BoneSetupCorpusTests
                 }
             }
 
-            differentUnposed += unposedProps.Count(prop =>
+            // The control on the SAME props compared (review 3, Fable): never posed, they must differ somewhere.
+            differentUnposed += unposedProps.Count(prop => continuous.Contains(prop.EntityIndex) &&
                 expected.TryGetValue(prop.EntityIndex, out float cycle) && cycle.CompareTo(prop.Pose.Cycle) != 0);
 
             posed.NoteBonesSetUp(posedSetups, drawn, tick);

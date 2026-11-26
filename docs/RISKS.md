@@ -47256,7 +47256,7 @@ equals no view at every tick with an update inside the window; never posed; a re
 keeps the setups; an origin-only update is the reset), `BoneSetupsReportTests`, `TimelineMomentsBoneSetupTests`,
 `Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling` (through `NextFrame`, which cleared the flag the first cut read),
 and on a real demo `BoneSetupCorpusTests`: z1800's first 3,000 ticks, every prop drawn continuously from the first tick
-posed every frame equals the no-view props on all 541,696 compared, never posed differs on 5,636 (a view begun mid-demo
+(or its creation) posed every frame equals the no-view props on every one compared (figures under review 3) (a view begun mid-demo
 holds a prop alive then from its newest update for a window — the engine's answer for a view just begun, measured as one
 sentry for 13 ticks — so the test starts at the first tick rather than masking it). Each sabotage reddened its test.
 
@@ -47270,8 +47270,19 @@ from the start. Tests added for each: `UnseenResetAt_ARestatedUpdateAfterAParity
 `UnseenResetAt_EightStartsUnseen_IsTheLastUpdateBeforeTheParityCameBack`,
 `PropsAt_AResetWhoseUpdateLatchedNoCycle_SeedsTheUpdatesCycle`, `PropsAt_ANeverPosedProp_LerpsUntilItsResetIsPassed`
 (`Motion`'s settle under a view), `BracketAnchored_AnEqualNewestAfterTheReset_IsSettled` (the engine's second settle
-site), and the presenter test's players-only pose; each sabotage reddened its test. Not taken: the union across re-poses
-has no test of its own (it needs a posed scene; read, and the presenter test covers the report around it). Review 1 (Codex:
+site), and the presenter test's players-only pose; each sabotage reddened its test.
+
+Review 3 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the updates are stored as runs of consecutive
+ticks stating one parity (an animating prop updates every tick, so one record per update cost twelve bytes an update
+for the whole recording); a reset whose keyframe a trim dropped gives no anchor rather than a later update's seed; the
+seed's values sit in a per-track buffer, so sampling does not allocate; a players-only pose takes the real pose's builds
+before starting its own world pass and never counts its own — `Show_AfterAPlayersOnlyPose_StillReportsTheRealPosesBuilds`
+reads the reported entities through a real scene; `UnseenResetAt_RunsWrapsAndATrim_FindTheNewestUnseenReset` covers runs,
+a wrap with trailing restatements, a nonzero first parity, a seen run and a trim whose cut falls inside the last run; the
+corpus test compares props created inside the window from their creation too and takes its never-posed control on the
+same props (629,112 compared, 0 mismatched; 5,013 differ never posed). Each sabotage reddened its test. On seeks: TF2's
+way back reloads, so every entity is new and has no setups (B676, `FramePresenter.Seek.cs`); keeping the setups is the
+viewer's continuous answer, chosen because the reload's other half — every history recreated — is not modelled either. Review 1 (Codex:
 no findings; Fable, Sonnet, the cavecrew reviewer) found the hold-before-the-reset reading wrong, the report dead in the
 frame loop, the anchor taken only from cycle entries, and never-posed props never settling — all fixed above. Left,
 *not modelled*: an attachment asked of an entity the frame did not pose sets its bones up in the engine

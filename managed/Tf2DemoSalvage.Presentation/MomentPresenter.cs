@@ -123,11 +123,15 @@ public sealed class MomentPresenter
     /// <summary>The tick of a frame posed since the last report, which the next <see cref="Show"/> reports (B878).</summary>
     private double? _setUpAt;
 
+    /// <summary>Whether the last pose was a real one whose builds are not yet taken (B878).</summary>
+    private bool _untaken;
+
     /// <summary>Adds the last pose's builds to what the next report names (B878).</summary>
     private void TakeSetUps()
     {
         _moment.BonesSetUp(_posedOnce);
         _bonesSetUp.UnionWith(_posedOnce);
+        _untaken = false;
     }
 
     /// <summary>Whether this source has been told anything, so its first frame is already under this view (B878).</summary>
@@ -200,6 +204,7 @@ public sealed class MomentPresenter
             _setUpAt = null;
             _bonesSetUp.Clear();
             _viewReported = false;
+            _untaken = false;
         }
     }
 
@@ -337,7 +342,12 @@ public sealed class MomentPresenter
             if (_setUpAt is { } setUp)
             {
                 _setUpAt = null;
-                TakeSetUps();
+
+                if (_untaken)
+                {
+                    TakeSetUps();
+                }
+
                 source.BonesSetUp(_bonesSetUp, setUp);
                 _bonesSetUp.Clear();
                 _viewReported = true;
@@ -495,15 +505,18 @@ public sealed class MomentPresenter
 
         _posed = true;
 
-        // **A players-only pose draws no props** (the decal replay's, at earlier ticks), so it sets nothing up that a prop's
-        // cycle reads; a second pose before the report keeps the first's builds (B878 review 2).
+        // **Every pose starts a world pass whose builds alone the scene then names**, so a real pose's are taken before the
+        // next pose of any kind (B878 reviews 2-3). **A players-only pose draws no props** (the decal replay's, at earlier
+        // ticks): it sets nothing up that a prop's cycle reads, so its own builds are never taken.
+        if (_untaken)
+        {
+            TakeSetUps();
+        }
+
+        _untaken = !PlayersOnly;
+
         if (!PlayersOnly)
         {
-            if (_setUpAt is not null)
-            {
-                TakeSetUps();
-            }
-
             _setUpAt = info.Tick;
         }
 
