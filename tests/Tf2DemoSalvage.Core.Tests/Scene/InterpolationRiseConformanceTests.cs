@@ -469,6 +469,11 @@ public sealed class InterpolationRiseConformanceTests
     /// tick, an update every 3 ticks to 30, settled by the frame at 38; at 55 an update carries another sequence at the same
     /// cycle, 0.30. The frame at 56 holds 0.30; re-armed by the sequence it was floored back to about 0.22.
     /// </summary>
+    /// <remarks>
+    /// Reach (review 16, Fable): a sequence change WITH a parity bump resets the cycle history (`SequenceRestarted`,
+    /// `c_baseanimating.cpp:4738-4748`), and this fixture never calls it. So the case is a sequence change without one, or
+    /// a model flagged `STUDIOHDR_FLAGS_STATIC_PROP`, which keeps its cycles across a restart.
+    /// </remarks>
     [Test]
     public void PropsAt_ASequenceOnlyLatchAfterTheRise_HoldsTheCycle()
     {
@@ -487,8 +492,13 @@ public sealed class InterpolationRiseConformanceTests
 
         timeline.FrameStart(55, 56);
         timeline.PropsAt(56, props);
+        float first = props.ShouldHaveSingleItem().Pose.Cycle;
 
-        props.ShouldHaveSingleItem().Pose.Cycle.ShouldBe(0.30f, 1e-4f);
+        // And the frame after, so a hold that re-armed a frame late fails too (review 16, Sonnet).
+        timeline.FrameStart(56, 57);
+        timeline.PropsAt(57, props);
+
+        new[] { first, props.ShouldHaveSingleItem().Pose.Cycle }.ShouldBe([0.30f, 0.30f], 1e-4f);
     }
 
     /// <summary>

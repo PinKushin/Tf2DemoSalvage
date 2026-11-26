@@ -653,7 +653,11 @@ public sealed class InterpolatedHistory
     /// (`memcmp` against `m_VarHistory[0]`, <c>interpolatedvar.h:633-639</c>), and only then does the latch set the
     /// variable's `m_bNeedsToInterpolate` (<c>c_baseentity.cpp:2828-2829</c>). One history here holds several engine
     /// variables (origin and angles share an entry), so the caller names which components are the one variable. An entry
-    /// that starts a generation re-arms, as the first entry of an empty history does.
+    /// that starts a generation counts as a change, as the first entry of an empty history does. **That is not the
+    /// engine's**: `Reset()` is `ClearHistory` and three `AddToHead`s with no `NoteChanged` (<c>interpolatedvar.h:740-752</c>),
+    /// so it arms nothing, and a restart at the head's value leaves the variable settled. Counted here, it is listed until
+    /// its target passes the reset; every entry it can bracket then holds that one value, so no drawn value differs —
+    /// extra listed frames only (*reasoned*, B860 review 16, Fable).
     /// </remarks>
     public int? LatestChange(int arrivedBy, int first, int count) =>
         LatestChangeIndex(arrivedBy, first, count) is var index && index >= 0 ? _received[index] : null;

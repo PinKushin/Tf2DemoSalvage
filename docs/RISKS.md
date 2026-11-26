@@ -47156,6 +47156,20 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B868 — a cycle pair across a sequence change is cut, where the engine blends it unless a parity reset came between (2026-11-25) — OPEN
+
+Found in B860 review 16 (Sonnet), *read*, not measured. `ScenePropTrack.InterpolateCycle` returns the older cycle whenever
+the bracketing entries name different sequences, and drops a third sample from another sequence. The engine's
+`m_iv_flCycle` holds floats alone and knows no sequence; what separates two animations is `m_iv_flCycle.Reset()` on a
+sequence-parity change (`c_baseanimating.cpp:4738-4748`), which this project models as `SequenceRestarted` since the
+cut was written. So a sequence change WITHOUT a parity bump — a renumber the server did not announce — blends in the
+engine (looping or straight per `m_bLooping`) and is cut here, as is any change on a `STUDIOHDR_FLAGS_STATIC_PROP` model,
+which never resets. Scenario: cycle 0.10 at 40 in sequence 1, 0.40 at 43 in sequence 2, no parity change: the engine
+blends toward 0.40; the viewer holds 0.10 until 43 plus the delay. How often a demo changes sequence without the parity
+bump is **not measured** (a probe counting sequence changes against parity changes per entity is the instrument). Fix
+shape: a conformance test of the scenario, then drop the sequence cut and let the parity reset alone separate
+animations. *Not fixed*.
+
 ## B867 — readers that ask where an entity is sample at the whole tick and never at the recorded view (2026-11-25) — OPEN
 
 Found in B860 review 14 (Fable, Sonnet), *read*, not measured. `DemoTimeline.DrawnPose` (B860 review 13) gives the
@@ -47533,6 +47547,14 @@ Fable, review 15. Fixed:
   `PropsAt_ASequenceOnlyLatchAfterTheRise_HoldsTheCycle` (0.30; 0.22) reddens with the whole entry.
 - `UnannouncedRead`'s remark now says it misjudges the first frame past each tick at any frame rate, not only at or
   below the tick rate; B866's second worked case uses the two ticks its config gives; B862's weapon half waits on B863.
+
+Review 16 (Fable, Sonnet, Codex: no blocker). Fixed: the sequence-only test asserts the frame after too (Sonnet) and
+states its reach — a sequence change without a parity bump, or a static-prop model (Fable); `LatestChangeIndex` says
+a generation start counting as a change is not the engine's (`Reset()` arms nothing, `interpolatedvar.h:740-752`), and
+why no drawn value differs (*reasoned*); a test comment names the frame at 49.5 (Fable). Filed: `InterpolateCycle`
+refusing to blend across any sequence change, where the engine blends unless a parity reset cleared the history, as
+B868 (Sonnet). Not taken: `_predicted ??=` (recorded since review 2); the cache test compares stepped with fresh, not an
+engine value (Sonnet), which is its purpose — the conformance tests hold the values.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
 

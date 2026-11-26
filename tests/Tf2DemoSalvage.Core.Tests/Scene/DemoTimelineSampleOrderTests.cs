@@ -180,7 +180,7 @@ public sealed class DemoTimelineSampleOrderTests
                 Interpolation = InterpolationRiseConformanceTests.RiseAtFifty(),
             };
 
-            // An update every twenty ticks from 5, so the crate is still moving at the rise (the frame at 50 aims at 42,
+            // An update every twenty ticks from 5, so the crate is still moving at the rise (the frame at 49.5 aims at 41.5,
             // between 25 and 45) and no keyframe wake re-derives it between the step and the frame that must resync for
             // it — a wake would hide a resync the cache missed.
             for (int tick = 5; tick <= 100; tick += 20)
