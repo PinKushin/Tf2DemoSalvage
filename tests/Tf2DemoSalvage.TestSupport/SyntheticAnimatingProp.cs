@@ -39,6 +39,34 @@ internal static class SyntheticAnimatingProp
     public static byte[] Demo(
         IReadOnlyList<string> models,
         int? animationLag,
+        params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames) =>
+        Demo(models, animationLag, kinds: null, frames);
+
+    /// <summary>The same, each update of the kind given: an `Enter`, a `Delta` or a `Leave` (B871).</summary>
+    /// <param name="models">The model precache table.</param>
+    /// <param name="animationLag">How far `m_flAnimTime` trails the packet tick; null for none.</param>
+    /// <param name="kinds">One per frame; null for `Enter` first and `Delta` after. A `Leave` carries no properties.</param>
+    /// <param name="frames">The updates.</param>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] Demo(
+        IReadOnlyList<string> models,
+        int? animationLag,
+        IReadOnlyList<EntityUpdateType>? kinds,
+        params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames) =>
+        Demo(models, animationLag, kinds, fullPackets: null, frames);
+
+    /// <summary>The same, with the frames whose packet is full (non-delta) named; the first always is.</summary>
+    /// <param name="models">The model precache table.</param>
+    /// <param name="animationLag">How far `m_flAnimTime` trails the packet tick; null for none.</param>
+    /// <param name="kinds">One per frame; null for `Enter` first and `Delta` after.</param>
+    /// <param name="fullPackets">The indices of the frames sent in a full packet besides the first; null for none.</param>
+    /// <param name="frames">The updates.</param>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] Demo(
+        IReadOnlyList<string> models,
+        int? animationLag,
+        IReadOnlyList<EntityUpdateType>? kinds,
+        IReadOnlySet<int>? fullPackets,
         params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames)
     {
         DemoSchema schema = Schema();
@@ -93,19 +121,23 @@ internal static class SyntheticAnimatingProp
 
             properties.Sort((left, right) => left.Index.CompareTo(right.Index));
 
+            EntityUpdateType kind = kinds?[index] ?? (index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta);
+
             DecodedEntity prop = new(
                 EntityIndex,
                 ClassId,
-                SerialNumber: 3,
-                index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
-                properties);
+                SerialNumber: kind == EntityUpdateType.Enter ? 3 : 0,
+                kind,
+                kind == EntityUpdateType.Leave ? [] : properties);
 
-            byte[] body = decoder.EncodeEntities([prop], [], isDelta: index > 0, 0, out int bits);
+            bool isDelta = index > 0 && fullPackets?.Contains(index) != true;
+
+            byte[] body = decoder.EncodeEntities([prop], [], isDelta, 0, out int bits);
 
             PacketEntitiesMessage entities = new(
                 MaxEntries: 64,
-                IsDelta: index > 0,
-                DeltaFromTick: index > 0 ? frames[index - 1].Tick : null,
+                IsDelta: isDelta,
+                DeltaFromTick: isDelta ? frames[index - 1].Tick : null,
                 BaselineIndex: false,
                 UpdatedEntries: 1,
                 LengthBits: bits,

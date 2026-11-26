@@ -47156,6 +47156,19 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B877 — a full (non-delta) packet keeps every entity it restates, and every one it omits, where the engine recreates all (2026-11-26) — OPEN
+
+Found in B871 review 3 (Fable), *read*: on an uncompressed update the client destroys every entity and recreates them
+(`IClientNetworkable::SetDestroyedOnRecreateEntities`, `iclientnetworkable.h:99-101` — the header's comment; the engine
+side, `CL_ProcessPacketEntities`, is closed and *not read*). `EntityStateTable.Apply` keeps a same-serial entity's state
+across a full packet and merges the restatement into it, and an entity absent from the full packet stays in the table.
+B871 makes each `Enter` of a full packet a creation for the interpolation reset (`EntityState.JustCreated`), but the
+STATE is still kept: a property the full packet's baseline restores is right, one the old state held and the
+recreation would drop to its default is not. Scenario: a full packet mid-recording (a `cl_fullupdate`, a demo that
+restarts its stream) that omits an entity still drawn before it — the viewer keeps drawing it. Not measured: how often a
+recording carries a full packet after its first. Fix shape: on a non-delta packet, clear the table before applying it
+(and end every track it does not restate); confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
+
 ## B876 — animation layers and bone controllers take the earlier keyframe, where the engine interpolates them (2026-11-26) — OPEN
 
 Found in B871's review (Sonnet asked whether `m_iv_flEncodedController` is modelled), *read*. The engine registers both as
@@ -47259,7 +47272,9 @@ then the base) in TF's tree. The build calls `ScenePropTrack.ResetLatched(tick)`
 after `OnNewModel` and before the parity block — `PostDataUpdate`'s order (`c_baseentity.cpp:2609-2617`, then
 `c_baseanimating.cpp:4738`). It resets the simulation, cycle and pose-parameter histories to three entries at the
 arrival holding the update's values, on the CREATING update only — `EntityState.JustCreated`, set by the entity table
-when it builds a new state (a slot first filled or a new serial in it), so neither a track that begins later (no model
+when it builds a new state (a slot first filled or a new serial in it) and for every `Enter` of a full (non-delta)
+packet, on which the engine destroys and recreates all entities (`iclientnetworkable.h:99-101`,
+`SetDestroyedOnRecreateEntities`; review 3, Fable), so neither a track that begins later (no model
 until then) nor a same-serial re-entry the track never saw is reset (reviews 1-2, Fable, the cavecrew reviewer). `OnDataChanged`'s second call
 (`c_baseanimating.cpp:5004-5006`) is the same values at the same `curtime`, except a client-side-animated cycle, which
 `PostDataUpdate` has set back to the pre-update value (`:4689-4691`) — not interpolated here (`ScenePropTrack.At`), so no
@@ -47269,9 +47284,15 @@ and the simulation history at the track (128.57 where 150). Each sabotage redden
 can now send a lagging `m_flAnimTime` (with `m_flSimulationTime` and `net_Tick`, which the decode needs). The other
 family of `ResetLatched` callers — no-interpolation and teleport frames, including a creation with a nonzero counter —
 is B875; a track beginning after its entity's creation (no model or origin until then) still lacks that entity's
-earlier history, as before. A same-serial re-entry is not reset: that a dormant entity's re-entry is not
-`DATA_UPDATE_CREATED` is *interpolated* — `CL_CopyNewEntity` is closed, and `iclientnetworkable.h:34` reads "created
-+and+ entered the pvs" with the entered-PVS kind commented out (review 2, Sonnet). Review 2 also moved the late-track
+earlier history, as before. A same-serial re-entry in a delta packet is not reset: that a dormant entity's re-entry is
+not `DATA_UPDATE_CREATED` is *interpolated* — `CL_CopyNewEntity` is closed, and `iclientnetworkable.h:36` reads "created
++and+ entered the pvs" with the entered-PVS kind commented out (review 2, Sonnet). Review 3 (Codex: no findings;
+Fable, Sonnet, the cavecrew reviewer): the full-packet creation above, with `JustCreated_ASameSerialEnterInAFullPacket_IsTrueAndInADeltaPacketFalse`
+and `At_ASameSerialEnterInAFullPacket_StartsAtTheArrival` (0.714 at 52; its control, the same frames in a delta packet,
+draws what a hand-built unreset track draws), whose wiring sabotage reddened it; a delta for a slot the table never held
+is not a creation (a row of the table test); a build-level same-serial re-entry test
+(`At_ATrackBegunByARentryOfTheSameSerial_IsNotReset`); a delete then the same serial is a creation. The table keeping a
+same-serial state across a full packet, where the engine destroys it, is B877. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876

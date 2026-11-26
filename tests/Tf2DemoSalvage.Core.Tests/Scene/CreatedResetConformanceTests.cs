@@ -1,6 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
@@ -61,6 +64,63 @@ public sealed class CreatedResetConformanceTests
 
         track.FirstTick.ShouldBe(50, "the control: no track while the entity had no model, so its first update is a delta");
         track.At(52d + Delay)!.Value.Cycle.ShouldBe(0.8f, 1e-5f);
+    }
+
+    /// <summary>
+    /// **An `Enter` that re-enters an entity is not a creation, even when it begins the track** (B871 review 3): created at
+    /// 10 with no model (no track), out of the visible set at 30, back at 50 with the SAME serial and a model. The engine holds
+    /// the dormant entity, so 50 latches (animation time 47) and does not reset: cycle 0.8 at a target of 52, where a reset at
+    /// 50 gives 0.714.
+    /// </summary>
+    [Test]
+    public void At_ATrackBegunByARentryOfTheSameSerial_IsNotReset()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/props_gameplay/door.mdl"],
+            animationLag: 3,
+            [EntityUpdateType.Enter, EntityUpdateType.Leave, EntityUpdateType.Enter, EntityUpdateType.Delta],
+            (10, 0, [], 0.2f, null),
+            (30, 0, [], null, null),
+            (50, 1, [], 0.6f, null),
+            (60, 1, [], 1.0f, null)));
+
+        ScenePropTrack track = timeline.Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex);
+
+        track.FirstTick.ShouldBe(50, "the control: the track begins at the re-entry");
+        track.At(52d + Delay)!.Value.Cycle.ShouldBe(0.8f, 1e-5f);
+    }
+
+    /// <summary>
+    /// **A full packet recreates the entity, so it resets even with the same serial** (B871 review 3): the engine destroys
+    /// every client entity on a non-delta update and recreates them (`iclientnetworkable.h:99-101`). Created at 10, restated
+    /// at 50 in a full packet (animation time 47), 1.0 at 60 (57): a target of 52 is 2/7 of the way from 50, 0.714. The
+    /// control is the same frames with 50 in a delta packet, which only latches: it must draw what a track given the same
+    /// three latches (7, 47, 57) and no reset draws — the hermite through all three, whatever its value.
+    /// </summary>
+    [Test]
+    public void At_ASameSerialEnterInAFullPacket_StartsAtTheArrival()
+    {
+        float Drawn(bool full) => DemoTimeline.Build(SyntheticAnimatingProp.Demo(
+                [string.Empty, "models/props_gameplay/door.mdl"],
+                animationLag: 3,
+                [EntityUpdateType.Enter, EntityUpdateType.Enter, EntityUpdateType.Delta],
+                full ? new HashSet<int> { 1 } : null,
+                (10, 1, [], 0.2f, null),
+                (50, 1, [], 0.6f, null),
+                (60, 1, [], 1.0f, null)))
+            .Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex)
+            .At(52d + Delay)!.Value.Cycle;
+
+        ScenePropTrack unreset = new(SyntheticAnimatingProp.EntityIndex, "models/props_gameplay/door.mdl");
+        unreset.Add(10, new ScenePose { Cycle = 0.2f }, appliedAt: 10, animationAppliedAt: 7);
+        unreset.ResetLatched(10);
+        unreset.Add(50, new ScenePose { Cycle = 0.6f }, appliedAt: 50, animationAppliedAt: 47);
+        unreset.Add(60, new ScenePose { Cycle = 1.0f }, appliedAt: 60, animationAppliedAt: 57);
+        float latched = unreset.At(52d + Delay)!.Value.Cycle;
+
+        Math.Abs(latched - (0.6f + (0.4f * 2f / 7f))).ShouldBeGreaterThan(1e-2f, "the instrument: a latch must not draw what a reset draws");
+        Drawn(full: false).ShouldBe(latched, 1e-5f, "the control: a delta packet's re-entry only latches");
+        Drawn(full: true).ShouldBe(0.6f + (0.4f * 2f / 7f), 1e-5f);
     }
 
     /// <summary>

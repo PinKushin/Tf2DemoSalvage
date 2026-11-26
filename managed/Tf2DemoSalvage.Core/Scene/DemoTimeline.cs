@@ -4678,7 +4678,7 @@ public sealed class DemoTimeline
                 foreach (DecodedEntity entity in
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
-                    entities.Apply(entity);
+                    entities.Apply(entity, inFullPacket: !snapshot.IsDelta);
                     dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick, entity.SerialNumber);
                     pointCameras.Observe(
                         entity.EntityIndex,

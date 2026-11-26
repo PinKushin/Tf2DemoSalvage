@@ -120,7 +120,17 @@ public sealed class EntityStateTable
     /// <summary>Applies one snapshot's view of an entity.</summary>
     /// <param name="entity">The entity as a snapshot described it.</param>
     /// <exception cref="System.ArgumentNullException"><paramref name="entity"/> is null.</exception>
-    public void Apply(DecodedEntity entity)
+    public void Apply(DecodedEntity entity) => Apply(entity, inFullPacket: false);
+
+    /// <summary>Applies one snapshot's view of an entity, saying whether the snapshot was a full (non-delta) packet.</summary>
+    /// <param name="entity">The entity as a snapshot described it.</param>
+    /// <param name="inFullPacket">
+    /// The packet is not a delta: the engine destroys every client entity and recreates what it lists
+    /// (`IClientNetworkable::SetDestroyedOnRecreateEntities`, `iclientnetworkable.h:99-101`), so each `Enter` in it is
+    /// `DATA_UPDATE_CREATED` (B871 review 3).
+    /// </param>
+    /// <exception cref="System.ArgumentNullException"><paramref name="entity"/> is null.</exception>
+    public void Apply(DecodedEntity entity, bool inFullPacket)
     {
         System.ArgumentNullException.ThrowIfNull(entity);
 
@@ -181,9 +191,12 @@ public sealed class EntityStateTable
         // so its properties stay and only its visibility changes.
         state.IsVisible = entity.UpdateType != EntityUpdateType.Leave;
 
-        // **Whether this update made the entity** — the engine's `DATA_UPDATE_CREATED` (B871): a slot first filled or a new
-        // serial in it. A re-entry of the same serial, or a full packet restating a live entity, is not.
-        state.JustCreated = created;
+        // **Whether this update made the entity** — the engine's `DATA_UPDATE_CREATED` (B871): an `Enter` into an empty slot
+        // or with a new serial, and every `Enter` of a full packet, since the engine recreates all entities on one
+        // (`iclientnetworkable.h:99-101`). A re-entry of the same serial in a delta packet, and a delta for a slot the table
+        // never saw (the engine's "missing client entity"), are not. The table still KEEPS a same-serial state across a full
+        // packet where the engine destroys it — B877.
+        state.JustCreated = statesSerial && (created || inFullPacket);
 
         // **The entity's state, not the snapshot's bits, and the two differ on every Enter.** An
         // entity entering the visible set is a delta against its class's instance baseline and

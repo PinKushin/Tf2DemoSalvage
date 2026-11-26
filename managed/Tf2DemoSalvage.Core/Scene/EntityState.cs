@@ -1149,8 +1149,9 @@ public sealed partial class EntityState
 
     /// <summary>Whether the update just applied CREATED this entity — the engine's <c>DATA_UPDATE_CREATED</c> (B871).</summary>
     /// <remarks>
-    /// Set by <see cref="EntityStateTable"/>: a slot first filled, or a new serial in it. An <c>Enter</c> that is a re-entry of
-    /// the same serial, or a full packet restating a live entity, is not a creation, and the engine does not reset then.
+    /// Set by <see cref="EntityStateTable"/>: a slot first filled, a new serial in it, or any <c>Enter</c> of a full (non-delta)
+    /// packet, on which the engine recreates every entity. An <c>Enter</c> of a delta packet that is a re-entry of the same
+    /// serial is not a creation, and the engine does not reset then.
     /// </remarks>
     public bool JustCreated { get; internal set; }
 
