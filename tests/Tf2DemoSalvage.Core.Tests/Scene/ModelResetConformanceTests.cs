@@ -29,15 +29,19 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class ModelResetConformanceTests
 {
-    private const int PropClassId = 0;
-
-    private const int PropEntityIndex = 7;
+    private const int PropEntityIndex = SyntheticAnimatingProp.EntityIndex;
 
     private const string TwoParameters = "models/buildables/sentry1.mdl";
 
     private const string OtherTwoParameters = "models/buildables/sentry2.mdl";
 
     private const string OneParameter = "models/props_gameplay/door.mdl";
+
+    /// <summary>A map brush model, which has no studio header.</summary>
+    private const string BrushModel = "*1";
+
+    /// <summary>A studio model the install does not have.</summary>
+    private const string MissingModel = "models/props_custom/missing.mdl";
 
     /// <summary>
     /// **A model change to a different parameter count resets the history AT THAT UPDATE**, so a target before it draws
@@ -162,127 +166,41 @@ public sealed class ModelResetConformanceTests
         }
     }
 
+    /// <summary>
+    /// **A model with no studio header — a brush model — skips the cycle reset**: `OnNewModel` returns before
+    /// `SetMaxCount` (`c_baseanimating.cpp:1042-1043`) and the parity block's `if ( hdr &amp;&amp; … )` (`:4744-4745`) resets
+    /// nothing, so a parity change in the same update keeps the cycle history and the cycle blends 0.6 toward 0.9.
+    /// </summary>
+    [Test]
+    public void At_ABrushModelSetWithASequenceRestart_KeepsTheCycleHistory()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            Demo((0, 1, [0.5f, 0.5f], 0.2f, 0), (10, 1, [0.5f, 0.5f], 0.6f, 0), (20, 4, [0.5f, 0.5f], 0.9f, 1)),
+            models: Facts());
+
+        Track(timeline).At(25d)!.Value.Cycle.ShouldBeInRange(0.61f, 0.89f);
+    }
+
+    /// <summary>
+    /// **A `.mdl` the install lacks after a brush model is not still headerless** (B873 is unknown, not "no header"): the
+    /// parity change at 20 resets the cycle as it does for any studio model, drawing the update's 0.9.
+    /// </summary>
+    [Test]
+    public void At_AMissingModelSetAfterABrushModel_ResetsTheCycleAgain()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            Demo((0, 1, [0.5f, 0.5f], 0.2f, 0), (10, 4, [0.5f, 0.5f], 0.6f, 0), (20, 5, [0.5f, 0.5f], 0.9f, 1)),
+            models: Facts());
+
+        Track(timeline).At(25d)!.Value.Cycle.ShouldBe(0.9f);
+    }
+
     /// <summary>A demo of one prop, one update per entry: tick, model precache index, pose parameters.</summary>
     private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose)[] frames) =>
         Demo([.. frames.Select(frame => (frame.Tick, frame.ModelIndex, frame.Pose, (float?)null, (int?)null))]);
 
     /// <summary>The same, each update also stating a cycle and a new-sequence parity when given.</summary>
-    private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames)
-    {
-        DemoSchema schema = Schema();
-
-        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-
-        List<DemoCommand> commands =
-        [
-            SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol,
-                0,
-                SyntheticDemo.StringTable(
-                    ModelPrecache.TableName,
-                    [string.Empty, TwoParameters, OtherTwoParameters, OneParameter],
-                    maxEntries: 8)),
-            SyntheticDemo.DataTables(schema),
-        ];
-
-        for (int index = 0; index < frames.Length; index++)
-        {
-            (int tick, int modelIndex, float[] pose, float? cycle, int? parity) = frames[index];
-
-            IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
-
-            List<DecodedProperty> properties =
-            [
-                Property(flat, "m_nModelIndex", PropertyValue.FromInt(modelIndex)),
-                Property(flat, "m_vecOrigin", PropertyValue.FromVectorXY(64f, 0f)),
-                Property(flat, "m_vecOrigin[2]", PropertyValue.FromFloat(0f)),
-            ];
-
-            for (int parameter = 0; parameter < pose.Length; parameter++)
-            {
-                properties.Add(Property(flat, $"{parameter:000}", PropertyValue.FromFloat(pose[parameter])));
-            }
-
-            if (cycle is { } stated)
-            {
-                properties.Add(Property(flat, "m_flCycle", PropertyValue.FromFloat(stated)));
-            }
-
-            if (parity is { } counter)
-            {
-                properties.Add(Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(counter)));
-            }
-
-            properties.Sort((left, right) => left.Index.CompareTo(right.Index));
-
-            DecodedEntity prop = new(
-                PropEntityIndex,
-                PropClassId,
-                SerialNumber: 3,
-                index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
-                properties);
-
-            byte[] body = decoder.EncodeEntities([prop], [], isDelta: index > 0, 0, out int bits);
-
-            commands.Add(SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol,
-                tick,
-                new PacketEntitiesMessage(
-                    MaxEntries: 64,
-                    IsDelta: index > 0,
-                    DeltaFromTick: index > 0 ? frames[index - 1].Tick : null,
-                    BaselineIndex: false,
-                    UpdatedEntries: 1,
-                    LengthBits: bits,
-                    UpdateBaseline: false,
-                    Body: body)));
-        }
-
-        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
-    }
-
-    private static DecodedProperty Property(IReadOnlyList<FlatProperty> flat, string name, PropertyValue value)
-    {
-        for (int candidate = 0; candidate < flat.Count; candidate++)
-        {
-            if (string.Equals(flat[candidate].Property.Name, name, StringComparison.Ordinal))
-            {
-                return new DecodedProperty(candidate, flat[candidate], value);
-            }
-        }
-
-        throw new InvalidOperationException($"the fixture schema declares no {name}");
-    }
-
-    /// <summary>One animating prop class: a model index, a position, and a two-element pose-parameter array.</summary>
-    private static DemoSchema Schema() => new(
-        [
-            new SendTable("DT_BaseEntity", NeedsDecoder: true,
-            [
-                new SendProperty(SendPropType.Int, "m_nModelIndex", 1, string.Empty, 0f, 0f, 13, 0),
-                new SendProperty(SendPropType.VectorXY, "m_vecOrigin", 1, string.Empty, -16384f, 16384f, 32, 0),
-                new SendProperty(SendPropType.Float, "m_vecOrigin[2]", 1, string.Empty, -16384f, 16384f, 32, 0),
-            ]),
-            new SendTable("m_flPoseParameter", NeedsDecoder: false,
-            [
-                new SendProperty(SendPropType.Float, "000", 1, string.Empty, 0f, 1f, 32, 0),
-                new SendProperty(SendPropType.Float, "001", 1, string.Empty, 0f, 1f, 32, 0),
-            ]),
-            new SendTable("DT_BaseAnimating", NeedsDecoder: false,
-            [
-                new SendProperty(SendPropType.Int, "m_nNewSequenceParity", 1, string.Empty, 0f, 0f, 3, 0),
-            ]),
-            new SendTable("DT_ServerAnimationData", NeedsDecoder: false,
-            [
-                new SendProperty(SendPropType.Float, "m_flCycle", 1, string.Empty, 0f, 1f, 32, 0),
-            ]),
-            new SendTable("DT_DynamicProp", NeedsDecoder: true,
-            [
-                new SendProperty(SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0),
-                new SendProperty(SendPropType.DataTable, "m_flPoseParameter", 1, "m_flPoseParameter", 0f, 0f, 0, 0),
-                new SendProperty(SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
-                new SendProperty(SendPropType.DataTable, "serveranimdata", 1, "DT_ServerAnimationData", 0f, 0f, 0, 0),
-            ]),
-        ],
-        [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);
+    private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames) =>
+        SyntheticAnimatingProp.Demo(
+            [string.Empty, TwoParameters, OtherTwoParameters, OneParameter, BrushModel, MissingModel], frames);
 }

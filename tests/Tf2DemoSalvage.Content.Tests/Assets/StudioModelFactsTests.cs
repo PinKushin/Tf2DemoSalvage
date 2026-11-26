@@ -49,6 +49,7 @@ public sealed class StudioModelFactsTests
     {
         new StudioModelFacts(_ => null).FactsOf("*12").ShouldBeNull();
         new StudioModelFacts(_ => new byte[512]).FactsOf(Sentry).ShouldBeNull();
+        new StudioModelFacts(_ => throw new System.IO.IOException("locked")).FactsOf(Sentry).ShouldBeNull();
     }
 
     /// <summary>A model is read once however often the recording sets it.</summary>

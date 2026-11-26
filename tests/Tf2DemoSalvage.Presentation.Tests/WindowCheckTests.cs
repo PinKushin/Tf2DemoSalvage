@@ -33,6 +33,40 @@ public sealed class WindowCheckTests
     }
 
     /// <remarks>
+    /// **The walk builds with the facts the whole timeline was built with** (B872): the window's builder asks them as the
+    /// straight build does. Control: the straight build asks the same instrument too, so a zero is not a demo with no model.
+    /// </remarks>
+    [Test]
+    public async Task Start_WithModelFacts_HandsThemToTheWalksBuilder()
+    {
+        byte[] demo = Core.Tests.SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl"], (0, 1, [0.5f], null, null), (10, 1, [0.6f], null, null));
+
+        Asking control = new();
+        _ = DemoTimeline.Build(demo, models: control);
+        control.Asked.ShouldBeGreaterThan(0, "the control: the straight build asks for a model's facts");
+
+        Asking asking = new();
+        using WindowCheck check = WindowCheck.Start(demo, 0.015, "walk", Settings, new RecordingLogger(), models: asking);
+        await check.Walking.ConfigureAwait(false);
+
+        asking.Asked.ShouldBeGreaterThan(0);
+    }
+
+    private sealed class Asking : IModelFacts
+    {
+        private int _asked;
+
+        public int Asked => _asked;
+
+        public ModelFacts? FactsOf(string modelPath)
+        {
+            Interlocked.Increment(ref _asked);
+            return null;
+        }
+    }
+
+    /// <remarks>
     /// **A faulted walk parks the check, said once**: frames after it neither throw nor say it again.
     /// </remarks>
     [Test]

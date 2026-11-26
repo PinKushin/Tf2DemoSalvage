@@ -37,6 +37,40 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class DecodedDemoTests
 {
+    /// <summary>
+    /// **The read keeps what it built with** (B872): `WindowCheck` walks the same bytes with them, so a window and the whole
+    /// timeline are built from the same install.
+    /// </summary>
+    [Test]
+    public void Read_WithModelFactsAndClassScripts_KeepsThemForTheWindowWalk()
+    {
+        string path = Temporary(SchemalessDemo("cp_process_final"));
+        NoFacts models = new();
+        NoScripts classes = new();
+
+        try
+        {
+            DecodedDemo decoded = DecodedDemo.Read(path, NullLogger.Instance, classes: classes, models: models);
+
+            decoded.Models.ShouldBeSameAs(models);
+            decoded.Classes.ShouldBeSameAs(classes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private sealed class NoFacts : Tf2DemoSalvage.Core.Scene.IModelFacts
+    {
+        public Tf2DemoSalvage.Core.Scene.ModelFacts? FactsOf(string modelPath) => null;
+    }
+
+    private sealed class NoScripts : Tf2DemoSalvage.Core.Scene.IClassAnimationScripts
+    {
+        public Tf2DemoSalvage.Core.Scene.ClassAnimationScript ScriptOf(int? playerClass) => default;
+    }
+
     [Test]
     public void Read_OnADemoWithNoSchema_KeepsTheHeaderAndAnEmptyTimeline()
     {

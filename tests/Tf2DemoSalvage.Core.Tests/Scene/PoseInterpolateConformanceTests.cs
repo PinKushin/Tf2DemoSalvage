@@ -106,6 +106,48 @@ public sealed class PoseInterpolateConformanceTests
     }
 
     /// <summary>
+    /// **An unevenly spaced third sample is respaced first** (`TimeFixup2_Hermite`, `interpolatedvar.h:1379-1405`): 0.2@0,
+    /// 0.5@4, 0.6@6 at target 5 moves the third to 0.35 at 2, so `Lerp_Hermite( ½, 0.35, 0.5, 0.6 )` = 0.55625 — unrespaced
+    /// it would be 0.575.
+    /// </summary>
+    [Test]
+    public void At_AnUnevenlySpacedThirdEntry_IsRespacedBeforeTheSpline()
+    {
+        ScenePropTrack track = Track([false], (0, [0.2f]), (4, [0.5f]), (6, [0.6f]));
+
+        track.At(5d + Delay)!.Value.PoseParameters[0].ShouldBe(0.55625f, 1e-6f);
+    }
+
+    /// <summary>
+    /// **No wider than the engine's array**: a header declaring 30 parameters sizes the history at 24 (`Assert`,
+    /// `c_baseanimating.cpp:1122`), so the 25th stated value is past the width and stands as stated.
+    /// </summary>
+    [Test]
+    public void OnNewModel_ForMoreParametersThanTheEnginesArray_ClampsTheWidth()
+    {
+        float[] first = [.. System.Linq.Enumerable.Repeat(0.2f, 25)];
+        float[] second = [.. System.Linq.Enumerable.Repeat(0.6f, 25)];
+        ScenePropTrack track = Track(new bool[30], (0, first), (10, second));
+
+        float[] drawn = [.. track.At(5d + Delay)!.Value.PoseParameters];
+
+        drawn[23].ShouldBe(0.4f, 1e-6f);
+        drawn[24].ShouldBe(0.6f);
+    }
+
+    /// <summary>
+    /// **A looping parameter splines across the wrap** (`LoopingLerp_Hermite`): 0.9@0, 0.95@2, 0.05@4 at target 3 lifts
+    /// the 0.05 to 1.05 and draws `Lerp_Hermite( ½, 0.9, 0.95, 1.05 )` = 0.99375 — where the linear `LoopingLerp` gives 0.
+    /// </summary>
+    [Test]
+    public void At_ALoopingParameterWithAThirdEntryAcrossTheWrap_SplinesTheShortWay()
+    {
+        ScenePropTrack track = Track([true], (0, [0.9f]), (2, [0.95f]), (4, [0.05f]));
+
+        track.At(3d + Delay)!.Value.PoseParameters[0].ShouldBe(0.99375f, 1e-5f);
+    }
+
+    /// <summary>
     /// **A parameter past the model's count is not interpolated**: `_Interpolate` runs to `m_nMaxCount`, so the slot
     /// past it keeps what the wire last stated — here the arrival's 0.8 while the first parameter blends.
     /// </summary>

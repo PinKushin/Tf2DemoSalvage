@@ -47156,6 +47156,14 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B874 — the probes build without the install's class scripts or model facts (2026-11-27) — OPEN
+
+Found in B870 review 2 (the cavecrew reviewer), *read*. 103 probes call `DemoTimeline.Build(file)` with neither `classes`
+(B437) nor `models` (B870), where the viewer passes both from the install. So a probe that reports a pose, a cycle or an
+anim-state answer reads a timeline the viewer never builds — against the rule that probes run the production path.
+Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
+builds as `DecodedDemo.Read` does, and the probes call it. *Not fixed*.
+
 ## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
 
 Found writing B870, *read*. The build asks `IModelFacts` for the path the wire's `m_nModelIndex` names, from the
@@ -47163,8 +47171,9 @@ install's archives. (1) A weapon whose wire names no model — `CWeaponMedigun`,
 (`ScenePropTrack.ItemDefinitionIndex`) — is drawn from its item, so the build never sees a model set and its pose history
 is never resized; the engine's client sets the item's model and runs `OnNewModel` (*the client-side SetModel path is
 inferred, not read*). (2) A map's own `.mdl` packed in its BSP pakfile is not in `Archives.Read`, and the map loads in
-parallel with the decode (B507), so its facts are null. Both draw as the engine's model-less entity: no resize, no
-static-prop exemption, no sequence looping until the view restates the flags. Fix shape: resolve the item's model in the
+parallel with the decode (B507), so its facts are null. Both get no resize, and keep whatever the track's previous
+model said — its static-prop exemption and its sequence looping — or nothing for a first model, until the view restates
+the flags; after a static-prop model, every cycle reset the engine would run is skipped (B870 review 2, Fable). Fix shape: resolve the item's model in the
 build (the item schema is already in `GameContent`), and give the facts the map's pakfile once it is read — or read the
 header before the decode. *Not fixed*.
 
@@ -47294,6 +47303,24 @@ the visible change is parts 1, 3-5 and the end-of-recording seed no longer reach
   the reset stamped with the arrival (0.7, where the animation time gives 0.654), the static-prop order (with its
   control), the window walk. Removed `At_ASecondParameterAfterTheModelIsSet_BlendsWithTheFirst`, which could not fail for
   its stated reason (Fable). Each new mechanism's sabotage reddened its test.
+
+**Review 2** (Fable local, Sonnet, Codex retried, the cavecrew reviewer; Grok's run died on its balance). Fixed:
+- **The pose spline stops at the pruned floor** (Fable): a pair starting on the floor has no valid `oldestindex` after
+  `Truncate( i + 3 )` (`interpolatedvar.h:782-795`, `:851`), so it runs linear, as origin and cycle already do.
+- **Valve's `Lerp` arithmetic** (Sonnet): `A + (B - A) * flPercent` (`mathlib.h:629-635`) in `TimeFixup` and `Curve`'s
+  linear form, where `float.Lerp` rounds as `A * (1 - t) + B * t`. The `At` fingerprint was re-recorded with its control.
+- **A headerless flag does not outlive the model** (Sonnet, cavecrew): a `.mdl` without facts clears it (`FactsUnknown`).
+- **The sequence-loop facts hold one bool per sequence** (cavecrew), not every parsed sequence of every include.
+- Tests: the pose floor, a brush model with a parity change, a missing `.mdl` after a brush, the respaced third sample
+  (0.55625), a looping spline across the wrap (0.99375), the 24 clamp, `IOException`, `DecodedDemo` keeping its inputs,
+  and `WindowCheck.Start` handing the facts to the walk (its control: the straight build asks the same instrument). Each
+  new mechanism's sabotage reddened its test. The model-setting demo builder moved to TestSupport (`SyntheticAnimatingProp`).
+- Removed `ModelFacts` from `StateCopy`'s immutable list (Fable): nothing the builder reaches holds one.
+- Filed B874: the probes build without the install. B873 now says a `.mdl` without facts keeps the previous model's flags.
+
+Not taken: Codex's `LoopingLerp_Hermite` claim (`LoopingCurve` already wraps, Sonnet confirmed `lerp_functions.h:117-159`;
+now tested). An empty model path after a studio model (Sonnet, Fable): consistent with `Follow`'s rule that index 0 keeps the
+model; not confirmed TF2 sends it. A missing `$includemodel` (cavecrew): the engine's client lacks it too.
 
 Not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
 and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,

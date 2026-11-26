@@ -8046,6 +8046,11 @@ public sealed class DemoTimeline
             // A brush model or a sprite has no studio header, which is an answer; a `.mdl` the install lacks is not (B873).
             track.NoStudioHeader();
         }
+        else if (modelSet && modelFacts is not null)
+        {
+            // A `.mdl` the install lacks: unknown, so an earlier brush model's no-header answer no longer stands (B873).
+            track.FactsUnknown();
+        }
 
         if (newSequenceStarted)
         {

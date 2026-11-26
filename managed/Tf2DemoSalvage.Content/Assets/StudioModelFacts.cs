@@ -54,18 +54,21 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
         (IReadOnlyList<StudioPoseParameter> pose, _) =
             StudioPoseParameterMerge.Merge([.. files.Select(file => StudioSequences.PoseParameters(file))]);
 
-        return new ModelFacts([.. pose.Select(parameter => parameter.Loop != 0f)], model.IsStaticProp, Loops);
+        // One flag per merged sequence, so the cache holds a bool each rather than every parsed sequence of every include.
+        bool[] looping = [.. Enumerable.Range(0, table.Count).Select(sequence => Looping(table, groups, sequence))];
 
         // `IsSequenceLooping( GetSequence() )` of the sequence the model PLAYS — 0 for one out of range
         // (`c_baseanimating.cpp:1967-1970`), as `PropModels.SkinnedModel.Played` answers it.
-        bool Loops(int sequence)
-        {
-            int played = sequence >= 0 && sequence < table.Count ? sequence : 0;
-
-            return table.At(played) is { } where &&
-                where.Group < groups.Count &&
-                where.Local < groups[where.Group].Sequences.Count &&
-                groups[where.Group].Sequences[where.Local].Loops;
-        }
+        return new ModelFacts(
+            [.. pose.Select(parameter => parameter.Loop != 0f)],
+            model.IsStaticProp,
+            sequence => looping.Length > 0 && looping[sequence >= 0 && sequence < looping.Length ? sequence : 0]);
     }
+
+    private static bool Looping(
+        StudioSequenceTable table, List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups, int sequence) =>
+        table.At(sequence) is { } where &&
+        where.Group < groups.Count &&
+        where.Local < groups[where.Group].Sequences.Count &&
+        groups[where.Group].Sequences[where.Local].Loops;
 }

@@ -242,6 +242,31 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **The pose parameters run linear on their own floor too** (B870 review 2, Fable): `m_iv_flPoseParameter` splines
+    /// since B870 and is pruned the same way. 0.25 at 27, 0.30 at 30, 0.31 at 33, then 0.01 a tick; the frame at 65 aims at
+    /// 31 on the pair from the floor at 30: 0.3033, not a spline through 27.
+    /// </summary>
+    [Test]
+    public void At_APosePairStartingOnThePrunedFloor_RunsLinear()
+    {
+        ScenePropTrack prop = new(entityIndex: 1, "models/buildables/sentry1.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 27; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { PoseParameters = [tick * 0.25f / 27f] });
+        }
+
+        prop.Add(30, new ScenePose { PoseParameters = [0.30f] });
+
+        for (int tick = 33; tick <= 99; tick += 3)
+        {
+            prop.Add(tick, new ScenePose { PoseParameters = [0.31f + ((tick - 33) * 0.01f)] });
+        }
+
+        prop.At(65)!.Value.PoseParameters[0].ShouldBe(0.30333f, 0.0001f);
+    }
+
+    /// <summary>
     /// **The cycle runs linear on its own floor too** (B860 review 8, Fable): `m_iv_flCycle` is its own variable, pruned the
     /// same way. Cycle 0.25 at 27, 0.30 at 30, 0.31 at 33, then 0.01 a tick; the frame at 65 aims at 31 on the pair from the
     /// floor at 30: 0.3033, not a spline through 27.

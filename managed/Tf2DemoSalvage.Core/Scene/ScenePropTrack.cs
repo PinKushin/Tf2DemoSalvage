@@ -2694,7 +2694,7 @@ public sealed class ScenePropTrack
         double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
         double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable, out int? animationFloor);
-        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
+        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable, out int? poseFloor);
 
         if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))
         {
@@ -3062,7 +3062,8 @@ public sealed class ScenePropTrack
             PoseParameters = PoseBetween(
                 from.PoseParameters,
                 posePair,
-                poseFraction),
+                poseFraction,
+                poseFloor),
 
             // Discrete: a counter part-way between two values names neither.
             ResetEventsParity = from.ResetEventsParity,
@@ -3171,7 +3172,8 @@ public sealed class ScenePropTrack
     {
         if (p0 is not { } previous)
         {
-            return float.Lerp(p1, p2, t);
+            // `Lerp` is `A + (B - A) * flPercent` (`mathlib.h:629-635`); `float.Lerp` rounds differently (B870 review 2).
+            return p1 + ((p2 - p1) * t);
         }
 
         float d1 = p1 - previous;
@@ -3554,6 +3556,9 @@ public sealed class ScenePropTrack
         _noStudioHeader = true;
     }
 
+    /// <summary>The recording set a `.mdl` the install could not answer for (B873): no longer a headerless model.</summary>
+    public void FactsUnknown() => _noStudioHeader = false;
+
     /// <summary>Whether the model last set has no studio header, which skips the cycle reset (B870).</summary>
     private bool _noStudioHeader;
 
@@ -3648,8 +3653,9 @@ public sealed class ScenePropTrack
     /// `_Interpolate_Hermite` runs over the array like any other variable (<c>interpolatedvar.h:1420-1458</c>), after
     /// `TimeFixup_Hermite` respaces that sample. Linear until then, which B382 named and left.
     /// </remarks>
+    /// <param name="floor">The oldest entry the client still held after a delay rise's prune, or null; no spline older.</param>
     private IReadOnlyList<float> PoseBetween(
-        IReadOnlyList<float> stated, Bracketing? pair, float fraction)
+        IReadOnlyList<float> stated, Bracketing? pair, float fraction, int? floor)
     {
         if (stated.Count == 0 || pair is not { } at)
         {
@@ -3673,8 +3679,11 @@ public sealed class ScenePropTrack
         }
 
         Span<float> fixup = stackalloc float[entryWidth];
+        // **No third sample older than the pruned floor**, as for the origin and the cycle (B860 review 7):
+        // `Truncate( i + 3 )` left nothing before it (`interpolatedvar.h:782-795`), so no valid `oldestindex` (`:851`).
         bool hermite = !one
             && _poseParameters.ChangeTimeAt(at.Newer) > _poseParameters.ChangeTimeAt(at.Older)
+            && (floor is not { } oldestHeld || _poseParameters.ChangeTimeAt(at.Older) > oldestHeld)
             && _poseParameters.TimeFixup(at, fixup, loops);
 
         Span<float> blended = stackalloc float[stated.Count];

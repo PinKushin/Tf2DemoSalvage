@@ -1441,9 +1441,10 @@ public sealed class InterpolatedHistory
                 continue;
             }
 
+            // `Lerp` is `A + (B - A) * flPercent` (`mathlib.h:629-635`); `float.Lerp` rounds differently.
             into[component] = looping[component]
                 ? ScenePropTrack.LoopingLerp(before, after, toward)
-                : float.Lerp(before, after, toward);
+                : before + ((after - before) * toward);
         }
 
         return true;
