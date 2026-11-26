@@ -47156,7 +47156,7 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B878 — a created entity's parity compares against −1 until its first bone setup, so a server-animated entity's cycle history resets on every update before it is drawn (2026-11-26) — OPEN
+## B878 — a server-animated entity's cycle history resets on every update whose parity differs from the one at its last bone setup, which is a view-time event (2026-11-26) — OPEN
 
 Found in B871 reviews 5-6 (Fable, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` restarts an animation only
 when `m_nNewSequenceParity` or `m_bClientSideFrameReset` DIFFERS from the value its track last held, and a track's first
@@ -47202,10 +47202,33 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
   implementations, review 10, Fable) call the base first: `client/c_baseflex.cpp:227-229`,
   `shared/tf/tf_weapon_grenadelauncher.cpp:610-612`, `shared/tf/tf_weapon_minigun.cpp:1068-1070`,
   `shared/econ/econ_entity.cpp:890-892`, `shared/tf/tf_viewmodel.cpp:313-315`, `client/hl2/c_barnacle.cpp:203-205`
-  (paths under `game/`). *Not read*: when the engine first sets up a never-drawn entity's bones in a demo.
+  (paths under `game/`).
 
-Fix shape: read when a demo entity's bones are first set up, then reset a server-animated entity's cycle history at
-every update before it, with a conformance test.
+**When bones are set up — read 2026-11-26 (clangd references to `C_BaseAnimating::SetupBones`, 45, a sub-agent's
+read; `SetupBones` itself `c_baseanimating.cpp:2796-3033`).** Only on demand, never in a pass over every entity:
+drawing the model (`InternalDrawModel`, `:3388`, hands `DrawModelSetup` a bone array, `:3496` — the engine's closed
+model render; that it calls `SetupBones` back is *interpolated* from the out-parameter), an attachment
+(`CalcAttachments`, `:2094`, from `GetAttachment`/`GetAttachmentVelocity` and `C_BaseFlex::OnThreadedDrawSetup`),
+hitboxes (`GetBoneCache`, `:2343`), a bone-merged child (`CBoneMergeCache`, `bone_merge_cache.cpp:131`, `:245`, `:270`),
+and ragdoll / death-pose paths. The per-frame passes do not reach it: `InvalidateBoneCaches` only bumps the counter
+(`:3151-3154`), `UpdateClientSideAnimations` walks the client-animated list, and the threaded and shadow bone passes
+are off (`cl_threaded_bone_setup` 0, `:2743`; `m_bThreaded = false`, `clientshadowmgr.cpp:4008`;
+`if ( 0 && … )`, `viewrender.cpp:4183`). So the first bone setup is the first frame the entity is DRAWN (in the
+view, not culled) or something asks it for an attachment or merges onto it — a VIEW-time event.
+
+**It is not only creation.** `m_nPrevNewSequenceParity` holds the parity seen at the LAST bone setup, so every update
+whose parity differs from it resets the cycle history (`:4738-4747`) — after a creation (−1) and after any sequence
+change while the entity is not set up. While it is drawn every frame the setup follows each update and only the
+changing update resets, which `SequenceRestarted` already does. The divergence is an entity that becomes drawn after
+a stretch undrawn across a parity change: the engine's history starts at the last such arrival (three entries, no
+blend), the viewer's blends. It lasts one interpolation window at most.
+
+Fix shape: the pose pass (`Presentation`, where props are posed and attachments asked for) reports each server-animated
+prop's bone setup to its track (playback time and the parity then held); the track's cycle sampler takes, as an
+extra generation floor, the last arrival after that setup whose parity differs — computed at view time, since the
+camera decides it. A seek starts with no setup recorded (*our choice*: the engine's demo seek is not read). A
+conformance test: a prop updated across a parity change while unposed, then posed, draws the latest arrival's cycle
+for that window; posed every frame, it draws today's blend.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
