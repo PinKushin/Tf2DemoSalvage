@@ -47166,20 +47166,34 @@ read*). Two halves survive where the engine's recreation would not:
 1. **An entity the full packet omits stays.** `EntityDecoder.Decode` reads no removals on a non-delta packet
    (`EntityDecoder.cs:335`), so its table entry and its track both continue. Scenario: a full packet mid-recording
    that omits an entity drawn before it — the viewer keeps drawing it.
-2. **A restated entity keeps its TRACK's memory.** Its properties are already rebuilt as a recreation's: every `Enter`
-   runs `EntityState.Forget()` and applies the baseline first (`EntityStateTable.cs`, `Forget`), and B871 resets its
-   interpolation histories. But the same-serial track continues, with `LastSequenceParity`, `LastFrameReset`,
-   `LastNoInterpolationParity`, `AnimationStartSeconds`, `DiscontinuitySeconds` and `ChamberWasSettled` from before the
-   packet, where the engine's new entity sees each as a first value. Scenario: a full packet restating a
-   client-side-animated prop whose frame-reset toggle differs from its earlier value — the viewer restarts the
-   animation clock as a toggle change. `OnNewModel` also does not run (`modelSet` needs a new track or a changed
+2. **A restated entity keeps its TRACK's memory.** Its property bag is rebuilt as a recreation's: every `Enter` runs
+   `EntityState.Forget()` (clears the properties and econ) and applies the baseline first (`EntityStateTable.cs`,
+   `Forget`); what `Forget` keeps — the sequence, a cached wearable key, the tick-encoded time fields that every apply
+   recomputes — does not change that (review 5, Sonnet). B871 resets its interpolation histories. But the same-serial
+   track continues, with `LastSequenceParity`, `LastFrameReset`, `LastNoInterpolationParity`, `AnimationStartSeconds`,
+   `DiscontinuitySeconds` and `ChamberWasSettled` from before the packet, where the engine's entity is NEW, and a new
+   entity compares against its CONSTRUCTED values, *read* (review 5, Fable; the cavecrew reviewer):
+   `C_BaseEntity::operator new` zeroes the allocation (`c_baseentity.cpp:3835-3842`) and the `C_BaseAnimating`
+   constructor sets `m_nPrevNewSequenceParity = -1` (`c_baseanimating.cpp:716`). So the parity block (`:4738`) always
+   fires on a creation — a cycle-history `Reset()`, which `ResetLatched` already does at the same tick — and the
+   frame-reset compare (`m_bLastClientSideFrameReset`, copied in `OnPreDataChanged`, `:4760`, which `PreDataUpdate`
+   calls before the unpack, `c_baseentity.cpp:2154-2157`; compared at `c_baseanimating.cpp:5025`) is against `false`.
+   For a restated client-side-animated entity the engine therefore runs `ResetClientsideFrame()` exactly when the
+   restated toggle is 1; the viewer restarts its clock when the toggle DIFFERS from the track's held value
+   (`DemoTimeline.RecordProp`). They disagree on held 1 / restated 1 (engine restarts, viewer does not) and held 1 /
+   restated 0 (viewer restarts, engine does not); held 0 / restated 1 agrees. Whether a restart draws differently from
+   a new track's own start is *not read*. `OnNewModel` also does not run (`modelSet` needs a new track or a changed
    path), where a recreated entity holds no model and runs it; for an unchanged model its pose reset equals
    `ResetLatched`'s at the same tick, so that part draws nothing different (*reasoned*).
 
-Measured 2026-11-26 (`Tf2DemoSalvage.Cli -t`, `svc_packetentities delta 0`): every gcor demo carries one full packet,
-its first, except `tf2-2011-build4604-spec-pov-cp_granary` with two — so this reaches real recordings, rarely. Fix
+Measured 2026-11-26 on branch `fix/b871-created-reset` (`dotnet run --project managed/Tf2DemoSalvage.Cli -c Release --
+<demo> -t -o out.txt -q`, then a count of `svc_packetentities delta 0` lines, beside `delta 1`): all 15 gcor demos
+(the 14 era specimens and `z1800.dem`) carry one full packet, their first, except
+`tf2-2011-build4604-spec-pov-cp_granary` with two (13,526 delta packets); lcor not counted — so this reaches real recordings, rarely. Fix
 shape: on a non-delta packet, end every track and drop every table entry the packet does not restate, and start a new
-track for every one it does; confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
+track for every one it does, whose first frame-reset compare is against `false` and first parity compare against −1 as
+the engine's (a new track's `LastFrameReset` is null today, so it would not restart on a toggle of 1 — review 5,
+Fable); confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
 
 ## B876 — animation layers and bone controllers take the earlier keyframe, where the engine interpolates them (2026-11-26) — OPEN
 
@@ -47310,7 +47324,9 @@ Fable, Sonnet, the cavecrew reviewer): B877 rewritten (properties are already re
 `Leave` in a full packet are not creations (rows of the table test); the fixture refuses a `kinds` list of the wrong
 length; full packets counted on gcor (B877: one per demo, two in one). Not taken: dropping the one-argument `Apply`,
 which is the delta-packet meaning every test caller wants (the cavecrew reviewer, D180) — production calls the
-two-argument form. Review 2 also moved the late-track
+two-argument form. Review 5 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): B877's track-memory half
+re-read against the engine's constructed values (`operator new` zeroes, `m_nPrevNewSequenceParity = -1`), and the
+gcor count stated in full. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876
