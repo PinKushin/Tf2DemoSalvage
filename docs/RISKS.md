@@ -47216,8 +47216,11 @@ Found in B860 reviews 5 and 7 (Fable, Sonnet). Three small divergences of the fr
   their expectations re-derived from the engine.
 - **A re-parent in a rise's packet** takes the new amount at the packet read (`Interp_UpdateInterpolationAmounts` from
   `LinkChild`/`UnlinkChild`, `c_baseentity.cpp:2239`, `:2268`), one frame before `FRAME_START` hands it to everything else
-  (B860); so does a predictable's `SetPredictable` (`:4596`) and an every-tick flag flip (`recvproxy.cpp:139-150`). The
-  viewer gives every variable the amount at the frame start.
+  (B860); so does a predictable's `SetPredictable` (`:4596`), an every-tick flag flip (`recvproxy.cpp:139-150`), and an
+  entity's creation, whose `Interp_SetupMappings` sets each variable from `GetInterpolationAmount` at once
+  (`c_baseentity.cpp:798-814`, *read*; its call site not read — B860 review 19, Fable), so an entity born in the rise's
+  packet has the new amount on the frame the viewer still gives the old (drawn-neutral by reasoning: that frame's target
+  is at or before birth under either delay). The viewer gives every variable the amount at the frame start.
 - **The face's frame start ignores jumps** (B860 review 7, Sonnet): `ActorFace.BeginFrame` takes the previous step's time
   for any forward step, where the timeline takes the skip batch's after a jump and its own tick when paused; a scrub across
   a rise runs the face under the old delay for one frame while the props run under the new.
@@ -47608,6 +47611,17 @@ Review 18 (Fable, Sonnet, Codex, and the merge's cavecrew reviewer: no blocker).
   the first read that needs one (Fable); the settle callback captures nothing (Fable, `a-capturing-cache-factory`).
 - Records: the merge review's "the answer is unchanged" is *reasoned*, not differential; the first scan for a key still
   walks from the change, once, under the lock, and is not measured (Fable).
+
+Review 19 (Fable, Sonnet, Codex: no blocker; Fable's settle-key and width-guard findings are the same as Sonnet's; its
+lock-remark overclaim is corrected — the lock guards the memo reads only — and `Interp_SetupMappings` joins B865). Fixed: `LatestChangeIndex` read the last index before
+taking the memo lock, so a trim between could still leave it filling past the shortened lists — it now reads it under
+the lock; review 18's width guard in `Same` is withdrawn, unreachable since a width change starts a generation, which
+is answered before any comparison (Sonnet); the settle-memo test varies every part of the key and reddens with the key
+cut to the schedule; the latest-change test asserts the trim shifted the history (Codex). Recorded, *reasoned* and not
+tested: the trim race only matters under concurrency, which no test drives; the settle memo holds only once a history is
+built through the frames asked, which the timeline's build-before-sample order guarantees (Sonnet). Not taken (Sonnet):
+after a trim the first kept entry counts as a change though it may restate — pre-existing, and no drawn value differs
+because the held entry and the true change carry one value.
 Filed into B869 (cavecrew): the frame that reads a rise can sit more than a tick past it whenever frames run more than a
 tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback), the same root without a jump — frames at 48, 51, 54 across a rise at
 50 with the last change at 43 draw 430 at 51 and 360 at 54 where the engine holds 430. Not taken (cavecrew): the skip

@@ -66,8 +66,9 @@ public sealed class InterpolatedHistoryTests
         int? appended = history.LatestChange(21, 0, -1);
         history.DropReceivedBefore(5, tail: 2);
 
-        (early, before, appended, history.LatestChange(20, 0, -1), history.LatestChange(9, 0, -1))
-            .ShouldBe((9, 10, 21, 10, 9));
+        // The trim shifted the history by two (review 19, Codex), so the answers after it come from moved indices.
+        (early, before, appended, history.Count, history.LatestChange(20, 0, -1), history.LatestChange(9, 0, -1))
+            .ShouldBe((9, 10, 21, 19, 10, 9));
     }
 
     /// <summary>
@@ -86,11 +87,19 @@ public sealed class InterpolatedHistoryTests
         }
 
         (int?, int?) latest = (history.LatestChange(20, 0, 1), history.LatestChange(20, 1, 1));
-        (int?, int?) settled = (
-            history.SettleFrame(new object(), 0, 1, 10, 50, 30, static (frame, at) => frame == at),
-            history.SettleFrame(new object(), 0, 1, 10, 50, 40, static (frame, at) => frame == at));
+        object schedule = new();
 
-        (latest, settled).ShouldBe(((20, 5), (30, 40)));
+        // Each part of the key varied from the first call alone, each predicting another frame (review 19, Sonnet).
+        int?[] settled =
+        [
+            history.SettleFrame(schedule, 0, 1, 10, 50, 30, static (frame, at) => frame == at),
+            history.SettleFrame(new object(), 0, 1, 10, 50, 40, static (frame, at) => frame == at),
+            history.SettleFrame(schedule, 1, 1, 10, 50, 41, static (frame, at) => frame == at),
+            history.SettleFrame(schedule, 0, -1, 10, 50, 42, static (frame, at) => frame == at),
+            history.SettleFrame(schedule, 0, 1, 11, 50, 43, static (frame, at) => frame == at),
+        ];
+
+        (latest, settled[0], settled[1], settled[2], settled[3], settled[4]).ShouldBe(((20, 5), 30, 40, 41, 42, 43));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

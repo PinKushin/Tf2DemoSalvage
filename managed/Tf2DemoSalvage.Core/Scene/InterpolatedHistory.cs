@@ -246,7 +246,7 @@ public sealed class InterpolatedHistory
         int values = _offsets[drop];
 
         // The shift and the clear together under the memo's lock, so no memoized read can rebuild from the old indices
-        // between them (B860 review 18, Sonnet).
+        // between them (B860 review 18, Sonnet); other readers are kept off by the build order, not by this (review 19).
         lock (_memoLock)
         {
             _changeTimes.RemoveRange(0, drop);
@@ -709,15 +709,16 @@ public sealed class InterpolatedHistory
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
-        int last = LastReceivedAtOrBefore(arrivedBy);
-
-        if (last < 0)
-        {
-            return -1;
-        }
-
+        // `last` inside the lock too, so a trim cannot shorten the lists between reading it and filling to it (review 19).
         lock (_memoLock)
         {
+            int last = LastReceivedAtOrBefore(arrivedBy);
+
+            if (last < 0)
+            {
+                return -1;
+            }
+
             Memos memos = _memos ??= new Memos();
 
             if (!memos.ChangeOf.TryGetValue((first, count), out List<int>? changeOf))
@@ -740,8 +741,11 @@ public sealed class InterpolatedHistory
 
     /// <summary>Guards the memos, which a read extends: samplers read one history from more than one thread.</summary>
     /// <remarks>
-    /// A trim shifts the lists and clears the memos under it too. Trims run before any sampler exists today (the timeline's
-    /// build refuses samples while it trims), so the lock is what keeps that true if one ever overlaps a read.
+    /// A trim shifts the lists and clears the memos under it too, which protects the MEMO reads only: `BracketVariable`,
+    /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
+    /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
+    /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
+    /// build-before-sample order.
     /// </remarks>
     private readonly object _memoLock = new();
 
@@ -773,6 +777,9 @@ public sealed class InterpolatedHistory
     /// scanned every frame since its last change on every call. The scan's answer at a frame does not depend on when it
     /// is asked, so the cursor carries on from where the last call stopped; a trim clears it. The first scan for a key
     /// still walks from the change, once (*not measured* on a populated demo).
+    /// **Valid only once the history is built through the frames asked**: an entry appended later at a tick a cursor has
+    /// passed would change that frame's answer. The timeline builds every track before any sample (review 19, Sonnet);
+    /// an incremental build would have to clear the memos on such an append.
     /// </remarks>
     internal int? SettleFrame<TState>(
         object schedule, int first, int count, int changed, int last, TState state, Func<int, TState, bool> settles)
@@ -1010,19 +1017,14 @@ public sealed class InterpolatedHistory
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count; negative for the whole entry.</param>
     /// <remarks>
-    /// Entries of two widths (B386, a model change without a reset) are not the same, and a variable the narrower one does
-    /// not reach is not compared past its end (B860 review 18, Sonnet: the memo now reaches entries the walk never did).
+    /// Never asked across a width change: a width changes through `SetMaxCount` and then `Reset`, which starts a
+    /// generation, and <see cref="LatestChangeIndex"/> answers a generation start before comparing (B860 review 19,
+    /// Sonnet, which withdrew review 18's width guard as unreachable).
     /// </remarks>
-    private bool Same(int left, int right, int first, int count)
-    {
-        ReadOnlySpan<float> a = ValuesAt(left);
-        ReadOnlySpan<float> b = ValuesAt(right);
-
-        return count < 0
-            ? a.SequenceEqual(b)
-            : a.Length >= first + count && b.Length >= first + count &&
-              a.Slice(first, count).SequenceEqual(b.Slice(first, count));
-    }
+    private bool Same(int left, int right, int first, int count) =>
+        count < 0
+            ? ValuesAt(left).SequenceEqual(ValuesAt(right))
+            : ValuesAt(left).Slice(first, count).SequenceEqual(ValuesAt(right).Slice(first, count));
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>
