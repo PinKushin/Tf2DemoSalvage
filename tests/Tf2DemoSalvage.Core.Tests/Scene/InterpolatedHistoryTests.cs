@@ -291,10 +291,13 @@ public sealed class InterpolatedHistoryTests
         }
 
         history.LatestChange(2000, 0, -1);
-        long forward = LeastAllocated(history, 2001, 1);
-        long back = LeastAllocated(history, 1999, -1);
+        long forward = LeastAllocated(history, 2001, 1, _ => true).Kind;
+        long back = LeastAllocated(history, 1999, -1, _ => true).Kind;
 
-        // And where most steps change nothing: values change every tenth tick.
+        // And where most steps change nothing: values change every tenth tick. Each kind of step is timed on its own,
+        // since a least over a mix is zero whenever one kind is: forward, the nine still steps that only extend and the
+        // change steps that append; back, the steps that walk to the change below and prepend it (ticks ending in 9) and
+        // the nine the memo answers.
         InterpolatedHistory resting = new(1);
 
         for (int tick = 1; tick <= 4000; tick++)
@@ -303,21 +306,25 @@ public sealed class InterpolatedHistoryTests
         }
 
         resting.LatestChange(2000, 0, -1);
-        long restingForward = LeastAllocated(resting, 2001, 1);
-        long restingBack = LeastAllocated(resting, 1999, -1);
+        (long Kind, long Others) restingForward = LeastAllocated(resting, 2001, 1, tick => tick % 10 == 0);
+        (long Kind, long Others) restingBack = LeastAllocated(resting, 1999, -1, tick => tick % 10 == 9);
+        long[] restingLeast = [restingForward.Kind, restingForward.Others, restingBack.Kind, restingBack.Others];
 
-        // 2,000 and a hundred steps each way, every one a change: 201 held, one each — a step that re-collected would
-        // hold more, and one that dropped would answer wrong below.
-        (forward, back, restingForward, restingBack, history.ChangesHeld(0, -1)).ShouldBe((0L, 0L, 0L, 0L, 201));
-        (history.LatestChange(1950, 0, -1), history.LatestChange(2050, 0, -1), resting.LatestChange(1955, 0, -1))
-            .ShouldBe((1950, 2050, 1950));
+        // 2,000 and a hundred steps each way, every one a change: 201 held, one each. The resting one holds 2,000, ten
+        // forward (2,010 to 2,100) and ten back (1,990 to 1,900): 21. A step that re-collected would hold more, and one
+        // that recorded a non-change would answer 2,055 with itself.
+        (forward, back, history.ChangesHeld(0, -1), resting.ChangesHeld(0, -1)).ShouldBe((0L, 0L, 201, 21));
+        restingLeast.ShouldBe([0L, 0L, 0L, 0L]);
+        (history.LatestChange(1950, 0, -1), history.LatestChange(2050, 0, -1), resting.LatestChange(1955, 0, -1),
+            resting.LatestChange(2055, 0, -1)).ShouldBe((1950, 2050, 1950, 2050));
     }
 
     /// <summary>
     /// A larger stretch below absorbs one above that holds changes prepended by steps back, keeping them ascending.
-    /// Values change every tenth tick. 50 to 69 forward holds 50 and 60; 100 holds 100; 99 prepends 90 and 89 prepends 80
-    /// to it; 79 finds 70, appends it below, and the two touch — three changes each, so the lower absorbs the upper, whose
-    /// earlier changes must go in oldest first. Then 85 is 80, 95 is 90, 100 is 100, 72 is 70, 55 is 50; six held.
+    /// Values change every tenth tick. 40 to 69 forward holds 40, 50 and 60; 100 holds 100; 99 prepends 90 and 89 prepends
+    /// 80 to it; 79 finds 70, appends it below, and the two touch — four changes against three, so the lower absorbs the
+    /// upper, whose earlier changes must go in oldest first. Then 85 is 80, 95 is 90, 100 is 100, 72 is 70, 45 is 40;
+    /// seven held.
     /// </summary>
     [Test]
     public void LatestChange_LargerStretchBelowAbsorbsStepsBack_AnswersInOrder()
@@ -329,17 +336,17 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [tick / 10]);
         }
 
-        int[] asked = [.. System.Linq.Enumerable.Range(50, 20), 100, 99, 89, 79];
+        int[] asked = [.. System.Linq.Enumerable.Range(40, 30), 100, 99, 89, 79];
 
         foreach (int tick in asked)
         {
             history.LatestChange(tick, 0, -1);
         }
 
-        int?[] answers = [.. System.Linq.Enumerable.Select(new[] { 85, 95, 100, 72, 55 }, tick => history.LatestChange(tick, 0, -1))];
+        int?[] answers = [.. System.Linq.Enumerable.Select(new[] { 85, 95, 100, 72, 45 }, tick => history.LatestChange(tick, 0, -1))];
 
-        answers.ShouldBe([80, 90, 100, 70, 50]);
-        history.ChangesHeld(0, -1).ShouldBe(6);
+        answers.ShouldBe([80, 90, 100, 70, 40]);
+        history.ChangesHeld(0, -1).ShouldBe(7);
     }
 
     /// <summary>
@@ -425,18 +432,30 @@ public sealed class InterpolatedHistoryTests
         history.ChangesHeld(0, -1).ShouldBe(14);
     }
 
-    private static long LeastAllocated(InterpolatedHistory history, int from, int step)
+    /// <summary>A hundred steps from <paramref name="from"/>: the least any step of each kind allocated.</summary>
+    private static (long Kind, long Others) LeastAllocated(
+        InterpolatedHistory history, int from, int step, System.Func<int, bool> kind)
     {
-        long least = long.MaxValue;
+        long ofKind = long.MaxValue;
+        long others = long.MaxValue;
 
         for (int i = 0, tick = from; i < 100; i++, tick += step)
         {
             long before = System.GC.GetAllocatedBytesForCurrentThread();
             history.LatestChange(tick, 0, -1);
-            least = System.Math.Min(least, System.GC.GetAllocatedBytesForCurrentThread() - before);
+            long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+            if (kind(tick))
+            {
+                ofKind = System.Math.Min(ofKind, allocated);
+            }
+            else
+            {
+                others = System.Math.Min(others, allocated);
+            }
         }
 
-        return least;
+        return (ofKind, others);
     }
 
     /// <summary>

@@ -3684,17 +3684,17 @@ public sealed class ScenePropTrack
     private static (float Pitch, float Yaw, float Roll) SlerpAngles(
         in HistoryEntry from, in HistoryEntry to, float fraction)
     {
-        if (SameBits(from.Pitch, to.Pitch) &&
-            SameBits(from.Yaw, to.Yaw) &&
-            SameBits(from.Roll, to.Roll))
+        if (!DiffersFrom(from.Pitch, to.Pitch) &&
+            !DiffersFrom(from.Yaw, to.Yaw) &&
+            !DiffersFrom(from.Roll, to.Roll))
         {
-            // Valve's own first line ("Avoid precision errors"), and not only a shortcut: a round
-            // trip through quaternions and back perturbs the angles slightly, so a still prop
-            // would jitter.
+            // Valve's own first line ("Avoid precision errors", `if ( q1 == q2 ) return q1;`,
+            // `mathlib.h:663-665`), and not only a shortcut: a round trip through quaternions and back
+            // perturbs the angles slightly, so a still prop would jitter.
             //
-            // Exact equality is deliberate and Equals says so without a suppression: the question
-            // is whether the demo repeated the same stored bits, not whether two computed angles
-            // are close. A tolerance here would freeze genuinely slow rotations.
+            // `QAngle::operator==` is a float compare with no tolerance (`vector.h:2035-2040`): +0
+            // equals −0, a NaN equals nothing. A tolerance here would freeze genuinely slow rotations;
+            // a bit compare, used until B860 review 30, sent +0 and −0 through the round trip.
             return (from.Pitch, from.Yaw, from.Roll);
         }
 
@@ -3713,14 +3713,4 @@ public sealed class ScenePropTrack
     internal static (float Pitch, float Yaw, float Roll) SlerpAngles(
         (float Pitch, float Yaw, float Roll) from, (float Pitch, float Yaw, float Roll) to, float fraction) =>
         ValveQuaternion.InterpolateAngles(from, to, fraction);
-
-    /// <summary>Whether two angles are the same stored value, bit for bit.</summary>
-    /// <remarks>
-    /// **A question about storage, not about magnitude**, which is why it is not a tolerance
-    /// comparison and why the analyzer's usual advice does not apply (S1244). The demo either
-    /// repeated a value or stated a new one; comparing bits says exactly that. A tolerance here
-    /// would treat a slow rotation as stillness and freeze it.
-    /// </remarks>
-    private static bool SameBits(float left, float right) =>
-        BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 }

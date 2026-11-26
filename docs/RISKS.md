@@ -47843,8 +47843,10 @@ engine never latches and `LatestChange` named it. Now a float compare (`CompareT
 at 1, 2, 3, 3 under the bit compare. **Tests added:** the join where the lower stretch absorbs an upper one holding
 steps back (lead, cavecrew; reddens when `Earlier` is added newest first); `Settled` comparing bits through `Bracket`
 (lead; reddens under float equality); the allocation test now also times steps that change nothing and asserts 201
-changes held, so a step that re-collects fails (cavecrew, Fable) — but a prepend that shifts the list in place
-(`Insert(0, …)`, merge review 3's fault) allocates nothing and holds 201, so it would pass: copy cost is not measured; a
+changes held on the history where every step changes, so a change step that re-collects fails (cavecrew, Fable) — but a
+prepend that shifts the list in place (`Insert(0, …)`, merge review 3's fault) allocates nothing and holds 201, so it
+would pass: copy cost is not measured. The resting half, as first written, took one least over mixed kinds of step and
+asserted nothing held, so it could not fail (review 30); see below; a
 seeded random-order oracle of 600 asks against a plain scan (Sonnet; reddens alone when the `Earlier` search starts at
 its end). **Records:** findings 20's "compares by value, the same de-duplication" is kept and corrected beside itself,
 and findings 115 states the two compares (lead, Fable); the walk comment no longer says each entry is examined once
@@ -47852,6 +47854,25 @@ and findings 115 states the two compares (lead, Fable); the walk comment no long
 changes in a recording, a handful (*reasoned*); `stretches.Insert` is O(stretches) for far-apart descending asks
 (Sonnet) — bounded by the asks in rise windows; a non-frame `Sample` at another step count forces a resync (Sonnet) —
 cost only, and it re-derives every track.
+
+Review 30 and merge review 14 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; every reviewer confirmed `DiffersFrom` equals C++ float `!=` for ±0, NaN, infinities and subnormals, and that
+its six callers are the origin and angle terms of `c_baseentity.cpp:2571-2572`). **Fixed, parity (lead):** the angle
+lerp's shortcut compared bits, where the engine's `Lerp<QAngle>` opens with `if ( q1 == q2 ) return q1;`
+(`mathlib.h:663-665`) under `QAngle::operator==` (`vector.h:2035-2040`), a float compare. A pitch of +0 then −0 went
+through the quaternion round trip, which perturbs the angles: `At_AnglesDifferingOnlyInTheSignOfZero_ReturnTheStoredAngles`
+draws five yaws to the bit and, under the bit compare, drew 37.29999 for 37.3 and −159.29999 for 200.7. It now uses
+`!DiffersFrom`, and `SameBits` is gone. **Fixed, tests:** the resting half of the allocation test times each kind of
+step on its own in one pass (forward still and change steps; back walking and memo-answered steps), asserts 21 held and
+2,055 answering 2,050 (lead, cavecrew) — it reddens when a forward step records a non-change (`>` to `>=`) and when a
+still step inserts a stretch instead of extending; `LargerStretchBelowAbsorbsStepsBack` is four against three rather
+than a tie (cavecrew). **Records:** findings 20 and 115 name all three gate terms (`simTimeChanged` too), say "at one
+simulation time", cite `QAngle::operator!=` read, and date the two fixes to reviews 28 and 29 (cavecrew, Fable).
+**Closed by reading (Fable's open item):** `m_iv_angRotation` is added with `LATCH_SIMULATION_VAR` only
+(`c_baseentity.cpp:1183`), no `INTERPOLATE_LINEAR_ONLY`, so `GetInterpolationInfo` takes a third sample for it
+(`interpolatedvar.h:851`) and `Settled` comparing the oldest is right. Not taken: a random oracle across a trim and a
+reset (Fable) — a generation start stops every walk, held by the fixed-order reset tests; a note on `_delaySteps` for a
+props-less timeline (Sonnet) — production builds props.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
