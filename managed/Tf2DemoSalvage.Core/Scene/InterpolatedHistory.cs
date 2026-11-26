@@ -308,6 +308,12 @@ public sealed class InterpolatedHistory
     /// </returns>
     public int ChangeTimeAt(int index) => _changeTimes[index];
 
+    /// <summary>One entry's changetime, the anchor's reset entries reading as its arrival (B878).</summary>
+    /// <param name="index">An entry, or <see cref="AnchorSlot"/>.</param>
+    /// <param name="anchor">The anchor <see cref="BracketAnchored"/> was asked with.</param>
+    /// <returns>The changetime the engine's entry carries.</returns>
+    public int ChangeTimeAt(int index, int anchor) => index == AnchorSlot ? _received[anchor] : _changeTimes[index];
+
     /// <summary>The tick an entry arrived, and the tick a later append flushed it.</summary>
     /// <param name="index">Which entry, oldest first.</param>
     /// <returns>Its arrival, and its flush tick or <see cref="int.MaxValue"/> when nothing flushed it.</returns>
@@ -327,6 +333,12 @@ public sealed class InterpolatedHistory
     /// </remarks>
     public ReadOnlySpan<float> ValuesAt(int index) =>
         CollectionsMarshal.AsSpan(_values).Slice(_offsets[index], WidthAt(index));
+
+    /// <summary>One entry's components, the anchor's reset entries reading as the anchor's own (B878).</summary>
+    /// <param name="index">An entry, or <see cref="AnchorSlot"/>.</param>
+    /// <param name="anchor">The anchor <see cref="BracketAnchored"/> was asked with.</param>
+    /// <returns>The components the engine's entry carries.</returns>
+    public ReadOnlySpan<float> ValuesAt(int index, int anchor) => ValuesAt(index == AnchorSlot ? anchor : index);
 
     /// <summary>The history's width when an entry was appended, which its generation interpolates over (B870).</summary>
     /// <param name="index">Which entry, oldest first.</param>
@@ -594,6 +606,87 @@ public sealed class InterpolatedHistory
         // The target precedes every entry this run holds: the oldest is all a client would have had.
         // **NOT settled**: time is rising toward entries this answer has not reached yet.
         return new Bracketing(floor, floor, floor, NoMoreChanges: false);
+    }
+
+    /// <summary>The index <see cref="BracketAnchored"/> answers for the anchor's reset entries, which are not stored.</summary>
+    public const int AnchorSlot = -1;
+
+    /// <summary>
+    /// <see cref="Bracket"/> as if `Reset()` had run at one entry's arrival, seeding three entries at that arrival with that
+    /// entry's value (B878) — the history of an entity whose bones were not set up across a parity change.
+    /// </summary>
+    /// <param name="target">The moment being drawn.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="anchor">The entry the reset follows.</param>
+    /// <returns>
+    /// As <see cref="Bracket"/>, with <see cref="AnchorSlot"/> for the reset's entries (read them through
+    /// <see cref="ChangeTimeAt(int, int)"/> and <see cref="ValuesAt(int, int)"/>); the unanchored answer when the anchor
+    /// has not arrived or a real reset after it opened a newer generation.
+    /// </returns>
+    /// <remarks>
+    /// **The engine's list is the live entries arrived after the anchor, then three at its arrival**
+    /// (`interpolatedvar.h:740-751`). Derived from the unanchored walk, whose entries above the anchor are the engine's:
+    /// - the older entry above the anchor with a live predecessor above it too — the anchor is out of reach, same answer;
+    /// - the older entry above the anchor with none — the third sample is the anchor's;
+    /// - the walk passed every entry above the anchor — the anchor is the older one if its arrival is at or before the
+    ///   target (holding, settled, when nothing arrived after it), and if not nothing brackets: `GetInterpolationInfo`
+    ///   fails and `m_pValue`, the latest received value, stays (`_Interpolate`'s early return).
+    /// </remarks>
+    public Bracketing? BracketAnchored(double target, int arrivedBy, int anchor)
+    {
+        Bracketing? plain = Bracket(target, arrivedBy);
+        int available = LastReceivedAtOrBefore(arrivedBy);
+
+        if (plain is not { } pair || anchor > available || anchor < _generationStarts[available])
+        {
+            return plain;
+        }
+
+        if (pair.Older > anchor)
+        {
+            return pair.Oldest > anchor && pair.Oldest != pair.Older ? pair : pair with { Oldest = AnchorSlot };
+        }
+
+        int newer = FirstLiveAfter(anchor, available, arrivedBy);
+
+        if (_received[anchor] > target)
+        {
+            int latest = newer < 0 ? anchor : LatestLive(available, arrivedBy);
+
+            return new Bracketing(latest, latest, latest, NoMoreChanges: false);
+        }
+
+        return newer < 0
+            ? new Bracketing(AnchorSlot, AnchorSlot, AnchorSlot, NoMoreChanges: true)
+            : new Bracketing(AnchorSlot, newer, AnchorSlot, NoMoreChanges: false);
+    }
+
+    /// <summary>The oldest live entry after one, or −1.</summary>
+    private int FirstLiveAfter(int index, int available, int arrivedBy)
+    {
+        for (int candidate = index + 1; candidate <= available; candidate++)
+        {
+            if (_flushedAt[candidate] > arrivedBy)
+            {
+                return candidate;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The newest live entry at or before one.</summary>
+    private int LatestLive(int available, int arrivedBy)
+    {
+        for (int candidate = available; candidate > 0; candidate--)
+        {
+            if (_flushedAt[candidate] > arrivedBy)
+            {
+                return candidate;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>Whether a rising current time can still change this pair's answer.</summary>
@@ -1406,21 +1499,30 @@ public sealed class InterpolatedHistory
     /// GetSequence() ) )` (<c>c_baseanimating.cpp:4471-4472</c>). This history answers every frame and every seek, so it
     /// cannot hold that flag; the caller passes it with the question.
     /// </remarks>
-    public bool TimeFixup(Bracketing pair, Span<float> into, ReadOnlySpan<bool> looping)
+    public bool TimeFixup(Bracketing pair, Span<float> into, ReadOnlySpan<bool> looping) =>
+        TimeFixup(pair, into, looping, AnchorSlot);
+
+    /// <summary>The third spline sample of a <see cref="BracketAnchored"/> answer (B878).</summary>
+    /// <param name="pair">The bracketing indices, any of which may be <see cref="AnchorSlot"/>.</param>
+    /// <param name="into">Where to write the components, which must be the history's width.</param>
+    /// <param name="looping">Whether each component wraps, the history's width.</param>
+    /// <param name="anchor">The anchor the pair was asked with.</param>
+    /// <returns><c>false</c> when the older interval is empty and the curve must be linear.</returns>
+    public bool TimeFixup(Bracketing pair, Span<float> into, ReadOnlySpan<bool> looping, int anchor)
     {
-        int longer = _changeTimes[pair.Newer] - _changeTimes[pair.Older];
-        int older = _changeTimes[pair.Older] - _changeTimes[pair.Oldest];
+        int longer = ChangeTimeAt(pair.Newer, anchor) - ChangeTimeAt(pair.Older, anchor);
+        int older = ChangeTimeAt(pair.Older, anchor) - ChangeTimeAt(pair.Oldest, anchor);
 
         if (older <= 0)
         {
             return false;
         }
 
-        ReadOnlySpan<float> previous = ValuesAt(pair.Oldest);
-        ReadOnlySpan<float> start = ValuesAt(pair.Older);
+        ReadOnlySpan<float> previous = ValuesAt(pair.Oldest, anchor);
+        ReadOnlySpan<float> start = ValuesAt(pair.Older, anchor);
 
         // Over the pair's own width, `m_nMaxCount` when it was appended; a stored prefix reads zeros after it (B870).
-        int width = WidthOf(pair.Newer);
+        int width = WidthOf(pair.Newer == AnchorSlot ? anchor : pair.Newer);
 
         // `fabs( dt1 - dt2 ) > 0.0001f`, on integer ticks: the engine's epsilon is there because its
         // changetimes are seconds, and a tick axis makes the same test exact.
