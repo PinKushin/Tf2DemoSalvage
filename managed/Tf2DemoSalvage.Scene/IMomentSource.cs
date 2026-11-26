@@ -484,15 +484,14 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         // extra step (`docs/memory/fallbacks-do-not-make-guesses-safe.md`).
         if (timeline.TrackFor(entityIndex, _lastTick) is { } track)
         {
-            // **`_lastTick` is the engine's `curtime` here**, and a resize seeds its replacement entries
-            // with it: `SetMaxCount` wipes and `Reset()` stamps `gpGlobals->curtime`
-            // (`interpolatedvar.h:749`). A model resolves during a frame, so the frame being drawn is the
-            // moment it happened.
+            // **A drawn model restates the flags and nothing else** (B870): the history's resize is `OnNewModel`'s, which
+            // the build ran inside the update that set the model. Resizing here, at view time, seeded the end of the
+            // recording after entries that arrived later.
             string model = track.FactsAt(_lastTick).ModelPath;
             ModelFacts facts = new(looping, staticProp, sequenceLoops);
 
             _modelFacts[model] = facts;
-            Inform(track, model, facts, _lastTick);
+            Inform(track, model, facts);
         }
     }
 
@@ -543,15 +542,15 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
             if (!_informed.TryGetValue(track, out string? told) || !string.Equals(told, prop.ModelPath, StringComparison.Ordinal))
             {
-                Inform(track, prop.ModelPath, facts, tick);
+                Inform(track, prop.ModelPath, facts);
             }
         }
     }
 
-    /// <summary>One track told one model's facts, stamped at the frame's tick.</summary>
-    private void Inform(ScenePropTrack track, string model, ModelFacts facts, double tick)
+    /// <summary>One track told one drawn model's flags (B870: never its history's shape).</summary>
+    private void Inform(ScenePropTrack track, string model, ModelFacts facts)
     {
-        track.OnNewModel(facts.Looping, (int)Math.Floor(tick), facts.StaticProp, facts.SequenceLoops);
+        track.Describe(facts.Looping, facts.StaticProp, facts.SequenceLoops);
         _informed[track] = model;
     }
 

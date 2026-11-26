@@ -247,6 +247,29 @@ the engine with different amounts of smoothing, so neither is "what really happe
 positions are the server's either way, which is what this project interpolates, and that is the
 closer thing to truth.
 
+## A model's facts arrive with the update that sets it, not when it is drawn (B870)
+
+*Read from published source* (`c_baseentity.cpp:1775-1792`, `:2538-2620`; `c_baseanimating.cpp:1021-1189`;
+`interpolatedvar.h:739-751`, `:1278-1299`, `:1310-1341`).
+
+`m_iv_flPoseParameter` is born `MAXSTUDIOPOSEPARAM` wide — `CInterpolatedVarArray`'s constructor calls
+`SetMaxCount( COUNT )` — and becomes the model's parameter count inside the update that sets the model:
+`PostDataUpdate` latches, then `ValidateModelIndex` reaches `SetModelPointer`, which calls `OnNewModel` only when the
+model pointer changes, and its `SetMaxCount( hdr->GetNumPoseParameters() )` wipes the history and seeds three entries
+at `curtime` with the values just unpacked — but only when the count differs from the width.
+
+**What this project did instead, and why it survived.** It learned a model's facts when the viewer first DREW it,
+so the resize ran at view time, seeded from the last keyframe of the whole recording, and appended after entries that
+had arrived later. It survived because `PoseBetween` returned the arrival keyframe whenever the delayed pair agreed —
+and a reset's three entries always agree — so the end-of-recording seed was never drawn. Making `PoseBetween` the
+engine's (`_Interpolate` copies one entry and lerps two with no compare) without moving the reset drew the end of the
+recording: B860 review 31 did exactly that, and review 32 reverted it. **One shortcut was hiding a second defect; fixing
+the visible one alone made the hidden one visible.**
+
+A second casualty of the same timing, found only on the way: the cycle reset's exemption for a
+`STUDIOHDR_FLAGS_STATIC_PROP` model (`c_baseanimating.cpp:4745`) was read at BUILD time from a flag set at VIEW time, so
+it was always false. The build now reads the install's model facts (`IModelFacts`) when the update arrives.
+
 ## What is deliberately not implemented
 
 **Hermite interpolation for position.** The engine's default is `Lerp_Hermite`, which needs three

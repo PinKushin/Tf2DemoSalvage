@@ -27,4 +27,11 @@ Owner, 2026-10-18: *"we can ssetup that folder thing, i like that lol"*, after b
   only. Read as: use the queue as well, not only local reviewers. The lead queued a Fable whole-branch merge review and
   started the runner. The allowlist model is still `claude-fable-5-1`. **Balance was EMPTY**: the job failed at once
   with "Credit balance is too low"; runner stopped. Until the owner tops it up, reviews stay local or delegated.
+- **2026-11-26:** Console: $200 monthly promo "API credit (Ultra)" (granted 2026-11-14, expires 2026-12-17; applies to
+  Agent SDK, API, Batch, Playground, Managed Agents). Owner: *"you get $200 each moth in API credits"*, same as last month,
+  and `claude -p` counts as the Agent SDK (lead's "Claude Code is excluded" reading was WRONG). Still `billing_error` with
+  a fresh key (keys are `sk-ant-usr…` user/workspace keys by design, owner). CAUSE (confirmed): purchased balance −$0.87
+  UNPAID blocks every request despite the promo; owner added $5 (reluctantly), probe passed at once. If `billing_error`
+  recurs with promo left, check the purchased balance first. A one-word Fable probe cost $0.77 (context, not output).
+  Old key at `~/.claude/credits.key.usr-old`.
 Related: [[gate-once-per-batch]], [[review-subagents-deeply]]#review-for-recall.

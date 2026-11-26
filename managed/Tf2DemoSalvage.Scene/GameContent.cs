@@ -201,6 +201,11 @@ public sealed class GameContent
 
     private ClassAnimation? _classAnimation;
 
+    /// <summary>What `OnNewModel` reads of each model, which the decode hands the track when an update sets one (B870).</summary>
+    public StudioModelFacts ModelFacts => _modelFacts ??= new StudioModelFacts(Archives.Read);
+
+    private StudioModelFacts? _modelFacts;
+
     /// <summary>What model is in a player's hands, from <c>items_game.txt</c>.</summary>
     /// <remarks>A real resolver that answers nothing when there is no install, never null (D83).</remarks>
     public WeaponModels Weapons { get; }

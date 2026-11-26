@@ -47156,7 +47156,44 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — OPEN
+## B871 — a created entity's histories start from one latched entry, where `ResetLatched` re-seeds three at `curtime` (2026-11-26) — OPEN
+
+Found reading the engine for B870, *read*, not measured. On `DATA_UPDATE_CREATED`, `C_BaseAnimating::OnDataChanged`
+calls `ResetLatched()` (`c_baseanimating.cpp:5004-5006`; `C_BaseEntity::PostDataUpdate` does too, `c_baseentity.cpp:2612-2617`),
+which is `Interp_Reset` (`:5866-5877`): `Reset()` on EVERY interpolated variable — origin, angles, cycle, pose parameters —
+so each history is cleared and re-seeded with three entries stamped `gpGlobals->curtime` (`interpolatedvar.h:740-751`),
+discarding the creation packet's own latch, which was stamped with the simulation or animation time. The viewer's track
+starts each history with that one latched entry. The first blend after creation therefore reaches back to the latch's
+changetime where the engine's three reset entries make the oldest pair degenerate at the arrival (linear, `dt2` zero).
+Visible only in the first interpolation window of each entity, and only when its simulation or animation time lags the
+arrival. A model change does NOT reach it: `modelchanged` in `OnDataChanged` compares against `GetModel()`, which
+`PostDataUpdate`'s `ValidateModelIndex` (`c_baseentity.cpp:2609`) has already updated (*reasoned from the call order;
+the engine's PostDataUpdate/OnDataChanged order is not in the SDK*). Fix shape: reset every history at the creating
+arrival, after the latch; a conformance test of the first blend after creation. *Not fixed*.
+
+## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
+
+Found writing B870, *read*. The build asks `IModelFacts` for the path the wire's `m_nModelIndex` names, from the
+install's archives. (1) A weapon whose wire names no model — `CWeaponMedigun`, `CTFMinigun` on `cp_fulgur`
+(`ScenePropTrack.ItemDefinitionIndex`) — is drawn from its item, so the build never sees a model set and its pose history
+is never resized; the engine's client sets the item's model and runs `OnNewModel` (*the client-side SetModel path is
+inferred, not read*). (2) A map's own `.mdl` packed in its BSP pakfile is not in `Archives.Read`, and the map loads in
+parallel with the decode (B507), so its facts are null. Both draw as the engine's model-less entity: no resize, no
+static-prop exemption, no sequence looping until the view restates the flags. Fix shape: resolve the item's model in the
+build (the item schema is already in `GameContent`), and give the facts the map's pakfile once it is read — or read the
+header before the decode. *Not fixed*.
+
+## B872 — the window walk builds without the class scripts or the model facts (2026-11-26) — OPEN
+
+Found writing B870, *read*. `DemoTimeline.Checkpoints.Walk` starts its builder with `classes` and `models` both null
+(`Start(file, null, client, null, null, …)`), where the viewer's straight build passes the install's
+`ClassAnimation` (B437) and, since B870, `ModelFacts`. So a window built for `--windows` draws a crouch walk and every
+pose-parameter history as if the game were not installed: no resize at a model set, no static-prop exemption from the
+cycle reset. Pre-existing for the class scripts; B870 adds the model facts to the same gap. Fix shape: carry both into
+`WindowSettings`' walk (they are inputs, not settings, so a sibling argument), and a windows-against-straight test with
+a model set. *Not fixed*.
+
+## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — FIXED
 
 Found in B860 reviews 31 and 32 (Fable, the lead, the cavecrew reviewer), traced by reading, not run. Five parts, and
 the first cannot be fixed without the second — a fix of it alone was made in B860 review 31 and reverted in 32.
@@ -47193,6 +47230,42 @@ model index), seeding from the keyframe in force then; then make `PoseBetween` t
 reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above; a
 looping parameter at 1.0 with the target past the head, ONE entry, drawing 1.0 (the quick exit — two distinct entries
 both 1.0 draw 0, as part 1); and a view-time model with a later arrival. *Not fixed*.
+
+**Fixed (2026-11-26, `fix/b870-pose-history`)**, all five parts, engine read for each (`c_baseanimating.cpp:1021-1189`,
+`c_baseentity.cpp:1775-1792`, `:2538-2620`, `interpolatedvar.h:739-751`, `:799-888`, `:1278-1299`, `:1310-1341`, the
+`CInterpolatedVarArray` constructor's `SetMaxCount( COUNT )`):
+
+- **Part 2:** the build runs `OnNewModel` inside the update that SETS a model — the entity's first, or one whose path
+  differs (`SetModelPointer`'s `pModel != model`) — after the latch and before the parity block, the engine's order;
+  stamped with the arrival and seeded from that update's keyframe. The facts come from the install
+  (`IModelFacts`, Core; `StudioModelFacts`, Content: the merged pose parameters, `STUDIOHDR_FLAGS_STATIC_PROP`, each
+  merged sequence's `STUDIO_LOOPING`), handed to `DemoTimeline.Build` as the class scripts are. No facts is the engine's
+  no-header answer: nothing resized. The view now only restates the flags (`ScenePropTrack.Describe`). Side effect, also
+  parity: the cycle reset's static-prop exemption was read at BUILD time from a flag set at VIEW time, so it was always
+  false; it now holds the model's flag.
+- **Part 5:** the history starts `MAXSTUDIOPOSEPARAM` (24) wide; an entry stores what the wire stated up to the width and
+  reads zeros after (`InterpolatedHistory.Same` compares the padded arrays, bitwise), and remembers the width it was
+  appended under (`WidthOf`), which is the width its pair interpolates over; past it the stated value stands.
+- **Part 1:** `PoseBetween` copies one entry, lerps two (`LoopingLerp` where looping) with no compare, and hands back the
+  stated list only when the result is bit-equal to it.
+- **Part 3:** a one-entry angle pair is copied before `Lerp<QAngle>`'s `==` (`SlerpAngles`' `oneEntry`).
+- **Part 4:** the pose fraction is always its own pair's.
+
+Tested by: `ModelResetConformanceTests` (4, synthetic demos through `Build`), `PoseInterpolateConformanceTests` (5: the
+(0.2, 0) case, the one-entry 1.0 and its two-entry control, the NaN angle, the own fraction), `StudioModelFactsTests`
+(4), `LatestChange_AShorterEntryPaddedWithZeros_IsTheSameAsTheLonger`. Each part's sabotage reddened its test (nine
+breaks, one at a time, plus the padding clause and the static-prop read). Not covered, filed: a weapon whose model comes
+from its item gets no build-time facts (its wire names no model; the view restates flags only), and a map's own
+`.mdl` in its pakfile is not in `Archives.Read`; both are the engine's model-less answer here (B873). The window walk:
+B872.
+
+Measured (`pose-reset` probe, `demostf-cp_process_f12-2026-08-08-2207.dem`, every 33rd tick, both builds on this branch):
+the build asked the facts 4,714 times, 3,744 answered, 7 models with pose parameters (six sentries and
+`c_ubersaw.mdl`); with the facts against without, 30 of 433,764 samples of a track stating two or more parameters
+differ, all by under 0.00005 — the reset seeds what the creating update already said, and a sentry's upgrade keeps its
+two parameters, so `SetMaxCount` wipes nothing. Control: two builds with the facts drew identically. So on a real match
+the visible change is parts 1, 3-5 and the end-of-recording seed no longer reaching the screen, not the reset's timing.
+*Not verified by looking.*
 
 ## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
 

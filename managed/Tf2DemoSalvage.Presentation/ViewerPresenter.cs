@@ -963,8 +963,10 @@ public sealed partial class ViewerPresenter : IDisposable
 
         try
         {
+            GameContent game = _levels.Install(_maps.GameFolder);
+
             return Apply(DecodedDemo.Read(
-                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows));
+                path, _demoLog, interp: _settings.Interp, classes: game.ClassAnimation, keepBytes: CheckWindows, models: game.ModelFacts));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -1045,8 +1047,13 @@ public sealed partial class ViewerPresenter : IDisposable
             // reads to their systems between frames, so no frame sees some set and others not.
             DecodedDemo decoded = await Task
                 .Run(
-                    () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Prepare(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
+                    () =>
+                    {
+                        GameContent game = _levels.Prepare(_maps.GameFolder);
+
+                        return DecodedDemo.Read(
+                            path, demoLog, progress.Report, interp, game.ClassAnimation, keepBytes: CheckWindows, models: game.ModelFacts);
+                    },
                     _shutdown)
                 .ConfigureAwait(false);
 

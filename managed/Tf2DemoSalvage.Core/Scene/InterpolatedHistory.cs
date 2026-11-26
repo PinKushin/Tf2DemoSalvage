@@ -84,9 +84,17 @@ public sealed class InterpolatedHistory
     /// nothing. The second is why the fix is the offset and not a bounds check — a clamp turns the
     /// loud half into the silent one.
     ///
-    /// An entry's own width is the distance to the next offset, so it needs no second list.
+    /// An entry's STORED width is the distance to the next offset, so it needs no second list; the width it
+    /// was appended UNDER is <see cref="_widths"/>, since an entry may store fewer (B870).
     /// </remarks>
     private readonly List<int> _offsets = [];
+
+    /// <summary>For each entry, the history's width when it was appended — the engine's <c>m_nMaxCount</c> then (B870).</summary>
+    /// <remarks>
+    /// One generation shares it, because a width change is a wipe, so this is the width an interpolation over the entry
+    /// runs: components past it are not interpolated, and the stored ones short of it read as zero.
+    /// </remarks>
+    private readonly List<byte> _widths = [];
 
     private readonly List<int> _generationStarts = [];
 
@@ -253,6 +261,7 @@ public sealed class InterpolatedHistory
             _received.RemoveRange(0, drop);
             _flushedAt.RemoveRange(0, drop);
             _offsets.RemoveRange(0, drop);
+            _widths.RemoveRange(0, drop);
             _generationStarts.RemoveRange(0, drop);
             _values.RemoveRange(0, values);
 
@@ -270,6 +279,7 @@ public sealed class InterpolatedHistory
         _received.TrimIfSparse();
         _flushedAt.TrimIfSparse();
         _offsets.TrimIfSparse();
+        _widths.TrimIfSparse();
         _generationStarts.TrimIfSparse();
         _values.TrimIfSparse();
     }
@@ -309,6 +319,11 @@ public sealed class InterpolatedHistory
     /// </remarks>
     public ReadOnlySpan<float> ValuesAt(int index) =>
         CollectionsMarshal.AsSpan(_values).Slice(_offsets[index], WidthAt(index));
+
+    /// <summary>The history's width when an entry was appended, which its generation interpolates over (B870).</summary>
+    /// <param name="index">Which entry, oldest first.</param>
+    /// <returns>The engine's <c>m_nMaxCount</c> for that entry.</returns>
+    public int WidthOf(int index) => _widths[index];
 
     /// <summary>How many components one entry carries, which is its own width and not the history's.</summary>
     /// <param name="index">Which entry, oldest first.</param>
@@ -385,7 +400,9 @@ public sealed class InterpolatedHistory
     /// </remarks>
     public void Add(int changeTime, int received, ReadOnlySpan<float> values, bool flushNewer = true)
     {
-        if (values.Length != _width)
+        // **Shorter is allowed, and reads back as zeros** (B870): a pose-parameter entry stores what the wire stated, and a
+        // slot it never sent is zero in the engine's fixed array too. Longer is a caller's mistake.
+        if (values.Length > _width)
         {
             throw new ArgumentException(
                 $"a {_width}-component history was given {values.Length} values", nameof(values));
@@ -426,6 +443,7 @@ public sealed class InterpolatedHistory
         // **Before the components, so it records where they land** (B386). This is the entry's
         // address; `index * _width` was a guess about it that a width change falsifies.
         _offsets.Add(_values.Count);
+        _widths.Add(checked((byte)_width));
 
         foreach (float value in values)
         {
@@ -1269,13 +1287,22 @@ public sealed class InterpolatedHistory
         ReadOnlySpan<float> a = ValuesAt(left);
         ReadOnlySpan<float> b = ValuesAt(right);
 
-        if (count < 0 || a.Length != b.Length)
+        if (count >= 0 && a.Length == b.Length)
         {
-            return SameBits(a, b);
+            return SameBits(a.Slice(first, count), b.Slice(first, count));
         }
 
-        return SameBits(a.Slice(first, count), b.Slice(first, count));
+        // **A shorter entry is the same array with zeros after it** (B870): the engine's entries are all `m_nMaxCount`
+        // wide, and a stored entry shorter than its neighbour holds the slots the wire had not sent, which are +0.
+        ReadOnlySpan<float> shorter = a.Length <= b.Length ? a : b;
+        ReadOnlySpan<float> longer = a.Length <= b.Length ? b : a;
+
+        return SameBits(shorter, longer[..shorter.Length]) && ZeroBits(longer[shorter.Length..]);
     }
+
+    /// <summary>Whether every component is +0, bit for bit, which is what an unsent slot holds.</summary>
+    private static bool ZeroBits(ReadOnlySpan<float> values) =>
+        System.Runtime.InteropServices.MemoryMarshal.AsBytes(values).IndexOfAnyExcept((byte)0) < 0;
 
     /// <summary>
     /// Bit for bit, as the engine's <c>memcmp</c> is (<c>interpolatedvar.h:22-23</c>, <c>:636</c>): +0 and −0 differ, and

@@ -35,6 +35,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <param name="interp">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
     /// <param name="classes">The installed game's class scripts, which the anim state reads (B437); null for none.</param>
     /// <param name="keepBytes">Whether to keep the file's bytes for the window cache (`--windows`).</param>
+    /// <param name="models">The installed game's model facts, which `OnNewModel` reads at the update that sets a model (B870); null for none.</param>
     /// <returns>The header, and the timeline when one could be built.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -50,7 +51,8 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         Action<double>? progress = null,
         ClientInterp? interp = null,
         IClassAnimationScripts? classes = null,
-        bool keepBytes = false)
+        bool keepBytes = false,
+        IModelFacts? models = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(demo);
@@ -77,7 +79,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             using (demo.Time("building the position timeline"))
             {
                 bytes = File.ReadAllBytes(path);
-                timeline = DemoTimeline.Build(bytes, Logged(progress, demo, Path.GetFileName(path)), interp, classes);
+                timeline = DemoTimeline.Build(bytes, Logged(progress, demo, Path.GetFileName(path)), interp, classes, models);
             }
 
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
