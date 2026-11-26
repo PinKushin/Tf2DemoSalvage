@@ -102,6 +102,33 @@ public sealed class InterpolatedHistoryTests
         (latest, settled[0], settled[1], settled[2], settled[3], settled[4]).ShouldBe(((20, 5), 30, 40, 41, 42, 43));
     }
 
+    /// <summary>
+    /// **A variable an older, narrower generation cannot hold is not compared past its end** (B860 review 20, Sonnet,
+    /// Fable): the memo fills from the first entry, so it DOES ask `Same` for components 3 to 5 of one-wide entries, and
+    /// the guard answers them "not the same" where the slice threw; the reset then answers the boundary itself. Five
+    /// one-wide entries, then six-wide from 10 with component 4 stepping to 1 at 13: the change in (3, 3) is 13, and at
+    /// 11 it is the reset at 10. Before the guard came back this threw.
+    /// </summary>
+    [Test]
+    public void LatestChange_AcrossAWidthChange_StopsAtTheReset()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 5; tick++)
+        {
+            history.Add(tick, tick, [tick]);
+        }
+
+        history.SetMaxCount(6, 10, [0f, 0f, 0f, 0f, 0f, 0f]);
+
+        for (int tick = 11; tick <= 15; tick++)
+        {
+            history.Add(tick, tick, [0f, 0f, 0f, 0f, tick >= 13 ? 1f : 0f, 0f]);
+        }
+
+        (history.LatestChange(11, 3, 3), history.LatestChange(15, 3, 3)).ShouldBe((10, 13));
+    }
+
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
     {
         Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();

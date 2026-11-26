@@ -47615,13 +47615,27 @@ Review 18 (Fable, Sonnet, Codex, and the merge's cavecrew reviewer: no blocker).
 Review 19 (Fable, Sonnet, Codex: no blocker; Fable's settle-key and width-guard findings are the same as Sonnet's; its
 lock-remark overclaim is corrected — the lock guards the memo reads only — and `Interp_SetupMappings` joins B865). Fixed: `LatestChangeIndex` read the last index before
 taking the memo lock, so a trim between could still leave it filling past the shortened lists — it now reads it under
-the lock; review 18's width guard in `Same` is withdrawn, unreachable since a width change starts a generation, which
-is answered before any comparison (Sonnet); the settle-memo test varies every part of the key and reddens with the key
+the lock; review 18's width guard in `Same` was withdrawn as unreachable "since a width change starts a generation, which
+is answered before any comparison" (Sonnet, Fable) — **reversed in review 20**: the memo fills from the first entry and
+compares inside an older generation, where the slice threw; the settle-memo test varies every part of the key and reddens with the key
 cut to the schedule; the latest-change test asserts the trim shifted the history (Codex). Recorded, *reasoned* and not
 tested: the trim race only matters under concurrency, which no test drives; the settle memo holds only once a history is
 built through the frames asked, which the timeline's build-before-sample order guarantees (Sonnet). Not taken (Sonnet):
 after a trim the first kept entry counts as a change though it may restate — pre-existing, and no drawn value differs
 because the held entry and the true change carry one value.
+
+Review 20 (Fable, Sonnet, Codex: no blocker; Fable's should-fix is this guard). Not taken (Fable): the signon's bounds
+read as a rise from Valve's defaults at the first packet — no frame ran under the defaults, but every entry arrived at that
+packet, so a held variable keeps its only value, the floor is null and the first pose answers: no drawn difference, by
+reasoning; the cost is memos made on those frames. Fixed: **review 19's withdrawal of the width guard was
+wrong** (Sonnet asked for a test; the test threw). `LatestChangeIndex`'s memo fills from the first entry, so it compares
+inside an older, narrower generation for a variable only the newer width holds, and `Same` sliced past the entry:
+`ArgumentOutOfRangeException`, B386's failure. The guard is back, answering such a pair "not the same", and
+`LatestChange_AcrossAWidthChange_StopsAtTheReset` (10 at 11, 13 at 15) threw without it. No production caller reaches it
+today — pose parameters compare the whole entry and the other histories keep one width — so it is a guard, not a fix of
+a drawn value. Recorded: the memo lock guards memo extension only; `LatestChange`'s and `LatestChangeTime`'s other list
+reads stay unlocked, safe by the build-before-sample order (Sonnet). Not taken: B869 again (Codex); `_predicted` made
+eager (Sonnet) — two instances at worst, each immutable, and a missed memo hit costs one scan.
 Filed into B869 (cavecrew): the frame that reads a rise can sit more than a tick past it whenever frames run more than a
 tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback), the same root without a jump — frames at 48, 51, 54 across a rise at
 50 with the last change at 43 draw 430 at 51 and 360 at 54 where the engine holds 430. Not taken (cavecrew): the skip

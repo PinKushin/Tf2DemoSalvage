@@ -710,6 +710,8 @@ public sealed class InterpolatedHistory
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
         // `last` inside the lock too, so a trim cannot shorten the lists between reading it and filling to it (review 19).
+        // This keeps the memo's extension whole; the callers' other list reads stay unlocked, safe by the build order
+        // (review 20, Sonnet).
         lock (_memoLock)
         {
             int last = LastReceivedAtOrBefore(arrivedBy);
@@ -1017,14 +1019,22 @@ public sealed class InterpolatedHistory
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count; negative for the whole entry.</param>
     /// <remarks>
-    /// Never asked across a width change: a width changes through `SetMaxCount` and then `Reset`, which starts a
-    /// generation, and <see cref="LatestChangeIndex"/> answers a generation start before comparing (B860 review 19,
-    /// Sonnet, which withdrew review 18's width guard as unreachable).
+    /// **A variable an entry is too narrow to hold is not the same** (B860 reviews 18 and 20, Sonnet). Two entries of one
+    /// generation share a width (`SetMaxCount` resets on a change), but <see cref="LatestChangeIndex"/>'s memo fills from
+    /// the first entry, so it compares inside an OLDER, narrower generation for a variable only the newer width holds —
+    /// which sliced past the entry and threw. Review 19 withdrew this guard as unreachable; that was wrong
+    /// (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
     /// </remarks>
-    private bool Same(int left, int right, int first, int count) =>
-        count < 0
-            ? ValuesAt(left).SequenceEqual(ValuesAt(right))
-            : ValuesAt(left).Slice(first, count).SequenceEqual(ValuesAt(right).Slice(first, count));
+    private bool Same(int left, int right, int first, int count)
+    {
+        ReadOnlySpan<float> a = ValuesAt(left);
+        ReadOnlySpan<float> b = ValuesAt(right);
+
+        return count < 0
+            ? a.SequenceEqual(b)
+            : a.Length >= first + count && b.Length >= first + count &&
+              a.Slice(first, count).SequenceEqual(b.Slice(first, count));
+    }
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>
