@@ -3583,6 +3583,33 @@ public sealed class ScenePropTrack
     /// </remarks>
     public bool StaticPropModel { get; private set; }
 
+    /// <summary>Resets every interpolated history at an arrival, as `ResetLatched` does for a created entity (B871).</summary>
+    /// <param name="at">The arrival tick, which is `Reset()`'s `gpGlobals->curtime`.</param>
+    /// <remarks>
+    /// **`C_BaseEntity::ResetLatched` is `Interp_Reset`: `Reset()` on every variable in the map** (`c_baseentity.cpp:5866-5884`),
+    /// each `ClearHistory()` and three entries at `curtime` holding the values just unpacked (`interpolatedvar.h:740-751`).
+    /// `PostDataUpdate` calls it for a created entity after the latch and the model (`c_baseentity.cpp:2612-2617`), so the
+    /// latch's own stamp is discarded. The values are the last update's: what the latch just appended to each history.
+    /// `C_BaseAnimating::ResetLatched` frees the IK state first (`c_baseanimating.cpp:4440-4449`), which a track holds none of.
+    /// </remarks>
+    public void ResetLatched(int at)
+    {
+        if (_lastReceived is { } received)
+        {
+            _simulation.Reset(at, [received.X, received.Y, received.Z, received.Pitch, received.Yaw, received.Roll]);
+        }
+
+        if (_keyframes.Count == 0)
+        {
+            return;
+        }
+
+        ScenePose arrived = _keyframes[^1].Pose;
+
+        _animation.Reset(at, [arrived.Cycle, arrived.Sequence]);
+        _poseParameters.Reset(at, PoseEntry(arrived.PoseParameters, stackalloc float[_poseParameters.Width]));
+    }
+
     /// <summary>Restarts the animating histories, as a new sequence does in the engine (B383).</summary>
     /// <param name="at">The tick the parity change arrived.</param>
     /// <remarks>

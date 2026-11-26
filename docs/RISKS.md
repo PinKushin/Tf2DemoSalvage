@@ -47156,6 +47156,24 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B875 — a no-interpolation or teleport frame does not reset the interpolation histories (2026-11-26) — OPEN
+
+Found reading the engine for B871, *read*, not measured. `ResetLatched()` has a second family of callers besides
+creation: when `IsNoInterpolationFrame()` (the networked `m_ubInterpolationFrame` parity, B346) or `Teleported()` (a
+changed move parent or attachment), `PostDataUpdate` puts the entity on the teleport list (`c_baseentity.cpp:2639-2644`),
+and `ProcessTeleportList` calls `MoveToLastReceivedPosition( true )` and `ResetLatched()` on it EVERY frame until the
+condition clears (`:3056-3079`); `C_BaseAnimating::AddEntity` and `::Simulate` (`c_baseanimating.cpp:5064-5070`,
+`:5155-5170`), `C_BasePlayer` (`c_baseplayer.cpp:1329-1332`, `:2191-2194`, and while paused `:956-961`) and
+`C_BaseViewModel::AddEntity` (`c_baseviewmodel.cpp:498-505`) do the same on their frames. So a teleport or a respawn
+SNAPS: every history holds the last received values, re-stamped each frame, until the entity's next update, which then
+blends from the last such frame. This project carries the parity only to empty the transition queue (B346,
+`DemoTimeline.cs` `DiscontinuitySeconds`); its histories interpolate across the jump, so a teleported or respawned entity
+slides from its old place for an interpolation delay. **Frame-dependent in the engine**: the last reset is stamped with
+the last frame before the next update, so the model needs a frame clock — B860's schedule models frames a tick apart.
+Fix shape: on the parity change or a move-parent change, reset every history at the arrival and hold it re-stamped until
+the next update's arrival less one frame; conformance tests of a teleport (snap, then blend from the frame before the
+next update) and of a respawn. *Not fixed*.
+
 ## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
 
 Found in B870 review 2 (the cavecrew reviewer), *read*. The probes (over ninety files under `tools/Tf2DemoSalvage.Probe`)
@@ -47194,7 +47212,7 @@ the class scripts and model facts it was read with, and `WindowCheck` → `Windo
 deep-copy the facts cache, and `ModelFacts` is immutable to `StateCopy`. Tested by
 `Window_WalkedWithTheModelFacts_DrawsTheResetAsTheWholeDoes` (its control, a window without the facts, differs).
 
-## B871 — a created entity's histories start from one latched entry, where `ResetLatched` re-seeds three at `curtime` (2026-11-26) — OPEN
+## B871 — a created entity's histories start from one latched entry, where `ResetLatched` re-seeds three at `curtime` (2026-11-26) — FIXED
 
 Found reading the engine for B870, *read*, not measured. On `DATA_UPDATE_CREATED`, `C_BaseAnimating::OnDataChanged`
 calls `ResetLatched()` (`c_baseanimating.cpp:5004-5006`; `C_BaseEntity::PostDataUpdate` does too, `c_baseentity.cpp:2612-2617`),
@@ -47208,6 +47226,19 @@ arrival. A model change does NOT reach it: `modelchanged` in `OnDataChanged` com
 `PostDataUpdate`'s `ValidateModelIndex` (`c_baseentity.cpp:2609`) has already updated (*reasoned from the call order;
 the engine's PostDataUpdate/OnDataChanged order is not in the SDK*). Fix shape: reset every history at the creating
 arrival, after the latch; a conformance test of the first blend after creation. *Not fixed*.
+
+**Fixed (2026-11-26, `fix/b871-created-reset`).** Callers read with clangd: `ResetLatched` is virtual
+(`c_baseentity.h:714`), overridden only by `C_BaseAnimating` (`c_baseanimating.h:256`, `.cpp:4440-4450`: frees the IK,
+then the base) in TF's tree. The build calls `ScenePropTrack.ResetLatched(tick)` on the creating update (a new track)
+after `OnNewModel` and before the parity block — `PostDataUpdate`'s order (`c_baseentity.cpp:2609-2617`, then
+`c_baseanimating.cpp:4738`). It resets the simulation, cycle and pose-parameter histories to three entries at the
+arrival holding the update's values. `OnDataChanged`'s second call (`c_baseanimating.cpp:5004-5006`) is the same values at
+the same `curtime`, so it adds nothing. Tested by `CreatedResetConformanceTests`: a demo whose animation time trails by 3
+draws 0.3143 at a target of 12 (pair 10 → 17) where the latch's stamp gives 0.4 (7 → 17), cycle and pose parameter both;
+and the simulation history at the track (128.57 where 150). Each sabotage reddened its test. `SyntheticAnimatingProp`
+can now send a lagging `m_flAnimTime` (with `m_flSimulationTime` and `net_Tick`, which the decode needs). The other
+family of `ResetLatched` callers — no-interpolation and teleport frames — is B875. *Not measured on a real demo; not
+verified by looking.*
 
 ## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — FIXED
 

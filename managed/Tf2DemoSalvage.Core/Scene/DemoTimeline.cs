@@ -8052,6 +8052,14 @@ public sealed class DemoTimeline
             track.FactsUnknown();
         }
 
+        // **A created entity resets every history at its arrival** (B871): `PostDataUpdate`'s `DATA_UPDATE_CREATED` block
+        // calls `ResetLatched()` after `ValidateModelIndex` (`c_baseentity.cpp:2609-2617`), and `C_BaseAnimating`'s parity
+        // block runs after that (`c_baseanimating.cpp:4687`, `:4738`).
+        if (fresh)
+        {
+            track.ResetLatched(tick);
+        }
+
         if (newSequenceStarted)
         {
             track.SequenceRestarted(tick);
