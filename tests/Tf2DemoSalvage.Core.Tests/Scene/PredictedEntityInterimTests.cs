@@ -66,4 +66,34 @@ public sealed class PredictedEntityInterimTests
     {
         SoldierAt60(recorder: 1).X.ShouldBe(590f, 0.01f);
     }
+
+    /// <summary>
+    /// **Whoever asks where an entity is gets where it is drawn** (B860 review 13, Sonnet): the holiday lights and a sound's
+    /// origin ask `GetAbsOrigin()`, the predicted one for the recorder and his weapons. The recorder at 60 is at 590, not
+    /// the delayed 360; his launcher likewise; anyone else's launcher 360.
+    /// </summary>
+    [Test]
+    public void DrawnPose_TheRecorderAndHisWeapon_AreAtTheirPredictedTick()
+    {
+        ScenePropTrack soldier = new(entityIndex: 1, "models/player/soldier.mdl")
+        {
+            Interpolation = InterpolationRiseConformanceTests.RiseAtFifty(),
+        };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            soldier.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        ScenePropTrack mine = InterpolationRiseConformanceTests.Launcher(owner: 1);
+        ScenePropTrack theirs = InterpolationRiseConformanceTests.Launcher(owner: 2);
+        DemoTimeline timeline = DemoTimeline.ForTracks([soldier, mine, theirs], recorder: 1);
+
+        new[]
+        {
+            timeline.DrawnPose(1, soldier, 60)!.Value.X,
+            timeline.DrawnPose(mine.EntityIndex, mine, 60)!.Value.X,
+            timeline.DrawnPose(theirs.EntityIndex, theirs, 60)!.Value.X,
+        }.ShouldBe([590f, 590f, 360f], 0.01f);
+    }
 }

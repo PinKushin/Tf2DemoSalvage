@@ -79,7 +79,9 @@ widest delay anywhere in the recording (B849). Since B860 a rise and the frame s
 - **A jump forward is read in batches**: while skipping, `CDemoPlayer::ReadPacket` stops after its hundredth call
   (**disassembled**, `engine.dll` 0x1800741e0), and each frame of the skip has a frame start, so the frame that reaches the
   target had read to within a hundred packets of it; the viewer takes the far end of that batch (where the batch began is
-  **interpolated**). A sample by any other reader, at any other tick, is no frame of the presenter's and reads its own tick.
+  **interpolated**). A sample by any other reader, at any other tick, is no frame of the presenter's: it is the frame after one that read the
+  last whole tick below it (`ceil(tick) − 1`), the model the history walks use (**interpolated**, reviews 12 and 13).
+  Anything asking where an entity is takes it where the frame draws it, prediction included.
 - **What a point-of-view demo predicts takes one tick whatever the amount.** `CheckInitPredictable`
   (`c_baseentity.cpp:2674-2712`, **read**) needs `cl_predict`, a local player, eligibility and `ShouldPredict()`.
   `cl_predict` reads `sv_client_predict` unless that is −1 (`cdll_bounded_cvars.cpp:36-48`, **read**), whose registered

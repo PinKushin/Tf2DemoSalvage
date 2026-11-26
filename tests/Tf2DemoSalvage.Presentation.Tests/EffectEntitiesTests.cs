@@ -645,4 +645,21 @@ public sealed class EffectEntitiesTests
         effects.RopeEndDormantWithModel(Handle(Rocket)).ShouldBeFalse("the rocket is not dormant");
         effects.RopeEndDormantWithModel(NoHandle).ShouldBeFalse();
     }
+
+    /// <summary>
+    /// **The holiday lights measure from where the local player is drawn** (B860 review 13, Sonnet): `GetAbsOrigin()`, his
+    /// predicted pose, a tick back whatever the delay. A soldier at ten units a tick, entity 1 and the local player: 590 at 60.
+    /// </summary>
+    [Test]
+    public void LocalPlayerOrigin_ThePredictedRecorder_IsATickBack()
+    {
+        ScenePropTrack soldier = new(entityIndex: 1, "models/player/soldier.mdl");
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            soldier.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        EffectEntities.LocalPlayerOrigin(DemoTimeline.ForTracks([soldier], recorder: 1), 60)!.Value.X.ShouldBe(590f, 0.01f);
+    }
 }

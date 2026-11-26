@@ -1834,7 +1834,8 @@ public sealed class ScenePropTrack
     /// window judged slightly wide re-samples a constant answer, while one judged narrow freezes
     /// a moving prop. It is true from the gate opening to a tick past the window closing.
     /// </remarks>
-    internal (bool Changing, double NextWake) Motion(double tick, bool blend) => Motion(tick, blend, Interpolation);
+    internal (bool Changing, double NextWake) Motion(double tick, bool blend) =>
+        Motion(tick, blend, Interpolation.AsOf(UnannouncedRead(tick)));
 
     /// <summary><see cref="Motion(double, bool)"/> under the delay schedule a frame knows (B860).</summary>
     /// <param name="tick">The moment being sampled.</param>
@@ -2627,7 +2628,16 @@ public sealed class ScenePropTrack
     /// Together those turn a long gap into exactly what a client shows: the old pose held, then the
     /// movement rendered over the interpolation window once the update lands.
     /// </remarks>
-    public ScenePose? At(double tick) => At(tick, Interpolation.AsOf(tick - 1d));
+    public ScenePose? At(double tick) => At(tick, Interpolation.AsOf(UnannouncedRead(tick)));
+
+    /// <summary>
+    /// What a frame drawing <paramref name="tick"/> had read when it started, when no frame start says (B860 reviews 12,
+    /// 13): the last whole tick below it. A frame at a whole tick follows the one a tick before; a frame between ticks
+    /// follows one at or after the tick below it, which had read that tick's packets.
+    /// </summary>
+    /// <param name="tick">The moment drawn.</param>
+    /// <returns>The tick read through.</returns>
+    public static double UnannouncedRead(double tick) => Math.Ceiling(tick) - 1d;
 
     /// <summary><see cref="At(double)"/> under the delay schedule a frame knows (B860).</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>

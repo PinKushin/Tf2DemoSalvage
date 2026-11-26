@@ -8217,9 +8217,10 @@ public sealed class DemoTimeline
     /// <c>CL_ReadPackets</c> reads this frame's packets (<see cref="InterpolationSchedule.AsOf"/>), and <c>FRAME_START</c>
     /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A sample
     /// at any other tick — another reader's, such as prediction looking ahead or a seek's scan — is no frame of this one,
-    /// and samples as a frame a tick after the last would, having read through the tick before (B860 review 1, Sonnet;
-    /// review 12, Sonnet: reading its own tick put a step's own tick under the new delay, where the history walks'
-    /// `FrameTarget` model that frame under the old).
+    /// and samples as the frame after one that read the last whole tick below it (<see cref="ScenePropTrack.UnannouncedRead"/>;
+    /// B860 review 1, Sonnet; review 12, Sonnet: reading its own tick put a step's own tick under the new delay, where the
+    /// history walks' `FrameTarget` model that frame under the old; review 13, Fable: and a frame between ticks follows
+    /// one that read the tick below it).
     /// </remarks>
     public void FrameStart(double lastRead, double frameTick)
     {
@@ -8256,7 +8257,7 @@ public sealed class DemoTimeline
 
     /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
     private double FrameRead(double tick) =>
-        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : tick - 1d;
+        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : ScenePropTrack.UnannouncedRead(tick);
 
     /// <summary><see cref="InterpolationSchedule.Predicted"/> at this recording's rate, made once.</summary>
     private InterpolationSchedule? _predicted;
@@ -8277,6 +8278,25 @@ public sealed class DemoTimeline
         track.PredictsForItsOwner && RecorderEntityIndex is { } recorder && track.FactsAt(tick).OwnedBy == recorder && PredictsAt(read)
             ? _predicted ??= InterpolationSchedule.Predicted(IntervalPerTick)
             : track.Interpolation.AsOf(read);
+
+    /// <summary>
+    /// An entity's pose where the moment draws it: under the frame start and, for the recorder and what he predicts, one
+    /// tick (B860 review 13, Sonnet). For anything that asks the client where an entity is — `GetAbsOrigin()` — such as a
+    /// sound's origin or the holiday lights.
+    /// </summary>
+    /// <param name="entityIndex">The entity.</param>
+    /// <param name="track">Its track at <paramref name="tick"/>.</param>
+    /// <param name="tick">The moment.</param>
+    /// <returns>The pose, or null when the track has none then.</returns>
+    public ScenePose? DrawnPose(int entityIndex, ScenePropTrack track, double tick)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        double read = FrameRead(tick);
+
+        return track.At(
+            tick,
+            entityIndex == RecorderEntityIndex ? PlayerSchedule(entityIndex, track, read) : ScheduleFor(track, tick, read));
+    }
 
     /// <summary>A player's schedule: the local player's predicted tick (<c>C_BasePlayer::ShouldPredict</c>, `IsLocalPlayer()`), else his own (B860).</summary>
     private InterpolationSchedule PlayerSchedule(int entityIndex, ScenePropTrack track, double read) =>

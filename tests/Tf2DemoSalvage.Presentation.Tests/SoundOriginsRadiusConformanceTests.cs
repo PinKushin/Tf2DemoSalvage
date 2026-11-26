@@ -92,6 +92,26 @@ public sealed class SoundOriginsRadiusConformanceTests
         reads.ShouldBe(1, "kept, not retried");
     }
 
+    /// <summary>
+    /// **A sound follows the entity where it is drawn** (B860 review 13, Sonnet): `GetAbsOrigin()` of the recorder is his
+    /// predicted one, a tick back whatever the delay. A soldier at ten units a tick, entity 1 and the recording's local
+    /// player: at 60 his sounds are at 590, where the delayed sample put them further back.
+    /// </summary>
+    [Test]
+    public void For_TheRecorder_IsWhereHeIsDrawn()
+    {
+        ScenePropTrack soldier = new(entityIndex: 1, "models/player/soldier.mdl");
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            soldier.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([soldier], recorder: 1);
+
+        SoundOrigins.For(timeline, Brushes, static _ => null)(1, 60)!.Value.X.ShouldBe(590f, 0.01f);
+    }
+
     [Test]
     public void For_NoPose_IsNull()
     {

@@ -21470,7 +21470,7 @@ on a mini-sentry being built, or anything else TF2 rescales while it exists.
 | `EXCLUDE_AUTO_LATCH` | `c_npc_hydra` only | nothing to do |
 | `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | excluded from a TF player's send table, and the eyes are not drawn by flex (B513), so nothing to do |
 | `INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED` | passed by `OnLatchInterpolatedVariables`' caller, never set on a var | nothing to do |
-| extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | **cannot fire on a demo** — see below |
+| extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | ~~cannot fire on a demo~~ **wrong: it can, B866** — see below |
 
 **Extrapolation is the one branch of `Interpolate` this project does not have, and it is
 unreachable here rather than missing.** Valve's own comment says what it is for: *"we only want to
@@ -21481,6 +21481,12 @@ the server since this entity's own last update. **A demo never chokes**: every p
 file, and playback advances the last-received timestamp past every entity's update as it goes. The
 condition cannot hold, so holding the newest value — which is what this project does — is the same
 branch the engine takes.
+
+**That conclusion was wrong** (B860 review 13, Fable; filed as B866). The timestamp passes an entity's update only with
+a LATER packet: on the frame that reads the update, `GetLastTimeStamp()` equals that variable's `m_LastNetworkedTime`,
+so an update whose changetime the frame's target has already passed — a simulation time lagging its packet by more
+than the delay — extrapolates, and the variable settles holding the result. Kept as the reasoning that failed: it asked
+whether the server chokes, not whether the frame's own packet passes the test.
 
 `pInfo->frac = MIN( pInfo->frac, 2.0f )` is defensive for the same reason and never binds: the walk
 only reaches that line with `targettime` strictly between two changetimes, so the fraction is
@@ -47123,6 +47129,25 @@ name being `localhost`, which would make it per demo, a listen-server recording 
 server no); record that per corpus specimen; for those demos decode the two flags and take a tick for those entities,
 with a test predicting the engine's delay; if it answers true for no demo, close this with the read. *Not fixed*.
 
+## B866 — a variable whose target passes an update that came in the latest packet is held, where the engine extrapolates (2026-11-25) — OPEN
+
+Found in B860 review 13 (Fable), *read*, not measured. When the target is past the newest entry (`info.newer ==
+info.older`), `Interpolate` extrapolates along the last two entries, up to `cl_extrapolate_amount` (0.25 s), if
+extrapolation is on (`cl_extrapolate` 1, not paused, `c_baseentity.cpp:3254-3260`), there is an older entry, the amount
+is above zero, and `GetLastTimeStamp() <= m_LastNetworkedTime` (`interpolatedvar.h:953-1024`, `_Extrapolate`
+`:1344-1368`). The extrapolation audit (B271 era, "What the audit found in the rest of the family") says the last
+clause **cannot hold on a demo**; that is wrong. `m_LastNetworkedTime` is the packet timestamp of this variable's last
+latch (`NoteLastNetworkedValue`, `:995-999`; `Interpolation_SetLastPacketTimeStamp` at `FRAME_NET_UPDATE_START`,
+`cdll_client_int.cpp:2303`), so on the frame that reads an update the two are equal, and an update whose changetime is
+already older than that frame's target extrapolates. That takes a simulation time lagging its packet by more than the
+delay. The variable then settles (`noMoreChanges`) holding the extrapolated value until a latch changes it, though an
+update that only restates it puts the networked value back.
+Worked case: delay 8 ticks, X ten a tick to 40, an update stamped 41 (410) read at 50: the engine draws 420 at 50 and
+holds it; the viewer holds 410. How often a real demo lags that far is **not measured**: the simulation-lag histogram
+(`DemoTimeline.SimulationLag`) is the instrument. Fix shape: a conformance test of the worked case, then the branch in
+`ScenePropTrack`'s sample where the target passes a head read on that frame, with the settle holding the result; correct
+the audit paragraph in the same commit. *Not fixed*.
+
 ## B865 — an entity's first delay window draws its birth state, and a re-parent in a rise's packet takes the new amount a frame late (2026-11-25) — OPEN
 
 Found in B860 reviews 5 and 7 (Fable, Sonnet). Three small divergences of the frame's state, all *read*, none measured:
@@ -47437,14 +47462,36 @@ Review 12 (Fable, Sonnet, Codex: no blocker). Fixed:
 - The prune test asks the cheap arrival before `Listed` (Fable); the second-rise case of "no frame draws the difference"
   is worded as reasoned (Fable, Sonnet); B849's test summary names the frame at 50's target, 42 (Fable).
 
-Not taken: `SettleFrame` and `LatestChangeIndex` walk back to the last change, long for a variable that never changes
+Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
+
+Review 13 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **Readers asking where an entity is took the full delay for the recorder and his weapons** (Sonnet, Fable), which Part
+  3 draws a tick back: the holiday lights' local player, a sound's origin and the observer's building target now take
+  `DemoTimeline.DrawnPose`, the frame start and prediction included. `DrawnPose_TheRecorderAndHisWeapon_AreAtTheirPredictedTick`,
+  `For_TheRecorder_IsWhereHeIsDrawn` and `LocalPlayerOrigin_ThePredictedRecorder_IsATickBack` (590) redden on the stateless
+  sample.
+- **A sample between ticks read through the tick below its own** (Fable): above the tick rate the frame at 50.3 follows
+  one that read 50, so a sample no frame start announced reads through `ceil(tick) − 1`
+  (`ScenePropTrack.UnannouncedRead`), in the timeline, `At(tick)` and `Motion(tick, blend)`;
+  `At_AFrameBetweenTicksAfterTheRise_IsUnderTheNewDelay` (360; 425) reddens with `tick − 1`.
+- **Review 12's hold test asserted 410 where the frame at 50 extrapolates to 420** (Fable): the test now adds the same
+  410 at 51, which puts the networked value back without re-arming, and the extrapolation is filed as B866; the
+  "cannot fire on a demo" paragraph of the extrapolation audit is corrected there.
+- A control: a latch on the rise's frame that does not settle is floored (`…ThatDoesNotSettle_IsFloored`, 360; Sonnet).
+- Records: findings 115 and the jump and other-reader tests no longer say "own tick" (Fable).
+
+Not taken: `was` in the player's motion window is an earlier frame, sampled as one (Sonnet, review 11's reason).
+
+Not taken (review 12): `SettleFrame` and `LatestChangeIndex` walk back to the last change, long for a variable that never changes
 beside a sibling that does (Fable) — cost only, inside the window after a rise, which a recording has a handful of. The
 round-11 bound has no test of its own (Sonnet): it can only start a walk early, and the 205 test reddens when it skips
 the walk. The face after a jump is B865. Locally recorded demos and `GetInterpolationAmount`'s fall-through
 (`c_baseentity.cpp:5930-5938`, Sonnet) is B861.
 
 Not taken (Sonnet, review 10): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
-same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
+same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken
+(**reversed in review 13**: the recorder is predicted since Part 3, so these readers did anchor on him; they now take
+`DrawnPose`): the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips
 anything parented, so the recorder's held weapons, and the rest read player and building tracks at the full delay as
 before this branch (Sonnet). The face's frame start ignoring jumps is filed under B865 (Sonnet). `DelayStepsThrough`

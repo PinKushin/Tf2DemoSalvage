@@ -389,9 +389,11 @@ public sealed class InterpolationRiseConformanceTests
     /// <summary>
     /// **A latch read on the rise's own frame can settle that frame and then hold** (B860 review 12, Fable). X ten a tick,
     /// an update every tick to 40, then one stamped 41 (410) arriving at 50. The frame at 50 still runs under 8 ticks
-    /// (`FRAME_START` came first), aims at 42, past the head at 41, draws 410 and settles (`c_baseentity.cpp:879-887`);
-    /// the next `FRAME_START` only stores the new amount, so the frame at 51 holds 410. Floored instead, at the frame at
-    /// 50's kept entries, it drew 360.
+    /// (`FRAME_START` came first), aims at 42, past the head at 41, and settles (`c_baseentity.cpp:879-887`); the next
+    /// `FRAME_START` only stores the new amount. An update at 51 carrying the same 410 puts the networked value back and,
+    /// changing nothing, does not re-arm it, so the frame at 51 holds 410. Floored instead, at the frame at 50's kept
+    /// entries, it drew 360. (The frame at 50 itself extrapolates past 41 to 420, `interpolatedvar.h:953-1024`: B866, which
+    /// the same-valued update keeps out of this test, review 13, Fable.)
     /// </summary>
     [Test]
     public void PropsAt_ALatchThatSettlesOnTheRisesFrame_Holds()
@@ -404,6 +406,7 @@ public sealed class InterpolationRiseConformanceTests
         }
 
         crate.Add(50, new ScenePose { X = 410f }, appliedAt: 41);
+        crate.Add(51, new ScenePose { X = 410f }, appliedAt: 51);
 
         DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
         List<SceneProp> props = [];
@@ -412,6 +415,55 @@ public sealed class InterpolationRiseConformanceTests
         timeline.PropsAt(51, props);
 
         props.ShouldHaveSingleItem().Pose.X.ShouldBe(410f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A frame between ticks follows one that read the tick below** (B860 review 13, Fable): above the tick rate, the frame
+    /// at 50.5 comes after the frame at 50, which read the rise. A sample no frame start announced at 50.5 is that frame:
+    /// X ten a tick, aiming at 16.5, floored at the frame at 50's kept entries, 36: 360 — what the presenter's frame draws.
+    /// Read through 49.5 it ran under the old delay: 425.
+    /// </summary>
+    [Test]
+    public void At_AFrameBetweenTicksAfterTheRise_IsUnderTheNewDelay()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(50, 50.5);
+        timeline.PropsAt(50.5, props);
+
+        new[] { crate.At(50.5)!.Value.X, props.ShouldHaveSingleItem().Pose.X }.ShouldBe([360f, 360f], 0.01f);
+    }
+
+    /// <summary>
+    /// The control (B860 review 13, Sonnet): a latch on the rise's frame that its target does NOT pass keeps moving. X ten
+    /// a tick, an update every tick: the frame at 50 aims at 42, short of the head at 50, cuts at 38.67 and keeps 38, 37,
+    /// 36; the frame at 51 aims at 17 and is floored at 36: 360. Holding it gave the head, 500.
+    /// </summary>
+    [Test]
+    public void PropsAt_ALatchOnTheRisesFrameThatDoesNotSettle_IsFloored()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(50, 51);
+        timeline.PropsAt(51, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(360f, 0.01f);
     }
 
     /// <summary>
@@ -647,8 +699,9 @@ public sealed class InterpolationRiseConformanceTests
 
     /// <summary>
     /// **A jump on a timeline with no packets reads its own tick** (B860 review 4, Sonnet; untested until review 5, Fable):
-    /// there is nothing to place a skip batch by, so the frame at 60 runs under the delay of 60 like any reader that names
-    /// no frame: the moving crate floored at 36, 360 — not under the first step, 52, 520.
+    /// there is nothing to place a skip batch by, so the frame at 60 runs under the delay of 60 (a reader that names no frame
+    /// reads through 59 since review 12, the same step here): the moving crate floored at 36, 360 — not under the first
+    /// step, 52, 520.
     /// </summary>
     [Test]
     public void PropsAt_AJumpOnATimelineWithNoPackets_ReadsItsOwnTick()
@@ -672,11 +725,11 @@ public sealed class InterpolationRiseConformanceTests
     /// <summary>
     /// **A frame's start is that frame's, not the timeline's** (B860 review 1, Sonnet): the presenter's frame at 50 started
     /// having read 49, and another reader then asks for 51 — prediction looking ahead, a seek's scan. That is no frame of
-    /// the presenter's and samples under its own tick, 51 − 34 = 17 floored at 30, so 300; carrying the frame start over
-    /// would aim at 51 − 8 = 43, 430.
+    /// the presenter's and samples as a frame a tick on, having read 50 (review 12): 51 − 34 = 17 floored at 30, so 300;
+    /// carrying the frame start over would aim at 51 − 8 = 43, 430.
     /// </summary>
     [Test]
-    public void PropsAt_AnotherReadersTickAfterAFrameStart_IsSampledUnderItsOwnTick()
+    public void PropsAt_AnotherReadersTickAfterAFrameStart_IsNotThatFrames()
     {
         ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
 

@@ -664,6 +664,20 @@ public sealed class EffectEntities
         _holidayTimeline is { } timeline && TimelineMoments.ChristmasActiveAt(timeline, _holidayTick);
 
     /// <summary>
+    /// The local player's `GetAbsOrigin()` at a tick, where he is drawn: his predicted pose, a tick back whatever the delay
+    /// (B860 review 13, Sonnet). Null with no timeline, no local player, or no track for him then.
+    /// </summary>
+    /// <param name="timeline">The demo.</param>
+    /// <param name="tick">The moment.</param>
+    /// <returns>The origin, or null.</returns>
+    internal static Vector3? LocalPlayerOrigin(DemoTimeline? timeline, int tick) =>
+        timeline?.RecorderEntityIndex is { } local &&
+        timeline.TrackFor(local, tick) is { } track &&
+        timeline.DrawnPose(local, track, tick) is { } pose
+            ? new Vector3(pose.X, pose.Y, pose.Z)
+            : null;
+
+    /// <summary>
     /// <c>CHolidayLightManager::AddHolidayLight</c> for each light the build just dispatched, against the local player's
     /// origin and the map's <c>sky_camera</c> — the origin <c>m_skybox3d</c> carries.
     /// </summary>
@@ -681,10 +695,7 @@ public sealed class EffectEntities
             return;
         }
 
-        Vector3? player = _frame.Timeline?.RecorderEntityIndex is { } local &&
-            _frame.Timeline.TrackFor(local, tick)?.At(tick) is { } pose
-                ? new Vector3(pose.X, pose.Y, pose.Z)
-                : null;
+        Vector3? player = LocalPlayerOrigin(_frame.Timeline, tick);
 
         (float X, float Y, float Z) sky = _map?.Level is { } level
             ? BspEntities.SkyCamera(level.Entities)?.Origin ?? default
