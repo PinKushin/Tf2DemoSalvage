@@ -73,6 +73,36 @@ public sealed class EntityStateTableTests
             3, "a delta states no serial, so it is not evidence of a new occupant");
     }
 
+    /// <remarks>
+    /// **Only a creation is `JustCreated`** (B871): the first `Enter` in a slot and a new serial in it, which the engine runs as
+    /// `DATA_UPDATE_CREATED`; a delta, and a re-entry of the same serial after it left the visible set, are not.
+    /// </remarks>
+    [Test]
+    public void JustCreated_OverAnEntitysLife_IsTrueOnlyForItsCreationAndANewSerial()
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+        EntityState? state;
+        bool[] seen = new bool[5];
+
+        (EntityUpdateType Kind, int Serial)[] updates =
+        [
+            (EntityUpdateType.Enter, 640),
+            (EntityUpdateType.Delta, 0),
+            (EntityUpdateType.Leave, 0),
+            (EntityUpdateType.Enter, 640),
+            (EntityUpdateType.Enter, 641),
+        ];
+
+        for (int index = 0; index < updates.Length; index++)
+        {
+            table.Apply(new DecodedEntity(9, ClassId: 212, updates[index].Serial, updates[index].Kind, []));
+            table.TryGet(9, out state).ShouldBeTrue();
+            seen[index] = state.JustCreated;
+        }
+
+        seen.ShouldBe([true, false, false, false, true]);
+    }
+
     [Test]
     public void EntityState_LeavingTheVisibleSet_IsNotDestruction()
     {

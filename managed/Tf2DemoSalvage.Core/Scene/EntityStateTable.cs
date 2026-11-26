@@ -145,10 +145,13 @@ public sealed class EntityStateTable
         // the suite - the existing test for this hands its delta the same serial as its enter,
         // which is a value the decoder never produces, so correct and broken agreed on it.
         bool statesSerial = entity.UpdateType == EntityUpdateType.Enter;
+        bool created = false;
 
         if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
             (statesSerial && state.SerialNumber != entity.SerialNumber))
         {
+            created = true;
+
             if (state is not null)
             {
                 _byClass[state.ClassId].Remove(state.EntityIndex);
@@ -177,6 +180,10 @@ public sealed class EntityStateTable
         // Leave is not Delete: the entity has left the potentially-visible set and still exists,
         // so its properties stay and only its visibility changes.
         state.IsVisible = entity.UpdateType != EntityUpdateType.Leave;
+
+        // **Whether this update made the entity** — the engine's `DATA_UPDATE_CREATED` (B871): a slot first filled or a new
+        // serial in it. A re-entry of the same serial, or a full packet restating a live entity, is not.
+        state.JustCreated = created;
 
         // **The entity's state, not the snapshot's bits, and the two differ on every Enter.** An
         // entity entering the visible set is a delta against its class's instance baseline and

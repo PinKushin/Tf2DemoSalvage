@@ -47187,20 +47187,18 @@ Found reading the engine for B871, *read*, not measured; corrected by B871's rev
 - **A player's no-interpolation update resets at the ARRIVAL**, in `PostDataUpdate`: `engine->IsPaused() ||
   bForceEFNoInterp` (`c_baseplayer.cpp:956-961`, `bForceEFNoInterp` taken at `:843`) — not frame-dependent — besides its
   frame resets (`:1329-1332`, `:2191-2194`).
-- **A vision-filter model override** (`m_nModelIndexOverrides`): `ValidateModelIndex` sets the override model
-  (`c_baseentity.cpp:2524-2528`) while `C_BaseAnimating::OnDataChanged` compares the plain index's model with
-  `GetModel()` (`c_baseanimating.cpp:4995-5006`), so `modelchanged` and a `ResetLatched()` on EVERY update for such an
-  entity (*reasoned; which TF entities send overrides not read*).
 
 What the next update then does depends on its changetime: one stamped at or before the last reset frame flushes the
-three reset entries (`AddToHead`'s flush, `interpolatedvar.h:649`), so the value SNAPS at that update's arrival; one past
+three reset entries (`AddToHead`'s flush, `interpolatedvar.h:704-719`), so the value SNAPS at that update's arrival; one past
 it blends from the last reset frame. This project carries the parity only to empty the transition queue (B346,
 `DiscontinuitySeconds`); its histories interpolate across the jump, so a teleported or respawned entity slides from its
 old place for an interpolation delay. **Frame-dependent**: the parity's last reset is the last frame before the next
 update, so the model needs a frame clock — B860's schedule models frames a tick apart. Fix shape: the player's reset at
 the arrival; the parity's (including a nonzero counter on creation) held re-stamped to the next update's arrival less
-one frame; one reset at the first frame for a move-parent change; the override case after reading which entities send
-it. Conformance tests of each. *Not fixed*.
+one frame; one reset at the first frame for a move-parent change. Conformance tests of each. (A vision-filter model
+override does NOT reset every update, as a first draft of this entry said: `SetModelIndex` writes the override into
+`m_nModelIndex`, `c_baseentity.cpp:1775-1780`, so `OnDataChanged`'s `modelchanged` is false — B871 review 2, Fable and the
+cavecrew reviewer.) *Not fixed*.
 
 ## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
 
@@ -47260,8 +47258,9 @@ arrival, after the latch; a conformance test of the first blend after creation. 
 then the base) in TF's tree. The build calls `ScenePropTrack.ResetLatched(tick)` on the creating update (a new track)
 after `OnNewModel` and before the parity block — `PostDataUpdate`'s order (`c_baseentity.cpp:2609-2617`, then
 `c_baseanimating.cpp:4738`). It resets the simulation, cycle and pose-parameter histories to three entries at the
-arrival holding the update's values, on the CREATING update only (an `Enter` that begins a track — a track that begins
-later, once its entity has a model, is not reset: review, Fable). `OnDataChanged`'s second call
+arrival holding the update's values, on the CREATING update only — `EntityState.JustCreated`, set by the entity table
+when it builds a new state (a slot first filled or a new serial in it), so neither a track that begins later (no model
+until then) nor a same-serial re-entry the track never saw is reset (reviews 1-2, Fable, the cavecrew reviewer). `OnDataChanged`'s second call
 (`c_baseanimating.cpp:5004-5006`) is the same values at the same `curtime`, except a client-side-animated cycle, which
 `PostDataUpdate` has set back to the pre-update value (`:4689-4691`) — not interpolated here (`ScenePropTrack.At`), so no
 drawn difference (review, the cavecrew reviewer). Tested by `CreatedResetConformanceTests`: a demo whose animation time trails by 3
@@ -47270,7 +47269,11 @@ and the simulation history at the track (128.57 where 150). Each sabotage redden
 can now send a lagging `m_flAnimTime` (with `m_flSimulationTime` and `net_Tick`, which the decode needs). The other
 family of `ResetLatched` callers — no-interpolation and teleport frames, including a creation with a nonzero counter —
 is B875; a track beginning after its entity's creation (no model or origin until then) still lacks that entity's
-earlier history, as before. Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
+earlier history, as before. A same-serial re-entry is not reset: that a dormant entity's re-entry is not
+`DATA_UPDATE_CREATED` is *interpolated* — `CL_CopyNewEntity` is closed, and `iclientnetworkable.h:34` reads "created
++and+ entered the pvs" with the entered-PVS kind commented out (review 2, Sonnet). Review 2 also moved the late-track
+test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
+(Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876
 filed (layers and bone controllers not interpolated). Not taken: a build-level simulation-history test (Sonnet, Fable,
 cavecrew) — the fixture's origin is constant and the build's one call is held by the pose/cycle test. *Not measured on

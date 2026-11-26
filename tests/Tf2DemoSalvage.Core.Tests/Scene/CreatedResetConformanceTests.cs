@@ -41,9 +41,11 @@ public sealed class CreatedResetConformanceTests
     }
 
     /// <summary>
-    /// **A track that begins after its entity was created is not reset** (B871 review, Fable): an entity created at 10 with
-    /// no model gets its first track at 50, but the update at 50 is not `DATA_UPDATE_CREATED`, so it only latches (animation
-    /// time 47). With 1.0 at 60 (57), a target of 52 is half way from 47: 0.8 — a reset at 50 would give 2/7 of the way.
+    /// **A track that begins after its entity was created is not reset** (B871 reviews 1-2): an entity created at 10 with no
+    /// model gets its first track at 50, but the update at 50 is not `DATA_UPDATE_CREATED`, so its CYCLE only latches
+    /// (animation time 47). With 1.0 at 60 (57), a target of 52 is half way from 47: 0.8 — a reset at 50 gives 2/7 of the way.
+    /// The cycle, because setting the model at 50 runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine DOES reset
+    /// on (`c_baseanimating.cpp:1124`); `m_iv_flCycle` it leaves alone.
     /// </summary>
     [Test]
     public void At_ATrackBegunAfterItsEntitysCreation_IsNotReset()
@@ -51,12 +53,14 @@ public sealed class CreatedResetConformanceTests
         DemoTimeline timeline = DemoTimeline.Build(SyntheticAnimatingProp.Demo(
             [string.Empty, "models/props_gameplay/door.mdl"],
             animationLag: 3,
-            (10, 0, [0.2f], null, null),
-            (50, 1, [0.6f], null, null),
-            (60, 1, [1.0f], null, null)));
+            (10, 0, [], 0.2f, null),
+            (50, 1, [], 0.6f, null),
+            (60, 1, [], 1.0f, null)));
 
-        timeline.Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex)
-            .At(52d + Delay)!.Value.PoseParameters[0].ShouldBe(0.8f, 1e-5f);
+        ScenePropTrack track = timeline.Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex);
+
+        track.FirstTick.ShouldBe(50, "the control: no track while the entity had no model, so its first update is a delta");
+        track.At(52d + Delay)!.Value.Cycle.ShouldBe(0.8f, 1e-5f);
     }
 
     /// <summary>

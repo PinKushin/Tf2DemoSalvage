@@ -1147,6 +1147,13 @@ public sealed partial class EntityState
     /// </remarks>
     public int SimulationBaseTick { get; private set; }
 
+    /// <summary>Whether the update just applied CREATED this entity — the engine's <c>DATA_UPDATE_CREATED</c> (B871).</summary>
+    /// <remarks>
+    /// Set by <see cref="EntityStateTable"/>: a slot first filled, or a new serial in it. An <c>Enter</c> that is a re-entry of
+    /// the same serial, or a full packet restating a live entity, is not a creation, and the engine does not reset then.
+    /// </remarks>
+    public bool JustCreated { get; internal set; }
+
     /// <summary>The tick this entity last simulated on, or null before any packet said.</summary>
     /// <remarks>
     /// **What the engine timestamps an interpolation history entry with**, for anything latched as

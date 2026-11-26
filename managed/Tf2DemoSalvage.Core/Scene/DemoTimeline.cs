@@ -8055,8 +8055,9 @@ public sealed class DemoTimeline
         // **A created entity resets every history at its arrival** (B871): `PostDataUpdate`'s `DATA_UPDATE_CREATED` block
         // calls `ResetLatched()` after `ValidateModelIndex` (`c_baseentity.cpp:2609-2617`), and `C_BaseAnimating`'s parity
         // block runs after that (`c_baseanimating.cpp:4687`, `:4738`). **The CREATING update, not the track's first**: a
-        // track can begin later than its entity (no model until then), and that later update is no creation (review, Fable).
-        if (fresh && entity.UpdateType == EntityUpdateType.Enter)
+        // track can begin later than its entity (no model until then), and an `Enter` can be a re-entry of an entity the
+        // track never saw; neither is a creation (reviews 1-2, Fable, the cavecrew reviewer). The entity table knows.
+        if (state.JustCreated)
         {
             track.ResetLatched(tick);
         }
