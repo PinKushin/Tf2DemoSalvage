@@ -742,24 +742,32 @@ public sealed class InterpolatedHistory
                     change--;
                 }
 
-                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change]);
+                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
                 return change;
             }
 
-            for (int index = run.Through + 1; index <= last; index++)
+            // Each extension is collected first and committed once, so a throw from `Same` leaves the run as it was (review
+            // 22, Sonnet; merge review 3).
+            if (last > run.Through)
             {
-                if (IsChange(index, first, count))
+                List<int> later = [];
+
+                for (int index = run.Through + 1; index <= last; index++)
                 {
-                    run.Changes.Add(index);
+                    if (IsChange(index, first, count))
+                    {
+                        later.Add(index);
+                    }
                 }
+
+                run.Later.AddRange(later);
+                run.Through = last;
             }
 
-            run.Through = Math.Max(run.Through, last);
-
             // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
-            // ends at the latest at the generation start, which is a change and is at or before `last`.
-            // Collected first and spliced in once, so a long walk is linear and a throw leaves the run as it was (review 22,
-            // Sonnet).
+            // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
+            // its own list and APPENDED, so a rewind asking one step back at a time costs what it walks, not the whole memo
+            // (merge review 3).
             if (last < run.Start)
             {
                 List<int> met = [];
@@ -780,26 +788,54 @@ public sealed class InterpolatedHistory
                     index--;
                 }
 
-                met.Reverse();
-                run.Changes.InsertRange(0, met);
+                run.Earlier.AddRange(met);
                 run.Start = index;
             }
 
-            int at = run.Changes.BinarySearch(last);
+            if (last >= run.Later[0])
+            {
+                int at = run.Later.BinarySearch(last);
 
-            return run.Changes[at >= 0 ? at : ~at - 1];
+                return run.Later[at >= 0 ? at : ~at - 1];
+            }
+
+            return Earliest(run.Earlier, last);
         }
+    }
+
+    /// <summary>The first change at or before <paramref name="last"/> in a newest-first list that holds one.</summary>
+    private static int Earliest(List<int> newestFirst, int last)
+    {
+        int low = 0;
+        int high = newestFirst.Count - 1;
+
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+
+            if (newestFirst[middle] <= last)
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+
+        return newestFirst[low];
     }
 
     /// <summary>Whether an entry changed a variable from the one before it, or starts a generation.</summary>
     private bool IsChange(int index, int first, int count) =>
         index == _generationStarts[index] || !Same(index, index - 1, first, count);
 
-    /// <summary>The entries a variable's latest-change memo has examined, and the changes among them, ascending.</summary>
+    /// <summary>The entries a variable's latest-change memo has examined, and the changes among them.</summary>
     /// <param name="Start">The first entry examined, always a change.</param>
     /// <param name="Through">The last entry examined.</param>
-    /// <param name="Changes">The changes from <paramref name="Start"/> through <paramref name="Through"/>.</param>
-    private sealed record ChangeRun(int Start, int Through, List<int> Changes)
+    /// <param name="Later">The changes from the seed on, ascending; its first is the seed.</param>
+    /// <param name="Earlier">The changes before the seed, newest first, ending at <paramref name="Start"/>.</param>
+    private sealed record ChangeRun(int Start, int Through, List<int> Later, List<int> Earlier)
     {
         public int Start { get; set; } = Start;
 
