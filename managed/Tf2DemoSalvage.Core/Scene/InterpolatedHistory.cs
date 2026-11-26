@@ -661,6 +661,46 @@ public sealed class InterpolatedHistory
             : new Bracketing(AnchorSlot, newer, AnchorSlot, NoMoreChanges: false);
     }
 
+    /// <summary>The lowest entry an anchor can change this pair's answer from (B878).</summary>
+    /// <param name="pair">An unanchored <see cref="Bracket"/> answer.</param>
+    /// <param name="arrivedBy">The tick it was asked at.</param>
+    /// <returns>
+    /// The third sample's index, or the run's floor when the older entry has no live predecessor — below it
+    /// <see cref="BracketAnchored"/> answers exactly <paramref name="pair"/>.
+    /// </returns>
+    public int AnchorReach(Bracketing pair, int arrivedBy) =>
+        pair.Oldest == pair.Older ? _generationStarts[LastReceivedAtOrBefore(arrivedBy)] : pair.Oldest;
+
+    /// <summary>
+    /// The newest entry received after one tick and by another, no lower than a floor, whose component differs from a value;
+    /// −1 when none (B878: an update whose parity differs from the one at the last bone setup).
+    /// </summary>
+    /// <param name="after">Entries received at or before this are not considered.</param>
+    /// <param name="arrivedBy">The tick being played.</param>
+    /// <param name="floor">The lowest index searched, so a long-unseen entity costs its reach and not its history.</param>
+    /// <param name="component">Which component to compare.</param>
+    /// <param name="value">The value it is compared with.</param>
+    /// <returns>The entry's index, or −1.</returns>
+    public int NewestDifferingSince(int after, int arrivedBy, int floor, int component, float value)
+    {
+        for (int index = LastReceivedAtOrBefore(arrivedBy); index >= Math.Max(0, floor) && _received[index] > after; index--)
+        {
+            ReadOnlySpan<float> values = ValuesAt(index);
+
+            if (component < values.Length && values[component].CompareTo(value) != 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The newest entry received by a tick, or −1 — the entry an anchor stored by its arrival names (B878).</summary>
+    /// <param name="arrivedBy">The tick.</param>
+    /// <returns>Its index.</returns>
+    public int NewestReceivedBy(int arrivedBy) => LastReceivedAtOrBefore(arrivedBy);
+
     /// <summary>The oldest live entry after one, or −1.</summary>
     private int FirstLiveAfter(int index, int available, int arrivedBy)
     {

@@ -7968,6 +7968,9 @@ public sealed class DemoTimeline
                 // twice while its sequence number never moves.
                 ResetEventsParity = state.ResetEventsParity() ?? 0,
 
+                // The engine's zeroed member when never sent (B878): compared at the next bone setup.
+                NewSequenceParity = state.NewSequenceParity() ?? 0,
+
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
                 // delta-compressed format only sends what changed from it.
                 //
@@ -8109,8 +8112,13 @@ public sealed class DemoTimeline
     /// (`:2845`). A paused frame therefore shows the last stated pose with no delay, which is a
     /// different pose from the one playback shows at the same tick, not the same one frozen (B399).
     /// </param>
+    /// <param name="setups">
+    /// The drawing view's record of bone setups (B878), or null for a reader that draws nothing: with it, each track's cycle
+    /// history is reset where the engine's would be for what that view has set up. Another instance than the last call's
+    /// resyncs, as another view entity does.
+    /// </param>
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, int? viewEntity = null, bool interpolating = true)
+        double tick, ICollection<SceneProp> into, int? viewEntity = null, bool interpolating = true, BoneSetups? setups = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -8121,16 +8129,59 @@ public sealed class DemoTimeline
         // what the sampling below guarantees, and `DemoTimelineSampleOrderTests` holds it to.
         lock (_sampling)
         {
-            Sample(tick, into, viewEntity, interpolating);
+            Sample(tick, into, viewEntity, interpolating, setups);
         }
     }
+
+    /// <summary>Tells a view's record which live tracks it set bones up for this frame (B878).</summary>
+    /// <param name="setups">The view's record, as passed to <see cref="PropsAt"/>.</param>
+    /// <param name="entities">The entity indices the frame posed.</param>
+    /// <param name="tick">The frame's tick.</param>
+    /// <remarks>
+    /// **After the frame's sample, as the engine sets bones up after it interpolates** — and the setup stores the parity of
+    /// the newest update then (`m_nPrevNewSequenceParity = m_nNewSequenceParity`, `c_baseanimating.cpp:1835`).
+    /// </remarks>
+    public void NoteBonesSetUp(BoneSetups setups, IReadOnlySet<int> entities, double tick)
+    {
+        ArgumentNullException.ThrowIfNull(setups);
+        ArgumentNullException.ThrowIfNull(entities);
+
+        lock (_sampling)
+        {
+            int at = (int)Math.Floor(tick);
+
+            foreach (int ordinal in _live)
+            {
+                ScenePropTrack track = _props[ordinal];
+
+                if (entities.Contains(track.EntityIndex))
+                {
+                    setups.NoteSetUp(track, at);
+                }
+            }
+        }
+    }
+
+    /// <summary>The bone-setup record the kept sample was taken under (B878).</summary>
+    private BoneSetups? _sampledSetups;
 
     /// <summary>Serialises <see cref="PropsAt"/>, whose sample is kept between calls.</summary>
     private readonly Lock _sampling = new();
 
     /// <summary><see cref="PropsAt"/>'s body, run under its lock.</summary>
-    private void Sample(double tick, ICollection<SceneProp> into, int? viewEntity, bool interpolating)
+    private void Sample(double tick, ICollection<SceneProp> into, int? viewEntity, bool interpolating, BoneSetups? setups)
     {
+        // **A seek back forgets every setup** (*our choice*, B878): the engine's demo seek is not read, and a sample kept from
+        // later frames would anchor on setups that, at the new tick, have not happened.
+        if (setups is not null && _sampleSynced && tick < _sampledTo)
+        {
+            setups.Forget();
+        }
+
+        bool newSetups = !ReferenceEquals(setups, _sampledSetups);
+
+        _sampledSetups = setups;
+
         into.Clear();
 
         // **The signature stays abstract on purpose.** CA1002 refuses `List<T>` in a public API and
@@ -8178,7 +8229,7 @@ public sealed class DemoTimeline
         _sampledSteps = steps;
 
         if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam ||
-            interpolating != _sampledInterpolating || viewEntity != _sampledView || newSchedule)
+            interpolating != _sampledInterpolating || viewEntity != _sampledView || newSchedule || newSetups)
         {
             ResyncSample(tick, viewEntity, recorderTeam, interpolating);
         }
@@ -8484,7 +8535,7 @@ public sealed class DemoTimeline
             // Mid-lerp tracks are blend-sampled by construction: `Motion` only reports a track
             // changing under blended sampling. Hidden is re-read because it is a field of the
             // pose, discrete at the keyframe the lerp is walking away from.
-            SetLive(track, track.At(tick, track.SampledUnder ?? ScheduleFor(track, tick, _sampledRead)) is { Hidden: false } pose
+            SetLive(track, SampleAt(track, tick, track.SampledUnder ?? ScheduleFor(track, tick, _sampledRead)) is { Hidden: false } pose
                 ? BuildProp(track, tick, pose, recorderTeam)
                 : null);
         }
@@ -8589,7 +8640,7 @@ public sealed class DemoTimeline
         InterpolationSchedule schedule = ScheduleFor(track, tick, _sampledRead);
 
         track.SampledUnder = schedule;
-        (bool changing, double nextWake) = track.Motion(tick, blend, schedule);
+        (bool changing, double nextWake) = track.Motion(tick, blend, schedule, _sampledSetups?.For(track));
 
         nextWake = Math.Min(nextWake, revisit);
 
@@ -8600,7 +8651,12 @@ public sealed class DemoTimeline
             nextWake = Math.Min(nextWake, WeaponLifeChangesAfter(weapon, tick));
         }
 
-        ScenePose? sampled = blend ? track.At(tick, schedule) : stated;
+        ScenePose? sampled = blend ? SampleAt(track, tick, schedule) : stated;
+
+        if (!blend)
+        {
+            _sampledSetups?.NotePending(track, null);
+        }
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
         SetLive(track, sampled is { Hidden: false } pose
@@ -8625,6 +8681,21 @@ public sealed class DemoTimeline
         {
             _wakes.Enqueue(track, nextWake);
         }
+    }
+
+    /// <summary>A blended sample as the drawing view sees it, recording the anchor it used for that view's next setup (B878).</summary>
+    private ScenePose? SampleAt(ScenePropTrack track, double tick, InterpolationSchedule schedule)
+    {
+        if (_sampledSetups is not { } setups)
+        {
+            return track.At(tick, schedule);
+        }
+
+        ScenePose? pose = track.At(tick, schedule, setups.For(track), out int? anchoredAt);
+
+        setups.NotePending(track, anchoredAt);
+
+        return pose;
     }
 
     /// <summary><c>C_BaseEntity::ShouldInterpolate</c>, all four clauses (B385).</summary>
@@ -9131,7 +9202,7 @@ public sealed class DemoTimeline
     /// </remarks>
     /// <param name="interpolating">
     /// False while paused, exactly as for <see cref="PropsAt(double, ICollection{SceneProp}, int?,
-    /// bool)"/> — one global flag in the engine (`c_baseentity.cpp:3226`), and a player's position
+    /// bool, BoneSetups?)"/> — one global flag in the engine (`c_baseentity.cpp:3226`), and a player's position
     /// is registered on <c>C_BaseEntity</c> like any other entity's (B399).
     /// </param>
     /// <param name="viewpoint">
