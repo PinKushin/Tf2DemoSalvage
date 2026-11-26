@@ -2453,7 +2453,9 @@ public sealed class ScenePropTrack
         // entries would make the answer no (B860 review 2, Fable).
         // Its value is the entry that last changed it, which the settle frame reached: sampled at exactly that entry's
         // changetime, a fraction of zero, so no later latch that left it alone can bend a spline through it (review 3).
-        if (changed < rise && SettleFrame(history, changed, rise, schedule, variable) is not null &&
+        // A latch read on the rise's own frame counts too (B860 review 12, Fable): that frame still runs under the old delay,
+        // and if its target passed the latch it settled there.
+        if (changed <= rise && SettleFrame(history, changed, rise, schedule, variable) is not null &&
             history.LatestChangeTime(now, variable.First, variable.Count) is { } heldAt)
         {
             return heldAt;
@@ -2477,7 +2479,7 @@ public sealed class ScenePropTrack
             pruned.Frame,
             now,
             frame => FrameTarget(frame, schedule) - extra,
-            frame => Listed(history, frame, schedule, variable) || history.LatestArrival(frame) == frame);
+            frame => history.LatestArrival(frame) == frame || Listed(history, frame, schedule, variable));
 
         return floor is { } oldest && target < oldest ? oldest : target;
     }
@@ -2625,7 +2627,7 @@ public sealed class ScenePropTrack
     /// Together those turn a long gap into exactly what a client shows: the old pose held, then the
     /// movement rendered over the interpolation window once the update lands.
     /// </remarks>
-    public ScenePose? At(double tick) => At(tick, Interpolation);
+    public ScenePose? At(double tick) => At(tick, Interpolation.AsOf(tick - 1d));
 
     /// <summary><see cref="At(double)"/> under the delay schedule a frame knows (B860).</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>

@@ -8217,7 +8217,9 @@ public sealed class DemoTimeline
     /// <c>CL_ReadPackets</c> reads this frame's packets (<see cref="InterpolationSchedule.AsOf"/>), and <c>FRAME_START</c>
     /// is where <c>CheckCLInterpChanged</c> hands each variable a new amount (<c>cdll_client_int.cpp:2344</c>). A sample
     /// at any other tick — another reader's, such as prediction looking ahead or a seek's scan — is no frame of this one,
-    /// and samples under the delay of its own tick, as if every frame were a tick apart (B860 review 1, Sonnet).
+    /// and samples as a frame a tick after the last would, having read through the tick before (B860 review 1, Sonnet;
+    /// review 12, Sonnet: reading its own tick put a step's own tick under the new delay, where the history walks'
+    /// `FrameTarget` model that frame under the old).
     /// </remarks>
     public void FrameStart(double lastRead, double frameTick)
     {
@@ -8254,7 +8256,7 @@ public sealed class DemoTimeline
 
     /// <summary>The last tick a frame drawing <paramref name="tick"/> had read when it started (B860).</summary>
     private double FrameRead(double tick) =>
-        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : tick;
+        _frameStartState is { } frame && !(tick < frame.Tick) && !(tick > frame.Tick) ? Math.Min(frame.LastRead, tick) : tick - 1d;
 
     /// <summary><see cref="InterpolationSchedule.Predicted"/> at this recording's rate, made once.</summary>
     private InterpolationSchedule? _predicted;

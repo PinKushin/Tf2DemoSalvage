@@ -122,7 +122,7 @@ public sealed class DemoTimelineSampleOrderTests
 
     /// <summary>
     /// **A delay that changes is a moment of its own** (B849): a crate slides from 0 to 480 over ticks 0 to 48 and rests;
-    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, while it is still moving (its target, 41, short of
+    /// at tick 50 the server's bounds raise the delay from 8 ticks to 34, while it is still moving (the frame at 50 aims at 42, short of
     /// 48), so its target falls back as far as the history the old delay kept (B860). This holds that the cache agrees
     /// with the sampler across the change; what the sampler answers is `InterpolationRiseConformanceTests`'.
     /// </summary>

@@ -47424,6 +47424,25 @@ an earlier frame, sampled as the stateless sampler models one (Sonnet). The angl
 engine's `QAngle` hermite is a lerp (`lerp_functions.h:104`), so the origin's tests cover the new path (Sonnet).
 Evidence class: findings 115 marks the frame order **disassembled** (Sonnet).
 
+Review 12 (Fable, Sonnet, Codex: no blocker). Fixed:
+- **A latch read on the rise's own frame that settles there was floored, not held** (Fable): that frame still runs under
+  the old delay, and a target past the latch settles it (`c_baseentity.cpp:879-887`). The hold now takes a change at the
+  rise tick as well; `PropsAt_ALatchThatSettlesOnTheRisesFrame_Holds` (410; 360 floored) reddens with `changed < rise`.
+  Review 1's not-taken reason ("an arrival on the rise tick lists the entity, as the floor path assumes") was wrong:
+  listed is not unsettled that frame.
+- **A sample with no frame start read its own tick** (Sonnet), so a step's own tick took the new delay where the history
+  walks model that frame under the old. It now samples as a frame a tick after the last, through the tick before, in the
+  timeline and in `ScenePropTrack.At(tick)`; `At_TheRisesOwnTick_IsUnderTheOldDelay` (420; 350) and
+  `PropsAt_TheRisesTickWithNoFrameStart_DrawsUnderTheOldDelay` (420; 300) redden with the own tick.
+- The prune test asks the cheap arrival before `Listed` (Fable); the second-rise case of "no frame draws the difference"
+  is worded as reasoned (Fable, Sonnet); B849's test summary names the frame at 50's target, 42 (Fable).
+
+Not taken: `SettleFrame` and `LatestChangeIndex` walk back to the last change, long for a variable that never changes
+beside a sibling that does (Fable) — cost only, inside the window after a rise, which a recording has a handful of. The
+round-11 bound has no test of its own (Sonnet): it can only start a walk early, and the 205 test reddens when it skips
+the walk. The face after a jump is B865. Locally recorded demos and `GetInterpolationAmount`'s fall-through
+(`c_baseentity.cpp:5930-5938`, Sonnet) is B861.
+
 Not taken (Sonnet, review 10): the face's forward jump is B865's third bullet; the frame start persisting for a later reader at the
 same tick is review 8's not-taken item; `_predicted ??=` racing builds one immutable schedule twice. Not taken: the readers that call `At(tick)` outside a frame (`SoundOrigins`, `EffectEntities`' rope lights,
 `ViewerPresenter`'s observer buildings, `TimelineAnswers`) never anchor on a predicted entity — `SoundOrigins` skips

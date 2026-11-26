@@ -368,6 +368,53 @@ public sealed class InterpolationRiseConformanceTests
     }
 
     /// <summary>
+    /// **The frame at the rise's own tick still runs under the old delay** (B860 review 12, Sonnet): its `FRAME_START`
+    /// came before the packet that carried the change (`cdll_client_int.cpp:2344`), and a sample with no frame start is a
+    /// frame a tick after the last. X ten a tick, an update every tick: at 50 the target is 50 − 8 = 42, so 420. Read under
+    /// the new delay it aimed at 16 and was floored at the frame at 49's kept entries: 350.
+    /// </summary>
+    [Test]
+    public void At_TheRisesOwnTick_IsUnderTheOldDelay()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.At(50)!.Value.X.ShouldBe(420f, 0.01f);
+    }
+
+    /// <summary>
+    /// **A latch read on the rise's own frame can settle that frame and then hold** (B860 review 12, Fable). X ten a tick,
+    /// an update every tick to 40, then one stamped 41 (410) arriving at 50. The frame at 50 still runs under 8 ticks
+    /// (`FRAME_START` came first), aims at 42, past the head at 41, draws 410 and settles (`c_baseentity.cpp:879-887`);
+    /// the next `FRAME_START` only stores the new amount, so the frame at 51 holds 410. Floored instead, at the frame at
+    /// 50's kept entries, it drew 360.
+    /// </summary>
+    [Test]
+    public void PropsAt_ALatchThatSettlesOnTheRisesFrame_Holds()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 40; tick++)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        crate.Add(50, new ScenePose { X = 410f }, appliedAt: 41);
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.FrameStart(50, 51);
+        timeline.PropsAt(51, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(410f, 0.01f);
+    }
+
+    /// <summary>
     /// **A changetime can lead its own arrival** (B860 review 10, Sonnet): a simulation time carried onto the demo's axis.
     /// Updates every 3 ticks stamped two ticks after the packet, X ten a stamp. The frame at 50 aims at 42, cuts at 38.67 and
     /// keeps 38, 35, 32 — the last received at 30. The frame at 57 aims at 23, older than all: 320. A walk that stopped at
@@ -485,6 +532,29 @@ public sealed class InterpolationRiseConformanceTests
         timeline.PropsAt(51, props);
 
         new[] { atTheRise, props.ShouldHaveSingleItem().Pose.X }.ShouldBe([420f, 300f], 0.01f);
+    }
+
+    /// <summary>
+    /// **A sample no frame start announced is a frame a tick after the last** (B860 review 12, Sonnet), the model the history
+    /// walks use (`FrameTarget`): at the rise's own tick it had read 49 and draws 420, as the frame above does. Read as its
+    /// own tick it drew 300.
+    /// </summary>
+    [Test]
+    public void PropsAt_TheRisesTickWithNoFrameStart_DrawsUnderTheOldDelay()
+    {
+        ScenePropTrack crate = new(entityIndex: 1, "models/props_farm/wooden_barrel.mdl") { Interpolation = RiseAtFifty() };
+
+        for (int tick = 0; tick <= 99; tick += 3)
+        {
+            crate.Add(tick, new ScenePose { X = tick * 10f });
+        }
+
+        DemoTimeline timeline = DemoTimeline.ForTracks([crate]);
+        List<SceneProp> props = [];
+
+        timeline.PropsAt(50, props);
+
+        props.ShouldHaveSingleItem().Pose.X.ShouldBe(420f, 0.01f);
     }
 
     /// <summary>

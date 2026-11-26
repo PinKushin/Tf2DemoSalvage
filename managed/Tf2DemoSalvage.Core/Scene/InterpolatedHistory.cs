@@ -841,8 +841,10 @@ public sealed class InterpolatedHistory
     /// </remarks>
     /// <remarks>
     /// **Not exact for entries arriving after the cut** (B860 review 11, Fable): frames after <paramref name="cutAt"/> prune
-    /// too, at their lower cuts, and can delete an old late arrival this still counts as held. No frame draws the difference,
-    /// because a frame's cut that reaches such an entry sits below that frame's own target, which is then above it.
+    /// too, at their lower cuts, and can delete an old late arrival this still counts as held. With one rise no frame draws
+    /// the difference, because a frame's cut that reaches such an entry sits below that frame's own target, which is then
+    /// above it; a second rise inside the window can drop a later target below it again (review 12, Fable), which needs a
+    /// late update tens of ticks back as well (*reasoned*, not measured).
     /// </remarks>
     public int? PrunedFloor(
         double threshold, int cutAt, int arrivedBy, Func<int, double> cutOf, Func<int, bool> prunes)
