@@ -41,6 +41,25 @@ public sealed class CreatedResetConformanceTests
     }
 
     /// <summary>
+    /// **A track that begins after its entity was created is not reset** (B871 review, Fable): an entity created at 10 with
+    /// no model gets its first track at 50, but the update at 50 is not `DATA_UPDATE_CREATED`, so it only latches (animation
+    /// time 47). With 1.0 at 60 (57), a target of 52 is half way from 47: 0.8 — a reset at 50 would give 2/7 of the way.
+    /// </summary>
+    [Test]
+    public void At_ATrackBegunAfterItsEntitysCreation_IsNotReset()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/props_gameplay/door.mdl"],
+            animationLag: 3,
+            (10, 0, [0.2f], null, null),
+            (50, 1, [0.6f], null, null),
+            (60, 1, [1.0f], null, null)));
+
+        timeline.Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex)
+            .At(52d + Delay)!.Value.PoseParameters[0].ShouldBe(0.8f, 1e-5f);
+    }
+
+    /// <summary>
     /// **The simulation history too**: X 100 arriving at 10 with a simulation time of 7, then 200 at 20 (simulation time
     /// 17). At a target of 12: 100 + 100 × 2/7 = 128.57, where a pair from 7 gives 150.
     /// </summary>
