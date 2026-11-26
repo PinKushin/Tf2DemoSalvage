@@ -207,14 +207,6 @@ public sealed class InterpolatedHistory
     {
         _generation++;
 
-        // **The one append that can come after sampling began**: a model change at view time (`OnNewModel`,
-        // `SetMaxCount`) resets the pose parameters with a `received` out of arrival order. The memos were built over
-        // the entries before it, so they go (B860 review 31, Fable); the next ask rebuilds what it needs.
-        lock (_memoLock)
-        {
-            _memos = null;
-        }
-
         // **Three entries at one changetime, and they do NOT flush each other.** `Reset` passes
         // `bFlushNewer = false` where `NoteChanged` passes true (<c>interpolatedvar.h:745</c> against
         // <c>:649</c>) — which is the whole point: three entries sharing one changetime is exactly what a
@@ -720,8 +712,7 @@ public sealed class InterpolatedHistory
     /// `m_VarHistory[0]` BEFORE its `AddToHead` flushes the newer entries (<c>interpolatedvar.h:633-649</c>), so an entry
     /// this latch flushes is still the head it compares with; and an entry appended earlier cannot have been flushed before
     /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
-    /// </remarks>
-    /// <remarks>
+    ///
     /// **Memoized per variable as the stretches of entries already examined, each starting at a change, with the changes in
     /// them** (B860 merge reviews 1-11). A player standing still latches the same origin every tick, so the walk back to his
     /// last real change ran the whole rest on every call. Every bounded single-cache design that followed lost one way:
@@ -986,8 +977,8 @@ public sealed class InterpolatedHistory
     /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
     /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
     /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
-    /// build-before-sample order — with one exception, a `Reset` from a model change at view time, which clears the
-    /// memos itself (B860 review 31, Fable). Its appends still run unlocked beside readers of the lists.
+    /// build-before-sample order — except a `Reset` from a model change at view time, which appends after sampling
+    /// began, out of arrival order: B870.
     /// </remarks>
     private readonly object _memoLock = new();
 

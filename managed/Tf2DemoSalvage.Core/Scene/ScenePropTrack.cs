@@ -3570,13 +3570,14 @@ public sealed class ScenePropTrack
     /// of those the model actually declares is a property of the model, and handing back a
     /// twenty-four-long list for a two-parameter sentry would make every consumer's `Count` a lie.
     ///
-    /// **Always blends, as the engine always lerps** (`_Interpolate`, `interpolatedvar.h:1333`, has no equality
-    /// shortcut), **and hands back the stated list only when the blend equals it bit for bit**, rather than allocating a
-    /// copy: interpolation runs per sampled entity per frame, and the common case is a pair and an arrival that all
-    /// agree. Until B860 review 31 (Fable) it returned the stated list whenever the PAIR agreed — but the stated list is
-    /// the arrival keyframe's, not the delayed pair's, so a parameter whose new value had arrived drew it a delay early,
-    /// then snapped back to blend from the old one; and a looping parameter at 1.0 is 0 after `LoopingLerp`, not 1.
-    /// The arrays are treated as immutable throughout, which is what makes handing one out safe.
+    /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
+    /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
+    /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
+    /// treated as immutable throughout, which is what makes handing one out safe. **That is not the
+    /// engine's**, which lerps a distinct pair and copies a single entry (`_Interpolate`,
+    /// <c>interpolatedvar.h:1315-1340</c>): the stated list is the arrival keyframe's, so a parameter whose new
+    /// value has arrived draws it a delay early. B870, which cannot be fixed alone: the view-time model
+    /// reset this shortcut hides seeds the end of the recording.
     ///
     /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
     /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged
@@ -3594,9 +3595,13 @@ public sealed class ScenePropTrack
         ReadOnlySpan<float> to = _poseParameters.ValuesAt(at.Newer);
 
         int count = Math.Min(stated.Count, from.Length);
-        Span<float> blended = stated.Count <= MaxStackedPoseParameters
-            ? stackalloc float[stated.Count]
-            : new float[stated.Count];
+
+        if (from[..count].SequenceEqual(to[..count]))
+        {
+            return stated;
+        }
+
+        float[] blended = new float[stated.Count];
 
         for (int index = 0; index < blended.Length; index++)
         {
@@ -3613,19 +3618,8 @@ public sealed class ScenePropTrack
                 : from[index] + ((to[index] - from[index]) * fraction);
         }
 
-        for (int index = 0; index < blended.Length; index++)
-        {
-            if (BitConverter.SingleToInt32Bits(blended[index]) != BitConverter.SingleToInt32Bits(stated[index]))
-            {
-                return blended.ToArray();
-            }
-        }
-
-        return stated;
+        return blended;
     }
-
-    /// <summary>The most pose parameters blended on the stack; the engine's <c>MAXSTUDIOPOSEPARAM</c> is 24.</summary>
-    private const int MaxStackedPoseParameters = 64;
 
 
     /// <summary>Interpolates a normalised value that wraps, allowing for it having passed 1.</summary>

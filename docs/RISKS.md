@@ -47156,6 +47156,39 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — OPEN
+
+Found in B860 reviews 31 and 32 (Fable, the lead, the cavecrew reviewer), traced by reading, not run. Five parts, and
+the first cannot be fixed without the second — a fix of it alone was made in B860 review 31 and reverted in 32.
+
+1. **`ScenePropTrack.PoseBetween` returns the ARRIVAL keyframe's parameters whenever the delayed pair agrees.**
+   `_Interpolate` (`interpolatedvar.h:1310-1341`, **read**) copies `end` when the pair is ONE entry (`start == end`,
+   the quick exit at `:1315`) and otherwise lerps it, `LoopingLerp` for a looping element, with no value compare.
+   Scenario: entries at 0, 1, 2 of (0.2, 1.0), (0.2, 1.0), (0.8, 0.5), the second looping; at a target of 0.5 the
+   engine draws (0.2, 0) — `LoopingLerp(1, 1, ½)` is `s − (int)s` of 1.0 — and the viewer (0.8, 0.5), a delay early,
+   then snaps back to blend from 0.2. A rise lengthens the delay, so B860 widens it.
+2. **`OnNewModel` runs at VIEW time** (`IMomentSource.Inform`, when a track is first drawn under a model) and resets the
+   pose-parameter history with values from `_keyframes[^1]`, the END of the recording, stamped at the view tick and
+   appended after entries that arrived later — out of the arrival order `LastReceivedAtOrBefore`'s search assumes. The
+   engine's `OnNewModel` runs when the model is set, from the networked values then. Part 1's shortcut hides this: the
+   reset's three equal entries return the live keyframe. Blending them (review 31's fix) drew the end of the recording.
+   Its appends also run after sampling began, beside unlocked readers and the memos (review 32, lead and cavecrew).
+3. **The same-entry quick exit for angles**: `SlerpAngles` takes `!DiffersFrom` as `Lerp<QAngle>`'s `q1 == q2`, right
+   for two entries, but for ONE entry the engine's `start == end` copies it first — so a NaN component, which fails
+   `==`, still draws the entry, where the viewer slerps to NaN everywhere (Fable).
+4. **`poseFraction = animationFraction`** (`ScenePropTrack.cs`, "stamped with the cycle, so the same fraction"):
+   `SequenceRestarted` resets the cycle history only and `OnNewModel` the pose history only, so one target can bracket
+   different pairs. Pose entries at 96 and 104, a restart at 100, target 101: the cycle pair (100, 104) gives 0.25, the
+   pose pair's own is 0.625; the engine computes each variable's fraction (Fable; `AnimationNeighbours` not read, so the
+   fraction after a reset is *inferred*).
+5. Parameters past the history's width take the arrival keyframe's value, a delay early, until `OnNewModel` widens it
+   (lead). Linear where the engine splines is recorded at `PoseBetween` already.
+
+Fix shape: inform each track of its model's facts when its model is SET in the recording (or at build, from the
+model index), seeding from the keyframe in force then; then make `PoseBetween` the engine's — copy one entry, lerp two,
+reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above, a
+held looping parameter at 1.0 drawing 1.0 (the quick exit), and a view-time model with a later arrival. *Not fixed*.
+
 ## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
 
 Found in B860 review 17 (Fable), traced by reading, not run. B860's two halves disagree after a jump: `FrameStart` runs
@@ -47878,15 +47911,12 @@ props-less timeline (Sonnet) — production builds props.
 
 Review 31 and merge review 15 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
 blocker; Sonnet found no other float compare on the wrong side in what the branch touches, and Fable found one outside
-it). **Fixed, parity (Fable), pre-existing and widened by a rise:** `PoseBetween` returned the ARRIVAL keyframe's
-parameters whenever the delayed pair agreed, where `_Interpolate` (`interpolatedvar.h:1333`) lerps the pair with no
-shortcut — so a parameter whose new value had arrived drew it a delay early, then snapped back to blend from the old,
-and a looping parameter at 1.0 drew 1.0 where `LoopingLerp` gives 0. It now always blends and hands back the stated
-list only when the blend equals it bit for bit, on the stack, so the common case still allocates nothing.
-`At_AnEqualDelayedPairUnderANewerArrival_DrawsThePairsLerp` draws (0.2, 0) and reddens at (0.8, 0.5) under the old
-shortcut. **Fixed (Fable):** `OnNewModel` resets the pose parameters at view time, after memos may exist, with a
-`received` out of arrival order; `Reset` now clears the memos under the lock, and the lock remark names the exception
-(no test: a wrong answer from the stale memo could not be built, so the clear is the cheap guard, *reasoned*).
+it). **Made and then reverted in review 32 — now B870:** `PoseBetween` returning the arrival keyframe's parameters
+whenever the delayed pair agrees (Fable). Review 31 made it always blend; review 32 showed that wrong twice — the
+engine's `_Interpolate` DOES have a quick exit, copying a pair that is one entry (`interpolatedvar.h:1315`), so a held
+looping parameter at 1.0 drew 0 (Fable, cavecrew); and the shortcut was hiding a view-time `OnNewModel` reset seeded
+from the end of the recording, which blending drew (lead). Likewise a `Reset` clearing the memos, which cleared them
+before its own appends (lead, cavecrew). Both reverted; B870 files the five parts.
 **Fixed:** the angle test asserted only the yaw, equal at both ends, so returning `q2` instead of the engine's `q1`
 passed (lead, cavecrew) — it now asserts the pitch is the older entry's +0 by its bits, and reddens at −0 when the
 shortcut returns the newer; the NaN half of `QAngle::operator==` had no test at the shortcut (cavecrew) —
@@ -47902,6 +47932,12 @@ frame's own target), and the frame-timing cases are B869; `FrameStart`'s announc
 sample at exactly the announced tick reads the old frame's read (Sonnet) — no production caller asks there, and the
 presenter announces every frame; the allocation test's zero could flake on a one-off runtime allocation (Sonnet) — a
 least over ten samples per kind, and a flake is a defect to chase if it ever shows.
+
+Review 32 and merge review 16 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker in the memo or the compares). **Reverted:** review 31's `PoseBetween` and `Reset` changes, for the reasons in the
+paragraph above; their test goes with them, and B870 carries its expected values. **Fixed:** the NaN angle test is named
+for what it observes, `…_DrawANaNYaw` (lead); `LatestChangeIndex`'s two `<remarks>` blocks are one (Sonnet). Not taken:
+the "unnecessary" reading of the `Reset` clear (Sonnet) — moot, reverted.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a

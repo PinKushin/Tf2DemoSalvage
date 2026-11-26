@@ -97,7 +97,7 @@ public sealed class RestatedPoseSplineConformanceTests
     /// component — the yaw too, where a shortcut would have returned 37.3.
     /// </summary>
     [Test]
-    public void At_AnglesWithANaNPitchAtBothEnds_SkipTheShortcut()
+    public void At_AnglesWithANaNPitchAtBothEnds_DrawANaNYaw()
     {
         ScenePropTrack track = new(entityIndex: 7, "*1");
         track.Add(0, new ScenePose { Pitch = float.NaN, Yaw = 37.3f }, appliedAt: 0);
