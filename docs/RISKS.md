@@ -47156,28 +47156,41 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B878 — "a first sighting is not a restart", where a created entity compares its parity against −1 and its frame-reset toggle against `false` (2026-11-26) — OPEN
+## B878 — a created entity compares its parity against −1 and its frame-reset toggle against `false`; a reversed TF building and a not-yet-drawn entity's cycle history differ (2026-11-26) — OPEN
 
 Found in B871 reviews 5-6 (Fable, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` restarts an animation only
 when `m_nNewSequenceParity` or `m_bClientSideFrameReset` DIFFERS from the value its track last held, and a track's first
 value is never a change ("a first sighting is not a restart", `DemoTimeline.cs`, the `restarted` block). The engine's new
 entity compares against its constructed values: `C_BaseEntity::operator new` zeroes the allocation
 (`c_baseentity.cpp:3835-3842`) and the `C_BaseAnimating` constructor sets `m_nPrevNewSequenceParity = -1`
-(`c_baseanimating.cpp:716`). So on EVERY creation:
+(`c_baseanimating.cpp:716`); the constructor (`:673-748`) sets neither `m_bClientSideFrameReset` nor
+`m_bLastClientSideFrameReset`, so both start at the zeroed `false`. Three consequences, two of which draw nothing
+different (all *read*, review 7, Fable):
 
-- the parity differs (a 3-bit counter is never −1), so `PostDataUpdate` resets the cycle history for a non-static-prop
-  model (`:4738-4748`), and `m_SequenceTransitioner.CheckForSequenceChange` is called with a forced new sequence from
-  `ClientSideAnimationChanged` (`:5121-5126`, reached from `PostDataUpdate`, `:4733`) and from the first bone setup's
-  `MaintainSequenceTransitions` (`:1828-1835`, which is where the −1 is finally overwritten);
-- `m_bLastClientSideFrameReset` is `false` (copied in `OnPreDataChanged`, `:4760`, before the unpack,
-  `c_baseentity.cpp:2154-2157`), so a client-side-animated entity created with the toggle at 1 runs
-  `ResetClientsideFrame()` (`:5022-5028`) — `SetCycle( 0 )` (`c_baseanimating.h:348`; TF overrides it, *not read*).
+- **The forced sequence change does nothing** — no divergence. The parity differs on a creation (an unsigned 3-bit
+  counter, `server/baseanimating.cpp:253`, is never −1), so `MaintainSequenceTransitions` (`:1828-1835`, the first bone
+  setup) and, for a client-side-animated entity whose cycle, controllers, pose parameters or sequence changed,
+  `ClientSideAnimationChanged` (`:4721-4734`, `:5121-5126`) call `CheckForSequenceChange` with a forced new sequence.
+  But on an empty queue it adds an entry and enters the change branch only when `m_flLayerAnimtime` is nonzero
+  (`shared/sequence_Transitioner.cpp:31-39`), which it zeroes at the end of every call (`:70`); only `UpdateCurrent`
+  sets it, after `:1835` has overwritten the −1.
+- **The frame-reset toggle draws nothing different for the base class** — no divergence. A client-side-animated
+  entity created with the toggle at 1 runs `ResetClientsideFrame()` (`:5022-5028`, against the `false` copied in
+  `OnPreDataChanged`, `:4760`, before the unpack, `c_baseentity.cpp:2154-2157`), which is `SetCycle( 0 )`
+  (`c_baseanimating.h:348`) — and `PostDataUpdate` has already set the cycle to `m_flOldCycle` (`:4689-4691`), the
+  pre-update value (`PreDataUpdate`, `:4648`), 0 on a new entity. **TF's buildings differ**: `C_BaseObject`'s override is
+  `SetCycle( GetReversesBuildingConstructionSpeed() != 0.0f ? 1.0f : 0.0f )` (`client/tf/c_baseobject.cpp:740-743`), so a
+  building created with the toggle at 1 while its construction is reversed starts at cycle 1; the viewer's first
+  sighting does not restart. *Not measured*: whether a recording ever creates one so.
+- **The cycle history resets on every update until the first bone setup** — open. `m_nPrevNewSequenceParity` is
+  written only at `:716`, `:1824` and `:1835`, never in `PostDataUpdate`, so the compare at `:4738` stays true and
+  `m_iv_flCycle.Reset()` runs (non-static-prop model, `:4745-4747`) on every update until bones are first set up with a
+  studio header (`:1819`) — an entity updated but not yet drawn keeps resetting. B871's `ResetLatched` covers the
+  creating update only. *Not read*: when the engine first sets up a never-drawn entity's bones in a demo.
 
-*Not read*: what a forced `CheckForSequenceChange` does on an empty transition queue, the TF override, and whether the
-viewer's clock for a new track (its creation) already draws what `SetCycle( 0 )` at the creation draws — if it does, the
-toggle half draws nothing different. The cycle-history half is covered by B871's `ResetLatched` at the same tick
-(*reasoned*). Fix shape: seed a new track's held parity with −1 and its held toggle with `false`, after reading those
-three; a conformance test of a client-side-animated entity created with the toggle at 1.
+Fix shape: the TF building case — a new `C_BaseObject` track seeds its held toggle with `false`, so a toggle of 1 at
+creation restarts at cycle 1 when construction is reversed; a conformance test of it. The cycle-history case waits on
+reading the first-bone-setup condition.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
@@ -47199,16 +47212,14 @@ read*). Two halves survive where the engine's recreation would not:
    `C_BaseEntity::operator new` zeroes the allocation (`c_baseentity.cpp:3835-3842`) and the `C_BaseAnimating`
    constructor sets `m_nPrevNewSequenceParity = -1` (`c_baseanimating.cpp:716`). So the parity compare (`:4738`) always
    differs on a creation — a cycle-history `Reset()` for a non-static-prop model, which `ResetLatched` already does at
-   the same tick (*reasoned*), and a forced sequence change in the transitioner, which is B878 — and the frame-reset
-   compare (`m_bLastClientSideFrameReset`, copied in `OnPreDataChanged`, `:4760`, which `PreDataUpdate`
-   calls before the unpack, `c_baseentity.cpp:2154-2157`; compared at `c_baseanimating.cpp:5025`) is against `false`.
-   For a restated client-side-animated entity the engine therefore runs `ResetClientsideFrame()` exactly when the
-   restated toggle is 1; the viewer restarts its clock when the toggle DIFFERS from the track's held value
-   (`DemoTimeline.RecordProp`). They disagree on held 1 / restated 1 (engine restarts, viewer does not), held 1 /
-   restated 0 (viewer restarts, engine does not — when the rebuilt bag states the toggle at all; absent, the viewer
-   skips it and agrees), and held none / restated 1 (engine restarts, viewer does not — B878); held 0 / restated 1
-   agrees. Whether a restart draws differently from
-   a new track's own start is *not read*. `OnNewModel` also does not run (`modelSet` needs a new track or a changed
+   the same tick (*reasoned*), and a forced sequence change that does nothing on the new entity's empty transition
+   queue (B878). **A recreated client-side-animated entity restarts its animation whatever the toggle says**:
+   `PostDataUpdate` sets its cycle to `m_flOldCycle` (`c_baseanimating.cpp:4689-4691`), the pre-update value
+   (`:4648`), which is 0 on a new entity (`:746`), and `ResetClientsideFrame()` on a toggle of 1 (`:5025`, against a
+   zeroed `false`) is `SetCycle( 0 )` again — except a TF building with construction reversed, which starts at 1 (B878).
+   The viewer instead restarts its clock only when the restated toggle DIFFERS from the track's held value
+   (`DemoTimeline.RecordProp`), so after a full packet it keeps the old clock whenever the toggle is unchanged (or
+   absent from the rebuilt bag). `OnNewModel` also does not run (`modelSet` needs a new track or a changed
    path), where a recreated entity holds no model and runs it; for an unchanged model its pose reset equals
    `ResetLatched`'s at the same tick, so that part draws nothing different (*reasoned*).
 
@@ -47217,9 +47228,8 @@ Measured 2026-11-26 on branch `fix/b871-created-reset` (`dotnet run --project ma
 (the 14 era specimens and `z1800.dem`) carry one full packet, their first, except
 `tf2-2011-build4604-spec-pov-cp_granary` with two (13,526 delta packets); lcor not counted — so this reaches real recordings, rarely. Fix
 shape: on a non-delta packet, end every track and drop every table entry the packet does not restate, and start a new
-track for every one it does, whose first frame-reset compare is against `false` and first parity compare against −1 as
-the engine's (a new track's `LastFrameReset` is null today, so it would not restart on a toggle of 1 — review 5,
-Fable); confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
+track for every one it does — whose clock then starts at the packet, as the recreated entity's cycle does (B878 for
+a reversed TF building); confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
 
 ## B876 — animation layers and bone controllers take the earlier keyframe, where the engine interpolates them (2026-11-26) — OPEN
 
@@ -47356,7 +47366,12 @@ gcor count stated in full. Review 6 (Codex: no findings; Fable, Sonnet, the cave
 cycle reset is for a non-static-prop model only, and its match with `ResetLatched` is *reasoned*; the −1 also forces a
 sequence change in the transitioner, on every creation — filed as B878 with the "first sighting" rule it contradicts;
 B877's table gains the held-none row and the absent-toggle case; `DemoTimeline`'s citations `:4737`/`:5021` corrected
-to `:4738`/`:5022-5025`. Review 2 also moved the late-track
+to `:4738`/`:5022-5025` (the same two, one line above the code on its comment, stand in `EntityState`,
+`ScenePropTrack`, `SequenceParityConformanceTests`, `PropAnimationProbe`, `SyntheticProp` and
+`docs/findings/04-entities.md`, left as they are). Review 7 (Codex, Fable, Sonnet, the cavecrew reviewer): B878's
+forced sequence change shown to do nothing on an empty transition queue, the base frame reset shown to change nothing
+at creation, TF's building override read — what remains is that building case and the cycle history resetting until
+the first bone setup; the 3-bit width cited and the constructor read for the toggle. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876
