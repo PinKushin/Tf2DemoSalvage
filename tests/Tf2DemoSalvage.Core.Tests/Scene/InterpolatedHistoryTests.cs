@@ -126,7 +126,9 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [0f, 0f, 0f, 0f, tick >= 13 ? 1f : 0f, 0f]);
         }
 
-        (history.LatestChange(11, 3, 3), history.LatestChange(15, 3, 3)).ShouldBe((10, 13));
+        // At 5, inside the one-wide generation, "not the same" makes each entry a change (5); a guard answering "same"
+        // would give the generation's first, 1 (review 21, Fable).
+        (history.LatestChange(5, 3, 3), history.LatestChange(11, 3, 3), history.LatestChange(15, 3, 3)).ShouldBe((5, 10, 13));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

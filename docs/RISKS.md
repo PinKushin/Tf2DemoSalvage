@@ -47171,8 +47171,14 @@ a seek, scrub or first frame landing within about 1.5 s after a rise — **and p
 than a tick apart (B860 review 18, the merge's cavecrew reviewer): frames at 48, 51 (read 48) and 54 (read 51) across a
 rise at 50, X ten a tick, last update stamped 43 — the frame at 51 still runs the old delay, aims at 43, settles and draws
 430, which the engine then holds; the viewer's frame at 54 models a frame at 50 aiming at 42, not settled, and floors
-at 360. Needs the last change in the tick or two before the rise. The engine side of a skip is *interpolated*, as B860
-records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
+at 360. Needs the last change in the tick or two before the rise. **And a frame between ticks cuts at its own
+fractional time** (B860 review 21, Fable): `Interpolate` prunes at `currentTime − amount − 0.05` (`interpolatedvar.h:1057`)
+with a fractional `currentTime` — *arithmetic* on read source, not an interpolation as findings 115 called it. An update
+every tick, X ten a tick, rise 8 → 34 at 50, frames at 49.9, 50.5, 50.9: the engine's frame at 50.5 reads 50 under the old
+delay, aims at 42.5, cuts at 39.17 and keeps 39, 38, 37, so the frame at 50.9 draws the oldest, 370; the viewer models the
+cutting frame at whole tick 50 (cut 38.67, keeping 38, 37, 36) and draws 360. One entry, for the window, whenever the
+frame reading the rise sits a third of a tick or more past it. The presenter already announces the real frame tick, so
+the fix is to carry it. The engine side of a skip is *interpolated*, as B860 records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
 samples under, re-anchoring every step between the landing's read and the landing tick at the landing, so the modelled
 frames before it run under the old delay; a conformance test of each scenario (460, 550) first. *Not fixed*.
 
@@ -47623,6 +47629,14 @@ tested: the trim race only matters under concurrency, which no test drives; the 
 built through the frames asked, which the timeline's build-before-sample order guarantees (Sonnet). Not taken (Sonnet):
 after a trim the first kept entry counts as a change though it may restate — pre-existing, and no drawn value differs
 because the held entry and the true change carry one value.
+
+Review 21 (Fable, Sonnet, Codex: no blocker). Fixed: **no test read the prediction flag the builder sets** (Fable): every
+weapon test set it by hand. `Build_AClassReachingTheTfWeaponTable_PredictsForItsOwner` builds a `CTFKnife` whose table
+reaches `DT_TFWeaponBase` from demo bytes (the fixture's knife now carries an item index and an origin, so the builder
+gives it a track) and the player beside it as the control; it reddens with the flag lookup broken. The width-guard test
+asks inside the old generation too, telling "not the same" (5) from "same" (1) (Fable). Filed into B869: a frame between
+ticks cuts at its own fractional time, which findings 115 had labelled *interpolated* and is *arithmetic* on read source
+(Fable). Not taken: the build-before-sample assumption (Codex, recorded in review 20).
 
 Review 20 (Fable, Sonnet, Codex: no blocker; Fable's should-fix is this guard). Not taken (Fable): the signon's bounds
 read as a rise from Valve's defaults at the first packet — no frame ran under the defaults, but every entry arrived at that

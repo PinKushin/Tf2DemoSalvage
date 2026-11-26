@@ -68,6 +68,21 @@ public sealed class PredictedEntityInterimTests
     }
 
     /// <summary>
+    /// **The builder marks a class reaching `DT_TFWeaponBase` as predicting for its owner** (`CTFWeaponBase::ShouldPredict`,
+    /// `tf_weaponbase.cpp:3433-3441`; B860 review 21, Fable: every other test set the flag by hand). A `CTFKnife` whose
+    /// table carries `DT_TFWeaponBase`, built from demo bytes, is marked; the player beside it, whose table does not, is
+    /// not — the control.
+    /// </summary>
+    [Test]
+    public void Build_AClassReachingTheTfWeaponTable_PredictsForItsOwner()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields());
+
+        (timeline.TrackFor(30, 100)?.PredictsForItsOwner, timeline.TrackFor(1, 100)?.PredictsForItsOwner)
+            .ShouldBe((true, false));
+    }
+
+    /// <summary>
     /// **Whoever asks where an entity is gets where it is drawn** (B860 review 13, Sonnet): the holiday lights and a sound's
     /// origin ask `GetAbsOrigin()`, the predicted one for the recorder and his weapons. The recorder at 60 is at 590, not
     /// the delayed 360; his launcher likewise; anyone else's launcher 360.

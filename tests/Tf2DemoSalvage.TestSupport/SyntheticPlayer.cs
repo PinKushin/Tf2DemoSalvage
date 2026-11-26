@@ -1247,10 +1247,15 @@ internal static class SyntheticPlayer
             Table("pack", "DT_TFWeaponRocketPack"), Table("cannon", "DT_ParticleCannon"), Table("bottle", "DT_TFPowerupBottle"),
             Table("LocalWeaponData", "DT_LocalWeaponData"), Table("flamethrower", "DT_WeaponFlameThrower"),
             Table("medigun", "DT_WeaponMedigun"), Table("m_Item", "DT_ScriptCreatedItem"),
+
+            // Where it is, so the builder gives it a track (B860 review 21: the prediction flag is set there).
+            Table(NonLocalExclusive.Property, NonLocalExclusive.Table),
         ]));
 
         // econ_item_view.cpp:183, :187: `m_iEntityLevel` in 8 signed bits, `m_iAccountID` in 32 unsigned.
-        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true, [Int("m_iEntityLevel", bits: 8), UnsignedInt("m_iAccountID", bits: 32)]));
+        // The item index too, so the knife gets a track of its own as a weapon with no model on the wire does (B231, B860).
+        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true,
+            [Int("m_iEntityLevel", bits: 8), UnsignedInt("m_iAccountID", bits: 32), UnsignedInt("m_iItemDefinitionIndex", bits: 16)]));
 
         // tf_weapon_medigun.cpp:124-157: the charge in the owner's local table, the release and resist on the weapon's.
         tables.Add(new SendTable("DT_LocalTFWeaponMedigunData", NeedsDecoder: true, [NoScaleFloat("m_flChargeLevel")]));
@@ -1315,6 +1320,9 @@ internal static class SyntheticPlayer
                 ["m_nChargeResistType"] = PropertyValue.FromInt(2),
                 ["m_iEntityLevel"] = PropertyValue.FromInt(37),
                 ["m_iAccountID"] = PropertyValue.FromInt(123456789),
+                ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(4),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
             }),
         ];
 

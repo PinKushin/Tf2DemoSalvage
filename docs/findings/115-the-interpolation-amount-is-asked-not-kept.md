@@ -65,8 +65,10 @@ entity is), B868 (the cycle across a sequence change) and B869 (a jump landing j
   **floors what is still moving** at the oldest entry the earlier frames' pruning kept. Only a frame that had the
   variable listed pruned it (`Interpolate`, `interpolatedvar.h:1057`, skipped once settled; `NoteChanged` at a latch,
   `:667`, **read**), so a variable that settled before the rise was last cut on its settle frame. The sampler is
-  stateless and takes frames a tick apart, each reading a step a frame late (**interpolated** at real frame rates, where
-  a frame's prune cut falls between ticks; the face, which keeps its history frame by frame, prunes at the real times).
+  stateless and takes frames a tick apart, each reading a step a frame late. At real frame rates that is a divergence,
+  not an approximation: the engine cuts at a frame's fractional time (`interpolatedvar.h:1057`, **arithmetic** on read
+  source), and the frame that reads a rise can sit fractions of a tick or several ticks past it — B869; the face, which
+  keeps its history frame by frame, prunes at the real times.
 - **A held variable keeps the entry that last changed it**, sampled at the first such entry still held (a later
   same-valued latch can flush the changing one), a fraction of zero; and **a pair starting on the pruned floor has no
   third sample** — `Truncate( i + 3 )` leaves nothing older (`interpolatedvar.h:782-795`, `:851`, **read**) — so the origin
