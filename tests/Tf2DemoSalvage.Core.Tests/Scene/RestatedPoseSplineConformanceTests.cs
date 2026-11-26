@@ -43,6 +43,27 @@ public sealed class RestatedPoseSplineConformanceTests
     private static readonly int Delay =
         ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
 
+    /// <summary>
+    /// The append gate is the engine's float <c>!=</c> (<c>c_baseentity.cpp:2571</c>), not a bit compare: at one
+    /// simulation time, −0 after +0 is no change, and a NaN differs even from the same NaN. Entries after each of
+    /// +0, −0, NaN, NaN: 1, 1, 2, 3 — a bit compare would give 1, 2, 3, 3.
+    /// </summary>
+    [Test]
+    public void Add_SignedZeroAndNaNAtOneSimulationTime_AppendAsTheEngineCompares()
+    {
+        ScenePropTrack track = new(entityIndex: 7, "*1");
+        int[] counts = new int[4];
+        float[] heights = [0f, -0f, float.NaN, float.NaN];
+
+        for (int i = 0; i < heights.Length; i++)
+        {
+            track.Add(i, Shut(heights[i]), appliedAt: 0);
+            counts[i] = track.Simulation.Count;
+        }
+
+        counts.ShouldBe([1, 1, 2, 3]);
+    }
+
     [Test]
     public void At_ADoorClosingAfterBeingHeldOpen_NeverMovesAgainstItsTravel()
     {

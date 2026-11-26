@@ -47833,6 +47833,26 @@ is not traced this round, so its retention is stated only for one schedule. The 
 rise windows — *reasoned*, and the `--measure` below is the number. A `JoinAbove` after an extension has no test of its
 own (Fable): it is compaction, so answers are the same without it.
 
+Review 29 and merge review 13 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; all traced the stretches correct for any order of calls). **Fixed, parity (lead):** the append gate
+`ScenePropTrack.DiffersFrom` compared bits, where the engine's `m_vecOldOrigin != GetLocalOrigin()`
+(`c_baseentity.cpp:2571`) is a float `!=` — +0 equals −0, a NaN differs from itself. It had hidden behind the old
+float-equal history compare; once that became `memcmp`, a −0/+0 flip at one simulation time appended an entry the
+engine never latches and `LatestChange` named it. Now a float compare (`CompareTo`, since S1244 refuses `!=` and a
+`<`/`>` pair); `Add_SignedZeroAndNaNAtOneSimulationTime_AppendAsTheEngineCompares` counts entries 1, 1, 2, 3 and reddens
+at 1, 2, 3, 3 under the bit compare. **Tests added:** the join where the lower stretch absorbs an upper one holding
+steps back (lead, cavecrew; reddens when `Earlier` is added newest first); `Settled` comparing bits through `Bracket`
+(lead; reddens under float equality); the allocation test now also times steps that change nothing and asserts 201
+changes held, so a step that re-collects fails (cavecrew, Fable) — but a prepend that shifts the list in place
+(`Insert(0, …)`, merge review 3's fault) allocates nothing and holds 201, so it would pass: copy cost is not measured; a
+seeded random-order oracle of 600 asks against a plain scan (Sonnet; reddens alone when the `Earlier` search starts at
+its end). **Records:** findings 20's "compares by value, the same de-duplication" is kept and corrected beside itself,
+and findings 115 states the two compares (lead, Fable); the walk comment no longer says each entry is examined once
+(lead). Not taken: `InterpolationSchedule`'s prefix schedules are O(n²) in its steps (Sonnet) — n is the cvar-bound
+changes in a recording, a handful (*reasoned*); `stretches.Insert` is O(stretches) for far-apart descending asks
+(Sonnet) — bounded by the asks in rise windows; a non-frame `Sample` at another step count forces a resync (Sonnet) —
+cost only, and it re-derives every track.
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
 long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the

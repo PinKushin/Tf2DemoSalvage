@@ -2207,9 +2207,7 @@ public sealed class ScenePropTrack
         // **Exact comparison, because Valve's is exact.** `m_vecOldOrigin != GetLocalOrigin()` is
         // `Vector::operator!=`, a component-wise float compare with no tolerance — a position that
         // differs in its last bit IS a change to the engine, and a tolerance here would drop an entry
-        // the engine appends. `.Equals` says the same thing in a form the analyzer accepts; a bare `!=`
-        // on floats is refused by S1244, which is a good rule that this one case has to opt out of by
-        // spelling the comparison rather than by suppressing the warning.
+        // the engine appends. `DiffersFrom` spells the float `!=` in a form S1244 accepts.
         bool movedOrTurned = _lastReceived is not { } before ||
             DiffersFrom(before.X, received.X) || DiffersFrom(before.Y, received.Y) ||
             DiffersFrom(before.Z, received.Z) || DiffersFrom(before.Pitch, received.Pitch) ||
@@ -2288,24 +2286,25 @@ public sealed class ScenePropTrack
         _animationAppliedAt.Add(animationAppliedAt);
     }
 
-    /// <summary>Whether two received floats are not the same value, bit for bit.</summary>
+    /// <summary>Whether two received floats differ as the engine's float <c>!=</c> says.</summary>
     /// <remarks>
     /// **The engine's test is exact and this has to be too.** `m_vecOldOrigin != GetLocalOrigin()` is
-    /// `Vector::operator!=`, a component-wise compare with no tolerance, so a position differing in its
-    /// last bit IS a change and gets a history entry. A tolerance here would drop an entry the engine
-    /// appends, which is the collapse B382 is about, one step smaller.
+    /// `Vector::operator!=`, a component-wise float compare with no tolerance (`c_baseentity.cpp:2571`), so
+    /// a position differing in its last bit IS a change and gets a history entry. A tolerance here would
+    /// drop an entry the engine appends, which is the collapse B382 is about, one step smaller.
     ///
-    /// **Written as a bit compare rather than `!=` or `.Equals` because S1244 refuses both**, and the
+    /// **A float compare, not a bit compare**: +0 and −0 are equal and a NaN differs from everything,
+    /// itself included. Until B860 review 29 this compared bits, which said the opposite on both; it hid
+    /// behind a float-equal history compare, and showed once that compare became the engine's `memcmp`
+    /// (`interpolatedvar.h:636`), which is bitwise where this gate is not.
+    ///
+    /// **Written with `CompareTo` because S1244 refuses `!=`, `.Equals` and a `&lt;`/`&gt;` pair**, and the
     /// rule it enforces is a good one — an exact float compare is nearly always a defect. This is the
-    /// exception, so it says so in a form that is exact by construction rather than suppressing the
-    /// analyzer and leaving the next reader to wonder which it was.
-    ///
-    /// **What this does differently from the engine, stated:** two NaNs compare EQUAL here and unequal in
-    /// `Vector::operator!=`. A networked origin is never NaN — `SendPropVector` has no encoding for one —
-    /// so no input reaches that difference.
+    /// exception, spelled rather than suppressed: `CompareTo` orders −0 with +0, and orders a NaN equal to a
+    /// NaN, which the NaN tests ahead of it overrule.
     /// </remarks>
     private static bool DiffersFrom(float first, float second) =>
-        BitConverter.SingleToInt32Bits(first) != BitConverter.SingleToInt32Bits(second);
+        float.IsNaN(first) || float.IsNaN(second) || first.CompareTo(second) != 0;
 
 
     /// <summary>Records that the entity ceased to exist.</summary>

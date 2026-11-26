@@ -294,7 +294,106 @@ public sealed class InterpolatedHistoryTests
         long forward = LeastAllocated(history, 2001, 1);
         long back = LeastAllocated(history, 1999, -1);
 
-        (forward, back, history.LatestChange(1950, 0, -1), history.LatestChange(2050, 0, -1)).ShouldBe((0L, 0L, 1950, 2050));
+        // And where most steps change nothing: values change every tenth tick.
+        InterpolatedHistory resting = new(1);
+
+        for (int tick = 1; tick <= 4000; tick++)
+        {
+            resting.Add(tick, tick, [tick / 10]);
+        }
+
+        resting.LatestChange(2000, 0, -1);
+        long restingForward = LeastAllocated(resting, 2001, 1);
+        long restingBack = LeastAllocated(resting, 1999, -1);
+
+        // 2,000 and a hundred steps each way, every one a change: 201 held, one each — a step that re-collected would
+        // hold more, and one that dropped would answer wrong below.
+        (forward, back, restingForward, restingBack, history.ChangesHeld(0, -1)).ShouldBe((0L, 0L, 0L, 0L, 201));
+        (history.LatestChange(1950, 0, -1), history.LatestChange(2050, 0, -1), resting.LatestChange(1955, 0, -1))
+            .ShouldBe((1950, 2050, 1950));
+    }
+
+    /// <summary>
+    /// A larger stretch below absorbs one above that holds changes prepended by steps back, keeping them ascending.
+    /// Values change every tenth tick. 50 to 69 forward holds 50 and 60; 100 holds 100; 99 prepends 90 and 89 prepends 80
+    /// to it; 79 finds 70, appends it below, and the two touch — three changes each, so the lower absorbs the upper, whose
+    /// earlier changes must go in oldest first. Then 85 is 80, 95 is 90, 100 is 100, 72 is 70, 55 is 50; six held.
+    /// </summary>
+    [Test]
+    public void LatestChange_LargerStretchBelowAbsorbsStepsBack_AnswersInOrder()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 200; tick++)
+        {
+            history.Add(tick, tick, [tick / 10]);
+        }
+
+        int[] asked = [.. System.Linq.Enumerable.Range(50, 20), 100, 99, 89, 79];
+
+        foreach (int tick in asked)
+        {
+            history.LatestChange(tick, 0, -1);
+        }
+
+        int?[] answers = [.. System.Linq.Enumerable.Select(new[] { 85, 95, 100, 72, 55 }, tick => history.LatestChange(tick, 0, -1))];
+
+        answers.ShouldBe([80, 90, 100, 70, 50]);
+        history.ChangesHeld(0, -1).ShouldBe(6);
+    }
+
+    /// <summary>
+    /// Any order of calls answers what a plain scan does: 400 entries of values drawn from three, 600 asks in a seeded
+    /// random order, each compared with the newest tick at or before it whose value differs from the tick before (or the
+    /// first tick) — found by scanning, with no memo (B860 review 29, Sonnet).
+    /// </summary>
+    [Test]
+    public void LatestChange_InARandomOrder_MatchesAScan()
+    {
+        System.Random random = new(860);
+        InterpolatedHistory history = new(1);
+        int[] values = new int[401];
+
+        for (int tick = 1; tick <= 400; tick++)
+        {
+            values[tick] = random.Next(10) < 8 && tick > 1 ? values[tick - 1] : random.Next(3);
+            history.Add(tick, tick, [values[tick]]);
+        }
+
+        int wrong = 0;
+
+        for (int call = 0; call < 600; call++)
+        {
+            int tick = random.Next(1, 401);
+            int scanned = tick;
+
+            while (scanned > 1 && values[scanned] == values[scanned - 1])
+            {
+                scanned--;
+            }
+
+            wrong += history.LatestChange(tick, 0, -1) == scanned ? 0 : 1;
+        }
+
+        wrong.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Settling compares entries as <c>COMPARE_HISTORY</c> does, a <c>memcmp</c> (<c>interpolatedvar.h:22-23</c>, used at
+    /// <c>:867-869</c>): a pair of +0 and −0 is not settled, and a pair of +0 and +0 is.
+    /// </summary>
+    [Test]
+    public void Bracket_PairOfZeroAndNegativeZero_IsNotSettled()
+    {
+        InterpolatedHistory signed = new(1);
+        signed.Add(1, 1, [0f]);
+        signed.Add(2, 2, [-0f]);
+        InterpolatedHistory same = new(1);
+        same.Add(1, 1, [0f]);
+        same.Add(2, 2, [0f]);
+
+        (signed.Bracket(1.5, 2).ShouldNotBeNull().NoMoreChanges, same.Bracket(1.5, 2).ShouldNotBeNull().NoMoreChanges)
+            .ShouldBe((false, true));
     }
 
     /// <summary>

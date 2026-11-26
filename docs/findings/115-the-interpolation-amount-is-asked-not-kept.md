@@ -110,4 +110,12 @@ entity is), B868 (the cycle across a sequence change) and B869 (a jump landing j
 no file under `client/tf` or `shared/tf` names that class, and TF2's bosses and robots are `C_NextBotCombatCharacter`
 (`C_NextBot.h:33`), a `C_BaseCombatCharacter` that does not override it (**read**).
 
+- **What "changed" means is two compares, not one** (B860 reviews 28-29). The rise logic asks which latch last
+  re-armed a variable, and the engine re-arms on `NoteChanged`'s return (`c_baseentity.cpp:2828-2829`, **read**): a
+  `memcmp` against the head (`interpolatedvar.h:636`, **read**), bitwise, so −0 after +0 re-arms. But whether a latch
+  happens at all is `PostDataUpdate`'s float `!=` on origin and angles (`c_baseentity.cpp:2571-2572`, **read**), where
+  −0 after +0 is no change. This project had both the other way round until review 29; the history compare is now
+  bitwise and the append gate a float compare. A commit message in review 27 also said an entry equal to the head is
+  not added — wrong: `AddToHead` at `:649` is unconditional, which is B382's whole point.
+
 The locally recorded every-tick path is still the open question of B861.

@@ -743,8 +743,8 @@ public sealed class InterpolatedHistory
                 return stretches[at].NewestAtOrBefore(last);
             }
 
-            // Nothing examined at `last`: walk back from it to the first change, or to the stretch below, examining each entry
-            // once. The walk mutates nothing, so a throw from `Same` leaves the memo as it was.
+            // Nothing examined at `last`: walk back from it to the first change, or to the stretch below. The walk records
+            // nothing in the memo (only the examined count), so a throw from `Same` leaves the memo as it was.
             Stretch? below = at >= 0 ? stretches[at] : null;
             Stretch? above = at + 1 < stretches.Count ? stretches[at + 1] : null;
             int change = WalkBackToChange(last, below?.End ?? -1, first, count);
