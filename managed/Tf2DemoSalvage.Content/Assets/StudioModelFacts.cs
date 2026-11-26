@@ -34,17 +34,14 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
         {
             return _facts.GetOrAdd(modelPath, readFile(modelPath) is { } root ? Read(root) : null);
         }
-        catch (InvalidDataException)
+        catch (Exception failure) when (failure is InvalidDataException or IOException)
         {
-            // Not a studio model this reader can load: no facts, which the build treats as unknown for a `.mdl` (B873),
-            // and stays so. One bad file must not stop the demo opening; the viewer reports it when it loads it to draw.
+            // Not a studio model this reader can load, or a file the archives could not read (`PropModels.Find` catches the
+            // same pair): no facts, which the build treats as unknown for a `.mdl` (B873). One bad file must not stop the
+            // demo opening; the viewer reports it when it loads it to draw. **Cached either way** (B870 review 4): an
+            // uncached read failure let the whole timeline and a window walk of the same bytes disagree, and re-read a bad
+            // archive entry on every update that set the model.
             return _facts.GetOrAdd(modelPath, value: null);
-        }
-        catch (IOException)
-        {
-            // A file the archives could not read this time (`PropModels.Find` catches the same): no facts NOW, and not
-            // cached, since a lock passes and the next update that sets the model asks again.
-            return null;
         }
     }
 

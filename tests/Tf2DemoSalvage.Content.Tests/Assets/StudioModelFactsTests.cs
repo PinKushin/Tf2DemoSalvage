@@ -44,6 +44,22 @@ public sealed class StudioModelFactsTests
         (loops(0), loops(1), loops(-1), loops(5)).ShouldBe((true, false, true, true));
     }
 
+    /// <summary>
+    /// **A sequence from an included model is looked up in ITS group**: merged sequence 1 is group 1's local 0, which loops,
+    /// while group 0's only sequence does not.
+    /// </summary>
+    [Test]
+    public void LoopingFlags_ASequenceFromAnIncludedModel_ReadsItsOwnGroup()
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [new StudioSequence(0, 0, Label: "idle")]),
+            (1, [new StudioSequence(0, StudioFlags.SequenceLooping, Label: "spin")]),
+        ];
+
+        StudioModelFacts.LoopingFlags(StudioSequenceTable.Merge(groups), groups).ShouldBe([false, true]);
+    }
+
     /// <summary>The control: no flags and no parameters read as none, not as a default model.</summary>
     [Test]
     public void FactsOf_AHeaderWithNoParametersOrFlags_ReportsNone()
@@ -66,6 +82,26 @@ public sealed class StudioModelFactsTests
         new StudioModelFacts(_ => null).FactsOf("*12").ShouldBeNull();
         new StudioModelFacts(_ => new byte[512]).FactsOf(Sentry).ShouldBeNull();
         new StudioModelFacts(_ => throw new System.IO.IOException("locked")).FactsOf(Sentry).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// **A failed read is remembered too** (B870 review 4): an unreadable or invalid model is read once, so every build
+    /// of the session — the whole timeline and a window walk — gets the same answer.
+    /// </summary>
+    /// <param name="locked">Whether the read fails with `IOException` rather than returning bytes that are no model.</param>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void FactsOf_AFailedReadTwice_ReadsTheFileOnce(bool locked)
+    {
+        int reads = 0;
+        StudioModelFacts facts = new(_ =>
+        {
+            reads++;
+            return locked ? throw new System.IO.IOException("locked") : new byte[512];
+        });
+
+        (facts.FactsOf(Sentry), facts.FactsOf(Sentry)).ShouldBe((null, null));
+        reads.ShouldBe(1);
     }
 
     /// <summary>A model is read once however often the recording sets it.</summary>

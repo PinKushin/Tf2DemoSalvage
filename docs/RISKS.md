@@ -47333,7 +47333,14 @@ Both sabotages reddened. Not taken: a bit-level guard on `PoseBetween`'s own ler
 spells Valve's `A + (B - A) * t`, and the pose tests' 1e-6 tolerances would need bit pairs chosen to separate the two
 roundings.
 
-Not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
+**Review 4** (Codex, Fable, Sonnet, the cavecrew reviewer). **Reversed review 3's `IOException` split** (cavecrew, Fable):
+an uncached read failure let the whole timeline and a window walk of the same bytes disagree, and re-read a bad archive
+entry on every update that set the model; both failures are cached again, so a session answers one way. Tests: a failed
+read is read once (both kinds), and a sequence from an included model reads its own group (Fable, Sonnet); both sabotages
+reddened. Not taken: Codex's "`ConcurrentDictionary` does not allow null values" (it does for a reference type; the
+missing-file and invalid-bytes tests run that path), as in review 1.
+
+Review 1, not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
 and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,
 Fable, minor): the two compose the same Content readers, but `PropModels` composes them inside the draw load with its
 pakfile-aware `Find`; one reader shared by both is B873's fix, which needs the pakfile at build.
