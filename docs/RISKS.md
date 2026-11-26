@@ -47790,6 +47790,24 @@ taken: a rewind stepping back less than 512 entries at a time growing a run (lea
 windows, tens of ticks long and a handful a recording, so a run grows only between windows that close (*reasoned*); a
 boundary test at exactly 512 (lead) — either side of it answers the same, only the run serving it differs.
 
+Review 27 and merge review 11 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker). **The two-run memo overlapped** (lead, Fable): the first run in range served a call, not the nearest, so a
+run's backward walk re-collected the other's changes and the one in use could be evicted — and every bounded cache in
+reviews 24 to merge 10 had lost the same way at some other edge. **Replaced by a memo of stretches**: each variable keeps
+the stretches of entries it has examined, disjoint and ascending, each starting at a change, with the changes in it. A
+call inside a stretch is a binary search; any other walks back from its tick only to the first change or to the end of
+the stretch below, records what it found, and joins touching stretches. Each entry is examined at most once in the memo's
+life; nothing is evicted, so nothing thrashes; the walk mutates nothing, so a throw leaves the memo as it was; and
+`ReseedGap`, the runs, `Later`/`Earlier` and the LRU are gone. What it holds is the changes in the stretches rise windows
+reached (*reasoned*: it is asked only there). `LatestChange_FarPastARestingRun_KeepsTheRun` now asserts two changes held
+and 1,999 entries examined, and reddens at 2,005 when the walk ignores the stretch below — the floor bounds cost only, so
+the held count and every answer stay the same under that sabotage, and an earlier version asserting only them stayed
+green (lead, caught by sabotage); `LatestChange_ThreeFarApartAsks_KeepAStretchEach` holds three and
+asking again adds none; `LatestChange_RewoundInSeveralSteps_IsTheChangeAtOrBefore` reddens when the stretch lookup
+misses; `LatestChange_RetriedAfterAThrow_LeavesTheMemoAsItWas` holds one after two throws. Records: `Memos.Settles`
+retention is stated (Fable). Not taken: the first walk for a variable at rest is as long as the rest (Codex) — paid once,
+recorded since merge review 2.
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
 long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the

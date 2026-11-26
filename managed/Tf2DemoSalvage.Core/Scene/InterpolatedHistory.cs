@@ -712,13 +712,14 @@ public sealed class InterpolatedHistory
     /// this one arrived, since only a later append flushes (B860 review 6, Sonnet).
     /// </remarks>
     /// <remarks>
-    /// **Memoized per variable as the run of entries already examined and the changes in it** (B860 merge reviews 1 and
-    /// 2): a player standing still latches the same origin every tick, so the walk back to his last real change ran the
-    /// whole rest on every call; and a memo of every entry from the first cost a scan of the whole history on the first
-    /// call and one int per entry for the timeline's life. The run starts where the first call's walk back stopped and
-    /// grows only as far as later calls ask, forward or back, so both the work and the memory follow the entries actually
-    /// examined; a trim clears it, a call far past it may replace it, and a call far before it is answered without it
-    /// (<see cref="ReseedGap"/>).
+    /// **Memoized per variable as the stretches of entries already examined, each starting at a change, with the changes in
+    /// them** (B860 merge reviews 1-11). A player standing still latches the same origin every tick, so the walk back to his
+    /// last real change ran the whole rest on every call. Every bounded single-cache design that followed lost one way:
+    /// filling from the first entry scanned the whole history; one run thrashed, kept a gap or walked every time; two runs
+    /// overlapped and evicted the one in use. A call inside a stretch is a binary search; any other walks back from its tick
+    /// only to the first change or to the end of the stretch below, records what it found, and joins touching stretches —
+    /// so each entry is examined at most once in the memo's life, and nothing is evicted. A trim clears it. The memo is asked
+    /// only inside rise windows, so what it holds is the changes in the stretches those windows reached (*reasoned*).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
@@ -733,133 +734,127 @@ public sealed class InterpolatedHistory
             }
 
             Memos memos = _memos ??= new Memos();
+            List<Stretch> stretches = memos.ChangeOf.TryGetValue((first, count), out List<Stretch>? known) ? known : [];
+            int at = StretchAtOrBefore(stretches, last);
 
-            if (!memos.ChangeOf.TryGetValue((first, count), out List<ChangeRun>? runs))
+            if (at >= 0 && last <= stretches[at].End)
             {
-                runs = [];
-                memos.ChangeOf[(first, count)] = runs;
+                return NewestAtOrBefore(stretches[at].Changes, last);
             }
 
-            // **Up to two runs, the one asked from nearest used** (merge review 10): the presenter asks near one tick while
-            // the seek scan, or a rewind's rise window, asks far from it. One run either threw the other's away on every
-            // alternation (merge review 8), kept every change between (merge review 9's predecessor), or remembered nothing
-            // and walked on every call (merge review 10). A run within `ReseedGap` of the tick serves it; otherwise a new one
-            // is seeded, the least recently used going when there are two.
-            ChangeRun? run = null;
+            // Nothing examined at `last`: walk back from it to the first change, or to the stretch below, examining each entry
+            // once. The walk mutates nothing, so a throw from `Same` leaves the memo as it was.
+            Stretch? below = at >= 0 ? stretches[at] : null;
+            int change = WalkBackToChange(last, below?.End ?? -1, first, count);
+            int answer;
+            int joined;
 
-            foreach (ChangeRun near in runs)
+            if (below is not null && change <= below.End)
             {
-                if (last >= near.Start - ReseedGap && last <= near.Through + ReseedGap)
-                {
-                    run = near;
-                    break;
-                }
+                below.End = last;
+                answer = below.Changes[^1];
+                joined = at;
+            }
+            else
+            {
+                stretches.Insert(at + 1, new Stretch(change, last, [change]));
+                answer = change;
+                joined = JoinBelow(stretches, at + 1);
             }
 
-            if (run is null)
-            {
-                // **Look back from the new tick, but no further than a run that ended before it** (review 24, merge review
-                // 5): a change met first starts a new run; that run reached first means nothing changed in the gap, and it
-                // simply reaches the new tick.
-                ChangeRun? below = null;
+            JoinAbove(stretches, joined);
+            memos.ChangeOf[(first, count)] = stretches;
 
-                foreach (ChangeRun candidate in runs)
-                {
-                    if (candidate.Through < last && (below is null || candidate.Through > below.Through))
-                    {
-                        below = candidate;
-                    }
-                }
-
-                int change = WalkBackToChange(last, below?.Through ?? -1, first, count);
-
-                if (below is not null && change <= below.Through)
-                {
-                    below.Through = last;
-                    run = below;
-                }
-                else
-                {
-                    if (runs.Count == 2)
-                    {
-                        runs.Remove(runs[0].Used < runs[1].Used ? runs[0] : runs[1]);
-                    }
-
-                    runs.Add(new ChangeRun(change, last, [change], []) { Used = ++memos.Uses });
-                    return change;
-                }
-            }
-
-            run.Used = ++memos.Uses;
-
-            // Appended directly — this runs most frames inside a rise window, and a list collected first allocated every time
-            // (merge review 4) — with `Through` moved past each entry as it is examined, so a throw from `Same` leaves the run
-            // describing exactly what it examined and a retry repeats nothing (merge review 7).
-            for (int index = run.Through + 1; index <= last; index++)
-            {
-                if (IsChange(index, first, count))
-                {
-                    run.Later.Add(index);
-                }
-
-                run.Through = index;
-            }
-
-            // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
-            // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
-            // its own list and appended directly in walk order, so a rewind asking one step back at a time costs what it walks,
-            // not the whole memo, and allocates nothing (merge reviews 3 and 5). `Start` moves to each change as it is kept, so
-            // a throw leaves the run consistent with what it holds (merge review 7).
-            int back = run.Start - 1;
-
-            while (last < run.Start)
-            {
-                if (IsChange(back, first, count))
-                {
-                    run.Earlier.Add(back);
-                    run.Start = back;
-                }
-
-                back--;
-            }
-
-            if (last >= run.Later[0])
-            {
-                int at = run.Later.BinarySearch(last);
-
-                return run.Later[at >= 0 ? at : ~at - 1];
-            }
-
-            return NewestAtOrBefore(run.Earlier, last);
+            return answer;
         }
     }
 
-    /// <summary>How far from a run, either way, a call may ask and still be served by it.</summary>
-    /// <remarks>
-    /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
-    /// delays, not measured); a gap of this many entries is another window, served by a run of its own. The memo is only
-    /// asked inside rise windows, so a run grows by at most this much per ask and only between windows that close
-    /// (*reasoned*, merge review 10).
-    /// </remarks>
-    private const int ReseedGap = 512;
+    /// <summary>The last stretch starting at or before <paramref name="index"/>, or -1.</summary>
+    private static int StretchAtOrBefore(List<Stretch> stretches, int index)
+    {
+        int low = 0;
+        int high = stretches.Count - 1;
+        int found = -1;
+
+        while (low <= high)
+        {
+            int middle = (low + high) / 2;
+
+            if (stretches[middle].Start <= index)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Joins a stretch into the one below when they touch; returns where the joined stretch now is.</summary>
+    private static int JoinBelow(List<Stretch> stretches, int at)
+    {
+        if (at > 0 && stretches[at - 1].End + 1 == stretches[at].Start)
+        {
+            stretches[at - 1].End = stretches[at].End;
+            stretches[at - 1].Changes.AddRange(stretches[at].Changes);
+            stretches.RemoveAt(at);
+            return at - 1;
+        }
+
+        return at;
+    }
+
+    /// <summary>Joins the stretch above into one when they touch.</summary>
+    private static void JoinAbove(List<Stretch> stretches, int at)
+    {
+        if (at + 1 < stretches.Count && stretches[at].End + 1 == stretches[at + 1].Start)
+        {
+            stretches[at].End = stretches[at + 1].End;
+            stretches[at].Changes.AddRange(stretches[at + 1].Changes);
+            stretches.RemoveAt(at + 1);
+        }
+    }
 
     /// <summary>
-    /// The newest change at or after <paramref name="floor"/> exclusive, walking back from <paramref name="from"/>; or
-    /// <paramref name="floor"/> itself when none lies above it, or -1 is the floor and the walk ends at a generation start.
+    /// Walking back from <paramref name="from"/>: the first change above <paramref name="floor"/>, or the floor when none
+    /// lies above it. With a floor of -1 the walk always ends on a change, since a generation start is one.
     /// </summary>
     private int WalkBackToChange(int from, int floor, int first, int count)
     {
         int change = from;
 
-        while (change > floor && !IsChange(change, first, count))
+        while (change > floor)
         {
+            _entriesExamined++;
+
+            if (IsChange(change, first, count))
+            {
+                break;
+            }
+
             change--;
         }
 
         return change;
     }
 
-    /// <summary>How many changes a variable's latest-change memo holds over its runs, for a test to see what a walk kept.</summary>
+    /// <summary>How many entries the latest-change walks have examined, for a test of the walk's floor.</summary>
+    internal int EntriesExamined
+    {
+        get
+        {
+            lock (_memoLock)
+            {
+                return _entriesExamined;
+            }
+        }
+    }
+
+    /// <summary>How many changes a variable's latest-change memo holds, for a test to see what a walk kept.</summary>
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count.</param>
     /// <returns>The count, or zero when the variable has no memo.</returns>
@@ -869,11 +864,11 @@ public sealed class InterpolatedHistory
         {
             int held = 0;
 
-            if (_memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out List<ChangeRun>? runs))
+            if (_memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out List<Stretch>? stretches))
             {
-                foreach (ChangeRun run in runs)
+                foreach (Stretch stretch in stretches)
                 {
-                    held += run.Later.Count + run.Earlier.Count;
+                    held += stretch.Changes.Count;
                 }
             }
 
@@ -881,46 +876,25 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>The newest change at or before <paramref name="last"/> in a newest-first list that holds one.</summary>
-    private static int NewestAtOrBefore(List<int> newestFirst, int last)
+    /// <summary>The newest change at or before <paramref name="last"/> in an ascending list whose first is at or before it.</summary>
+    private static int NewestAtOrBefore(List<int> ascending, int last)
     {
-        int low = 0;
-        int high = newestFirst.Count - 1;
+        int at = ascending.BinarySearch(last);
 
-        while (low < high)
-        {
-            int middle = (low + high) / 2;
-
-            if (newestFirst[middle] <= last)
-            {
-                high = middle;
-            }
-            else
-            {
-                low = middle + 1;
-            }
-        }
-
-        return newestFirst[low];
+        return ascending[at >= 0 ? at : ~at - 1];
     }
 
     /// <summary>Whether an entry changed a variable from the one before it, or starts a generation.</summary>
     private bool IsChange(int index, int first, int count) =>
         index == _generationStarts[index] || !Same(index, index - 1, first, count);
 
-    /// <summary>The entries a variable's latest-change memo has examined, and the changes among them.</summary>
-    /// <param name="Start">The first entry examined, always a change.</param>
-    /// <param name="Through">The last entry examined.</param>
-    /// <param name="Later">The changes from the seed on, ascending; its first is the seed.</param>
-    /// <param name="Earlier">The changes before the seed, newest first, ending at <paramref name="Start"/>.</param>
-    private sealed record ChangeRun(int Start, int Through, List<int> Later, List<int> Earlier)
+    /// <summary>A stretch of entries the latest-change memo examined, and the changes in it, ascending.</summary>
+    /// <param name="Start">The first entry, always a change.</param>
+    /// <param name="End">The last entry examined.</param>
+    /// <param name="Changes">Every change from <paramref name="Start"/> through <paramref name="End"/>, ascending.</param>
+    private sealed record Stretch(int Start, int End, List<int> Changes)
     {
-        public int Start { get; set; } = Start;
-
-        public int Through { get; set; } = Through;
-
-        /// <summary>When this run last served a call, against <see cref="Memos.Uses"/>: the older of two is evicted.</summary>
-        public long Used { get; set; }
+        public int End { get; set; } = End;
     }
 
     /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
@@ -936,16 +910,20 @@ public sealed class InterpolatedHistory
     /// </remarks>
     private readonly object _memoLock = new();
 
+    /// <summary>Entries the walks examined, under <see cref="_memoLock"/>; read by <see cref="EntriesExamined"/>.</summary>
+    private int _entriesExamined;
+
     /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
     private sealed class Memos
     {
-        /// <summary>For each variable, up to two runs of entries examined and their changes.</summary>
-        public Dictionary<(int First, int Count), List<ChangeRun>> ChangeOf { get; } = [];
-
-        /// <summary>A count of calls served, which <see cref="ChangeRun.Used"/> is stamped from.</summary>
-        public long Uses { get; set; }
+        /// <summary>For each variable, the stretches of entries examined, ascending and disjoint.</summary>
+        public Dictionary<(int First, int Count), List<Stretch>> ChangeOf { get; } = [];
 
         /// <summary>Scan cursors, keyed by what the scan depends on.</summary>
+        /// <remarks>
+        /// One per schedule, variable and re-arming tick, freed only by a trim: for a variable that changes every tick, one
+        /// per frame a rise window examined — bounded by the windows' frames (*reasoned*, review 27, Fable).
+        /// </remarks>
         public Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> Settles { get; } = [];
     }
 

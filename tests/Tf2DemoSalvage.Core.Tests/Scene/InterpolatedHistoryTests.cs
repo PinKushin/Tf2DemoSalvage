@@ -243,10 +243,18 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [tick >= 5 ? 2f : 1f]);
         }
 
-        // Then back near the start and forward once more: 3 is 1, 2,000 is 5.
+        // Then back near the start and forward once more: 3 is 1, 2,000 is 5. Two changes held — 1 and 5 — however often
+        // asked, so the walk from 2,000 stopped at the stretch below rather than walking on to 5 again (merge review 11).
         int[] asked = [10, 2000, 1000, 7, 3, 2000];
 
-        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([5, 5, 5, 5, 1, 5]);
+        int?[] answers = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)));
+
+        answers.ShouldBe([5, 5, 5, 5, 1, 5]);
+        history.ChangesHeld(0, -1).ShouldBe(2);
+
+        // Entries (index = tick - 1) examined: 9..4 for 10 (6), 1999..10 for 2,000, stopped by the stretch ending at 9
+        // (1,990), 2..0 for 3 (3); the rest answer from the memo. 1,999 — a walk past the floor would make it 2,005.
+        history.EntriesExamined.ShouldBe(1999);
     }
 
     /// <summary>
@@ -288,13 +296,13 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **A throw part way leaves the memo holding only what it examined** (B860 merge reviews 7 and 8). Six-wide entries
-    /// at ticks 1 to 4 with (3, 3) changing at 1 and 3, then `SetMaxCount(1)` at 10 and one-wide entries after. Asked for
-    /// (3, 3) at 4 the memo holds the change at 3 (one). Asked at 11, the walk keeps the generation start at 10, then
-    /// throws on the next entry — which cannot hold (3, 3) — twice; the memo holds two either way, not three.
+    /// **A throw leaves the memo as it was** (B860 merge reviews 7, 8 and 11). Six-wide entries at ticks 1 to 4 with (3, 3)
+    /// changing at 1 and 3, then `SetMaxCount(1)` at 10 and one-wide entries after. Asked for (3, 3) at 4 the memo holds the
+    /// change at 3 (one). Asked at 11, the walk back from 11 throws on its first entry — which cannot hold (3, 3) — twice;
+    /// the memo still holds one.
     /// </summary>
     [Test]
-    public void LatestChange_RetriedAfterAThrow_RepeatsNoAppend()
+    public void LatestChange_RetriedAfterAThrow_LeavesTheMemoAsItWas()
     {
         InterpolatedHistory history = new(6);
         history.Add(1, 1, [0f, 0f, 0f, 1f, 0f, 0f]);
@@ -310,16 +318,16 @@ public sealed class InterpolatedHistoryTests
         Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(11, 3, 3));
         Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(11, 3, 3));
 
-        (seeded, heldBefore, history.ChangesHeld(3, 3)).ShouldBe((3, 1, 2));
+        (seeded, heldBefore, history.ChangesHeld(3, 3)).ShouldBe((3, 1, 1));
     }
 
     /// <summary>
-    /// **A third far-apart ask evicts the run used longest ago** (B860 merge review 10): values change at 1, 1,000, 2,000,
-    /// 3,000 and 4,000 over 5,000 entries. Asked at 4,500 (4,000), 2,500 (2,000) and 500 (1): three runs' worth of asks,
-    /// two runs held, one change each. Then at 4,500 again (4,000), still two.
+    /// **Far-apart asks keep a stretch each, and asking again examines nothing new** (B860 merge reviews 10 and 11): values
+    /// change at 1, 1,000, 2,000, 3,000, 4,000 and 5,000 over 5,000 entries. Asked at 4,500 (4,000), 2,500 (2,000) and 500 (1):
+    /// three stretches, one change each. Then at 4,500 again (4,000), still three.
     /// </summary>
     [Test]
-    public void LatestChange_ThreeFarApartAsks_HoldTwoRuns()
+    public void LatestChange_ThreeFarApartAsks_KeepAStretchEach()
     {
         InterpolatedHistory history = new(1);
 
@@ -333,7 +341,7 @@ public sealed class InterpolatedHistoryTests
         int? again = history.LatestChange(4500, 0, -1);
 
         (answers[0], answers[1], answers[2], heldAfterThree, again, history.ChangesHeld(0, -1))
-            .ShouldBe((4000, 2000, 1, 2, 4000, 2));
+            .ShouldBe((4000, 2000, 1, 3, 4000, 3));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
