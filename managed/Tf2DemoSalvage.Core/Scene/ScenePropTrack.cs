@@ -1835,6 +1835,11 @@ public sealed class ScenePropTrack
     /// a moving prop. It is true from the gate opening to a tick past the window closing.
     ///
     /// Under the delay schedule a frame knows (B860); the overload without one, read by no caller, went in review 14.
+    ///
+    /// **One boundary has no wake of its own** (B860 review 17, Sonnet): the first-pose clause of `settled` also asks
+    /// <see cref="InterpolationSchedule.MaxTargetBefore"/>, which moves with the frame, and nothing wakes the track when it
+    /// crosses birth. Safe because what the first pose answers there is the settled value either way, so `At`'s answer
+    /// does not change at that tick; a change that made the two differ would need a wake added here.
     /// </remarks>
     /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
     internal (bool Changing, double NextWake) Motion(double tick, bool blend, InterpolationSchedule schedule)

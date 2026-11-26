@@ -47156,6 +47156,22 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
+
+Found in B860 review 17 (Fable), traced by reading, not run. B860's two halves disagree after a jump: `FrameStart` runs
+the landing frame under the delay as the skip batch had read it, which is the OLD one when the batch began before the
+rise, while `TargetFor`'s hold and floor model every earlier frame a tick apart, so they place the switch at the step's
+own tick plus one. Scenario (an update a tick, X ten a tick, rise 8 → 34 at 50, a jump landing at 60):
+`FrameStart(−∞, 60)` reads 0 and draws 520; the frame at 61 aims at 27, and the viewer floors it at the modelled frame
+at 50's cut (38.67, keeping 38, 37, 36): 360, a 160-unit snap back. The engine's landing frame latched at 60 and pruned
+at 60 − 8 − 3.33 = 48.67 (`NoteChanged`, `interpolatedvar.h:667`), keeping 48, 47, 46, so the frame at 61 answers 460 and
+holds it until 61 + 19. Hold variant: last update at 55, landing at 64 — the engine's landing frame aims at 56, past the
+head, settles and holds 550; the viewer at 65 sees a change after the rise, does not hold, and floors near 360. Reach:
+a seek, scrub or first frame landing within about 1.5 s after a rise; the engine side of a skip is *interpolated*, as
+B860 records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
+samples under, re-anchoring every step between the landing's read and the landing tick at the landing, so the modelled
+frames before it run under the old delay; a conformance test of each scenario (460, 550) first. *Not fixed*.
+
 ## B868 — a cycle pair across a sequence change is cut, where the engine blends it unless a parity reset came between (2026-11-25) — OPEN
 
 Found in B860 review 16 (Sonnet), *read*, not measured. `ScenePropTrack.InterpolateCycle` returns the older cycle whenever
@@ -47555,6 +47571,17 @@ why no drawn value differs (*reasoned*); a test comment names the frame at 49.5 
 refusing to blend across any sequence change, where the engine blends unless a parity reset cleared the history, as
 B868 (Sonnet). Not taken: `_predicted ??=` (recorded since review 2); the cache test compares stepped with fresh, not an
 engine value (Sonnet), which is its purpose — the conformance tests hold the values.
+
+Review 17 (Fable, Sonnet, Codex: no blocker). Filed: the jump that lands just past a rise, where the landing frame runs
+under the old delay and the next frame floors at a cut no frame made, as B869 (Fable). Records: findings 115 names the
+open siblings and B867's exceptions (Fable); `Motion`'s remarks say the first-pose clause has no wake of its own and
+why that is safe (Sonnet); the handoff lists B862-B869 (Fable). Not taken (Sonnet): "`cl_predict` under
+`sv_client_predict -1` is the recorder's own setting, which no demo carries" — the client forces its own to 1 on a level
+of more than one client (`cdll_client_int.cpp:1645-1652`, *read*, findings 115), so a recorder's `cl_predict 0` does
+not survive into a multiplayer recording.
+Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
+of a recording once one rise has happened, and two capturing delegates per floor inside the window. Bounded by the
+window's frames and a recording's handful of rises; a `--measure` across a rise on a populated demo is the number.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
 

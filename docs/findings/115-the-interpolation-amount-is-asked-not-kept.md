@@ -53,7 +53,10 @@ once, where the variables switch at the next frame start.
 
 `InterpolationSchedule` is the amount by tick, built from the same ConVar history `ServerConVarsAt` reads; tracks, the
 demo player's rollback and the faces read it at their own tick, and the checkpoint walk keeps enough history for the
-widest delay anywhere in the recording (B849). Since B860 a rise and the frame start are the engine's too:
+widest delay anywhere in the recording (B849). Since B860 a rise and the frame start are the engine's too, short of
+what its reviews filed open: B862 (prediction's own history and time), B863 (followers), B864 (a latch that changed
+nothing), B865 (the first window, re-parenting, the face's jump), B866 (extrapolation), B867 (readers of where an
+entity is), B868 (the cycle across a sequence change) and B869 (a jump landing just past a rise):
 
 - **A frame samples under the schedule its frame start knew** (`InterpolationSchedule.AsOf`): the presenter tells the
   timeline the tick the previous frame showed (`FrameStart`), and a step read since is not used until the next frame.
@@ -81,7 +84,9 @@ widest delay anywhere in the recording (B849). Since B860 a rise and the frame s
   target had read to within a hundred packets of it; the viewer takes the far end of that batch (where the batch began is
   **interpolated**). A sample by any other reader, at any other tick, is no frame of the presenter's: it is the frame after one that read the
   last whole tick below it (`ceil(tick) − 1`), the model the history walks use (**interpolated**, reviews 12 and 13).
-  Anything asking where an entity is takes it where the frame draws it, prediction included.
+  Anything asking where an entity is takes it at the frame start and prediction the frame draws it under — not at
+  the frame's fractional tick for two readers, nor at the recorded view a point-of-view frame places the recorder at
+  (B867).
 - **What a point-of-view demo predicts takes one tick whatever the amount.** `CheckInitPredictable`
   (`c_baseentity.cpp:2674-2712`, **read**) needs `cl_predict`, a local player, eligibility and `ShouldPredict()`.
   `cl_predict` reads `sv_client_predict` unless that is −1 (`cdll_bounded_cvars.cpp:36-48`, **read**), whose registered
