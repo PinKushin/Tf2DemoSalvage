@@ -93,6 +93,51 @@ public sealed class PoseInterpolateConformanceTests
         track.At(101d + Delay)!.Value.PoseParameters[0].ShouldBe(0.625f, 1e-6f);
     }
 
+    /// <summary>
+    /// **A third, spaced entry makes it a spline** (`_Interpolate_Hermite`, `interpolatedvar.h:1420-1458`): entries
+    /// 0.2@0, 0.5@2, 0.6@4 at target 3 draw `Lerp_Hermite( ½, 0.2, 0.5, 0.6 )` = 0.575, where the line gives 0.55.
+    /// </summary>
+    [Test]
+    public void At_AThirdSpacedEntry_SplinesThePoseParameter()
+    {
+        ScenePropTrack track = Track([false], (0, [0.2f]), (2, [0.5f]), (4, [0.6f]));
+
+        track.At(3d + Delay)!.Value.PoseParameters[0].ShouldBe(0.575f, 1e-6f);
+    }
+
+    /// <summary>
+    /// **A parameter past the model's count is not interpolated**: `_Interpolate` runs to `m_nMaxCount`, so the slot
+    /// past it keeps what the wire last stated — here the arrival's 0.8 while the first parameter blends.
+    /// </summary>
+    [Test]
+    public void At_AParameterPastTheModelsCount_KeepsTheStatedValue()
+    {
+        ScenePropTrack track = Track([false], (0, [0.2f, 0.4f]), (10, [0.6f, 0.8f]));
+
+        float[] drawn = [.. track.At(5d + Delay)!.Value.PoseParameters];
+
+        drawn[0].ShouldBe(0.4f, 1e-6f);
+        drawn[1].ShouldBe(0.8f);
+    }
+
+    /// <summary>
+    /// **The reset is stamped with the arrival, `curtime`, not the animation time** (`interpolatedvar.h:745-747`): an
+    /// update arriving at 10 with an animation time of 7 sets a two-parameter model, so the next pair runs 10 → 20 and
+    /// a target of 15 is halfway. Stamped 7, it would be (15 − 7) / 13 of the way.
+    /// </summary>
+    [Test]
+    public void At_AResetFromAnUpdateWhoseAnimationTimeLags_IsStampedWithTheArrival()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/buildables/sentry1.mdl");
+
+        track.Add(0, new ScenePose { PoseParameters = [0.2f, 0.1f] }, appliedAt: 0, animationAppliedAt: 0);
+        track.Add(10, new ScenePose { X = 1f, PoseParameters = [0.9f, 0.1f] }, appliedAt: 10, animationAppliedAt: 7);
+        track.OnNewModel([false, false], at: 10, staticPropModel: false);
+        track.Add(20, new ScenePose { X = 2f, PoseParameters = [0.5f, 0.1f] }, appliedAt: 20, animationAppliedAt: 20);
+
+        track.At(15d + Delay)!.Value.PoseParameters[0].ShouldBe(0.7f, 1e-6f);
+    }
+
     /// <summary>A track told its model at the first update, as the build does, then given the rest.</summary>
     private static ScenePropTrack Track(bool[] looping, params (int Tick, float[] Pose)[] updates)
     {

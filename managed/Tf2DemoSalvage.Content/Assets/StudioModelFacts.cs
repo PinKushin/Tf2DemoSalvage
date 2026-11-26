@@ -27,19 +27,16 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
 
     private ModelFacts? Read(string path)
     {
-        if (readFile(path) is not { } root)
-        {
-            return null;
-        }
-
         try
         {
-            return Read(root);
+            return readFile(path) is { } root ? Read(root) : null;
         }
-        catch (InvalidDataException)
+        catch (Exception failure) when (failure is InvalidDataException or IOException)
         {
-            // Not a studio model the engine could load, which is its no-header answer: `OnNewModel` returns before
-            // `SetMaxCount` (`c_baseanimating.cpp:1042-1072`). The viewer reports the same file when it loads it to draw.
+            // Not a studio model the engine could load, or a file the archives could not read (`PropModels.Find` catches
+            // the same pair), which is the no-header answer: `OnNewModel` returns before `SetMaxCount`
+            // (`c_baseanimating.cpp:1042-1072`). One bad file must not stop the demo opening; the viewer reports the same
+            // file when it loads it to draw.
             return null;
         }
     }

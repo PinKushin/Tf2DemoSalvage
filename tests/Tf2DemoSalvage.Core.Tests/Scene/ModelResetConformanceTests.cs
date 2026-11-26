@@ -40,26 +40,6 @@ public sealed class ModelResetConformanceTests
     private const string OneParameter = "models/props_gameplay/door.mdl";
 
     /// <summary>
-    /// **The second parameter blends from the creating update**, not the arrival keyframe: the reset at creation sized the
-    /// history to the model's two parameters and seeded it with (0.2, 0.4).
-    /// </summary>
-    /// <remarks>
-    /// Both parameters move by 0.4 between the two updates, so at any one fraction the second is the first plus 0.2. The
-    /// viewer's history was one float wide here, so the second drew 0.8, the tick-10 value, at every sample.
-    /// </remarks>
-    [Test]
-    public void At_ASecondParameterAfterTheModelIsSet_BlendsWithTheFirst()
-    {
-        DemoTimeline timeline = DemoTimeline.Build(
-            Demo((0, 1, [0.2f, 0.4f]), (10, 1, [0.6f, 0.8f])), models: Facts());
-
-        IReadOnlyList<float> drawn = Track(timeline).At(13d)!.Value.PoseParameters;
-
-        drawn[0].ShouldBeInRange(0.21f, 0.59f, "the first parameter is mid-blend, or this sample measures nothing");
-        drawn[1].ShouldBe(drawn[0] + 0.2f, 1e-5f, "both parameters blend on one fraction");
-    }
-
-    /// <summary>
     /// **A model change to a different parameter count resets the history AT THAT UPDATE**, so a target before it draws
     /// the reset's own value: the three reset entries share the update's arrival, and nothing older is in the history.
     /// </summary>
@@ -99,7 +79,7 @@ public sealed class ModelResetConformanceTests
     /// <summary>
     /// **No facts is the engine's model-less answer**: `OnNewModel` returns before `SetMaxCount` when there is no studio
     /// header (`c_baseanimating.cpp:1042-1072`), so nothing resets and the width stays `MAXSTUDIOPOSEPARAM` — every
-    /// parameter blends.
+    /// parameter blends (part 5: the history was one float wide here, so the second drew the tick-10 value, 0.8).
     /// </summary>
     [Test]
     public void At_AModelWithNoFacts_BlendsEveryParameterUnreset()
@@ -110,6 +90,28 @@ public sealed class ModelResetConformanceTests
 
         drawn[0].ShouldBeInRange(0.21f, 0.59f);
         drawn[1].ShouldBe(drawn[0] + 0.2f, 1e-5f);
+    }
+
+    /// <summary>
+    /// **A window walked with the same facts draws what the whole timeline draws** (B872): the window's builder runs the
+    /// same `OnNewModel` at the same update. The control is a window walked without them, which keeps the old history.
+    /// </summary>
+    [Test]
+    public void Window_WalkedWithTheModelFacts_DrawsTheResetAsTheWholeDoes()
+    {
+        byte[] demo = Demo((0, 3, [0.2f]), (10, 3, [0.6f]), (20, 1, [0.9f, 0.5f]), (30, 1, [0.9f, 0.5f]));
+        float whole = Track(DemoTimeline.Build(demo, models: Facts())).At(25d)!.Value.PoseParameters[0];
+
+        float With(IModelFacts? facts)
+        {
+            TimelineWindows walk = TimelineWindows.Walk(demo, 5, new WindowSettings(), models: facts).ShouldNotBeNull();
+            int start = walk.Ticks[walk.IndexAt(25d)];
+
+            return Track(walk.Window(start, 25)).At(25d)!.Value.PoseParameters[0];
+        }
+
+        With(Facts()).ShouldBe(whole);
+        With(null).ShouldNotBe(whole, "the control: without the facts the window blends across the model change");
     }
 
     private static ScenePropTrack Track(DemoTimeline timeline) =>
@@ -128,8 +130,44 @@ public sealed class ModelResetConformanceTests
         public ModelFacts? FactsOf(string modelPath) => facts.GetValueOrDefault(modelPath);
     }
 
+    /// <summary>
+    /// **An update that sets a static-prop model AND restarts the sequence keeps the cycle's history**: the engine sets the
+    /// model before the parity block (`c_baseentity.cpp:2609`, then `c_baseanimating.cpp:4738-4748`), so the block reads the
+    /// NEW model's `STUDIOHDR_FLAGS_STATIC_PROP` and skips `m_iv_flCycle.Reset()` — the cycle blends 0.6 toward 0.9.
+    /// </summary>
+    /// <param name="staticProp">Whether the model set at 20 is a static prop.</param>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void At_AStaticPropModelSetWithASequenceRestart_KeepsTheCycleHistory(bool staticProp)
+    {
+        FixedFacts facts = new(new Dictionary<string, ModelFacts>(StringComparer.Ordinal)
+        {
+            [TwoParameters] = new([false, false], StaticProp: false, SequenceLoops: null),
+            [OtherTwoParameters] = new([false, false], StaticProp: staticProp, SequenceLoops: null),
+        });
+
+        DemoTimeline timeline = DemoTimeline.Build(
+            Demo((0, 1, [0.5f, 0.5f], 0.2f, 0), (10, 1, [0.5f, 0.5f], 0.6f, 0), (20, 2, [0.5f, 0.5f], 0.9f, 1)),
+            models: facts);
+
+        float cycle = Track(timeline).At(25d)!.Value.Cycle;
+
+        if (staticProp)
+        {
+            cycle.ShouldBeInRange(0.61f, 0.89f, "the exemption read the new model's flag, so the cycle still blends");
+        }
+        else
+        {
+            cycle.ShouldBe(0.9f, "the control: a model that is no static prop resets the cycle to the update's value");
+        }
+    }
+
     /// <summary>A demo of one prop, one update per entry: tick, model precache index, pose parameters.</summary>
-    private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose)[] frames)
+    private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose)[] frames) =>
+        Demo([.. frames.Select(frame => (frame.Tick, frame.ModelIndex, frame.Pose, (float?)null, (int?)null))]);
+
+    /// <summary>The same, each update also stating a cycle and a new-sequence parity when given.</summary>
+    private static byte[] Demo(params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames)
     {
         DemoSchema schema = Schema();
 
@@ -149,7 +187,7 @@ public sealed class ModelResetConformanceTests
 
         for (int index = 0; index < frames.Length; index++)
         {
-            (int tick, int modelIndex, float[] pose) = frames[index];
+            (int tick, int modelIndex, float[] pose, float? cycle, int? parity) = frames[index];
 
             IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
 
@@ -163,6 +201,16 @@ public sealed class ModelResetConformanceTests
             for (int parameter = 0; parameter < pose.Length; parameter++)
             {
                 properties.Add(Property(flat, $"{parameter:000}", PropertyValue.FromFloat(pose[parameter])));
+            }
+
+            if (cycle is { } stated)
+            {
+                properties.Add(Property(flat, "m_flCycle", PropertyValue.FromFloat(stated)));
+            }
+
+            if (parity is { } counter)
+            {
+                properties.Add(Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(counter)));
             }
 
             properties.Sort((left, right) => left.Index.CompareTo(right.Index));
@@ -220,10 +268,20 @@ public sealed class ModelResetConformanceTests
                 new SendProperty(SendPropType.Float, "000", 1, string.Empty, 0f, 1f, 32, 0),
                 new SendProperty(SendPropType.Float, "001", 1, string.Empty, 0f, 1f, 32, 0),
             ]),
+            new SendTable("DT_BaseAnimating", NeedsDecoder: false,
+            [
+                new SendProperty(SendPropType.Int, "m_nNewSequenceParity", 1, string.Empty, 0f, 0f, 3, 0),
+            ]),
+            new SendTable("DT_ServerAnimationData", NeedsDecoder: false,
+            [
+                new SendProperty(SendPropType.Float, "m_flCycle", 1, string.Empty, 0f, 1f, 32, 0),
+            ]),
             new SendTable("DT_DynamicProp", NeedsDecoder: true,
             [
                 new SendProperty(SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0),
                 new SendProperty(SendPropType.DataTable, "m_flPoseParameter", 1, "m_flPoseParameter", 0f, 0f, 0, 0),
+                new SendProperty(SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
+                new SendProperty(SendPropType.DataTable, "serveranimdata", 1, "DT_ServerAnimationData", 0f, 0f, 0, 0),
             ]),
         ],
         [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);

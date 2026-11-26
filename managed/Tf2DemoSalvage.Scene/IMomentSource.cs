@@ -495,10 +495,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         }
     }
 
-    /// <summary>What a model said at <see cref="OnNewModel"/>, kept for every later track that draws it (B726).</summary>
-    private readonly record struct ModelFacts(IReadOnlyList<bool> Looping, bool StaticProp, Func<int, bool>? SequenceLoops);
-
-    /// <summary>Each model's facts, by path, once any entity drawing it has been reported.</summary>
+    /// <summary>Each model's facts, by path, once any entity drawing it has been reported (B726).</summary>
     private readonly Dictionary<string, ModelFacts> _modelFacts = new(StringComparer.Ordinal);
 
     /// <summary>Which model each track was last told about.</summary>
@@ -525,7 +522,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
         foreach (SceneProp prop in drawn)
         {
-            if (!_modelFacts.TryGetValue(prop.ModelPath, out ModelFacts facts))
+            if (!_modelFacts.TryGetValue(prop.ModelPath, out ModelFacts? facts))
             {
                 continue;
             }
@@ -550,7 +547,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <summary>One track told one drawn model's flags (B870: never its history's shape).</summary>
     private void Inform(ScenePropTrack track, string model, ModelFacts facts)
     {
-        track.Describe(facts.Looping, facts.StaticProp, facts.SequenceLoops);
+        track.Describe(facts.PoseParameterLoops, facts.StaticProp, facts.SequenceLoops);
         _informed[track] = model;
     }
 

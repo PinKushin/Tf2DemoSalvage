@@ -47156,6 +47156,34 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
+## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
+
+Found writing B870, *read*. The build asks `IModelFacts` for the path the wire's `m_nModelIndex` names, from the
+install's archives. (1) A weapon whose wire names no model — `CWeaponMedigun`, `CTFMinigun` on `cp_fulgur`
+(`ScenePropTrack.ItemDefinitionIndex`) — is drawn from its item, so the build never sees a model set and its pose history
+is never resized; the engine's client sets the item's model and runs `OnNewModel` (*the client-side SetModel path is
+inferred, not read*). (2) A map's own `.mdl` packed in its BSP pakfile is not in `Archives.Read`, and the map loads in
+parallel with the decode (B507), so its facts are null. Both draw as the engine's model-less entity: no resize, no
+static-prop exemption, no sequence looping until the view restates the flags. Fix shape: resolve the item's model in the
+build (the item schema is already in `GameContent`), and give the facts the map's pakfile once it is read — or read the
+header before the decode. *Not fixed*.
+
+## B872 — the window walk builds without the class scripts or the model facts (2026-11-26) — FIXED
+
+Found writing B870, *read*. `DemoTimeline.Checkpoints.Walk` starts its builder with `classes` and `models` both null
+(`Start(file, null, client, null, null, …)`), where the viewer's straight build passes the install's
+`ClassAnimation` (B437) and, since B870, `ModelFacts`. So a window built for `--windows` draws a crouch walk and every
+pose-parameter history as if the game were not installed: no resize at a model set, no static-prop exemption from the
+cycle reset. Pre-existing for the class scripts; B870 adds the model facts to the same gap. Fix shape: carry both into
+`WindowSettings`' walk (they are inputs, not settings, so a sibling argument), and a windows-against-straight test with
+a model set.
+
+**Fixed on `fix/b870-pose-history`** (the B870 reviews: two reviewers found the branch widened it): `DecodedDemo` keeps
+the class scripts and model facts it was read with, and `WindowCheck` → `WindowCache.Walk` → `TimelineWindows.Walk` →
+`Checkpoints.Walk` hands both to the walk's builder. Both are in the builder's shared inputs, so a checkpoint does not
+deep-copy the facts cache, and `ModelFacts` is immutable to `StateCopy`. Tested by
+`Window_WalkedWithTheModelFacts_DrawsTheResetAsTheWholeDoes` (its control, a window without the facts, differs).
+
 ## B871 — a created entity's histories start from one latched entry, where `ResetLatched` re-seeds three at `curtime` (2026-11-26) — OPEN
 
 Found reading the engine for B870, *read*, not measured. On `DATA_UPDATE_CREATED`, `C_BaseAnimating::OnDataChanged`
@@ -47170,28 +47198,6 @@ arrival. A model change does NOT reach it: `modelchanged` in `OnDataChanged` com
 `PostDataUpdate`'s `ValidateModelIndex` (`c_baseentity.cpp:2609`) has already updated (*reasoned from the call order;
 the engine's PostDataUpdate/OnDataChanged order is not in the SDK*). Fix shape: reset every history at the creating
 arrival, after the latch; a conformance test of the first blend after creation. *Not fixed*.
-
-## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
-
-Found writing B870, *read*. The build asks `IModelFacts` for the path the wire's `m_nModelIndex` names, from the
-install's archives. (1) A weapon whose wire names no model — `CWeaponMedigun`, `CTFMinigun` on `cp_fulgur`
-(`ScenePropTrack.ItemDefinitionIndex`) — is drawn from its item, so the build never sees a model set and its pose history
-is never resized; the engine's client sets the item's model and runs `OnNewModel` (*the client-side SetModel path is
-inferred, not read*). (2) A map's own `.mdl` packed in its BSP pakfile is not in `Archives.Read`, and the map loads in
-parallel with the decode (B507), so its facts are null. Both draw as the engine's model-less entity: no resize, no
-static-prop exemption, no sequence looping until the view restates the flags. Fix shape: resolve the item's model in the
-build (the item schema is already in `GameContent`), and give the facts the map's pakfile once it is read — or read the
-header before the decode. *Not fixed*.
-
-## B872 — the window walk builds without the class scripts or the model facts (2026-11-26) — OPEN
-
-Found writing B870, *read*. `DemoTimeline.Checkpoints.Walk` starts its builder with `classes` and `models` both null
-(`Start(file, null, client, null, null, …)`), where the viewer's straight build passes the install's
-`ClassAnimation` (B437) and, since B870, `ModelFacts`. So a window built for `--windows` draws a crouch walk and every
-pose-parameter history as if the game were not installed: no resize at a model set, no static-prop exemption from the
-cycle reset. Pre-existing for the class scripts; B870 adds the model facts to the same gap. Fix shape: carry both into
-`WindowSettings`' walk (they are inputs, not settings, so a sibling argument), and a windows-against-straight test with
-a model set. *Not fixed*.
 
 ## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — FIXED
 
@@ -47266,6 +47272,33 @@ differ, all by under 0.00005 — the reset seeds what the creating update alread
 two parameters, so `SetMaxCount` wipes nothing. Control: two builds with the facts drew identically. So on a real match
 the visible change is parts 1, 3-5 and the end-of-recording seed no longer reaching the screen, not the reset's timing.
 *Not verified by looking.*
+
+**Review 1** (Fable local, Codex, Sonnet, the lead's `/code-review high`; the Fable credits job died on billing). Fixed:
+- **The pose parameters spline** (Fable): `m_iv_flPoseParameter` is not `INTERPOLATE_LINEAR_ONLY`, so a third, spaced
+  entry runs `_Interpolate_Hermite` after `TimeFixup_Hermite` (`interpolatedvar.h:992-995`, `:1371-1458`). `PoseBetween`
+  takes `Curve` / `LoopingCurve`, the cycle's own; `TimeFixup` reads a stored prefix padded. Linear until now (B382's
+  named gap, which part 1's no-compare lerp made visible on every moving frame).
+- **The build's order is pinned** (Fable): a static-prop model set in the same update as a parity change keeps the cycle
+  history; swapping `OnNewModel` after the parity block reddens it.
+- **A model with no studio header** (lead, Fable): a brush or sprite path takes the engine's no-header answers —
+  `IsSequenceLooping` false, no cycle reset (`hdr &&`, `c_baseanimating.cpp:4744-4748`), pose flags kept. A `.mdl` the
+  install lacks stays B873.
+- **Untrusted models** (lead): the width is clamped to `MAXSTUDIOPOSEPARAM` (the engine's `Assert`, `:1122`), so a header
+  declaring 256 parameters cannot overflow the `byte` width or the `stackalloc`; `StudioModelFacts` catches `IOException`
+  beside `InvalidDataException`, as `PropModels.Find` does, so one unreadable file cannot stop a demo opening.
+- **Memory without an install** (lead): an entry drops trailing +0s, which read back as +0; a baseline states all 24.
+- **Only the pose history stores a prefix** (lead, Sonnet): every other history keeps the exact-width `Add`, and `Same`
+  pads within the asked component span.
+- **B872 fixed here** (all three reviewers flagged the widened gap); `TimelineMoments` uses Core's `ModelFacts`.
+- Tests added: the spline (0.575 where the line gives 0.55), a parameter past the model's count keeps the stated value,
+  the reset stamped with the arrival (0.7, where the animation time gives 0.654), the static-prop order (with its
+  control), the window walk. Removed `At_ASecondParameterAfterTheModelIsSet_BlendsWithTheFirst`, which could not fail for
+  its stated reason (Fable). Each new mechanism's sabotage reddened its test.
+
+Not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
+and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,
+Fable, minor): the two compose the same Content readers, but `PropModels` composes them inside the draw load with its
+pakfile-aware `Find`; one reader shared by both is B873's fix, which needs the pakfile at build.
 
 ## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
 

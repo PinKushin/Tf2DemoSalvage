@@ -726,5 +726,7 @@ internal static class StateCopy
         || type == typeof(Schema.DecodedProperties)
         // Its arrays are private and written only by its constructor (B849): every track shares one.
         || type == typeof(InterpolationSchedule)
+        // A model's facts, cached once per path by the install and never written after (B870).
+        || type == typeof(ModelFacts)
         || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

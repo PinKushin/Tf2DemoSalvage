@@ -28,6 +28,12 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <remarks>Kept only when asked: the whole file held for the demo's life is the window cache's input, not a default.</remarks>
     public ReadOnlyMemory<byte> Bytes { get; init; }
 
+    /// <summary>The class scripts the timeline was built with, which a window walk of the same bytes must use too (B872).</summary>
+    public IClassAnimationScripts? Classes { get; init; }
+
+    /// <summary>The model facts the timeline was built with, which a window walk of the same bytes must use too (B872).</summary>
+    public IModelFacts? Models { get; init; }
+
     /// <summary>Reads and decodes a demo. Safe to call off the UI thread.</summary>
     /// <param name="path">The demo file.</param>
     /// <param name="demo">Where the decode reports what it found.</param>
@@ -116,7 +122,12 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             demo.LogWarning(failure, "{Message}", "building the position timeline");
         }
 
-        return new DecodedDemo(loaded, timeline) { Bytes = keepBytes ? bytes : ReadOnlyMemory<byte>.Empty };
+        return new DecodedDemo(loaded, timeline)
+        {
+            Bytes = keepBytes ? bytes : ReadOnlyMemory<byte>.Empty,
+            Classes = classes,
+            Models = models,
+        };
     }
 
     /// <summary>The decode's progress, written to the demo log at each tenth and handed on (B613).</summary>

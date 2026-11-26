@@ -282,7 +282,7 @@ public sealed class InterpolatedHistoryTests
     [Test]
     public void LatestChange_AShorterEntryPaddedWithZeros_IsTheSameAsTheLonger()
     {
-        InterpolatedHistory history = new(3);
+        InterpolatedHistory history = new(3, storesPrefix: true);
         history.Add(1, 1, [0.5f]);
         history.Add(2, 2, [0.5f, 0f]);
         history.Add(3, 3, [0.5f, 0f, -0f]);

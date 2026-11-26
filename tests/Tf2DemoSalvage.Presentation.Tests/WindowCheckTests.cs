@@ -82,7 +82,7 @@ public sealed class WindowCheckTests
             closing =>
             {
                 release.Wait(TimeSpan.FromSeconds(30), closing).ShouldBeTrue();
-                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, cancel: closing), 0L, TimeSpan.Zero);
             },
             Settings,
             log);
@@ -106,7 +106,7 @@ public sealed class WindowCheckTests
             {
                 closing.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)).ShouldBeTrue();
                 closing.ThrowIfCancellationRequested();
-                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, cancel: closing), 0L, TimeSpan.Zero);
             },
             Settings,
             new RecordingLogger());

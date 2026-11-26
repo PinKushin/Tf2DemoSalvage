@@ -3282,17 +3282,22 @@ public sealed class DemoTimeline
         /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
         /// <param name="cancel">Stops the walk between two packets.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        /// <param name="classes">The install's class scripts, as the straight build has them (B872); null for none.</param>
+        /// <param name="models">The install's model facts, as the straight build has them (B872); null for none.</param>
         /// <exception cref="OperationCanceledException">Cancelled before the walk finished.</exception>
         public static Checkpoints? Walk(
             ReadOnlyMemory<byte> file,
             int everyTicks,
             WindowSettings settings,
             Dictionary<Type, (long Objects, long Elements)>? created = null,
+            IClassAnimationScripts? classes = null,
+            IModelFacts? models = null,
             CancellationToken cancel = default)
         {
             ArgumentNullException.ThrowIfNull(settings);
 
-            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created, cancel) is not { } walked)
+            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created, cancel, classes, models)
+                is not { } walked)
             {
                 return null;
             }
@@ -3306,7 +3311,7 @@ public sealed class DemoTimeline
 
             // The first walk's counts describe checkpoints thrown away; only the walk returned is counted.
             created?.Clear();
-            return Walk(file, everyTicks, settings.Interp, _ => needed, created, cancel);
+            return Walk(file, everyTicks, settings.Interp, _ => needed, created, cancel, classes, models);
         }
 
         /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
@@ -3347,9 +3352,11 @@ public sealed class DemoTimeline
             ClientInterp client,
             Func<Builder, WindowReach> reachAt,
             Dictionary<Type, (long Objects, long Elements)>? created,
-            CancellationToken cancel)
+            CancellationToken cancel,
+            IClassAnimationScripts? classes = null,
+            IModelFacts? models = null)
         {
-            if (Start(file, null, client, null, null, out List<DemoCommand> commands) is not { } builder)
+            if (Start(file, null, client, classes, models, out List<DemoCommand> commands) is not { } builder)
             {
                 return null;
             }
@@ -6022,6 +6029,12 @@ public sealed class DemoTimeline
                 shared.Add(classes);
             }
 
+            // The install's model facts, a cache every copy reads and none owns (B870).
+            if (modelFacts is not null)
+            {
+                shared.Add(modelFacts);
+            }
+
             return shared;
         }
 
@@ -8027,6 +8040,11 @@ public sealed class DemoTimeline
         if (modelSet && modelFacts?.FactsOf(model!) is { } facts)
         {
             track.OnNewModel(facts.PoseParameterLoops, tick, facts.StaticProp, facts.SequenceLoops);
+        }
+        else if (modelSet && modelFacts is not null && !model!.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+        {
+            // A brush model or a sprite has no studio header, which is an answer; a `.mdl` the install lacks is not (B873).
+            track.NoStudioHeader();
         }
 
         if (newSequenceStarted)
