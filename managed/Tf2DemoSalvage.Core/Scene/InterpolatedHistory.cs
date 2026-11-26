@@ -977,8 +977,7 @@ public sealed class InterpolatedHistory
     /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
     /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
     /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
-    /// build-before-sample order — except a `Reset` from a model change at view time, which appends after sampling
-    /// began, out of arrival order: B870.
+    /// build-before-sample order — except a view-time model reset: B870.
     /// </remarks>
     private readonly object _memoLock = new();
 
@@ -1420,7 +1419,8 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// **Exact rather than a starting point, because arrival IS monotonic.** Entries are appended as
     /// packets are read, so the received tick ascends down the list where the changetime does not —
-    /// which is why the reach bound is a binary search and the neighbour choice is a walk.
+    /// which is why the reach bound is a binary search and the neighbour choice is a walk. Except after a view-time
+    /// model reset, which appends out of arrival order: B870.
     /// </remarks>
     private int LastReceivedAtOrBefore(int arrivedBy)
     {

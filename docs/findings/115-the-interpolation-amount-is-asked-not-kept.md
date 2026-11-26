@@ -117,7 +117,8 @@ no file under `client/tf` or `shared/tf` names that class, and TF2's bosses and 
   (`c_baseentity.cpp:2571-2576`, **read**), whose first two are float `!=`s (`Vector`, `vector.h:663-668`; `QAngle`,
   `:2042-2047`; **read**) — so at one simulation time −0 after +0 is no latch, and at a new one it latches and then
   re-arms. This project had the two the other way round: the history compare was float-equal until review 28 and the
-  append gate bitwise until review 29. The angle lerp's shortcut is a third float compare; findings 20 owns it. A commit message in review 27 also said an entry equal to the head is
-  not added — wrong: `AddToHead` at `:649` is unconditional, which is B382's whole point.
+  append gate bitwise until review 29. The angle lerp's shortcut is a third float compare; findings 20 owns it. A
+  commit message in review 27 also said an entry equal to the head is not added — wrong: `AddToHead` at `:649` is
+  unconditional, which is B382's whole point.
 
 The locally recorded every-tick path is still the open question of B861.

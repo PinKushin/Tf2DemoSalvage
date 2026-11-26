@@ -2835,7 +2835,8 @@ public sealed class ScenePropTrack
         // smooth.
         // Asked AT the tick: the flag is networked per update, so the end value would decide every earlier frame (B548).
         // `m_iv_flPoseParameter` is its own variable (B860 review 2, Fable): stamped with the cycle, so the same fraction
-        // while both run at one target; its own pair's fraction once a rise holds one and not the other.
+        // while both run at one target; its own pair's fraction once a rise holds one and not the other. Not after a
+        // sequence restart or a model reset, which reset one history and not the other: B870.
         Bracketing? posePair = _poseParameters.Bracket(poseTarget, (int)Math.Floor(tick));
         float poseFraction = animationFraction;
 
@@ -3573,11 +3574,8 @@ public sealed class ScenePropTrack
     /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
     /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
     /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
-    /// treated as immutable throughout, which is what makes handing one out safe. **That is not the
-    /// engine's**, which lerps a distinct pair and copies a single entry (`_Interpolate`,
-    /// <c>interpolatedvar.h:1315-1340</c>): the stated list is the arrival keyframe's, so a parameter whose new
-    /// value has arrived draws it a delay early. B870, which cannot be fixed alone: the view-time model
-    /// reset this shortcut hides seeds the end of the recording.
+    /// treated as immutable throughout, which is what makes handing one out safe. **Differs from
+    /// `_Interpolate`: B870.**
     ///
     /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
     /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged

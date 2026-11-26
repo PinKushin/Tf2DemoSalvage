@@ -47166,8 +47166,10 @@ the first cannot be fixed without the second — a fix of it alone was made in B
    the quick exit at `:1315`) and otherwise lerps it, `LoopingLerp` for a looping element, with no value compare.
    Scenario: entries at 0, 1, 2 of (0.2, 1.0), (0.2, 1.0), (0.8, 0.5), the second looping; at a target of 0.5 the
    engine draws (0.2, 0) — `LoopingLerp(1, 1, ½)` is `s − (int)s` of 1.0 — and the viewer (0.8, 0.5), a delay early,
-   then snaps back to blend from 0.2. A rise lengthens the delay, so B860 widens it.
-2. **`OnNewModel` runs at VIEW time** (`IMomentSource.Inform`, when a track is first drawn under a model) and resets the
+   then snaps back to blend from 0.2. A rise widens it, on main as here; B860 does not — its floor only raises the
+   target, so the early span is equal or shorter (review 33, Fable).
+2. **`OnNewModel` runs at VIEW time** (`IMomentSource.Inform`, when a track is first drawn under a model) and, when the
+   model's parameter count differs from the history's width (`SetMaxCount`; the width starts at 1), resets the
    pose-parameter history with values from `_keyframes[^1]`, the END of the recording, stamped at the view tick and
    appended after entries that arrived later — out of the arrival order `LastReceivedAtOrBefore`'s search assumes. The
    engine's `OnNewModel` runs when the model is set, from the networked values then. Part 1's shortcut hides this: the
@@ -47181,13 +47183,16 @@ the first cannot be fixed without the second — a fix of it alone was made in B
    different pairs. Pose entries at 96 and 104, a restart at 100, target 101: the cycle pair (100, 104) gives 0.25, the
    pose pair's own is 0.625; the engine computes each variable's fraction (Fable; `AnimationNeighbours` not read, so the
    fraction after a reset is *inferred*).
-5. Parameters past the history's width take the arrival keyframe's value, a delay early, until `OnNewModel` widens it
-   (lead). Linear where the engine splines is recorded at `PoseBetween` already.
+5. Parameters past the history's width take the arrival keyframe's value, a delay early (lead) — and not only until
+   `OnNewModel` widens it: an entry is sized by the width when it is appended, so entries built before the view-time
+   widening stay one float wide, and a bracket on them never blends parameter 1 and up (review 33, Fable; build order
+   against `Inform` not traced, *reasoned*). Linear where the engine splines is recorded at `PoseBetween` already.
 
 Fix shape: inform each track of its model's facts when its model is SET in the recording (or at build, from the
 model index), seeding from the keyframe in force then; then make `PoseBetween` the engine's — copy one entry, lerp two,
-reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above, a
-held looping parameter at 1.0 drawing 1.0 (the quick exit), and a view-time model with a later arrival. *Not fixed*.
+reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above; a
+looping parameter at 1.0 with the target past the head, ONE entry, drawing 1.0 (the quick exit — two distinct entries
+both 1.0 draw 0, as part 1); and a view-time model with a later arrival. *Not fixed*.
 
 ## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
 
@@ -47938,6 +47943,15 @@ blocker in the memo or the compares). **Reverted:** review 31's `PoseBetween` an
 paragraph above; their test goes with them, and B870 carries its expected values. **Fixed:** the NaN angle test is named
 for what it observes, `…_DrawANaNYaw` (lead); `LatestChangeIndex`'s two `<remarks>` blocks are one (Sonnet). Not taken:
 the "unnecessary" reading of the `Reset` clear (Sonnet) — moot, reverted.
+
+Review 33 and merge review 17 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; the revert is byte-exact apart from comments and the `Settled` deletion, and deferring B870 is agreed — B860
+does not worsen any part of it). Records only: B870 part 1 no longer says B860 widens it (Fable); part 2 says the reset
+happens when the parameter count differs from the width (cavecrew); part 5 says pre-widening entries stay one wide
+(Fable, *reasoned*); the quick-exit test names one entry, past the head (cavecrew); `PoseBetween`'s and the lock's
+remarks are one-line pointers to B870 (lead); `LastReceivedAtOrBefore`'s "arrival IS monotonic" and the shared pose
+fraction name the B870 exception (cavecrew, Fable); findings 115 rewrapped (lead). Not taken: `Memos.Settles` growth on a
+very long recording kept in rise windows (Sonnet) — recorded since review 27, *reasoned*.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
