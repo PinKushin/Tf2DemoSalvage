@@ -734,55 +734,63 @@ public sealed class InterpolatedHistory
 
             Memos memos = _memos ??= new Memos();
 
-            // **Far past the run, look back from the new tick first** (B860 review 24, Fable; merge review 5): a second rise
-            // window long after the first would otherwise scan forward and KEEP every change between them. The walk back stops
-            // at what the run examined: a change found there starts a new run (one entry kept, not the gap's); none found
-            // means nothing changed in the gap, and the run simply reaches the new tick.
-            if (memos.ChangeOf.TryGetValue((first, count), out ChangeRun? kept) && last - kept.Through > ReseedGap)
+            if (!memos.ChangeOf.TryGetValue((first, count), out List<ChangeRun>? runs))
             {
-                int change = last;
+                runs = [];
+                memos.ChangeOf[(first, count)] = runs;
+            }
 
-                while (change > kept.Through && !IsChange(change, first, count))
+            // **Up to two runs, the one asked from nearest used** (merge review 10): the presenter asks near one tick while
+            // the seek scan, or a rewind's rise window, asks far from it. One run either threw the other's away on every
+            // alternation (merge review 8), kept every change between (merge review 9's predecessor), or remembered nothing
+            // and walked on every call (merge review 10). A run within `ReseedGap` of the tick serves it; otherwise a new one
+            // is seeded, the least recently used going when there are two.
+            ChangeRun? run = null;
+
+            foreach (ChangeRun near in runs)
+            {
+                if (last >= near.Start - ReseedGap && last <= near.Through + ReseedGap)
                 {
-                    change--;
+                    run = near;
+                    break;
+                }
+            }
+
+            if (run is null)
+            {
+                // **Look back from the new tick, but no further than a run that ended before it** (review 24, merge review
+                // 5): a change met first starts a new run; that run reached first means nothing changed in the gap, and it
+                // simply reaches the new tick.
+                ChangeRun? below = null;
+
+                foreach (ChangeRun candidate in runs)
+                {
+                    if (candidate.Through < last && (below is null || candidate.Through > below.Through))
+                    {
+                        below = candidate;
+                    }
                 }
 
-                if (change > kept.Through)
+                int change = WalkBackToChange(last, below?.Through ?? -1, first, count);
+
+                if (below is not null && change <= below.Through)
                 {
-                    memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
+                    below.Through = last;
+                    run = below;
+                }
+                else
+                {
+                    if (runs.Count == 2)
+                    {
+                        runs.Remove(runs[0].Used < runs[1].Used ? runs[0] : runs[1]);
+                    }
+
+                    runs.Add(new ChangeRun(change, last, [change], []) { Used = ++memos.Uses });
                     return change;
                 }
-
-                kept.Through = last;
             }
 
-            if (!memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run))
-            {
-                int change = last;
-
-                while (!IsChange(change, first, count))
-                {
-                    change--;
-                }
-
-                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
-                return change;
-            }
-
-            // **Far before the run, answer without remembering** (merge review 9): a reseed there threw away the presenter's
-            // run whenever the seek scan asked an earlier tick between frames (merge review 8), and walking back into the
-            // run kept every change between them for the timeline's life. A one-off walk to the change keeps neither.
-            if (run.Start - last > ReseedGap)
-            {
-                int change = last;
-
-                while (!IsChange(change, first, count))
-                {
-                    change--;
-                }
-
-                return change;
-            }
+            run.Used = ++memos.Uses;
 
             // Appended directly — this runs most frames inside a rise window, and a list collected first allocated every time
             // (merge review 4) — with `Through` moved past each entry as it is examined, so a throw from `Same` leaves the run
@@ -826,18 +834,32 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>How far past what a run examined a call may ask before the run may be started again from that call.</summary>
+    /// <summary>How far from a run, either way, a call may ask and still be served by it.</summary>
     /// <remarks>
     /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
-    /// delays, not measured); a gap of this many entries is a later window. Far past the run, the walk back from the new
-    /// tick stops at what the run examined, so it never costs more than the forward scan would. **Far before the run the
-    /// answer is not remembered** (merge reviews 8 and 9): the seek scan asks earlier ticks between the presenter's frames
-    /// (`RecorderPrediction`, D233), a reseed there threw away the presenter's run on every alternation, and the ordinary
-    /// walk back kept every change between for the timeline's life. Each such ask costs its walk to the latest change.
+    /// delays, not measured); a gap of this many entries is another window, served by a run of its own. The memo is only
+    /// asked inside rise windows, so a run grows by at most this much per ask and only between windows that close
+    /// (*reasoned*, merge review 10).
     /// </remarks>
     private const int ReseedGap = 512;
 
-    /// <summary>How many changes a variable's latest-change memo holds, for a test to see what a walk kept.</summary>
+    /// <summary>
+    /// The newest change at or after <paramref name="floor"/> exclusive, walking back from <paramref name="from"/>; or
+    /// <paramref name="floor"/> itself when none lies above it, or -1 is the floor and the walk ends at a generation start.
+    /// </summary>
+    private int WalkBackToChange(int from, int floor, int first, int count)
+    {
+        int change = from;
+
+        while (change > floor && !IsChange(change, first, count))
+        {
+            change--;
+        }
+
+        return change;
+    }
+
+    /// <summary>How many changes a variable's latest-change memo holds over its runs, for a test to see what a walk kept.</summary>
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count.</param>
     /// <returns>The count, or zero when the variable has no memo.</returns>
@@ -845,9 +867,17 @@ public sealed class InterpolatedHistory
     {
         lock (_memoLock)
         {
-            return _memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run)
-                ? run.Later.Count + run.Earlier.Count
-                : 0;
+            int held = 0;
+
+            if (_memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out List<ChangeRun>? runs))
+            {
+                foreach (ChangeRun run in runs)
+                {
+                    held += run.Later.Count + run.Earlier.Count;
+                }
+            }
+
+            return held;
         }
     }
 
@@ -888,6 +918,9 @@ public sealed class InterpolatedHistory
         public int Start { get; set; } = Start;
 
         public int Through { get; set; } = Through;
+
+        /// <summary>When this run last served a call, against <see cref="Memos.Uses"/>: the older of two is evicted.</summary>
+        public long Used { get; set; }
     }
 
     /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
@@ -906,8 +939,11 @@ public sealed class InterpolatedHistory
     /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
     private sealed class Memos
     {
-        /// <summary>For each variable, the run of entries examined and its changes.</summary>
-        public Dictionary<(int First, int Count), ChangeRun> ChangeOf { get; } = [];
+        /// <summary>For each variable, up to two runs of entries examined and their changes.</summary>
+        public Dictionary<(int First, int Count), List<ChangeRun>> ChangeOf { get; } = [];
+
+        /// <summary>A count of calls served, which <see cref="ChangeRun.Used"/> is stamped from.</summary>
+        public long Uses { get; set; }
 
         /// <summary>Scan cursors, keyed by what the scan depends on.</summary>
         public Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> Settles { get; } = [];

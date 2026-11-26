@@ -47779,6 +47779,17 @@ not remembered — neither throwing the presenter's run away (merge review 8) no
 `LatestChange_FarBeforeTheRun_AnswersWithoutRemembering` (renamed from `…SeedsFromTheTickAsked`) asserts the run still
 holds one change after the far ask, and reddens with the branch removed. The cost is a walk per far-before ask, *reasoned*.
 
+Merge review 10 (the lead's `/code-review high`; the cavecrew reviewer found nothing). **A far-before ask remembered
+nothing, so a rise window at an older tick walked back on every call of every frame.** Each of the three single-run
+designs lost one way: replace (thrash), extend (keep the gap) or skip (walk every time). A variable now keeps up to two
+runs; a call within `ReseedGap` of one is served by it, any other seeds a new run — looking back no further than a run that
+ended before it — and the run used longest ago goes when there are two. `LatestChange_FarBeforeTheRun_KeepsASecondRun`
+(two changes held, one per run) and `LatestChange_ThreeFarApartAsks_HoldTwoRuns` (reddens with eviction off: three held)
+cover it; the three seed walks share `WalkBackToChange`. Which run is evicted changes no answer and is not tested. Not
+taken: a rewind stepping back less than 512 entries at a time growing a run (lead) — the memo is asked only inside rise
+windows, tens of ticks long and a handful a recording, so a run grows only between windows that close (*reasoned*); a
+boundary test at exactly 512 (lead) — either side of it answers the same, only the run serving it differs.
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
 long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the

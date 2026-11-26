@@ -250,12 +250,12 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **Far before the run, it answers without remembering** (B860 review 26, merge reviews 8 and 9): values change at 1,
-    /// 300, 1,500 and 1,900 over 2,000 entries. Asked at 2,000 (1,900; the run starts at 1,900 and holds one change), then
-    /// at 800 — more than 512 before it — (300; the run still holds one), then at 1,600 (1,500) and 2,000 (1,900) again.
+    /// **Far before the run, a second run serves it and the first is kept** (B860 review 26, merge reviews 8-10): values
+    /// change at 1, 300, 1,500 and 1,900 over 2,000 entries. Asked at 2,000 (1,900; one run, one change), then at 800 —
+    /// more than 512 before it — (300; a second run, two changes in all), then at 1,600 (1,500) and 2,000 (1,900) again.
     /// </summary>
     [Test]
-    public void LatestChange_FarBeforeTheRun_AnswersWithoutRemembering()
+    public void LatestChange_FarBeforeTheRun_KeepsASecondRun()
     {
         InterpolatedHistory history = new(1);
 
@@ -284,7 +284,7 @@ public sealed class InterpolatedHistoryTests
         int held = history.ChangesHeld(0, -1);
         int?[] after = [history.LatestChange(1600, 0, -1), history.LatestChange(2000, 0, -1)];
 
-        (atEnd, farBack, held, after[0], after[1]).ShouldBe((1900, 300, 1, 1500, 1900));
+        (atEnd, farBack, held, after[0], after[1]).ShouldBe((1900, 300, 2, 1500, 1900));
     }
 
     /// <summary>
@@ -311,6 +311,29 @@ public sealed class InterpolatedHistoryTests
         Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(11, 3, 3));
 
         (seeded, heldBefore, history.ChangesHeld(3, 3)).ShouldBe((3, 1, 2));
+    }
+
+    /// <summary>
+    /// **A third far-apart ask evicts the run used longest ago** (B860 merge review 10): values change at 1, 1,000, 2,000,
+    /// 3,000 and 4,000 over 5,000 entries. Asked at 4,500 (4,000), 2,500 (2,000) and 500 (1): three runs' worth of asks,
+    /// two runs held, one change each. Then at 4,500 again (4,000), still two.
+    /// </summary>
+    [Test]
+    public void LatestChange_ThreeFarApartAsks_HoldTwoRuns()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 5000; tick++)
+        {
+            history.Add(tick, tick, [tick / 1000]);
+        }
+
+        int?[] answers = [history.LatestChange(4500, 0, -1), history.LatestChange(2500, 0, -1), history.LatestChange(500, 0, -1)];
+        int heldAfterThree = history.ChangesHeld(0, -1);
+        int? again = history.LatestChange(4500, 0, -1);
+
+        (answers[0], answers[1], answers[2], heldAfterThree, again, history.ChangesHeld(0, -1))
+            .ShouldBe((4000, 2000, 1, 2, 4000, 2));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
