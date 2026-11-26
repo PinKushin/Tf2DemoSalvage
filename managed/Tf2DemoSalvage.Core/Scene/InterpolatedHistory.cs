@@ -783,44 +783,35 @@ public sealed class InterpolatedHistory
                 return change;
             }
 
-            // Appended directly: this runs most frames inside a rise window, and a list collected first allocated every time
-            // (merge review 4). Nothing is rolled back on a throw from `Same`: that throw is a caller asking a span its
-            // history cannot hold, which no production variable does (review 25). After one, the lists may hold appends a
-            // retry repeats, so a caller that catches it and asks again is relying on nothing (review 26).
+            // Appended directly — this runs most frames inside a rise window, and a list collected first allocated every time
+            // (merge review 4) — with `Through` moved past each entry as it is examined, so a throw from `Same` leaves the run
+            // describing exactly what it examined and a retry repeats nothing (merge review 7).
             for (int index = run.Through + 1; index <= last; index++)
             {
                 if (IsChange(index, first, count))
                 {
                     run.Later.Add(index);
                 }
-            }
 
-            run.Through = Math.Max(run.Through, last);
+                run.Through = index;
+            }
 
             // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
             // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
             // its own list and appended directly in walk order, so a rewind asking one step back at a time costs what it walks,
-            // not the whole memo, and allocates nothing (merge reviews 3 and 5).
-            if (last < run.Start)
+            // not the whole memo, and allocates nothing (merge reviews 3 and 5). `Start` moves to each change as it is kept, so
+            // a throw leaves the run consistent with what it holds (merge review 7).
+            int back = run.Start - 1;
+
+            while (last < run.Start)
             {
-                int index = run.Start - 1;
-
-                while (true)
+                if (IsChange(back, first, count))
                 {
-                    if (IsChange(index, first, count))
-                    {
-                        run.Earlier.Add(index);
-
-                        if (index <= last)
-                        {
-                            break;
-                        }
-                    }
-
-                    index--;
+                    run.Earlier.Add(back);
+                    run.Start = back;
                 }
 
-                run.Start = index;
+                back--;
             }
 
             if (last >= run.Later[0])
@@ -840,8 +831,9 @@ public sealed class InterpolatedHistory
     /// delays, not measured); a gap of this many entries is a later window. Far past the run, the walk back from the new
     /// tick stops at what the run examined, so it never costs more than the forward scan would. Far before it, the walk
     /// back has no such bound: it runs to the latest change, as a first call does. Two callers alternating between ticks
-    /// this far apart would repeat those walks; the presenter, the seek scan and the probes each ask in one direction
-    /// (*reasoned*, review 26).
+    /// this far apart repeat those walks — and the seek scan asks earlier ticks between the presenter's frames
+    /// (`RecorderPrediction`, D233), so it can, when both land in a rise window (merge review 7). Answers are unaffected;
+    /// the cost is *reasoned*, not measured.
     /// </remarks>
     private const int ReseedGap = 512;
 

@@ -47735,9 +47735,9 @@ a list per rewind step).
 
 Review 25 and merge review 5 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
 blocker) — the fixes above, and (Fable) a backward ask far before the run seeds from its own tick as a forward one does.
-**The rollback on a throw is withdrawn** (Fable): no production variable asks a span its history cannot hold, and Fable
-traced that even a retry over the duplicated appends answers the newest change at or before the tick; review 24's
-"left the list unsorted on a retry" was true of the list and shown for no answer. B860's review 13 record is moved back
+**The rollback on a throw is withdrawn** (Fable): no production variable asks a span its history cannot hold.
+(Superseded by merge review 7: `Through` and `Start` now move with each entry examined, so a throw leaves nothing for a
+retry to repeat, and the question whether a retry over repeated appends still answers right no longer arises.) B860's review 13 record is moved back
 between 12 and 14.
 
 Review 26 and merge review 6 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`).
@@ -47749,8 +47749,17 @@ reseed gap" is corrected; the gap's remarks cover both directions; two stacked c
 "blocker" that a rewind sets `Start` past the tick asked — the walk keeps every change it passes and stops on a change at or
 before the tick, so `Start` is at or before it (its own example, a run from 100, a change at 90, an ask at 89: `Start`
 becomes 80 and an ask at 90 answers 90); two callers alternating far apart would repeat walks (lead, Sonnet) — no caller
-alternates, recorded on the constant; after a throw a retry may leave repeated appends (Sonnet, lead) — the throw is a
-caller bug no production variable makes, recorded in the code.
+alternates, recorded on the constant (corrected by merge review 7: the seek scan can); after a throw a retry may leave
+repeated appends (Sonnet, lead) — fixed in merge review 7.
+
+Merge review 7 (the lead's `/code-review high`; the cavecrew reviewer found nothing). Fixed: `Through` and `Start` move
+past each entry as it is examined, so a throw from `Same` leaves the run describing exactly what it examined and a retry
+repeats nothing — simpler than either the rollback or the caveat it replaces, and allocation-free (*reasoned*; the
+existing memo tests, every backward and forward walk among them, pass on the new loops). The `ReseedGap` remark no longer
+says no caller alternates: the seek scan asks earlier ticks between the presenter's frames (`RecorderPrediction`, D233), so
+it can when both land in a rise window; answers are unaffected and the cost is *reasoned*. Not taken: a test that sees the
+far-before reseed fire rather than what it answers — it saves work and changes no answer, so only an instrument on the
+memo's size could see it, and its correctness is pinned.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
