@@ -250,12 +250,12 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
-    /// **Far before the run, it seeds from the tick asked** (B860 review 26): values change at 1, 300, 1,500 and 1,900 over
-    /// 2,000 entries. Asked at 2,000 (1,900; the run starts at 1,900), then at 800 — more than 512 before it — (300), then
-    /// at 1,600 (1,500) and 2,000 (1,900) again.
+    /// **Far before the run, it answers without remembering** (B860 review 26, merge reviews 8 and 9): values change at 1,
+    /// 300, 1,500 and 1,900 over 2,000 entries. Asked at 2,000 (1,900; the run starts at 1,900 and holds one change), then
+    /// at 800 — more than 512 before it — (300; the run still holds one), then at 1,600 (1,500) and 2,000 (1,900) again.
     /// </summary>
     [Test]
-    public void LatestChange_FarBeforeTheRun_SeedsFromTheTickAsked()
+    public void LatestChange_FarBeforeTheRun_AnswersWithoutRemembering()
     {
         InterpolatedHistory history = new(1);
 
@@ -279,9 +279,12 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [value]);
         }
 
-        int[] asked = [2000, 800, 1600, 2000];
+        int? atEnd = history.LatestChange(2000, 0, -1);
+        int? farBack = history.LatestChange(800, 0, -1);
+        int held = history.ChangesHeld(0, -1);
+        int?[] after = [history.LatestChange(1600, 0, -1), history.LatestChange(2000, 0, -1)];
 
-        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([1900, 300, 1500, 1900]);
+        (atEnd, farBack, held, after[0], after[1]).ShouldBe((1900, 300, 1, 1500, 1900));
     }
 
     /// <summary>

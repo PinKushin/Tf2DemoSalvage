@@ -717,7 +717,8 @@ public sealed class InterpolatedHistory
     /// whole rest on every call; and a memo of every entry from the first cost a scan of the whole history on the first
     /// call and one int per entry for the timeline's life. The run starts where the first call's walk back stopped and
     /// grows only as far as later calls ask, forward or back, so both the work and the memory follow the entries actually
-    /// examined; a trim clears it, and a call far past it may replace it (<see cref="ReseedGap"/>).
+    /// examined; a trim clears it, a call far past it may replace it, and a call far before it is answered without it
+    /// (<see cref="ReseedGap"/>).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
@@ -768,6 +769,21 @@ public sealed class InterpolatedHistory
                 return change;
             }
 
+            // **Far before the run, answer without remembering** (merge review 9): a reseed there threw away the presenter's
+            // run whenever the seek scan asked an earlier tick between frames (merge review 8), and walking back into the
+            // run kept every change between them for the timeline's life. A one-off walk to the change keeps neither.
+            if (run.Start - last > ReseedGap)
+            {
+                int change = last;
+
+                while (!IsChange(change, first, count))
+                {
+                    change--;
+                }
+
+                return change;
+            }
+
             // Appended directly — this runs most frames inside a rise window, and a list collected first allocated every time
             // (merge review 4) — with `Through` moved past each entry as it is examined, so a throw from `Same` leaves the run
             // describing exactly what it examined and a retry repeats nothing (merge review 7).
@@ -814,10 +830,10 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
     /// delays, not measured); a gap of this many entries is a later window. Far past the run, the walk back from the new
-    /// tick stops at what the run examined, so it never costs more than the forward scan would. **Far before the run there
-    /// is no reseed** (merge review 8): the seek scan asks earlier ticks between the presenter's frames (`RecorderPrediction`,
-    /// D233), and a reseed there threw away the presenter's run on every alternation; the ordinary walk back keeps what it
-    /// met, so each caller pays its walk once.
+    /// tick stops at what the run examined, so it never costs more than the forward scan would. **Far before the run the
+    /// answer is not remembered** (merge reviews 8 and 9): the seek scan asks earlier ticks between the presenter's frames
+    /// (`RecorderPrediction`, D233), a reseed there threw away the presenter's run on every alternation, and the ordinary
+    /// walk back kept every change between for the timeline's life. Each such ask costs its walk to the latest change.
     /// </remarks>
     private const int ReseedGap = 512;
 

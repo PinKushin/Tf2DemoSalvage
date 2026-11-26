@@ -47734,7 +47734,8 @@ change; the cost saved is *reasoned*, not measured. The backward walk appends di
 a list per rewind step).
 
 Review 25 and merge review 5 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`: no
-blocker) — the fixes above, and (Fable) a backward ask far before the run seeds from its own tick as a forward one does.
+blocker) — the fixes above, and (Fable) a backward ask far before the run seeds from its own tick as a forward one does
+(withdrawn by merge review 8 and replaced by merge review 9: a far-before ask is answered without remembering).
 **The rollback on a throw is withdrawn** (Fable): no production variable asks a span its history cannot hold.
 (Superseded by merge review 7: `Through` moves past each entry examined and `Start` to each change kept, so a throw
 leaves nothing for a retry to repeat, and the question whether a retry over repeated appends still answers right no
@@ -47756,7 +47757,7 @@ repeated appends (Sonnet, lead) — fixed in merge review 7.
 Merge review 7 (the lead's `/code-review high`; the cavecrew reviewer found nothing). Fixed: `Through` moves past each
 entry as it is examined and `Start` to each change as it is kept, so a throw from `Same` leaves the run describing exactly
 what it examined and a retry repeats nothing — simpler than either the rollback or the caveat it replaces, and
-allocation-free (tested in merge review 8). The `ReseedGap` remark no longer
+allocation-free (the forward half tested in merge review 8; the backward half by reading only). The `ReseedGap` remark no longer
 says no caller alternates: the seek scan asks earlier ticks between the presenter's frames (`RecorderPrediction`, D233), so
 it can when both land in a rise window; answers are unaffected and the cost is *reasoned*. Not taken: a test that sees the
 far-before reseed fire rather than what it answers — it saves work and changes no answer, so only an instrument on the
@@ -47770,6 +47771,13 @@ case D6 calls deleting the path. `LatestChange_FarBeforeTheRun_SeedsFromTheTickA
 `LatestChange_RetriedAfterAThrow_RepeatsNoAppend` asserts the memo holds two changes after two failed asks where the old
 order held three, through an internal `ChangesHeld`; it reddens with `Through` set after the loop. RISKS now says `Start`
 moves to each change kept, not past each entry.
+
+Merge review 9 (the lead's `/code-review high`; the cavecrew reviewer found only the test name). **Deleting the far-before
+reseed brought back the memory cost** review 25 had removed: one rewind from mid-recording to the signon kept every
+change between in the run for the timeline's life. A far-before ask is now answered by a one-off walk to its change and
+not remembered — neither throwing the presenter's run away (merge review 8) nor keeping the gap (review 25).
+`LatestChange_FarBeforeTheRun_AnswersWithoutRemembering` (renamed from `…SeedsFromTheTickAsked`) asserts the run still
+holds one change after the far ask, and reddens with the branch removed. The cost is a walk per far-before ask, *reasoned*.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
