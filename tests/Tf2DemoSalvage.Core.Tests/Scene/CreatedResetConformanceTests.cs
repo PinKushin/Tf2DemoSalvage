@@ -111,12 +111,13 @@ public sealed class CreatedResetConformanceTests
             .Props.Single(track => track.EntityIndex == SyntheticAnimatingProp.EntityIndex)
             .At(52d + Delay)!.Value.Cycle;
 
-        ScenePropTrack unreset = new(SyntheticAnimatingProp.EntityIndex, "models/props_gameplay/door.mdl");
-        unreset.Add(10, new ScenePose { Cycle = 0.2f }, appliedAt: 10, animationAppliedAt: 7);
-        unreset.ResetLatched(10);
-        unreset.Add(50, new ScenePose { Cycle = 0.6f }, appliedAt: 50, animationAppliedAt: 47);
-        unreset.Add(60, new ScenePose { Cycle = 1.0f }, appliedAt: 60, animationAppliedAt: 57);
-        float latched = unreset.At(52d + Delay)!.Value.Cycle;
+        // Created (and reset) at 10, then only latched at 50 and 60.
+        ScenePropTrack latchedAt50 = new(SyntheticAnimatingProp.EntityIndex, "models/props_gameplay/door.mdl");
+        latchedAt50.Add(10, new ScenePose { Cycle = 0.2f }, appliedAt: 10, animationAppliedAt: 7);
+        latchedAt50.ResetLatched(10);
+        latchedAt50.Add(50, new ScenePose { Cycle = 0.6f }, appliedAt: 50, animationAppliedAt: 47);
+        latchedAt50.Add(60, new ScenePose { Cycle = 1.0f }, appliedAt: 60, animationAppliedAt: 57);
+        float latched = latchedAt50.At(52d + Delay)!.Value.Cycle;
 
         Math.Abs(latched - (0.6f + (0.4f * 2f / 7f))).ShouldBeGreaterThan(1e-2f, "the instrument: a latch must not draw what a reset draws");
         Drawn(full: false).ShouldBe(latched, 1e-5f, "the control: a delta packet's re-entry only latches");

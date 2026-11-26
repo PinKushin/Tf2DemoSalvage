@@ -194,8 +194,8 @@ public sealed class EntityStateTable
         // **Whether this update made the entity** — the engine's `DATA_UPDATE_CREATED` (B871): an `Enter` into an empty slot
         // or with a new serial, and every `Enter` of a full packet, since the engine recreates all entities on one
         // (`iclientnetworkable.h:99-101`). A re-entry of the same serial in a delta packet, and a delta for a slot the table
-        // never saw (the engine's "missing client entity"), are not. The table still KEEPS a same-serial state across a full
-        // packet where the engine destroys it — B877.
+        // never saw (the engine's "missing client entity"), are not. The properties of a restated entity are rebuilt below as
+        // a recreation's would be (`Forget`); what a full packet omits, and a track's own memory, are kept — B877.
         state.JustCreated = statesSerial && (created || inFullPacket);
 
         // **The entity's state, not the snapshot's bits, and the two differ on every Enter.** An

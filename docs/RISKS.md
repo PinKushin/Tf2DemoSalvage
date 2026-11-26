@@ -47156,18 +47156,30 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B877 — a full (non-delta) packet keeps every entity it restates, and every one it omits, where the engine recreates all (2026-11-26) — OPEN
+## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
-Found in B871 review 3 (Fable), *read*: on an uncompressed update the client destroys every entity and recreates them
-(`IClientNetworkable::SetDestroyedOnRecreateEntities`, `iclientnetworkable.h:99-101` — the header's comment; the engine
-side, `CL_ProcessPacketEntities`, is closed and *not read*). `EntityStateTable.Apply` keeps a same-serial entity's state
-across a full packet and merges the restatement into it, and an entity absent from the full packet stays in the table.
-B871 makes each `Enter` of a full packet a creation for the interpolation reset (`EntityState.JustCreated`), but the
-STATE is still kept: a property the full packet's baseline restores is right, one the old state held and the
-recreation would drop to its default is not. Scenario: a full packet mid-recording (a `cl_fullupdate`, a demo that
-restarts its stream) that omits an entity still drawn before it — the viewer keeps drawing it. Not measured: how often a
-recording carries a full packet after its first. Fix shape: on a non-delta packet, clear the table before applying it
-(and end every track it does not restate); confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
+Found in B871 review 3 (Fable), corrected in review 4 (Fable, the cavecrew reviewer), *read*: on an uncompressed update
+the client destroys every entity and recreates them (`IClientNetworkable::SetDestroyedOnRecreateEntities`,
+`iclientnetworkable.h:99-101` — the header's comment; the engine side, `CL_ProcessPacketEntities`, is closed and *not
+read*). Two halves survive where the engine's recreation would not:
+
+1. **An entity the full packet omits stays.** `EntityDecoder.Decode` reads no removals on a non-delta packet
+   (`EntityDecoder.cs:335`), so its table entry and its track both continue. Scenario: a full packet mid-recording
+   that omits an entity drawn before it — the viewer keeps drawing it.
+2. **A restated entity keeps its TRACK's memory.** Its properties are already rebuilt as a recreation's: every `Enter`
+   runs `EntityState.Forget()` and applies the baseline first (`EntityStateTable.cs`, `Forget`), and B871 resets its
+   interpolation histories. But the same-serial track continues, with `LastSequenceParity`, `LastFrameReset`,
+   `LastNoInterpolationParity`, `AnimationStartSeconds`, `DiscontinuitySeconds` and `ChamberWasSettled` from before the
+   packet, where the engine's new entity sees each as a first value. Scenario: a full packet restating a
+   client-side-animated prop whose frame-reset toggle differs from its earlier value — the viewer restarts the
+   animation clock as a toggle change. `OnNewModel` also does not run (`modelSet` needs a new track or a changed
+   path), where a recreated entity holds no model and runs it; for an unchanged model its pose reset equals
+   `ResetLatched`'s at the same tick, so that part draws nothing different (*reasoned*).
+
+Measured 2026-11-26 (`Tf2DemoSalvage.Cli -t`, `svc_packetentities delta 0`): every gcor demo carries one full packet,
+its first, except `tf2-2011-build4604-spec-pov-cp_granary` with two — so this reaches real recordings, rarely. Fix
+shape: on a non-delta packet, end every track and drop every table entry the packet does not restate, and start a new
+track for every one it does; confirm the order against a disassembly of `CL_ProcessPacketEntities` first.
 
 ## B876 — animation layers and bone controllers take the earlier keyframe, where the engine interpolates them (2026-11-26) — OPEN
 
@@ -47291,8 +47303,14 @@ Fable, Sonnet, the cavecrew reviewer): the full-packet creation above, with `Jus
 and `At_ASameSerialEnterInAFullPacket_StartsAtTheArrival` (0.714 at 52; its control, the same frames in a delta packet,
 draws what a hand-built unreset track draws), whose wiring sabotage reddened it; a delta for a slot the table never held
 is not a creation (a row of the table test); a build-level same-serial re-entry test
-(`At_ATrackBegunByARentryOfTheSameSerial_IsNotReset`); a delete then the same serial is a creation. The table keeping a
-same-serial state across a full packet, where the engine destroys it, is B877. Review 2 also moved the late-track
+(`At_ATrackBegunByARentryOfTheSameSerial_IsNotReset`); a delete then the same serial is a creation. What a full packet
+still keeps — the entities it omits, a restated entity's track memory — is B877. That a full packet's `Enter` is
+`DATA_UPDATE_CREATED` is *read from the header's comment only*; the engine side is closed. Review 4 (Codex: no findings;
+Fable, Sonnet, the cavecrew reviewer): B877 rewritten (properties are already rebuilt by `Forget`); a `Delta` and a
+`Leave` in a full packet are not creations (rows of the table test); the fixture refuses a `kinds` list of the wrong
+length; full packets counted on gcor (B877: one per demo, two in one). Not taken: dropping the one-argument `Apply`,
+which is the delta-packet meaning every test caller wants (the cavecrew reviewer, D180) — production calls the
+two-argument form. Review 2 also moved the late-track
 test onto the cycle: setting the model runs `OnNewModel`, whose pose-parameter `SetMaxCount` the engine does reset on
 (Fable, the cavecrew reviewer). Review 1 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the creating-update
 condition and `At_ATrackBegunAfterItsEntitysCreation_IsNotReset` (0.8, where a reset gives 0.714); B875 rewritten; B876

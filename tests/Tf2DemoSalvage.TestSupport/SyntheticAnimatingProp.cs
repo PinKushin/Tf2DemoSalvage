@@ -69,6 +69,11 @@ internal static class SyntheticAnimatingProp
         IReadOnlySet<int>? fullPackets,
         params (int Tick, int ModelIndex, float[] Pose, float? Cycle, int? Parity)[] frames)
     {
+        if (kinds is not null && kinds.Count != frames.Length)
+        {
+            throw new ArgumentException($"{kinds.Count} kinds for {frames.Length} frames; give one per frame", nameof(kinds));
+        }
+
         DemoSchema schema = Schema();
 
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));

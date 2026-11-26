@@ -129,6 +129,15 @@ public sealed class EntityStateTableTests
         table.Apply(new DecodedEntity(9, ClassId: 212, 640, EntityUpdateType.Enter, []), inFullPacket: true);
         table.TryGet(9, out state).ShouldBeTrue();
         state.JustCreated.ShouldBeTrue();
+
+        // Only an `Enter` is a creation, in a full packet as anywhere (B871 review 4, Fable).
+        table.Apply(new DecodedEntity(9, ClassId: 212, 0, EntityUpdateType.Delta, []), inFullPacket: true);
+        table.TryGet(9, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse("a delta in a full packet");
+
+        table.Apply(new DecodedEntity(9, ClassId: 212, 0, EntityUpdateType.Leave, []), inFullPacket: true);
+        table.TryGet(9, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse("a leave in a full packet");
     }
 
     [Test]
