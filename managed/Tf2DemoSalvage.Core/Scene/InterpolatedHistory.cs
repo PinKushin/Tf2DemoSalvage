@@ -717,7 +717,7 @@ public sealed class InterpolatedHistory
     /// whole rest on every call; and a memo of every entry from the first cost a scan of the whole history on the first
     /// call and one int per entry for the timeline's life. The run starts where the first call's walk back stopped and
     /// grows only as far as later calls ask, forward or back, so both the work and the memory follow the entries actually
-    /// examined; a trim clears it, and a call far past or far before it may replace it (<see cref="ReseedGap"/>).
+    /// examined; a trim clears it, and a call far past it may replace it (<see cref="ReseedGap"/>).
     /// </remarks>
     private int LatestChangeIndex(int arrivedBy, int first, int count)
     {
@@ -756,21 +756,6 @@ public sealed class InterpolatedHistory
             }
 
             if (!memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run))
-            {
-                int change = last;
-
-                while (!IsChange(change, first, count))
-                {
-                    change--;
-                }
-
-                memos.ChangeOf[(first, count)] = new ChangeRun(change, last, [change], []);
-                return change;
-            }
-
-            // Far before the run, the same: seed from the tick asked rather than walk and keep everything back to it (review 25,
-            // Fable — a rewind from a mid-recording window to the signon's).
-            if (run.Start - last > ReseedGap)
             {
                 int change = last;
 
@@ -825,17 +810,30 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>How far past or before what a run examined a call may ask before the run is started again from that call.</summary>
+    /// <summary>How far past what a run examined a call may ask before the run may be started again from that call.</summary>
     /// <remarks>
     /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
     /// delays, not measured); a gap of this many entries is a later window. Far past the run, the walk back from the new
-    /// tick stops at what the run examined, so it never costs more than the forward scan would. Far before it, the walk
-    /// back has no such bound: it runs to the latest change, as a first call does. Two callers alternating between ticks
-    /// this far apart repeat those walks — and the seek scan asks earlier ticks between the presenter's frames
-    /// (`RecorderPrediction`, D233), so it can, when both land in a rise window (merge review 7). Answers are unaffected;
-    /// the cost is *reasoned*, not measured.
+    /// tick stops at what the run examined, so it never costs more than the forward scan would. **Far before the run there
+    /// is no reseed** (merge review 8): the seek scan asks earlier ticks between the presenter's frames (`RecorderPrediction`,
+    /// D233), and a reseed there threw away the presenter's run on every alternation; the ordinary walk back keeps what it
+    /// met, so each caller pays its walk once.
     /// </remarks>
     private const int ReseedGap = 512;
+
+    /// <summary>How many changes a variable's latest-change memo holds, for a test to see what a walk kept.</summary>
+    /// <param name="first">The variable's first component.</param>
+    /// <param name="count">Its component count.</param>
+    /// <returns>The count, or zero when the variable has no memo.</returns>
+    internal int ChangesHeld(int first, int count)
+    {
+        lock (_memoLock)
+        {
+            return _memos is { } memos && memos.ChangeOf.TryGetValue((first, count), out ChangeRun? run)
+                ? run.Later.Count + run.Earlier.Count
+                : 0;
+        }
+    }
 
     /// <summary>The newest change at or before <paramref name="last"/> in a newest-first list that holds one.</summary>
     private static int NewestAtOrBefore(List<int> newestFirst, int last)

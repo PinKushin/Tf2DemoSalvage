@@ -284,6 +284,32 @@ public sealed class InterpolatedHistoryTests
         System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([1900, 300, 1500, 1900]);
     }
 
+    /// <summary>
+    /// **A throw part way leaves the memo holding only what it examined** (B860 merge reviews 7 and 8). Six-wide entries
+    /// at ticks 1 to 4 with (3, 3) changing at 1 and 3, then `SetMaxCount(1)` at 10 and one-wide entries after. Asked for
+    /// (3, 3) at 4 the memo holds the change at 3 (one). Asked at 11, the walk keeps the generation start at 10, then
+    /// throws on the next entry — which cannot hold (3, 3) — twice; the memo holds two either way, not three.
+    /// </summary>
+    [Test]
+    public void LatestChange_RetriedAfterAThrow_RepeatsNoAppend()
+    {
+        InterpolatedHistory history = new(6);
+        history.Add(1, 1, [0f, 0f, 0f, 1f, 0f, 0f]);
+        history.Add(2, 2, [0f, 0f, 0f, 1f, 0f, 0f]);
+        history.Add(3, 3, [0f, 0f, 0f, 2f, 0f, 0f]);
+        history.Add(4, 4, [0f, 0f, 0f, 2f, 0f, 0f]);
+        history.SetMaxCount(1, 10, [0f]);
+        history.Add(11, 11, [0f]);
+
+        int? seeded = history.LatestChange(4, 3, 3);
+        int heldBefore = history.ChangesHeld(3, 3);
+
+        Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(11, 3, 3));
+        Should.Throw<System.ArgumentOutOfRangeException>(() => history.LatestChange(11, 3, 3));
+
+        (seeded, heldBefore, history.ChangesHeld(3, 3)).ShouldBe((3, 1, 2));
+    }
+
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
     {
         Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();
