@@ -73,6 +73,73 @@ public sealed class EntityStateTableTests
             3, "a delta states no serial, so it is not evidence of a new occupant");
     }
 
+    /// <remarks>
+    /// **Only a creation is `JustCreated`** (B871): the first `Enter` in a slot and a new serial in it, which the engine runs as
+    /// `DATA_UPDATE_CREATED`; a delta, and a re-entry of the same serial after it left the visible set, are not.
+    /// </remarks>
+    [Test]
+    public void JustCreated_OverAnEntitysLife_IsTrueOnlyForItsCreationAndANewSerial()
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+        EntityState? state;
+
+        (EntityUpdateType Kind, int Serial)[] updates =
+        [
+            (EntityUpdateType.Enter, 640),
+            (EntityUpdateType.Delta, 0),
+            (EntityUpdateType.Leave, 0),
+            (EntityUpdateType.Enter, 640),
+            (EntityUpdateType.Enter, 641),
+            (EntityUpdateType.Delete, 0),
+            (EntityUpdateType.Enter, 641),
+        ];
+
+        bool[] seen = new bool[updates.Length];
+
+        for (int index = 0; index < updates.Length; index++)
+        {
+            table.Apply(new DecodedEntity(9, ClassId: 212, updates[index].Serial, updates[index].Kind, []));
+            seen[index] = table.TryGet(9, out state) && state.JustCreated;
+        }
+
+        // A delete removes the entity, so the same serial entering again is a creation.
+        seen.ShouldBe([true, false, false, false, true, false, true]);
+
+        // A delta for a slot the table never held is the engine's "missing client entity", not a creation.
+        table.Apply(new DecodedEntity(10, ClassId: 212, SerialNumber: 0, EntityUpdateType.Delta, []));
+        table.TryGet(10, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **Every `Enter` of a full packet is a creation** (B871 review 3): the engine destroys all client entities on a non-delta
+    /// update and recreates them (`iclientnetworkable.h:99-101`), so a live entity restated with its own serial is
+    /// `DATA_UPDATE_CREATED`. The control: the same restatement in a delta packet is a re-entry, not a creation.
+    /// </remarks>
+    [Test]
+    public void JustCreated_ASameSerialEnterInAFullPacket_IsTrueAndInADeltaPacketFalse()
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+        table.Apply(new DecodedEntity(9, ClassId: 212, 640, EntityUpdateType.Enter, []));
+
+        table.Apply(new DecodedEntity(9, ClassId: 212, 640, EntityUpdateType.Enter, []), inFullPacket: false);
+        table.TryGet(9, out EntityState? state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse("the control: a same-serial re-entry in a delta packet");
+
+        table.Apply(new DecodedEntity(9, ClassId: 212, 640, EntityUpdateType.Enter, []), inFullPacket: true);
+        table.TryGet(9, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeTrue();
+
+        // Only an `Enter` is a creation, in a full packet as anywhere (B871 review 4, Fable).
+        table.Apply(new DecodedEntity(9, ClassId: 212, 0, EntityUpdateType.Delta, []), inFullPacket: true);
+        table.TryGet(9, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse("a delta in a full packet");
+
+        table.Apply(new DecodedEntity(9, ClassId: 212, 0, EntityUpdateType.Leave, []), inFullPacket: true);
+        table.TryGet(9, out state).ShouldBeTrue();
+        state.JustCreated.ShouldBeFalse("a leave in a full packet");
+    }
+
     [Test]
     public void EntityState_LeavingTheVisibleSet_IsNotDestruction()
     {

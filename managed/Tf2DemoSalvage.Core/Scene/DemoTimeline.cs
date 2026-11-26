@@ -4678,7 +4678,7 @@ public sealed class DemoTimeline
                 foreach (DecodedEntity entity in
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
-                    entities.Apply(entity);
+                    entities.Apply(entity, inFullPacket: !snapshot.IsDelta);
                     dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick, entity.SerialNumber);
                     pointCameras.Observe(
                         entity.EntityIndex,
@@ -7533,7 +7533,7 @@ public sealed class DemoTimeline
         }
 
         // **A parity change means this animation began again, so its clock restarts**
-        // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
+        // (`C_BaseAnimating::PostDataUpdate`, `c_baseanimating.cpp:4738`). Everything downstream
         // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
         // `elapsed` the whole recording — a one-shot sequence finished before its first frame drew.
         //
@@ -7544,9 +7544,9 @@ public sealed class DemoTimeline
         // An entity that never sends the field keeps the clock it was created with, which is right:
         // nothing has told it to restart.
         // **Two signals, because the engine has two modes and reads a different field in each.**
-        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5021`) checks
-        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and resets cycle
-        // interpolation on `m_nNewSequenceParity` (`:4737`) regardless. Measured on `cp_fulgur`, the
+        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5022-5025`) checks
+        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and `PostDataUpdate` resets cycle
+        // interpolation on `m_nNewSequenceParity` (`:4738`) regardless. Measured on `cp_fulgur`, the
         // spawn cabinets are client-side animated — they send `m_bClientSideAnimation` 1 and no
         // `DT_ServerAnimationData.m_flCycle` whatsoever — so the toggle is their restart, and a fix
         // built on parity alone did not move them.
@@ -7557,14 +7557,16 @@ public sealed class DemoTimeline
         // boolean "should reset" would restart on every update where it happened to be one.
         // **A first sighting is not a restart.** An entity's opening update states whatever value
         // it holds, and treating that as a change would stamp the clock for every prop the moment
-        // it appears — wrong for one that has been idling since the map loaded.
+        // it appears — wrong for one that has been idling since the map loaded. **But the engine's new entity DOES
+        // compare its first values**, against −1 and `false` (B878, open).
         bool restarted = false;
 
         // **Held until after the keyframe is added, because the engine's reset runs after the latch.**
         // `C_BaseAnimating::PostDataUpdate` calls `BaseClass::PostDataUpdate` FIRST — that is where
         // `OnLatchInterpolatedVariables` appends the entry (`c_baseentity.cpp:2584`) — and only then does
-        // the parity block reach `m_iv_flCycle.Reset()` (`c_baseanimating.cpp:4738`). So the reset wipes
-        // the entry that has just landed and re-seeds from the value that came with it. Resetting first
+        // the parity block reach `m_iv_flCycle.Reset()` (`c_baseanimating.cpp:4738-4747`). So the reset wipes
+        // the entry that has just landed and re-seeds from the value that came with it (a server-animated entity's; a
+        // client-side-animated one's cycle is restored first, `:4689-4691`, and never interpolated, `:892-896`). Resetting first
         // would seed from the PREVIOUS update's cycle, which is a different animation's.
         bool newSequenceStarted = false;
 
@@ -7584,7 +7586,7 @@ public sealed class DemoTimeline
         // **And the toggle counts only in CLIENT-side mode**, which is the guard Valve puts around
         // it and which a first version of this left out — caught by auditing every EntityState
         // accessor for a production caller and finding `ClientSideAnimation` had none.
-        // `c_baseanimating.cpp:5021`:
+        // `c_baseanimating.cpp:5022-5025`:
         //
         //     if ( m_bClientSideAnimation )
         //         if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
@@ -8050,6 +8052,16 @@ public sealed class DemoTimeline
         {
             // A `.mdl` the install lacks: unknown, so an earlier brush model's no-header answer no longer stands (B873).
             track.FactsUnknown();
+        }
+
+        // **A created entity resets every history at its arrival** (B871): `PostDataUpdate`'s `DATA_UPDATE_CREATED` block
+        // calls `ResetLatched()` after `ValidateModelIndex` (`c_baseentity.cpp:2609-2617`), and `C_BaseAnimating`'s parity
+        // block runs after that (`c_baseanimating.cpp:4687`, `:4738`). **The CREATING update, not the track's first**: a
+        // track can begin later than its entity (no model until then), and an `Enter` can be a re-entry of an entity the
+        // track never saw; neither is a creation (reviews 1-2, Fable, the cavecrew reviewer). The entity table knows.
+        if (state.JustCreated)
+        {
+            track.ResetLatched(tick);
         }
 
         if (newSequenceStarted)
