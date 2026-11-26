@@ -26,10 +26,15 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// </param>
 public readonly record struct Bracketing(int Older, int Newer, int Oldest, bool NoMoreChanges);
 
-/// <summary>A `Reset()` a history did not store (B878): the tick it ran at, and the entry whose value it seeded.</summary>
+/// <summary>A `Reset()` a history did not store (B878): the tick it ran at, the entries before it, and the value it seeded.</summary>
 /// <param name="Time">Its `curtime` — the arrival of the update that reset.</param>
-/// <param name="Seed">The newest entry received by then: `m_pValue` when it ran.</param>
-public readonly record struct HistoryAnchor(int Time, int Seed);
+/// <param name="Seed">The newest entry received by then; every entry after it arrived after the reset.</param>
+/// <param name="Values">
+/// `m_pValue` when it ran — the update's NETWORKED value, which is not always an entry: a cycle latches only when the
+/// animation time changed (`c_baseentity.cpp:2583`), and `Reset()` seeds whatever was just unpacked
+/// (`interpolatedvar.h:745`).
+/// </param>
+public readonly record struct HistoryAnchor(int Time, int Seed, ReadOnlyMemory<float> Values);
 
 /// <summary>
 /// One registered variable's interpolation history, appended and searched as the engine's is (B382).
@@ -345,7 +350,7 @@ public sealed class InterpolatedHistory
     /// <param name="anchor">The anchor <see cref="BracketAnchored"/> was asked with.</param>
     /// <returns>The components the engine's entry carries.</returns>
     public ReadOnlySpan<float> ValuesAt(int index, HistoryAnchor? anchor) =>
-        ValuesAt(index == AnchorSlot && anchor is { } reset ? reset.Seed : index);
+        index == AnchorSlot && anchor is { } reset ? reset.Values.Span : ValuesAt(index);
 
     /// <summary>The history's width when an entry was appended, which its generation interpolates over (B870).</summary>
     /// <param name="index">Which entry, oldest first.</param>
@@ -622,11 +627,12 @@ public sealed class InterpolatedHistory
     /// <summary>The index <see cref="BracketAnchored"/> answers for the anchor's reset entries, which are not stored.</summary>
     public const int AnchorSlot = -1;
 
-    /// <summary>The anchor for a reset at a tick: that tick, and the newest entry received by it, whose value the reset seeds.</summary>
+    /// <summary>The anchor for a reset at a tick: that tick, the newest entry received by it, and the value it seeded.</summary>
     /// <param name="time">The arrival the reset ran at — `Reset()`'s `curtime`.</param>
+    /// <param name="values">The networked value the reset seeded, the history's width.</param>
     /// <returns>The anchor, or null when nothing had arrived by then.</returns>
-    public HistoryAnchor? AnchorAt(int time) =>
-        LastReceivedAtOrBefore(time) is var seed && seed >= 0 ? new HistoryAnchor(time, seed) : null;
+    public HistoryAnchor? AnchorAt(int time, ReadOnlyMemory<float> values) =>
+        LastReceivedAtOrBefore(time) is var seed && seed >= 0 ? new HistoryAnchor(time, seed, values) : null;
 
     /// <summary>
     /// <see cref="BracketVariable"/> over the history the engine holds after a `Reset()` this history did not store (B878) —
@@ -1565,7 +1571,7 @@ public sealed class InterpolatedHistory
         ReadOnlySpan<float> start = ValuesAt(pair.Older, anchor);
 
         // Over the pair's own width, `m_nMaxCount` when it was appended; a stored prefix reads zeros after it (B870).
-        int width = WidthOf(pair.Newer == AnchorSlot && anchor is { } reset ? reset.Seed : pair.Newer);
+        int width = pair.Newer == AnchorSlot && anchor is { } reset ? reset.Values.Length : WidthOf(pair.Newer);
 
         // `fabs( dt1 - dt2 ) > 0.0001f`, on integer ticks: the engine's epsilon is there because its
         // changetimes are seconds, and a tick axis makes the same test exact.

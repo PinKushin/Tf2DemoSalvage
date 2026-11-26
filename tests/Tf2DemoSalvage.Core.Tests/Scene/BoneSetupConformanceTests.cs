@@ -134,6 +134,95 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **A restated update resets too** (B878 review 2, Sonnet): `Add` collapses an identical pose into the keyframe before
+    /// it, but the engine's `PostDataUpdate` runs the parity test on it. Parity 1 arrives at 110; the same pose is restated
+    /// at 120 with a new animation time. A setup at 105 saw 0, so the reset is at 120.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_ARestatedUpdateAfterAParityChange_IsTheReset()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        ScenePose started = new() { NewSequenceParity = 1, Cycle = 0.5f };
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, started, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(120, started, appliedAt: 120, animationAppliedAt: 117);
+
+        track.KeyframeCount.ShouldBe(2, "the control: the restatement made no keyframe");
+        track.UnseenResetAt(125, new BoneSetup(105, 0, null)).ShouldBe(120);
+    }
+
+    /// <summary>
+    /// **Eight starts unseen wrap the parity back, and the engine stops resetting there** (B878 review 2, Codex): a setup at
+    /// 100 saw 0; updates at 110 to 170 state 1 to 7 and each resets; 180 states 0 again, equal to the setup's, and does
+    /// not. The newest reset is 170.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_EightStartsUnseen_IsTheLastUpdateBeforeTheParityCameBack()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+
+        for (int step = 0; step <= 8; step++)
+        {
+            int tick = 100 + (step * 10);
+            track.Add(tick, new ScenePose { NewSequenceParity = step & 7, Cycle = step / 10f }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        track.UnseenResetAt(185, new BoneSetup(100, 0, null)).ShouldBe(170);
+        track.UnseenResetAt(185, new BoneSetup(180, 0, null)).ShouldBeNull("the control: a setup at 180 saw every start");
+    }
+
+    /// <summary>
+    /// **The reset seeds the update's networked cycle, not the last one latched** (B878 review 2, Sonnet, the cavecrew
+    /// reviewer): the update at 40 starts nothing new (parity 1, as at 30) and keeps 30's animation time, so its 0.8 latches
+    /// no entry — but `Reset()` seeds `m_pValue`, 0.8 (`interpolatedvar.h:745`). Never posed, at 42 the target precedes the
+    /// reset at 40, which holds 0.8; seeding the last entry would hold 30's 0.6.
+    /// </summary>
+    [Test]
+    public void PropsAt_AResetWhoseUpdateLatchedNoCycle_SeedsTheUpdatesCycle()
+    {
+        DemoTimeline timeline = DemoTimeline.ForTracks([Unlatched()]);
+        List<SceneProp> props = [];
+
+        timeline.PropsAt(42, props, setups: new BoneSetups());
+
+        props.Single().Pose.Cycle.ShouldBe(0.8f);
+    }
+
+    /// <summary>
+    /// **A never-posed prop stays on the lerp list only while its anchored answer can move** (B878 review 1, Fable; review 2,
+    /// the cavecrew reviewer): at 42 the target (42 less the delay) precedes the reset at 40, where nothing brackets and the
+    /// engine reports no settle — lerping, where the plain history (newest 27) is settled. Once the target passes 40 the reset
+    /// holds and settles.
+    /// </summary>
+    [Test]
+    public void PropsAt_ANeverPosedProp_LerpsUntilItsResetIsPassed()
+    {
+        DemoTimeline viewed = DemoTimeline.ForTracks([Unlatched()]);
+        DemoTimeline plain = DemoTimeline.ForTracks([Unlatched()]);
+        BoneSetups setups = new();
+        List<SceneProp> props = [];
+
+        viewed.PropsAt(42, props, setups: setups);
+        plain.PropsAt(42, props);
+
+        (viewed.TracksLerping, plain.TracksLerping).ShouldBe((1, 0));
+
+        viewed.PropsAt(41 + Delay, props, setups: setups);
+        viewed.TracksLerping.ShouldBe(0, "past the reset it holds, settled");
+    }
+
+    /// <summary>Updates at 10, 20, 30, 40, cycles 0.2 to 0.8, parity 0, 0, 1, 1; 40 keeps 30's animation time (27).</summary>
+    private static ScenePropTrack Unlatched()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(10, new ScenePose { Cycle = 0.2f, NewSequenceParity = 0 }, appliedAt: 10, animationAppliedAt: 7);
+        track.Add(20, new ScenePose { Cycle = 0.4f, NewSequenceParity = 0 }, appliedAt: 20, animationAppliedAt: 17);
+        track.Add(30, new ScenePose { Cycle = 0.6f, NewSequenceParity = 1 }, appliedAt: 30, animationAppliedAt: 27);
+        track.Add(40, new ScenePose { Cycle = 0.8f, NewSequenceParity = 1 }, appliedAt: 40, animationAppliedAt: 27);
+        return track;
+    }
+
+    /// <summary>
     /// **The reset is at the newest update, whether or not it latched the cycle** (B878 review 1, Fable): the parity test
     /// runs in every update's `PostDataUpdate`. A setup at 105 saw parity 0; 1 arrives at 110 with a new animation time, then
     /// an update at 120 moves only the origin. Asked at 125 the reset is at 120, the newest update — which has no cycle entry.

@@ -24,7 +24,25 @@ public sealed class AnchoredBracketConformanceTests
         return history;
     }
 
-    private static HistoryAnchor At50(InterpolatedHistory history) => history.AnchorAt(50)!.Value;
+    private static HistoryAnchor At50(InterpolatedHistory history) => history.AnchorAt(50, new float[] { 0.6f })!.Value;
+
+    /// <summary>
+    /// **The engine's second settle site** (`interpolatedvar.h:865-871`): with 0.6 restated at 57, at 52 the pair is the
+    /// reset (0.6) to 57 (0.6), the newest, equal, and no spline before it (the reset's three share one time) — settled.
+    /// The plain history pairs 47 and 57 with 7 (0.2) before them, a spline whose third sample differs: not settled.
+    /// </summary>
+    [Test]
+    public void BracketAnchored_AnEqualNewestAfterTheReset_IsSettled()
+    {
+        InterpolatedHistory history = new(1);
+        history.Add(7, 10, [0.2f]);
+        history.Add(47, 50, [0.6f]);
+        history.Add(57, 60, [0.6f]);
+
+        history.BracketAnchored(52, 60, At50(history)).ShouldBe(
+            new Bracketing(InterpolatedHistory.AnchorSlot, 2, InterpolatedHistory.AnchorSlot, NoMoreChanges: true));
+        history.Bracket(52, 60)!.Value.NoMoreChanges.ShouldBeFalse("the control: the plain spline is not settled");
+    }
 
     /// <summary>
     /// **Past the reset the pair runs from it**: at 52 the walk passes 57 (newer) and stops at the reset's entries, stamped

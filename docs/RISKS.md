@@ -47233,7 +47233,7 @@ for that window; posed every frame, it draws today's blend.
 **Fixed (2026-11-26, `fix/b878-predraw-cycle-reset`).** `BoneSetups` is one view's record per track: the tick of its
 last setup, the parity its newest update stated then (`ScenePose.NewSequenceParity`, 0 when never sent; −1 before any
 update), and the newest reset that setup had not seen. **The reset is the newest update after the setup, if its parity
-differs** (`ScenePropTrack.UnseenResetAt`): the parity only counts up (`:5574`), so once one update differs every later
+differs** (`ScenePropTrack.UnseenResetAt`; the wrap after eight starts is review 2's): the parity only counts up (`:5574`), so once one update differs every later
 one does — one keyframe read, and every update counts, not only those that latch the cycle, since the test runs in each
 `PostDataUpdate`. `InterpolatedHistory.BracketAnchored` builds the engine's list after that reset — three entries at its
 tick holding the newest cycle received by then, then each later latch with `AddToHead`'s flush — and walks it as
@@ -47255,13 +47255,28 @@ nothing after, the reset as third sample, out of reach, superseded, the plain wa
 equals no view at every tick with an update inside the window; never posed; a reset kept after posing again; a seek
 keeps the setups; an origin-only update is the reset), `BoneSetupsReportTests`, `TimelineMomentsBoneSetupTests`,
 `Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling` (through `NextFrame`, which cleared the flag the first cut read),
-and on a real demo `BoneSetupCorpusTests`: z1800, 3,000 ticks, posed every frame after a 200-tick warm-up equals the
-no-view props on all 878,668 compared, never posed differs on 3,005. Each sabotage reddened its test. Review 1 (Codex:
+and on a real demo `BoneSetupCorpusTests`: z1800's first 3,000 ticks, every prop drawn continuously from the first tick
+posed every frame equals the no-view props on all 541,696 compared, never posed differs on 5,636 (a view begun mid-demo
+holds a prop alive then from its newest update for a window — the engine's answer for a view just begun, measured as one
+sentry for 13 ticks — so the test starts at the first tick rather than masking it). Each sabotage reddened its test.
+
+Review 2 (Codex, Fable, Sonnet, the cavecrew reviewer): every update is recorded before `Add` collapses a restatement
+(`_updates`: tick, parity, a running count of sequence starts), so a restated update resets too, and eight starts unseen
+that wrap the 3-bit parity back to the setup's leave the newest update before that run as the reset; the reset seeds the
+update's networked cycle and sequence from its keyframe (`m_pValue`), not the last latched entry; `MomentPresenter`
+unions the builds of every pose before a report (a paused view re-poses one build), counts no players-only pose (the
+decal replay's, at earlier ticks), and reports nothing set up at a source's first frame so it samples under the view
+from the start. Tests added for each: `UnseenResetAt_ARestatedUpdateAfterAParityChange_IsTheReset`,
+`UnseenResetAt_EightStartsUnseen_IsTheLastUpdateBeforeTheParityCameBack`,
+`PropsAt_AResetWhoseUpdateLatchedNoCycle_SeedsTheUpdatesCycle`, `PropsAt_ANeverPosedProp_LerpsUntilItsResetIsPassed`
+(`Motion`'s settle under a view), `BracketAnchored_AnEqualNewestAfterTheReset_IsSettled` (the engine's second settle
+site), and the presenter test's players-only pose; each sabotage reddened its test. Not taken: the union across re-poses
+has no test of its own (it needs a posed scene; read, and the presenter test covers the report around it). Review 1 (Codex:
 no findings; Fable, Sonnet, the cavecrew reviewer) found the hold-before-the-reset reading wrong, the report dead in the
 frame loop, the anchor taken only from cycle entries, and never-posed props never settling — all fixed above. Left,
-*not modelled*: eight sequence starts unseen wrap the 3-bit parity back to the setup's, where the engine stops resetting;
-an attachment asked of an entity the frame did not pose sets its bones up in the engine (`CalcAttachments`) and answers
-null here, so it is not a setup. Filed: B879 (the delay rise's floor read off the plain history), B880 (the transition
+*not modelled*: an attachment asked of an entity the frame did not pose sets its bones up in the engine
+(`CalcAttachments`) and answers null here, so it is not a setup; eight starts between two updates are invisible to the
+engine too. Filed: B879 (the delay rise's floor read off the plain history), B880 (the transition
 forced by the same stale parity). *Not verified by looking.*
 
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
