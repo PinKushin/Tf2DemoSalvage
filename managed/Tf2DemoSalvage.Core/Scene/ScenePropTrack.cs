@@ -2288,6 +2288,11 @@ public sealed class ScenePropTrack
 
     /// <summary>Whether two received floats differ as the engine's float <c>!=</c> says.</summary>
     /// <remarks>
+    /// **Two engine sites, one semantics**: the append gate's `Vector`/`QAngle` `!=` (`c_baseentity.cpp:2571-2572`), and,
+    /// negated, the angle lerp's `if ( q1 == q2 ) return q1;` (`mathlib.h:663-665`, `QAngle::operator==`,
+    /// `vector.h:2035-2040`) in <see cref="SlerpAngles(in HistoryEntry, in HistoryEntry, float)"/>. Both are float
+    /// compares; the history's own compare is the other kind, a <c>memcmp</c> (<c>InterpolatedHistory.Same</c>).
+    ///
     /// **The engine's test is exact and this has to be too.** `m_vecOldOrigin != GetLocalOrigin()` is
     /// `Vector::operator!=`, a component-wise float compare with no tolerance (`c_baseentity.cpp:2571`), so
     /// a position differing in its last bit IS a change and gets a history entry. A tolerance here would
@@ -3565,10 +3570,13 @@ public sealed class ScenePropTrack
     /// of those the model actually declares is a property of the model, and handing back a
     /// twenty-four-long list for a two-parameter sentry would make every consumer's `Count` a lie.
     ///
-    /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
-    /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
-    /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
-    /// treated as immutable throughout, which is what makes handing one out safe.
+    /// **Always blends, as the engine always lerps** (`_Interpolate`, `interpolatedvar.h:1333`, has no equality
+    /// shortcut), **and hands back the stated list only when the blend equals it bit for bit**, rather than allocating a
+    /// copy: interpolation runs per sampled entity per frame, and the common case is a pair and an arrival that all
+    /// agree. Until B860 review 31 (Fable) it returned the stated list whenever the PAIR agreed — but the stated list is
+    /// the arrival keyframe's, not the delayed pair's, so a parameter whose new value had arrived drew it a delay early,
+    /// then snapped back to blend from the old one; and a looping parameter at 1.0 is 0 after `LoopingLerp`, not 1.
+    /// The arrays are treated as immutable throughout, which is what makes handing one out safe.
     ///
     /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
     /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged
@@ -3586,13 +3594,9 @@ public sealed class ScenePropTrack
         ReadOnlySpan<float> to = _poseParameters.ValuesAt(at.Newer);
 
         int count = Math.Min(stated.Count, from.Length);
-
-        if (from[..count].SequenceEqual(to[..count]))
-        {
-            return stated;
-        }
-
-        float[] blended = new float[stated.Count];
+        Span<float> blended = stated.Count <= MaxStackedPoseParameters
+            ? stackalloc float[stated.Count]
+            : new float[stated.Count];
 
         for (int index = 0; index < blended.Length; index++)
         {
@@ -3609,8 +3613,19 @@ public sealed class ScenePropTrack
                 : from[index] + ((to[index] - from[index]) * fraction);
         }
 
-        return blended;
+        for (int index = 0; index < blended.Length; index++)
+        {
+            if (BitConverter.SingleToInt32Bits(blended[index]) != BitConverter.SingleToInt32Bits(stated[index]))
+            {
+                return blended.ToArray();
+            }
+        }
+
+        return stated;
     }
+
+    /// <summary>The most pose parameters blended on the stack; the engine's <c>MAXSTUDIOPOSEPARAM</c> is 24.</summary>
+    private const int MaxStackedPoseParameters = 64;
 
 
     /// <summary>Interpolates a normalised value that wraps, allowing for it having passed 1.</summary>

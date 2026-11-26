@@ -67,23 +67,43 @@ public sealed class RestatedPoseSplineConformanceTests
     /// <summary>
     /// Angles equal by <c>QAngle::operator==</c> (<c>vector.h:2035-2040</c>, a float compare) take the engine's
     /// "Avoid precision errors" shortcut, <c>if ( q1 == q2 ) return q1;</c> (<c>mathlib.h:663-665</c>): a pitch of +0
-    /// then −0 is the same angle, so midway the yaw is the stored yaw to the bit rather than a quaternion round trip's.
+    /// then −0 is the same angle, so midway the yaw is the stored yaw to the bit rather than a quaternion round trip's,
+    /// and the pitch is the OLDER entry's +0 (<c>return q1</c>), told from the newer's −0 by its bits.
     /// </summary>
     [Test]
     public void At_AnglesDifferingOnlyInTheSignOfZero_ReturnTheStoredAngles()
     {
         float[] yaws = [37.3f, 123.45f, -71.1f, 10.1f, 200.7f];
         float[] drawn = new float[yaws.Length];
+        int[] pitchBits = new int[yaws.Length];
 
         for (int i = 0; i < yaws.Length; i++)
         {
             ScenePropTrack track = new(entityIndex: 7, "*1");
             track.Add(0, new ScenePose { Pitch = 0f, Yaw = yaws[i] }, appliedAt: 0);
             track.Add(10, new ScenePose { Pitch = -0f, Yaw = yaws[i] }, appliedAt: 10);
-            drawn[i] = track.At(5d + Delay).ShouldNotBeNull().Yaw;
+            ScenePose at = track.At(5d + Delay).ShouldNotBeNull();
+            drawn[i] = at.Yaw;
+            pitchBits[i] = BitConverter.SingleToInt32Bits(at.Pitch);
         }
 
         drawn.ShouldBe(yaws);
+        pitchBits.ShouldBe([0, 0, 0, 0, 0]);
+    }
+
+    /// <summary>
+    /// The other half of <c>QAngle::operator==</c>: a NaN equals nothing, itself included, so a pitch of NaN at both
+    /// ends does not take <c>return q1</c> and goes through the quaternion slerp, which carries the NaN into every
+    /// component — the yaw too, where a shortcut would have returned 37.3.
+    /// </summary>
+    [Test]
+    public void At_AnglesWithANaNPitchAtBothEnds_SkipTheShortcut()
+    {
+        ScenePropTrack track = new(entityIndex: 7, "*1");
+        track.Add(0, new ScenePose { Pitch = float.NaN, Yaw = 37.3f }, appliedAt: 0);
+        track.Add(10, new ScenePose { Pitch = float.NaN, Yaw = 37.3f }, appliedAt: 10);
+
+        float.IsNaN(track.At(5d + Delay).ShouldNotBeNull().Yaw).ShouldBeTrue();
     }
 
     [Test]

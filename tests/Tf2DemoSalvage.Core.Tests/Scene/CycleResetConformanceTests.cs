@@ -152,4 +152,24 @@ public sealed class CycleResetConformanceTests
         // value rather than the interpolated one, because nothing would have been stored for it.
         at.PoseParameters[1].ShouldBe(0.4f, 1e-4f);
     }
+
+    /// <summary>
+    /// The engine lerps the delayed pair with no equality shortcut (<c>_Interpolate</c>, <c>interpolatedvar.h:1333</c>),
+    /// so an equal pair draws the pair's value even when a different one has already arrived: entries at 0, 1 and 2 of
+    /// (0.2, 1.0), (0.2, 1.0) and (0.8, 0.5), the second looping. Midway between 0 and 1 the first is 0.2, not the
+    /// arrival's 0.8, and the looping 1.0 is 0 — <c>LoopingLerp</c>'s <c>s - (int)s</c> of 1.0 — not 1.0.
+    /// </summary>
+    [Test]
+    public void At_AnEqualDelayedPairUnderANewerArrival_DrawsThePairsLerp()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/buildables/sentry1.mdl");
+
+        track.OnNewModel([false, true], at: 0, staticPropModel: false);
+
+        track.Add(0, new ScenePose { PoseParameters = [0.2f, 1f] });
+        track.Add(1, new ScenePose { PoseParameters = [0.2f, 1f] });
+        track.Add(2, new ScenePose { PoseParameters = [0.8f, 0.5f] });
+
+        track.At(0.5d + Delay).ShouldNotBeNull().PoseParameters.ShouldBe([0.2f, 0f]);
+    }
 }

@@ -207,6 +207,14 @@ public sealed class InterpolatedHistory
     {
         _generation++;
 
+        // **The one append that can come after sampling began**: a model change at view time (`OnNewModel`,
+        // `SetMaxCount`) resets the pose parameters with a `received` out of arrival order. The memos were built over
+        // the entries before it, so they go (B860 review 31, Fable); the next ask rebuilds what it needs.
+        lock (_memoLock)
+        {
+            _memos = null;
+        }
+
         // **Three entries at one changetime, and they do NOT flush each other.** `Reset` passes
         // `bFlushNewer = false` where `NoteChanged` passes true (<c>interpolatedvar.h:745</c> against
         // <c>:649</c>) — which is the whole point: three entries sharing one changetime is exactly what a
@@ -618,11 +626,13 @@ public sealed class InterpolatedHistory
             return false;
         }
 
-        // `!pInfo->m_bHermite` — with no third sample in play the pair alone decides.
-        int longer = _changeTimes[newer] - _changeTimes[older];
+        // `!pInfo->m_bHermite` — with no third sample in play the pair alone decides. The engine reaches this only inside
+        // `if ( dt > 0.0001f )` (`interpolatedvar.h:844`), which always holds here: `Bracket` picks `newer` with a
+        // changetime past the target and `older` at or before it, so the pair is a tick apart at least (B860 review 31,
+        // Sonnet — a `longer <= 0` term that called such a pair settled was dead, and is gone).
         int shorter = _changeTimes[older] - _changeTimes[oldest];
 
-        return longer <= 0 || shorter <= 0 || Same(newer, oldest, first, count);
+        return shorter <= 0 || Same(newer, oldest, first, count);
     }
 
     /// <summary>The changetime of the newest entry held, or null when nothing is live.</summary>
@@ -976,7 +986,8 @@ public sealed class InterpolatedHistory
     /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
     /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
     /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
-    /// build-before-sample order.
+    /// build-before-sample order — with one exception, a `Reset` from a model change at view time, which clears the
+    /// memos itself (B860 review 31, Fable). Its appends still run unlocked beside readers of the lists.
     /// </remarks>
     private readonly object _memoLock = new();
 

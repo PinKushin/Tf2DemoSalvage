@@ -47846,7 +47846,8 @@ steps back (lead, cavecrew; reddens when `Earlier` is added newest first); `Sett
 changes held on the history where every step changes, so a change step that re-collects fails (cavecrew, Fable) — but a
 prepend that shifts the list in place (`Insert(0, …)`, merge review 3's fault) allocates nothing and holds 201, so it
 would pass: copy cost is not measured. The resting half, as first written, took one least over mixed kinds of step and
-asserted nothing held, so it could not fail (review 30); see below; a
+asserted no held count, so it was blind to one kind of step allocating and to a step recording a non-change — it
+still reddened if every step allocated or 1,955 answered wrong (review 30, corrected in 31); see below; a
 seeded random-order oracle of 600 asks against a plain scan (Sonnet; reddens alone when the `Earlier` search starts at
 its end). **Records:** findings 20's "compares by value, the same de-duplication" is kept and corrected beside itself,
 and findings 115 states the two compares (lead, Fable); the walk comment no longer says each entry is examined once
@@ -47857,7 +47858,8 @@ cost only, and it re-derives every track.
 
 Review 30 and merge review 14 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
 blocker; every reviewer confirmed `DiffersFrom` equals C++ float `!=` for ±0, NaN, infinities and subnormals, and that
-its six callers are the origin and angle terms of `c_baseentity.cpp:2571-2572`). **Fixed, parity (lead):** the angle
+its six callers then were the origin and angle terms of `c_baseentity.cpp:2571-2572`; the fix below adds three, for
+`mathlib.h:663-665`, which `DiffersFrom`'s remarks now name). **Fixed, parity (lead):** the angle
 lerp's shortcut compared bits, where the engine's `Lerp<QAngle>` opens with `if ( q1 == q2 ) return q1;`
 (`mathlib.h:663-665`) under `QAngle::operator==` (`vector.h:2035-2040`), a float compare. A pitch of +0 then −0 went
 through the quaternion round trip, which perturbs the angles: `At_AnglesDifferingOnlyInTheSignOfZero_ReturnTheStoredAngles`
@@ -47873,6 +47875,33 @@ simulation time", cite `QAngle::operator!=` read, and date the two fixes to revi
 (`interpolatedvar.h:851`) and `Settled` comparing the oldest is right. Not taken: a random oracle across a trim and a
 reset (Fable) — a generation start stops every walk, held by the fixed-order reset tests; a note on `_delaySteps` for a
 props-less timeline (Sonnet) — production builds props.
+
+Review 31 and merge review 15 (Fable, Codex, Sonnet, the cavecrew reviewer and the lead's `/code-review high`: no
+blocker; Sonnet found no other float compare on the wrong side in what the branch touches, and Fable found one outside
+it). **Fixed, parity (Fable), pre-existing and widened by a rise:** `PoseBetween` returned the ARRIVAL keyframe's
+parameters whenever the delayed pair agreed, where `_Interpolate` (`interpolatedvar.h:1333`) lerps the pair with no
+shortcut — so a parameter whose new value had arrived drew it a delay early, then snapped back to blend from the old,
+and a looping parameter at 1.0 drew 1.0 where `LoopingLerp` gives 0. It now always blends and hands back the stated
+list only when the blend equals it bit for bit, on the stack, so the common case still allocates nothing.
+`At_AnEqualDelayedPairUnderANewerArrival_DrawsThePairsLerp` draws (0.2, 0) and reddens at (0.8, 0.5) under the old
+shortcut. **Fixed (Fable):** `OnNewModel` resets the pose parameters at view time, after memos may exist, with a
+`received` out of arrival order; `Reset` now clears the memos under the lock, and the lock remark names the exception
+(no test: a wrong answer from the stale memo could not be built, so the clear is the cheap guard, *reasoned*).
+**Fixed:** the angle test asserted only the yaw, equal at both ends, so returning `q2` instead of the engine's `q1`
+passed (lead, cavecrew) — it now asserts the pitch is the older entry's +0 by its bits, and reddens at −0 when the
+shortcut returns the newer; the NaN half of `QAngle::operator==` had no test at the shortcut (cavecrew) —
+`At_AnglesWithANaNPitchAtBothEnds_SkipTheShortcut` draws a NaN yaw, and reddens with the gate's two `IsNaN` terms
+dropped, beside the append-gate test; `Settled`'s `longer <= 0` called a pair with one changetime settled, where the
+engine reaches the settle test only inside `if ( dt > 0.0001f )` (`interpolatedvar.h:844`) — dead, since `Bracket`
+picks a newer entry past the target and an older one at or before it, so it is deleted rather than kept beside a
+branch the engine lacks (Sonnet; no test, since no input reaches it). Records: `DiffersFrom`'s remarks name both engine
+sites; findings 115 points to findings 20 for the third compare; the review-30 caller count says six then, nine now
+(lead, cavecrew); the resting half's "could not fail" is narrowed to what it was blind to (cavecrew). Not taken: a
+`TargetFor` floor under a second, later cut (Codex) — review 11 records it as undrawable (such a cut sits below that
+frame's own target), and the frame-timing cases are B869; `FrameStart`'s announcement survives a seek, so a non-frame
+sample at exactly the announced tick reads the old frame's read (Sonnet) — no production caller asks there, and the
+presenter announces every frame; the allocation test's zero could flake on a one-off runtime allocation (Sonnet) — a
+least over ten samples per kind, and a flake is a defect to chase if it ever shows.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
