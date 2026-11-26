@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 124d1a9c-39d8-407f-871a-adb7c8b92a98
-  modified: 2026-10-19T00:05:08.110Z
+  modified: 2026-11-26T06:58:30.741Z
 ---
 
 Owner, 2026-10-18: *"we can ssetup that folder thing, i like that lol"*, after being told that jobs a session adds would run on his key without him launching each.
@@ -23,4 +23,8 @@ Owner, 2026-10-18: *"we can ssetup that folder thing, i like that lol"*, after b
   when the owner says to (`pmux new-session -d -s credits -- pwsh -NoProfile -File "$HOME/.local/bin/claude-credits-queue.ps1"`;
   it billed fine). About $15 left, ~3 Fable reviews. When it is out, reviews are a LOCAL Fable `caveman:cavecrew-reviewer`
   ([[never-use-fable]], corrected the same day), not two opus reviews.
-Related: [[gate-once-per-batch]], [[review-for-recall]].
+- **2026-11-26 (owner):** *"remember we have api credits too"*, after a long B860 run of local and delegated reviews
+  only. Read as: use the queue as well, not only local reviewers. The lead queued a Fable whole-branch merge review and
+  started the runner. The allowlist model is still `claude-fable-5-1`. **Balance was EMPTY**: the job failed at once
+  with "Credit balance is too low"; runner stopped. Until the owner tops it up, reviews stay local or delegated.
+Related: [[gate-once-per-batch]], [[review-subagents-deeply]]#review-for-recall.
