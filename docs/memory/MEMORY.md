@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-26]] READ FIRST — B860 merged (`b7a54c44f`); B862-B870 open (fix B870 part 2 first); API credits empty.
+- [[handoff-2026-11-26]] READ FIRST — B860, B870, B871 merged (B871 `56dff0058`); open B873-B878, B862-B869; API credits empty.
 - [[handoff-2026-11-25]] — B834-B841, B843, B844, B848 merged (B844 `e01aa2987`); next B860; open B842, B845-B847, B850-B855, B857-B861 (B845 owner decision); Codex is the third reviewer.
 - [[handoff-2026-11-17]] — through B773 closed (`b35241abe`, D262); B766, B544, B768 merged; next open RISKS by priority.
 - [[handoff-2026-11-16]] — B744-B761 merged, B754 war paints (`82224742d`); next B752, B746, B741; LSP rename uses stale offsets.
