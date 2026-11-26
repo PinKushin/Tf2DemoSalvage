@@ -47156,7 +47156,60 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — OPEN
+## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
+
+Found in B870 review 2 (the cavecrew reviewer), *read*. The probes (over ninety files under `tools/Tf2DemoSalvage.Probe`)
+call `DemoTimeline.Build(file)` with neither `classes`
+(B437) nor `models` (B870), where the viewer passes both from the install. So a probe that reports a pose, a cycle or an
+anim-state answer reads a timeline the viewer never builds — against the rule that probes run the production path.
+Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
+builds as `DecodedDemo.Read` does, and the probes call it. *Not fixed*.
+
+## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
+
+Found writing B870, *read*. The build asks `IModelFacts` for the path the wire's `m_nModelIndex` names, from the
+install's archives. (1) A weapon whose wire names no model — `CWeaponMedigun`, `CTFMinigun` on `cp_fulgur`
+(`ScenePropTrack.ItemDefinitionIndex`) — is drawn from its item, so the build never sees a model set and its pose history
+is never resized; the engine's client sets the item's model and runs `OnNewModel` (*the client-side SetModel path is
+inferred, not read*). (2) A map's own `.mdl` packed in its BSP pakfile is not in `Archives.Read`, and the map loads in
+parallel with the decode (B507), so its facts are null. Both get no resize, and keep whatever the track's previous
+model said — its static-prop exemption and its sequence looping — or nothing for a first model, until the view restates
+the flags; after a static-prop model, every cycle reset the engine would run is skipped (B870 review 2, Fable). Fix shape: resolve the item's model in the
+build (the item schema is already in `GameContent`), and give the facts the map's pakfile once it is read — or read the
+header before the decode. *Not fixed*.
+
+## B872 — the window walk builds without the class scripts or the model facts (2026-11-26) — FIXED
+
+Found writing B870, *read*. `DemoTimeline.Checkpoints.Walk` starts its builder with `classes` and `models` both null
+(`Start(file, null, client, null, null, …)`), where the viewer's straight build passes the install's
+`ClassAnimation` (B437) and, since B870, `ModelFacts`. So a window built for `--windows` draws a crouch walk and every
+pose-parameter history as if the game were not installed: no resize at a model set, no static-prop exemption from the
+cycle reset. Pre-existing for the class scripts; B870 adds the model facts to the same gap. Fix shape: carry both into
+`WindowSettings`' walk (they are inputs, not settings, so a sibling argument), and a windows-against-straight test with
+a model set.
+
+**Fixed on `fix/b870-pose-history`** (the B870 reviews: two reviewers found the branch widened it): `DecodedDemo` keeps
+the class scripts and model facts it was read with, and `WindowCheck` → `WindowCache.Walk` → `TimelineWindows.Walk` →
+`Checkpoints.Walk` hands both to the walk's builder. Both are in the builder's shared inputs, so a checkpoint does not
+deep-copy the facts cache, and `ModelFacts` is immutable to `StateCopy`. Tested by
+`Window_WalkedWithTheModelFacts_DrawsTheResetAsTheWholeDoes` (its control, a window without the facts, differs).
+
+## B871 — a created entity's histories start from one latched entry, where `ResetLatched` re-seeds three at `curtime` (2026-11-26) — OPEN
+
+Found reading the engine for B870, *read*, not measured. On `DATA_UPDATE_CREATED`, `C_BaseAnimating::OnDataChanged`
+calls `ResetLatched()` (`c_baseanimating.cpp:5004-5006`; `C_BaseEntity::PostDataUpdate` does too, `c_baseentity.cpp:2612-2617`),
+which is `Interp_Reset` (`:5866-5877`): `Reset()` on EVERY interpolated variable — origin, angles, cycle, pose parameters —
+so each history is cleared and re-seeded with three entries stamped `gpGlobals->curtime` (`interpolatedvar.h:740-751`),
+discarding the creation packet's own latch, which was stamped with the simulation or animation time. The viewer's track
+starts each history with that one latched entry. The first blend after creation therefore reaches back to the latch's
+changetime where the engine's three reset entries make the oldest pair degenerate at the arrival (linear, `dt2` zero).
+Visible only in the first interpolation window of each entity, and only when its simulation or animation time lags the
+arrival. A model change does NOT reach it: `modelchanged` in `OnDataChanged` compares against `GetModel()`, which
+`PostDataUpdate`'s `ValidateModelIndex` (`c_baseentity.cpp:2609`) has already updated (*reasoned from the call order;
+the engine's PostDataUpdate/OnDataChanged order is not in the SDK*). Fix shape: reset every history at the creating
+arrival, after the latch; a conformance test of the first blend after creation. *Not fixed*.
+
+## B870 — pose parameters interpolate unlike `_Interpolate`, and a view-time model reset seeds the end of the recording (2026-11-26) — FIXED
 
 Found in B860 reviews 31 and 32 (Fable, the lead, the cavecrew reviewer), traced by reading, not run. Five parts, and
 the first cannot be fixed without the second — a fix of it alone was made in B860 review 31 and reverted in 32.
@@ -47193,6 +47246,110 @@ model index), seeding from the keyframe in force then; then make `PoseBetween` t
 reuse the stated list only when bit-equal — with a per-variable fraction. Conformance tests first: (0.2, 0) above; a
 looping parameter at 1.0 with the target past the head, ONE entry, drawing 1.0 (the quick exit — two distinct entries
 both 1.0 draw 0, as part 1); and a view-time model with a later arrival. *Not fixed*.
+
+**Fixed (2026-11-26, `fix/b870-pose-history`)**, all five parts, engine read for each (`c_baseanimating.cpp:1021-1189`,
+`c_baseentity.cpp:1775-1792`, `:2538-2620`, `interpolatedvar.h:739-751`, `:799-888`, `:1278-1299`, `:1310-1341`, the
+`CInterpolatedVarArray` constructor's `SetMaxCount( COUNT )`):
+
+- **Part 2:** the build runs `OnNewModel` inside the update that SETS a model — the entity's first, or one whose path
+  differs (`SetModelPointer`'s `pModel != model`) — after the latch and before the parity block, the engine's order;
+  stamped with the arrival and seeded from that update's keyframe. The facts come from the install
+  (`IModelFacts`, Core; `StudioModelFacts`, Content: the merged pose parameters, `STUDIOHDR_FLAGS_STATIC_PROP`, each
+  merged sequence's `STUDIO_LOOPING`), handed to `DemoTimeline.Build` as the class scripts are. No facts is the engine's
+  no-header answer: nothing resized. The view now only restates the flags (`ScenePropTrack.Describe`). Side effect, also
+  parity: the cycle reset's static-prop exemption was read at BUILD time from a flag set at VIEW time, so it was always
+  false; it now holds the model's flag.
+- **Part 5:** the history starts `MAXSTUDIOPOSEPARAM` (24) wide; an entry stores what the wire stated up to the width and
+  reads zeros after (`InterpolatedHistory.Same` compares the padded arrays, bitwise), and remembers the width it was
+  appended under (`WidthOf`), which is the width its pair interpolates over; past it the stated value stands.
+- **Part 1:** `PoseBetween` copies one entry, lerps two (`LoopingLerp` where looping) with no compare, and hands back the
+  stated list only when the result is bit-equal to it.
+- **Part 3:** a one-entry angle pair is copied before `Lerp<QAngle>`'s `==` (`SlerpAngles`' `oneEntry`).
+- **Part 4:** the pose fraction is always its own pair's.
+
+Tested by: `ModelResetConformanceTests` (4, synthetic demos through `Build`), `PoseInterpolateConformanceTests` (5: the
+(0.2, 0) case, the one-entry 1.0 and its two-entry control, the NaN angle, the own fraction), `StudioModelFactsTests`
+(4), `LatestChange_AShorterEntryPaddedWithZeros_IsTheSameAsTheLonger`. Each part's sabotage reddened its test (nine
+breaks, one at a time, plus the padding clause and the static-prop read). Not covered, filed: a weapon whose model comes
+from its item gets no build-time facts (its wire names no model; the view restates flags only), and a map's own
+`.mdl` in its pakfile is not in `Archives.Read`; both are the engine's model-less answer here (B873). The window walk:
+B872.
+
+Measured (`pose-reset` probe, `demostf-cp_process_f12-2026-08-08-2207.dem`, every 33rd tick, both builds on this branch):
+the build asked the facts 4,714 times, 3,744 answered, 7 models with pose parameters (six sentries and
+`c_ubersaw.mdl`); with the facts against without, 30 of 433,764 samples of a track stating two or more parameters
+differ, all by under 0.00005 — the reset seeds what the creating update already said, and a sentry's upgrade keeps its
+two parameters, so `SetMaxCount` wipes nothing. Control: two builds with the facts drew identically. So on a real match
+the visible change is parts 1, 3-5 and the end-of-recording seed no longer reaching the screen, not the reset's timing.
+*Not verified by looking.*
+
+**Review 1** (Fable local, Codex, Sonnet, the lead's `/code-review high`; the Fable credits job died on billing). Fixed:
+- **The pose parameters spline** (Fable): `m_iv_flPoseParameter` is not `INTERPOLATE_LINEAR_ONLY`, so a third, spaced
+  entry runs `_Interpolate_Hermite` after `TimeFixup_Hermite` (`interpolatedvar.h:992-995`, `:1371-1458`). `PoseBetween`
+  takes `Curve` / `LoopingCurve`, the cycle's own; `TimeFixup` reads a stored prefix padded. Linear until now (B382's
+  named gap, which part 1's no-compare lerp made visible on every moving frame).
+- **The build's order is pinned** (Fable): a static-prop model set in the same update as a parity change keeps the cycle
+  history; swapping `OnNewModel` after the parity block reddens it.
+- **A model with no studio header** (lead, Fable): a brush or sprite path takes the engine's no-header answers —
+  `IsSequenceLooping` false, no cycle reset (`hdr &&`, `c_baseanimating.cpp:4744-4748`), pose flags kept. A `.mdl` the
+  install lacks stays B873.
+- **Untrusted models** (lead): the width is clamped to `MAXSTUDIOPOSEPARAM` (the engine's `Assert`, `:1122`), so a header
+  declaring 256 parameters cannot overflow the `byte` width or the `stackalloc`; `StudioModelFacts` catches `IOException`
+  beside `InvalidDataException`, as `PropModels.Find` does, so one unreadable file cannot stop a demo opening.
+- **Memory without an install** (lead): an entry drops trailing +0s, which read back as +0; a baseline states all 24.
+- **Only the pose history stores a prefix** (lead, Sonnet): every other history keeps the exact-width `Add`, and `Same`
+  pads within the asked component span.
+- **B872 fixed here** (all three reviewers flagged the widened gap); `TimelineMoments` uses Core's `ModelFacts`.
+- Tests added: the spline (0.575 where the line gives 0.55), a parameter past the model's count keeps the stated value,
+  the reset stamped with the arrival (0.7, where the animation time gives 0.654), the static-prop order (with its
+  control), the window walk. Removed `At_ASecondParameterAfterTheModelIsSet_BlendsWithTheFirst`, which could not fail for
+  its stated reason (Fable). Each new mechanism's sabotage reddened its test.
+
+**Review 2** (Fable local, Sonnet, Codex retried, the cavecrew reviewer; Grok's run died on its balance). Fixed:
+- **The pose spline stops at the pruned floor** (Fable): a pair starting on the floor has no valid `oldestindex` after
+  `Truncate( i + 3 )` (`interpolatedvar.h:782-795`, `:851`), so it runs linear, as origin and cycle already do.
+- **Valve's `Lerp` arithmetic** (Sonnet): `A + (B - A) * flPercent` (`mathlib.h:629-635`) in `TimeFixup` and `Curve`'s
+  linear form, where `float.Lerp` rounds as `A * (1 - t) + B * t`. The `At` fingerprint was re-recorded with its control.
+- **A headerless flag does not outlive the model** (Sonnet, cavecrew): a `.mdl` without facts clears it (`FactsUnknown`).
+- **The sequence-loop facts hold one bool per sequence** (cavecrew), not every parsed sequence of every include.
+- Tests: the pose floor, a brush model with a parity change, a missing `.mdl` after a brush, the respaced third sample
+  (0.55625), a looping spline across the wrap (0.99375), the 24 clamp, `IOException`, `DecodedDemo` keeping its inputs,
+  and `WindowCheck.Start` handing the facts to the walk (its control: the straight build asks the same instrument). Each
+  new mechanism's sabotage reddened its test. The model-setting demo builder moved to TestSupport (`SyntheticAnimatingProp`).
+- Removed `ModelFacts` from `StateCopy`'s immutable list (Fable): nothing the builder reaches holds one.
+- Filed B874: the probes build without the install. B873 now says a `.mdl` without facts keeps the previous model's flags.
+
+Not taken: Codex's `LoopingLerp_Hermite` claim (`LoopingCurve` already wraps, Sonnet confirmed `lerp_functions.h:117-159`;
+now tested). An empty model path after a studio model (Sonnet, Fable): consistent with `Follow`'s rule that index 0 keeps the
+model; not confirmed TF2 sends it. A missing `$includemodel` (cavecrew): the engine's client lacks it too.
+
+**Review 3** (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). Fixed: the sequence-loop flags were still pinned
+with every parsed sequence, because two lambdas in one scope share one closure (Sonnet, Fable) — built now in a static
+method, so the delegate holds the array alone; an `IOException` reading a model is no longer cached for the session
+(Sonnet); `IModelFacts`' doc and the catch comment now say null is "no facts", which the build reads by path (cavecrew);
+dates and the probe count in B874. Tests: the loop flags on a two-sequence table, with −1 and one past the end playing 0
+(Fable); `WindowCheck.For` walking with what the demo was read with, its control the read's own asks (Sonnet, Fable).
+Both sabotages reddened. Not taken: a bit-level guard on `PoseBetween`'s own lerp line (Fable, minor) — it already
+spells Valve's `A + (B - A) * t`, and the pose tests' 1e-6 tolerances would need bit pairs chosen to separate the two
+roundings.
+
+**Review 4** (Codex, Fable, Sonnet, the cavecrew reviewer). **Reversed review 3's `IOException` split** (cavecrew, Fable):
+an uncached read failure let the whole timeline and a window walk of the same bytes disagree, and re-read a bad archive
+entry on every update that set the model; both failures are cached again, so a session answers one way. Tests: a failed
+read is read once (both kinds), and a sequence from an included model reads its own group (Fable, Sonnet); both sabotages
+reddened. Not taken: Codex's "`ConcurrentDictionary` does not allow null values" (it does for a reference type; the
+missing-file and invalid-bytes tests run that path), as in review 1.
+
+**Review 5** (Codex and Sonnet: no findings; Fable had reviewed the edit before its commit; the cavecrew reviewer). Fixed:
+an `$includemodel` that cannot be read is skipped, as `PropModels.Find` skips it, instead of making the whole model "no
+facts" while the viewer draws it from the same files; tested (`FactsOf_AnIncludeThatCannotBeRead_KeepsTheRootsFacts`), its
+sabotage reddened. Noted: `FactsOf_AFailedReadTwice_ReadsTheFileOnce(False)` pins the older invalid-bytes caching; only the
+`True` case guards review 4's change.
+
+Review 1, not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
+and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,
+Fable, minor): the two compose the same Content readers, but `PropModels` composes them inside the draw load with its
+pakfile-aware `Find`; one reader shared by both is B873's fix, which needs the pakfile at build.
 
 ## B869 — after a jump that lands just past a rise, the frame after the landing floors at a cut no frame made (2026-11-25) — OPEN
 

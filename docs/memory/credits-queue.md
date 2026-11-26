@@ -27,4 +27,11 @@ Owner, 2026-10-18: *"we can ssetup that folder thing, i like that lol"*, after b
   only. Read as: use the queue as well, not only local reviewers. The lead queued a Fable whole-branch merge review and
   started the runner. The allowlist model is still `claude-fable-5-1`. **Balance was EMPTY**: the job failed at once
   with "Credit balance is too low"; runner stopped. Until the owner tops it up, reviews stay local or delegated.
+- **2026-11-26: queue jobs drew PURCHASED credit, not the monthly promo grant.** A negative purchased balance blocked
+  every job (`billing_error`); after a small top-up the jobs ran but billed the top-up until it ran out mid-review, so
+  the review wrote nothing. Before any queue job: confirm with the owner that the grant (not the purchased balance) is
+  what bills, and that the purchased balance is positive. A one-word Fable job costs about $0.77 (context, not output);
+  a branch review about $4+. Details (amounts, key handling): auto-memory copy only.
+- **Result:** jobs billed purchased credit ahead of the monthly promo grant; the provider's support called that a billing
+  fault being fixed. The queue does not run until the owner says it is fixed. Never suggest adding purchased credit.
 Related: [[gate-once-per-batch]], [[review-subagents-deeply]]#review-for-recall.

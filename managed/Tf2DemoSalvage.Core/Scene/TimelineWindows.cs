@@ -41,9 +41,19 @@ public sealed class TimelineWindows
     /// <param name="settings">The viewer's window settings (D220).</param>
     /// <param name="cancel">Stops the walk between two packets.</param>
     /// <returns>The walk, or null for a demo with no data tables.</returns>
+    /// <param name="classes">The install's class scripts, which the straight build reads too (B872); null for none.</param>
+    /// <param name="models">The install's model facts, which the straight build reads too (B872); null for none.</param>
     /// <exception cref="OperationCanceledException">Cancelled before the walk finished.</exception>
-    public static TimelineWindows? Walk(ReadOnlyMemory<byte> file, int everyTicks, WindowSettings settings, CancellationToken cancel = default) =>
-        DemoTimeline.Checkpoints.Walk(file, everyTicks, settings, created: null, cancel) is { } walked ? new TimelineWindows(walked) : null;
+    public static TimelineWindows? Walk(
+        ReadOnlyMemory<byte> file,
+        int everyTicks,
+        WindowSettings settings,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null,
+        CancellationToken cancel = default) =>
+        DemoTimeline.Checkpoints.Walk(file, everyTicks, settings, created: null, classes, models, cancel) is { } walked
+            ? new TimelineWindows(walked)
+            : null;
 
     /// <summary>The timeline from the checkpoint at or before <paramref name="tick"/> through <paramref name="through"/>.</summary>
     /// <param name="tick">The first tick the window must answer.</param>

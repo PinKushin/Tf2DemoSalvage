@@ -186,7 +186,7 @@ public sealed class TimelineCheckpointsTests
         using System.Threading.CancellationTokenSource cancel = new();
         cancel.Cancel();
 
-        Should.Throw<OperationCanceledException>(() => TimelineWindows.Walk(LongWalk(), Every, new WindowSettings(), cancel.Token));
+        Should.Throw<OperationCanceledException>(() => TimelineWindows.Walk(LongWalk(), Every, new WindowSettings(), cancel: cancel.Token));
     }
 
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>

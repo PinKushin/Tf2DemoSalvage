@@ -81,7 +81,8 @@ public sealed class WindowCheck : IDisposable
         // The demo's own interval, from its server info; the engine's default only when it never said.
         double interval = whole.IntervalPerTick > 0f ? whole.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
 
-        return Start(decoded.Bytes, interval, System.IO.Path.GetFileName(decoded.Demo.Path), settings, log);
+        return Start(
+            decoded.Bytes, interval, System.IO.Path.GetFileName(decoded.Demo.Path), settings, log, decoded.Classes, decoded.Models);
     }
 
     /// <summary>Starts walking a demo into checkpoints on a worker.</summary>
@@ -90,8 +91,17 @@ public sealed class WindowCheck : IDisposable
     /// <param name="name">The demo, for the log.</param>
     /// <param name="settings">The settings windows are walked under.</param>
     /// <param name="log">Where the check reports.</param>
+    /// <param name="classes">The class scripts the whole timeline was built with (B872); null for none.</param>
+    /// <param name="models">The model facts the whole timeline was built with (B872); null for none.</param>
     /// <returns>The check, walking.</returns>
-    internal static WindowCheck Start(ReadOnlyMemory<byte> file, double secondsPerTick, string name, WindowSettings settings, ILogger log)
+    internal static WindowCheck Start(
+        ReadOnlyMemory<byte> file,
+        double secondsPerTick,
+        string name,
+        WindowSettings settings,
+        ILogger log,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null)
     {
         ArgumentNullException.ThrowIfNull(log);
 
@@ -101,7 +111,7 @@ public sealed class WindowCheck : IDisposable
             closing =>
             {
                 long began = Stopwatch.GetTimestamp();
-                WindowCache? cache = WindowCache.Walk(file, secondsPerTick, settings, out TimelineWindows? walk, closing);
+                WindowCache? cache = WindowCache.Walk(file, secondsPerTick, settings, out TimelineWindows? walk, classes, models, closing);
                 TimeSpan took = Stopwatch.GetElapsedTime(began);
 
                 // What the checkpoints keep, carried from the instrument that counts them (B243), not a GC delta.

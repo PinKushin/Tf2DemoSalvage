@@ -33,6 +33,70 @@ public sealed class WindowCheckTests
     }
 
     /// <remarks>
+    /// **The walk builds with the facts the whole timeline was built with** (B872): the window's builder asks them as the
+    /// straight build does. Control: the straight build asks the same instrument too, so a zero is not a demo with no model.
+    /// </remarks>
+    [Test]
+    public async Task Start_WithModelFacts_HandsThemToTheWalksBuilder()
+    {
+        byte[] demo = Core.Tests.SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl"], (0, 1, [0.5f], null, null), (10, 1, [0.6f], null, null));
+
+        Asking control = new();
+        _ = DemoTimeline.Build(demo, models: control);
+        control.Asked.ShouldBeGreaterThan(0, "the control: the straight build asks for a model's facts");
+
+        Asking asking = new();
+        using WindowCheck check = WindowCheck.Start(demo, 0.015, "walk", Settings, new RecordingLogger(), models: asking);
+        await check.Walking.ConfigureAwait(false);
+
+        asking.Asked.ShouldBeGreaterThan(0);
+    }
+
+    /// <remarks>
+    /// **`For` walks with what the demo was READ with** (B872): the asks after the read come from the walk's builder.
+    /// </remarks>
+    [Test]
+    public async Task For_ADemoReadWithModelFacts_WalksWithThem()
+    {
+        byte[] demo = Core.Tests.SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl"], (0, 1, [0.5f], null, null), (10, 1, [0.6f], null, null));
+        string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"b872-{Guid.NewGuid():N}.dem");
+        await System.IO.File.WriteAllBytesAsync(path, demo).ConfigureAwait(false);
+
+        try
+        {
+            Asking asking = new();
+            Scene.DecodedDemo decoded = Scene.DecodedDemo.Read(
+                path, new RecordingLogger(), keepBytes: true, models: asking);
+            int byTheRead = asking.Asked;
+
+            using WindowCheck check = WindowCheck.For(decoded, Settings, new RecordingLogger()).ShouldNotBeNull();
+            await check.Walking.ConfigureAwait(false);
+
+            byTheRead.ShouldBeGreaterThan(0, "the control: the read's own build asks");
+            asking.Asked.ShouldBeGreaterThan(byTheRead);
+        }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+    }
+
+    private sealed class Asking : IModelFacts
+    {
+        private int _asked;
+
+        public int Asked => _asked;
+
+        public ModelFacts? FactsOf(string modelPath)
+        {
+            Interlocked.Increment(ref _asked);
+            return null;
+        }
+    }
+
+    /// <remarks>
     /// **A faulted walk parks the check, said once**: frames after it neither throw nor say it again.
     /// </remarks>
     [Test]
@@ -82,7 +146,7 @@ public sealed class WindowCheckTests
             closing =>
             {
                 release.Wait(TimeSpan.FromSeconds(30), closing).ShouldBeTrue();
-                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, cancel: closing), 0L, TimeSpan.Zero);
             },
             Settings,
             log);
@@ -106,7 +170,7 @@ public sealed class WindowCheckTests
             {
                 closing.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)).ShouldBeTrue();
                 closing.ThrowIfCancellationRequested();
-                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, cancel: closing), 0L, TimeSpan.Zero);
             },
             Settings,
             new RecordingLogger());

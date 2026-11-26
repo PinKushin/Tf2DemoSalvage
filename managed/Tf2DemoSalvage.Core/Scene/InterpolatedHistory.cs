@@ -84,9 +84,17 @@ public sealed class InterpolatedHistory
     /// nothing. The second is why the fix is the offset and not a bounds check — a clamp turns the
     /// loud half into the silent one.
     ///
-    /// An entry's own width is the distance to the next offset, so it needs no second list.
+    /// An entry's STORED width is the distance to the next offset, so it needs no second list; the width it
+    /// was appended UNDER is <see cref="_widths"/>, since an entry may store fewer (B870).
     /// </remarks>
     private readonly List<int> _offsets = [];
+
+    /// <summary>For each entry, the history's width when it was appended — the engine's <c>m_nMaxCount</c> then (B870).</summary>
+    /// <remarks>
+    /// One generation shares it, because a width change is a wipe, so this is the width an interpolation over the entry
+    /// runs: components past it are not interpolated, and the stored ones short of it read as zero.
+    /// </remarks>
+    private readonly List<byte> _widths = [];
 
     private readonly List<int> _generationStarts = [];
 
@@ -117,17 +125,25 @@ public sealed class InterpolatedHistory
     /// <remarks>
     /// **The width is per variable, and the engine's widths are the variables' own**: three for
     /// `m_iv_vecOrigin`, three for `m_iv_angRotation`, one for `m_iv_flCycle`, and for
-    /// `m_iv_flPoseParameter` **the model's own parameter count, not <c>MAXSTUDIOPOSEPARAM</c>** —
-    /// `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (<c>c_baseanimating.cpp:1124</c>).
+    /// `m_iv_flPoseParameter` <c>MAXSTUDIOPOSEPARAM</c> until a model is set and **the model's own parameter count**
+    /// after — `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (<c>c_baseanimating.cpp:1124</c>), with
+    /// entries storing a prefix (B870).
     /// Where this project merges two of them into one history it is because they share a latch group and
     /// therefore a changetime, and the risk entry carries the equivalence argument and what would falsify
     /// it.
     /// </remarks>
-    public InterpolatedHistory(int width)
+    /// <param name="storesPrefix">
+    /// Whether an entry may store fewer components than the width, the rest reading as +0 — the pose-parameter history's
+    /// shape (B870). Every other history keeps the exact-width check.
+    /// </param>
+    public InterpolatedHistory(int width, bool storesPrefix = false)
     {
         _width = Math.Max(1, width);
         _looping = new bool[_width];
+        _storesPrefix = storesPrefix;
     }
+
+    private readonly bool _storesPrefix;
 
     /// <summary>Resizes an entry, wiping the history when the width actually changes.</summary>
     /// <param name="newmax">The new component count.</param>
@@ -253,6 +269,7 @@ public sealed class InterpolatedHistory
             _received.RemoveRange(0, drop);
             _flushedAt.RemoveRange(0, drop);
             _offsets.RemoveRange(0, drop);
+            _widths.RemoveRange(0, drop);
             _generationStarts.RemoveRange(0, drop);
             _values.RemoveRange(0, values);
 
@@ -270,6 +287,7 @@ public sealed class InterpolatedHistory
         _received.TrimIfSparse();
         _flushedAt.TrimIfSparse();
         _offsets.TrimIfSparse();
+        _widths.TrimIfSparse();
         _generationStarts.TrimIfSparse();
         _values.TrimIfSparse();
     }
@@ -310,6 +328,11 @@ public sealed class InterpolatedHistory
     public ReadOnlySpan<float> ValuesAt(int index) =>
         CollectionsMarshal.AsSpan(_values).Slice(_offsets[index], WidthAt(index));
 
+    /// <summary>The history's width when an entry was appended, which its generation interpolates over (B870).</summary>
+    /// <param name="index">Which entry, oldest first.</param>
+    /// <returns>The engine's <c>m_nMaxCount</c> for that entry.</returns>
+    public int WidthOf(int index) => _widths[index];
+
     /// <summary>How many components one entry carries, which is its own width and not the history's.</summary>
     /// <param name="index">Which entry, oldest first.</param>
     /// <returns>The distance to the next entry's offset, or to the end of the values for the last.</returns>
@@ -331,7 +354,7 @@ public sealed class InterpolatedHistory
     /// <summary>Appends an entry, unconditionally.</summary>
     /// <param name="changeTime">The tick the value applied.</param>
     /// <param name="received">The tick the packet carrying it arrived.</param>
-    /// <param name="values">The components, which must be the history's width.</param>
+    /// <param name="values">The components: the history's width, or up to it where the history stores a prefix (B870).</param>
     /// <param name="flushNewer">
     /// Whether this append discards the entries at or after its own changetime — `AddToHead`'s third
     /// argument. **`NoteChanged` passes true and `Reset` passes false**
@@ -385,7 +408,9 @@ public sealed class InterpolatedHistory
     /// </remarks>
     public void Add(int changeTime, int received, ReadOnlySpan<float> values, bool flushNewer = true)
     {
-        if (values.Length != _width)
+        // **Shorter only where the history stores a prefix, and it reads back as zeros** (B870): a pose-parameter entry
+        // stores what the wire stated, and a slot it never sent is zero in the engine's fixed array too.
+        if (values.Length > _width || (!_storesPrefix && values.Length != _width))
         {
             throw new ArgumentException(
                 $"a {_width}-component history was given {values.Length} values", nameof(values));
@@ -426,6 +451,7 @@ public sealed class InterpolatedHistory
         // **Before the components, so it records where they land** (B386). This is the entry's
         // address; `index * _width` was a guess about it that a width change falsifies.
         _offsets.Add(_values.Count);
+        _widths.Add(checked((byte)_width));
 
         foreach (float value in values)
         {
@@ -977,7 +1003,7 @@ public sealed class InterpolatedHistory
     /// the floors and `ValuesAt` read the lists unlocked, and a trim computes its drop before the lock and reallocates after
     /// it. That is safe because trims run before any sampler exists (the timeline's build refuses samples while it trims),
     /// not because of this lock (B860 review 19, Fable). Nor does `Add` clear the settle cursors: they rely on the same
-    /// build-before-sample order — except a view-time model reset: B870.
+    /// build-before-sample order, which the model reset keeps since B870 moved it into the build.
     /// </remarks>
     private readonly object _memoLock = new();
 
@@ -1263,19 +1289,39 @@ public sealed class InterpolatedHistory
     /// does (review 22, Fable). A span that does not fit a same-width pair is
     /// a caller asking the wrong history, and B386's slice exception is the right answer to that, not a silent "changed"
     /// on every entry (`LatestChange_AcrossAWidthChange_StopsAtTheReset`).
+    ///
+    /// **A history that stores a prefix compares the padded arrays** (B870): the engine's entries are all `m_nMaxCount`
+    /// wide, and a stored entry shorter than its neighbour holds the slots the wire had not sent, which are +0 — so the
+    /// span is cut from each stored prefix and the part either lacks must be +0 in the other.
     /// </remarks>
     private bool Same(int left, int right, int first, int count)
     {
         ReadOnlySpan<float> a = ValuesAt(left);
         ReadOnlySpan<float> b = ValuesAt(right);
 
-        if (count < 0 || a.Length != b.Length)
+        if (!_storesPrefix)
         {
-            return SameBits(a, b);
+            return count < 0 || a.Length != b.Length
+                ? SameBits(a, b)
+                : SameBits(a.Slice(first, count), b.Slice(first, count));
         }
 
-        return SameBits(a.Slice(first, count), b.Slice(first, count));
+        int end = count < 0 ? Math.Max(a.Length, b.Length) : first + count;
+        ReadOnlySpan<float> x = Within(a, first, end);
+        ReadOnlySpan<float> y = Within(b, first, end);
+        ReadOnlySpan<float> shorter = x.Length <= y.Length ? x : y;
+        ReadOnlySpan<float> longer = x.Length <= y.Length ? y : x;
+
+        return SameBits(shorter, longer[..shorter.Length]) && ZeroBits(longer[shorter.Length..]);
     }
+
+    /// <summary>The stored part of components <paramref name="first"/> up to <paramref name="end"/>.</summary>
+    private static ReadOnlySpan<float> Within(ReadOnlySpan<float> stored, int first, int end) =>
+        stored[Math.Min(first, stored.Length)..Math.Min(end, stored.Length)];
+
+    /// <summary>Whether every component is +0, bit for bit, which is what an unsent slot holds.</summary>
+    private static bool ZeroBits(ReadOnlySpan<float> values) =>
+        System.Runtime.InteropServices.MemoryMarshal.AsBytes(values).IndexOfAnyExcept((byte)0) < 0;
 
     /// <summary>
     /// Bit for bit, as the engine's <c>memcmp</c> is (<c>interpolatedvar.h:22-23</c>, <c>:636</c>): +0 and −0 differ, and
@@ -1371,28 +1417,34 @@ public sealed class InterpolatedHistory
         }
 
         ReadOnlySpan<float> previous = ValuesAt(pair.Oldest);
+        ReadOnlySpan<float> start = ValuesAt(pair.Older);
+
+        // Over the pair's own width, `m_nMaxCount` when it was appended; a stored prefix reads zeros after it (B870).
+        int width = WidthOf(pair.Newer);
 
         // `fabs( dt1 - dt2 ) > 0.0001f`, on integer ticks: the engine's epsilon is there because its
         // changetimes are seconds, and a tick axis makes the same test exact.
-        if (longer == older)
-        {
-            // Already evenly spaced, so the stored entry is the one the spline wants.
-            previous.CopyTo(into);
-
-            return true;
-        }
-
-        ReadOnlySpan<float> start = ValuesAt(pair.Older);
-
+        //
         // `Lerp( 1-frac, prev, start )` with `frac = dt1 / dt2`, which places the sample exactly
-        // `dt1` before `start` rather than wherever the packet happened to land.
+        // `dt1` before `start` rather than wherever the packet happened to land. Already evenly spaced, the stored entry
+        // is the one the spline wants.
         float toward = 1f - ((float)longer / older);
 
-        for (int component = 0; component < _width; component++)
+        for (int component = 0; component < width; component++)
         {
+            float before = component < previous.Length ? previous[component] : 0f;
+            float after = component < start.Length ? start[component] : 0f;
+
+            if (longer == older)
+            {
+                into[component] = before;
+                continue;
+            }
+
+            // `Lerp` is `A + (B - A) * flPercent` (`mathlib.h:629-635`); `float.Lerp` rounds differently.
             into[component] = looping[component]
-                ? ScenePropTrack.LoopingLerp(previous[component], start[component], toward)
-                : float.Lerp(previous[component], start[component], toward);
+                ? ScenePropTrack.LoopingLerp(before, after, toward)
+                : before + ((after - before) * toward);
         }
 
         return true;

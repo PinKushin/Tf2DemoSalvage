@@ -62,13 +62,21 @@ public sealed class WindowCache : IDisposable
     /// <param name="settings">The viewer's window settings, which bound what each checkpoint keeps (D220).</param>
     /// <param name="walk">The walk, for what it keeps; null for a demo with no data tables.</param>
     /// <param name="cancel">Stops the walk between two packets.</param>
+    /// <param name="classes">The install's class scripts, as the straight build has them (B872); null for none.</param>
+    /// <param name="models">The install's model facts, as the straight build has them (B872); null for none.</param>
     /// <returns>The cache, or null for a demo with no data tables.</returns>
     public static WindowCache? Walk(
-        ReadOnlyMemory<byte> file, double secondsPerTick, WindowSettings settings, out TimelineWindows? walk, CancellationToken cancel = default)
+        ReadOnlyMemory<byte> file,
+        double secondsPerTick,
+        WindowSettings settings,
+        out TimelineWindows? walk,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null,
+        CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        walk = TimelineWindows.Walk(file, SpacingTicks(secondsPerTick), settings, cancel);
+        walk = TimelineWindows.Walk(file, SpacingTicks(secondsPerTick), settings, classes, models, cancel);
         TimelineWindows? walked = walk;
 
         return walked is null ? null : new WindowCache(walked.Ticks, (tick, through, cancel) => walked.Window(tick, through, cancel));

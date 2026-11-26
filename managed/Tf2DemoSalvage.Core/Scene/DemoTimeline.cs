@@ -3070,6 +3070,10 @@ public sealed class DemoTimeline
     /// The installed game's class scripts, whose `DontDoAirwalk` and `DontDoNewJump` the anim state reads (B437); null
     /// for the engine's default, which is a class that air-walks and jumps the new way.
     /// </param>
+    /// <param name="models">
+    /// The installed game's model facts, which `OnNewModel` reads when an update sets a model (B870); null for none, which
+    /// is the engine's answer for a model with no studio header — nothing is resized.
+    /// </param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
     /// <exception cref="ArgumentException">The file is too short to hold a header.</exception>
     /// <remarks>
@@ -3081,17 +3085,22 @@ public sealed class DemoTimeline
         ReadOnlyMemory<byte> file,
         Action<double>? progress = null,
         ClientInterp? client = null,
-        IClassAnimationScripts? classes = null)
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null)
     {
-        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp(), classes);
+        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp(), classes, models);
         progress?.Invoke(1d);
         return built;
     }
 
     private static DemoTimeline BuildTimeline(
-        ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client, IClassAnimationScripts? classes)
+        ReadOnlyMemory<byte> file,
+        Action<double>? progress,
+        ClientInterp client,
+        IClassAnimationScripts? classes,
+        IModelFacts? models)
     {
-        if (Start(file, progress, client, classes, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, progress, client, classes, models, out List<DemoCommand> commands) is not { } builder)
         {
             return new DemoTimeline([]);
         }
@@ -3114,7 +3123,7 @@ public sealed class DemoTimeline
     /// </remarks>
     internal static DemoTimeline BuildThroughSnapshot(ReadOnlyMemory<byte> file, int snapshotAfter, int stopAfter = int.MaxValue)
     {
-        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
         {
             return new DemoTimeline([]);
         }
@@ -3147,7 +3156,7 @@ public sealed class DemoTimeline
     internal static DemoTimeline BuildResumingTwice(
         ReadOnlyMemory<byte> file, int earlier, int later, bool backFirst, int walk, int stopAfter)
     {
-        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
         {
             return new DemoTimeline([]);
         }
@@ -3174,7 +3183,7 @@ public sealed class DemoTimeline
     /// <returns>The whole snapshot's bytes and each field's.</returns>
     internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(ReadOnlyMemory<byte> file, int at)
     {
-        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
         {
             return (0, []);
         }
@@ -3189,7 +3198,7 @@ public sealed class DemoTimeline
     /// <remarks>The resume must refuse, because Finish handed the shared lists out (D217).</remarks>
     internal static void ResumeAfterFinish(ReadOnlyMemory<byte> file, int at)
     {
-        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
         {
             return;
         }
@@ -3208,7 +3217,7 @@ public sealed class DemoTimeline
     /// <returns>The timeline of that prefix — what a resumed build stopped at the same command must equal.</returns>
     internal static DemoTimeline BuildThrough(ReadOnlyMemory<byte> file, int stopAfter)
     {
-        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
         {
             return new DemoTimeline([]);
         }
@@ -3273,17 +3282,22 @@ public sealed class DemoTimeline
         /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
         /// <param name="cancel">Stops the walk between two packets.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        /// <param name="classes">The install's class scripts, as the straight build has them (B872); null for none.</param>
+        /// <param name="models">The install's model facts, as the straight build has them (B872); null for none.</param>
         /// <exception cref="OperationCanceledException">Cancelled before the walk finished.</exception>
         public static Checkpoints? Walk(
             ReadOnlyMemory<byte> file,
             int everyTicks,
             WindowSettings settings,
             Dictionary<Type, (long Objects, long Elements)>? created = null,
+            IClassAnimationScripts? classes = null,
+            IModelFacts? models = null,
             CancellationToken cancel = default)
         {
             ArgumentNullException.ThrowIfNull(settings);
 
-            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created, cancel) is not { } walked)
+            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created, cancel, classes, models)
+                is not { } walked)
             {
                 return null;
             }
@@ -3297,7 +3311,7 @@ public sealed class DemoTimeline
 
             // The first walk's counts describe checkpoints thrown away; only the walk returned is counted.
             created?.Clear();
-            return Walk(file, everyTicks, settings.Interp, _ => needed, created, cancel);
+            return Walk(file, everyTicks, settings.Interp, _ => needed, created, cancel, classes, models);
         }
 
         /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
@@ -3338,9 +3352,11 @@ public sealed class DemoTimeline
             ClientInterp client,
             Func<Builder, WindowReach> reachAt,
             Dictionary<Type, (long Objects, long Elements)>? created,
-            CancellationToken cancel)
+            CancellationToken cancel,
+            IClassAnimationScripts? classes = null,
+            IModelFacts? models = null)
         {
-            if (Start(file, null, client, null, out List<DemoCommand> commands) is not { } builder)
+            if (Start(file, null, client, classes, models, out List<DemoCommand> commands) is not { } builder)
             {
                 return null;
             }
@@ -3573,6 +3589,7 @@ public sealed class DemoTimeline
         Action<double>? progress,
         ClientInterp client,
         IClassAnimationScripts? classes,
+        IModelFacts? models,
         out List<DemoCommand> commands)
     {
         long buildFrom = Stopwatch.GetTimestamp();
@@ -3601,7 +3618,7 @@ public sealed class DemoTimeline
 
         return dataTables.Type != DemoCommandType.DataTables
             ? null
-            : new Builder(header, commands, dataTables, progress, client, classes, buildFrom, commandTicks);
+            : new Builder(header, commands, dataTables, progress, client, classes, models, buildFrom, commandTicks);
     }
 
     /// <summary>
@@ -3617,6 +3634,9 @@ public sealed class DemoTimeline
         private readonly Action<double>? progress;
         private readonly ClientInterp client;
         private readonly IClassAnimationScripts? classes;
+
+        /// <summary>The install's model facts, which an update setting a model hands `OnNewModel` (B870).</summary>
+        private readonly IModelFacts? modelFacts;
         private readonly DemoHeader header;
         private readonly List<DemoCommand> commands;
         private readonly long buildFrom;
@@ -3893,6 +3913,7 @@ public sealed class DemoTimeline
             Action<double>? progress,
             ClientInterp client,
             IClassAnimationScripts? classes,
+            IModelFacts? models,
             long buildFrom,
             long commandTicks)
         {
@@ -3901,6 +3922,7 @@ public sealed class DemoTimeline
         this.progress = progress;
         this.client = client;
         this.classes = classes;
+        modelFacts = models;
         this.buildFrom = buildFrom;
         this.commandTicks = commandTicks;
         messageTicks = 0;
@@ -4746,7 +4768,7 @@ public sealed class DemoTimeline
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, noIk, predictsForOwner, protocol, command.Tick, interval,
                         simulationLag, animationLag, clockGap, lagByClass, corpses, replaced,
-                        lastHeld, recorderSlot);
+                        lastHeld, recorderSlot, modelFacts);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -6007,6 +6029,12 @@ public sealed class DemoTimeline
                 shared.Add(classes);
             }
 
+            // The install's model facts, a cache every copy reads and none owns (B870).
+            if (modelFacts is not null)
+            {
+                shared.Add(modelFacts);
+            }
+
             return shared;
         }
 
@@ -7037,7 +7065,8 @@ public sealed class DemoTimeline
         Dictionary<int, SceneRagdoll> corpses,
         TailList<SceneRagdoll> replaced,
         Dictionary<int, int> lastHeld,
-        int? recorderSlot)
+        int? recorderSlot,
+        IModelFacts? modelFacts)
     {
         // **A corpse is captured here and never becomes a prop track**, because it has no model
         // index to make one from — `DT_TFRagdoll` is `NOBASE` (`PARITY-AUDIT.md` #4). Recorded on
@@ -7639,6 +7668,12 @@ public sealed class DemoTimeline
         // index 1154 (`resupply_locker.mdl`) and the baseline's origin (3440 -2096 240), which is
         // `prop_locker_blu_5`'s world position out of the map. The next update said 1177 and
         // (2 0 -59), and the track never heard it. Nine other entities took the same identity.
+        //
+        // **Whether this update SET the model** (B870): `SetModelPointer` runs `OnNewModel` only when the model differs
+        // from the one held (`c_baseentity.cpp:1782-1791`), and a new entity holds none (`Clear()`, `:1010`).
+        bool modelSet = !string.IsNullOrEmpty(model)
+            && (fresh || !string.Equals(model, track.ModelPath, StringComparison.Ordinal));
+
         track.Follow(model);
 
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
@@ -7997,6 +8032,26 @@ public sealed class DemoTimeline
         // **Stamped with the arrival tick, not the animation time**, which is the engine's `curtime`:
         // `Reset` calls `AddToHead( gpGlobals->curtime, m_pValue, false )` where the latch it replaces
         // used `GetAnimTime()`.
+        //
+        // **`OnNewModel` between the two** (B870): `C_BaseEntity::PostDataUpdate` latches, then `ValidateModelIndex` sets the
+        // model (`c_baseentity.cpp:2583-2609`), and `C_BaseAnimating::PostDataUpdate` reaches the parity block only after
+        // its base returns (`c_baseanimating.cpp:4687`, `:4738`) — so the static-prop flag the parity reset reads is the new
+        // model's. Stamped with the arrival, which is `Reset()`'s `curtime`.
+        if (modelSet && modelFacts?.FactsOf(model!) is { } facts)
+        {
+            track.OnNewModel(facts.PoseParameterLoops, tick, facts.StaticProp, facts.SequenceLoops);
+        }
+        else if (modelSet && modelFacts is not null && !model!.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+        {
+            // A brush model or a sprite has no studio header, which is an answer; a `.mdl` the install lacks is not (B873).
+            track.NoStudioHeader();
+        }
+        else if (modelSet && modelFacts is not null)
+        {
+            // A `.mdl` the install lacks: unknown, so an earlier brush model's no-header answer no longer stands (B873).
+            track.FactsUnknown();
+        }
+
         if (newSequenceStarted)
         {
             track.SequenceRestarted(tick);

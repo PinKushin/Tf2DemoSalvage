@@ -25,9 +25,12 @@ public sealed class ScenePropTrackAtBitIdentityTests
     /// <remarks>
     /// Main's was 0x17B4E77030C3A479 at 077d0175. **Re-recorded for B629** (2026-11-15): <c>SlerpAngles</c> became Valve's
     /// <c>QuaternionSlerp</c> rather than <c>System.Numerics</c>'s, a deliberate change of bits. Control: with that one call
-    /// put back the hash returned to 0x17B4E77030C3A479, so the move is the slerp and nothing else.
+    /// put back the hash returned to 0x17B4E77030C3A479, so the move is the slerp and nothing else. **Re-recorded for B870
+    /// review 2** (2026-11-26): a linear blend and the spline's time fixup became Valve's `Lerp`, `A + (B - A) * flPercent`
+    /// (`mathlib.h:629-635`), where `float.Lerp` rounds as `A * (1 - t) + B * t`. Control: with those two lines put back
+    /// the hash returned to 0xB2B825C3641C72CA.
     /// </remarks>
-    private const ulong ExpectedWindowsX64 = 0xB2B825C3641C72CAUL;
+    private const ulong ExpectedWindowsX64 = 0x4748661BCF2AE5AAUL;
 
 
     [Test]

@@ -276,6 +276,21 @@ public sealed class InterpolatedHistoryTests
     }
 
     /// <summary>
+    /// **A shorter entry is the same array with +0 after it** (B870): the engine's entries are all `m_nMaxCount` wide and an
+    /// unsent slot is +0, so (0.5) then (0.5, 0) is no change — but a −0 in the padding is, since `memcmp` sees its bits.
+    /// </summary>
+    [Test]
+    public void LatestChange_AShorterEntryPaddedWithZeros_IsTheSameAsTheLonger()
+    {
+        InterpolatedHistory history = new(3, storesPrefix: true);
+        history.Add(1, 1, [0.5f]);
+        history.Add(2, 2, [0.5f, 0f]);
+        history.Add(3, 3, [0.5f, 0f, -0f]);
+
+        (history.LatestChange(2, 0, -1), history.LatestChange(3, 0, -1)).ShouldBe((1, 3));
+    }
+
+    /// <summary>
     /// Stepping forward or back one entry at a time past a stretch costs no allocation: a step forward appends to the
     /// stretch below and a step back prepends to the one above (merge reviews 3-5 and review 24; B860 merge review 12). The
     /// list's own growth allocates now and then, so the least over a hundred steps is what must be zero.

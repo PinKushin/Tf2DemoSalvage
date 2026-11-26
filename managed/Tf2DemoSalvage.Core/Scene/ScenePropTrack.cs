@@ -1093,18 +1093,25 @@ public sealed class ScenePropTrack
     /// <c>CInterpolatedVarArray&lt; float, MAXSTUDIOPOSEPARAM &gt;</c>: the array is the ENTRY's width,
     /// not a list per parameter.
     ///
-    /// **Its width is the MODEL's parameter count, not <c>MAXSTUDIOPOSEPARAM</c>** —
-    /// `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (<c>:1124</c>), which
-    /// <see cref="OnNewModel"/> is. It starts at one, the engine's `MAX(1,newmax)` floor, and grows when
-    /// the model becomes known. **Sizing it from the constant instead was measurable**: a corpus test host
-    /// reached 11 GB, because a match has hundreds of tracks and tens of thousands of updates each while a
-    /// sentry has two parameters and most props have none.
+    /// **Its width starts at <c>MAXSTUDIOPOSEPARAM</c> and becomes the MODEL's parameter count when the
+    /// recording sets a model** (B870): `CInterpolatedVarArray`'s constructor calls `SetMaxCount( COUNT )`
+    /// (`interpolatedvar.h`, the class at the file's end), and `OnNewModel` calls
+    /// `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )` (<c>:1124</c>) inside the update that
+    /// set the model — <see cref="OnNewModel"/>, called by the build at that update. Until B870 it started at
+    /// one and was widened at VIEW time, which left every parameter after the first undrawn by the blend.
+    ///
+    /// **An entry STORES only what the wire stated, up to the width, and reads zeros after it.** The engine's
+    /// unsent slots are zero too, so the two are the same array; storing all 24 put a corpus test host at
+    /// 11 GB once, because a match has hundreds of tracks and tens of thousands of updates each.
     ///
     /// **The looping flags come from the model with the width**, out of `Pose.loop != 0.0f` (<c>:1130</c>),
     /// so nothing here is set looping by default. That closes the divergence B382 filed as unestablished:
     /// the fixup and <see cref="PoseBetween"/> now read one table rather than agreeing by construction.
     /// </remarks>
-    private readonly InterpolatedHistory _poseParameters = new(1);
+    private readonly InterpolatedHistory _poseParameters = new(MaxStudioPoseParameters, storesPrefix: true);
+
+    /// <summary><c>MAXSTUDIOPOSEPARAM</c> (<c>studio.h</c>), the engine's pose-parameter array length.</summary>
+    internal const int MaxStudioPoseParameters = 24;
 
 
     /// <summary>The last values received, for the engine's three changed-tests.</summary>
@@ -2243,18 +2250,10 @@ public sealed class ScenePropTrack
 
             _animation.Add(animationAppliedAt, tick, cycle);
 
-            // **Exactly the history's width, which is the model's parameter count** — the engine copies
-            // `m_flPoseParameter` into an entry of `m_nMaxCount` floats and nothing wider. A model with
-            // more parameters than the demo states leaves the rest at zero, which is what the engine's
-            // own array holds for them.
-            Span<float> parameters = stackalloc float[_poseParameters.Width];
-
-            for (int index = 0; index < parameters.Length && index < pose.PoseParameters.Count; index++)
-            {
-                parameters[index] = pose.PoseParameters[index];
-            }
-
-            _poseParameters.Add(animationAppliedAt, tick, parameters);
+            // **What the wire stated, up to the history's width** — the engine copies `m_flPoseParameter` into an
+            // entry of `m_nMaxCount` floats; the slots past what was stated are zero there and read as zero here
+            // (B870), so they are not stored.
+            _poseParameters.Add(animationAppliedAt, tick, PoseEntry(pose.PoseParameters, stackalloc float[_poseParameters.Width]));
         }
 
         _lastReceived = received;
@@ -2286,11 +2285,36 @@ public sealed class ScenePropTrack
         _animationAppliedAt.Add(animationAppliedAt);
     }
 
+    /// <summary>A pose-parameter entry: the stated values, cut at the history's width, without trailing +0s.</summary>
+    /// <param name="stated">What the wire stated.</param>
+    /// <param name="buffer">At least the history's width of space.</param>
+    /// <returns>The values to store.</returns>
+    /// <remarks>
+    /// **Trailing +0s are not stored, because they read back as +0** (B870): a baseline states all 24 elements, and storing
+    /// them on every animation update of every animating prop is the 11 GB that a fixed width once cost. A −0 is kept.
+    /// </remarks>
+    private static ReadOnlySpan<float> PoseEntry(IReadOnlyList<float> stated, Span<float> buffer)
+    {
+        int count = Math.Min(stated.Count, buffer.Length);
+
+        for (int index = 0; index < count; index++)
+        {
+            buffer[index] = stated[index];
+        }
+
+        while (count > 0 && BitConverter.SingleToInt32Bits(buffer[count - 1]) == 0)
+        {
+            count--;
+        }
+
+        return buffer[..count];
+    }
+
     /// <summary>Whether two received floats differ as the engine's float <c>!=</c> says.</summary>
     /// <remarks>
     /// **Two engine sites, one semantics**: the append gate's `Vector`/`QAngle` `!=` (`c_baseentity.cpp:2571-2572`), and,
     /// negated, the angle lerp's `if ( q1 == q2 ) return q1;` (`mathlib.h:663-665`, `QAngle::operator==`,
-    /// `vector.h:2035-2040`) in <see cref="SlerpAngles(in HistoryEntry, in HistoryEntry, float)"/>. Both are float
+    /// `vector.h:2035-2040`) in <see cref="SlerpAngles(in HistoryEntry, in HistoryEntry, float, bool)"/>. Both are float
     /// compares; the history's own compare is the other kind, a <c>memcmp</c> (<c>InterpolatedHistory.Same</c>).
     ///
     /// **The engine's test is exact and this has to be too.** `m_vecOldOrigin != GetLocalOrigin()` is
@@ -2670,7 +2694,7 @@ public sealed class ScenePropTrack
         double target = TargetFor(_simulation, tick, schedule, OriginVariable, out int? originFloor);
         double anglesTarget = TargetFor(_simulation, tick, schedule, AnglesVariable);
         double animationTarget = TargetFor(_animation, tick, schedule, CycleVariable, out int? animationFloor);
-        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable);
+        double poseTarget = TargetFor(_poseParameters, tick, schedule, WholeVariable, out int? poseFloor);
 
         if (FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget))
         {
@@ -2735,7 +2759,7 @@ public sealed class ScenePropTrack
         HistoryEntry moving = new(olderEntry);
         HistoryEntry toward = new(newerEntry);
 
-        (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
+        (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction, pair.Older == pair.Newer);
 
         // **`m_iv_angRotation` is its own variable** (B860 review 2, Fable): after a rise it can hold while the origin
         // sharing its entries moves on, or the reverse. Linear either way — "Can't do hermite with QAngles".
@@ -2753,7 +2777,8 @@ public sealed class ScenePropTrack
             (pitch, yaw, roll) = SlerpAngles(
                 new HistoryEntry(_simulation.ValuesAt(anglesPair.Older)),
                 new HistoryEntry(_simulation.ValuesAt(anglesPair.Newer)),
-                anglesFraction);
+                anglesFraction,
+                anglesPair.Older == anglesPair.Newer);
         }
 
         // Hermite when a third sample exists, which is the engine's default rather than an extra:
@@ -2834,13 +2859,13 @@ public sealed class ScenePropTrack
         // fraction, which for a viewmodel is a different pair again, and the error stopped being
         // smooth.
         // Asked AT the tick: the flag is networked per update, so the end value would decide every earlier frame (B548).
-        // `m_iv_flPoseParameter` is its own variable (B860 review 2, Fable): stamped with the cycle, so the same fraction
-        // while both run at one target; its own pair's fraction once a rise holds one and not the other. Not after a
-        // sequence restart or a model reset, which reset one history and not the other: B870.
+        // `m_iv_flPoseParameter` is its own variable (B860 review 2, Fable), so its fraction is its own pair's, always
+        // (B870 part 4): `GetInterpolationInfo` computes `frac` per variable from that variable's entries
+        // (`interpolatedvar.h:842-847`), and a sequence restart resets the cycle's history and not this one.
         Bracketing? posePair = _poseParameters.Bracket(poseTarget, (int)Math.Floor(tick));
-        float poseFraction = animationFraction;
+        float poseFraction = 0f;
 
-        if (Math.Abs(poseTarget - animationTarget) > 1e-9d && posePair is { } held)
+        if (posePair is { } held)
         {
             int poseFrom = _poseParameters.ChangeTimeAt(held.Older);
             int poseTo = _poseParameters.ChangeTimeAt(held.Newer);
@@ -3037,7 +3062,8 @@ public sealed class ScenePropTrack
             PoseParameters = PoseBetween(
                 from.PoseParameters,
                 posePair,
-                poseFraction),
+                poseFraction,
+                poseFloor),
 
             // Discrete: a counter part-way between two values names neither.
             ResetEventsParity = from.ResetEventsParity,
@@ -3146,7 +3172,8 @@ public sealed class ScenePropTrack
     {
         if (p0 is not { } previous)
         {
-            return float.Lerp(p1, p2, t);
+            // `Lerp` is `A + (B - A) * flPercent` (`mathlib.h:629-635`); `float.Lerp` rounds differently (B870 review 2).
+            return p1 + ((p2 - p1) * t);
         }
 
         float d1 = p1 - previous;
@@ -3433,8 +3460,8 @@ public sealed class ScenePropTrack
     ///
     /// **Empty until somebody sets it, and empty means nothing loops**, which is the right answer
     /// for the overwhelming majority: of a sentry's two parameters only <c>aim_yaw</c> loops. This
-    /// layer cannot open a model, so the scene layer sets it when it resolves one — a frame later
-    /// than the entity's first appearance, which is also when the engine's history is empty.
+    /// layer cannot open a model, so the build sets it from the install's facts at the update that set
+    /// the model (B870), and the view restates it when it draws one the build could not name.
     /// </remarks>
     public IReadOnlyList<bool> PoseParameterLoops { get; private set; } = [];
 
@@ -3469,33 +3496,71 @@ public sealed class ScenePropTrack
     /// **A method rather than a settable property, because the assignment has to do work.** The property
     /// version could be set without resizing the history, which is how the two came apart in the first
     /// place.
+    ///
+    /// **Called by the build, inside the update that set the model, after its latch** (B870) — the engine's
+    /// order (`c_baseentity.cpp:2583-2609`) — so the reset is stamped with that arrival and seeded from the
+    /// keyframe that update just added, which is <c>_keyframes[^1]</c> then and only then. Until B870 the
+    /// viewer called it when a track was first DRAWN, which seeded the end of the recording and appended it
+    /// after entries that arrived later. A drawn model now only <see cref="Describe"/>s.
     /// </remarks>
     public void OnNewModel(
         IReadOnlyList<bool> looping, int at, bool staticPropModel, Func<int, bool>? sequenceLoops = null)
     {
         ArgumentNullException.ThrowIfNull(looping);
 
-        StaticPropModel = staticPropModel;
-        _sequenceLoops = sequenceLoops;
+        Describe(looping, staticPropModel, sequenceLoops);
 
-        Span<float> stated = stackalloc float[Math.Max(1, looping.Count)];
+        IReadOnlyList<float> arrived = _keyframes.Count > 0 ? _keyframes[^1].Pose.PoseParameters : [];
 
-        for (int index = 0; index < stated.Length; index++)
-        {
-            stated[index] = _keyframes.Count > 0 && index < _keyframes[^1].Pose.PoseParameters.Count
-                ? _keyframes[^1].Pose.PoseParameters[index]
-                : 0f;
-        }
+        // **No wider than the engine's array**: `Assert( hdr->GetNumPoseParameters() <= ARRAYSIZE( m_flPoseParameter ) )`
+        // (`c_baseanimating.cpp:1122`). A model declaring more is malformed, and a downloaded one is untrusted input (D32).
+        int width = Math.Min(looping.Count, MaxStudioPoseParameters);
 
-        _poseParameters.SetMaxCount(looping.Count, at, stated);
+        _poseParameters.SetMaxCount(width, at, PoseEntry(arrived, stackalloc float[Math.Max(1, width)]));
 
-        PoseParameterLoops = looping;
-
-        for (int index = 0; index < looping.Count; index++)
+        for (int index = 0; index < width; index++)
         {
             _poseParameters.SetLooping(looping[index], index);
         }
     }
+
+    /// <summary>Tells the track what a DRAWN model says, without touching its histories (B870).</summary>
+    /// <param name="looping">Whether each of the model's pose parameters wraps, in the model's order.</param>
+    /// <param name="staticPropModel">Whether the model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</param>
+    /// <param name="sequenceLoops">Whether each sequence loops as the model plays it; null for nothing.</param>
+    /// <remarks>
+    /// **For a model the build could not name** — a weapon drawn from its item, whose wire sends no model
+    /// (<see cref="ItemDefinitionIndex"/>) — and to restate one it could. The engine reads these flags when it
+    /// interpolates, from the model it has then; the history's shape is `OnNewModel`'s, at the update.
+    /// </remarks>
+    public void Describe(IReadOnlyList<bool> looping, bool staticPropModel, Func<int, bool>? sequenceLoops = null)
+    {
+        ArgumentNullException.ThrowIfNull(looping);
+
+        StaticPropModel = staticPropModel;
+        _sequenceLoops = sequenceLoops;
+        PoseParameterLoops = looping;
+        _noStudioHeader = false;
+    }
+
+    /// <summary>The recording set a model with no studio header — a brush model or a sprite (B870).</summary>
+    /// <remarks>
+    /// **The engine's answers then**: `OnNewModel` returns before `SetMaxCount` (`c_baseanimating.cpp:1042-1043`), so the
+    /// pose history and its looping flags stand; `IsSequenceLooping` reads no header and says no
+    /// (`game/shared/animation.cpp:572-580`); and the parity block's `if ( hdr &amp;&amp; … ) m_iv_flCycle.Reset()`
+    /// (`c_baseanimating.cpp:4744-4748`) resets nothing.
+    /// </remarks>
+    public void NoStudioHeader()
+    {
+        _sequenceLoops = null;
+        _noStudioHeader = true;
+    }
+
+    /// <summary>The recording set a `.mdl` the install could not answer for (B873): no longer a headerless model.</summary>
+    public void FactsUnknown() => _noStudioHeader = false;
+
+    /// <summary>Whether the model last set has no studio header, which skips the cycle reset (B870).</summary>
+    private bool _noStudioHeader;
 
     /// <summary>Whether a sequence of this track's model loops — <c>IsSequenceLooping</c> — or null before the model is known.</summary>
     /// <remarks>
@@ -3503,8 +3568,8 @@ public sealed class ScenePropTrack
     /// B726). Only the model can answer, so the scene hands it over at <see cref="OnNewModel"/>. **Unknown is NOT looping,
     /// which is the engine's own answer without a model**: `IsSequenceLooping` reads `GetSequenceFlags`, which returns 0
     /// for a null studio header, a model with no sequences or a sequence out of range (`game/shared/animation.cpp:572-580`).
-    /// The engine nearly always has the model; ours is told a frame after the track first draws, or never for a model
-    /// that does not load, and for that time the cycle blends as a one-shot.
+    /// Told at the update that set the model when the install answers (B870); otherwise when the view first draws it, or
+    /// never for a model that does not load (B873), and until then the cycle blends as a one-shot.
     /// </remarks>
     private Func<int, bool>? _sequenceLoops;
 
@@ -3545,7 +3610,7 @@ public sealed class ScenePropTrack
     /// </remarks>
     public void SequenceRestarted(int at)
     {
-        if (StaticPropModel)
+        if (StaticPropModel || _noStudioHeader)
         {
             return;
         }
@@ -3571,18 +3636,26 @@ public sealed class ScenePropTrack
     /// of those the model actually declares is a property of the model, and handing back a
     /// twenty-four-long list for a two-parameter sentry would make every consumer's `Count` a lie.
     ///
-    /// **Returns the stated list when the two ends agree, rather than allocating a copy.** Interpolation
-    /// runs per sampled entity per frame, and the common case by far is two entries carrying the same
-    /// values — a sentry that has not moved, or an entity whose parameters never change. The arrays are
-    /// treated as immutable throughout, which is what makes handing one out safe. **Differs from
-    /// `_Interpolate`: B870.**
+    /// **`_Interpolate`, both branches** (<c>interpolatedvar.h:1310-1341</c>): a pair that is ONE entry is
+    /// copied (the `start == end` quick exit, `:1315`), and a pair of two is lerped per component —
+    /// `LoopingLerp` for a looping one — with no compare of the values (B870 part 1). Over the entry's width
+    /// only, the engine's <c>m_nMaxCount</c>; a component past it is not interpolated and keeps what the
+    /// wire last stated, which is the arrival keyframe's. A stored entry shorter than its width reads zeros
+    /// (B870 part 5).
     ///
-    /// **Linear, where the engine splines.** `_Interpolate_Hermite` runs over the pose-parameter array
-    /// like any other (<c>interpolatedvar.h:1438</c>); this blends the pair only. Pre-existing, unchanged
-    /// by B382, and named there as not established rather than assumed away.
+    /// **Returns the stated list when the result is bit-equal to it, rather than allocating a copy.**
+    /// Interpolation runs per sampled entity per frame, and the common case by far is a held value — a
+    /// sentry that has not moved, or an entity whose parameters never change. The arrays are treated as
+    /// immutable throughout, which is what makes handing one out safe. Until B870 this returned the stated
+    /// list whenever the two ENDS agreed, which is the arrival keyframe a delay early when it differs.
+    ///
+    /// **Splined when the engine splines** (B870 review, Fable): with a third sample spaced from the pair,
+    /// `_Interpolate_Hermite` runs over the array like any other variable (<c>interpolatedvar.h:1420-1458</c>), after
+    /// `TimeFixup_Hermite` respaces that sample. Linear until then, which B382 named and left.
     /// </remarks>
+    /// <param name="floor">The oldest entry the client still held after a delay rise's prune, or null; no spline older.</param>
     private IReadOnlyList<float> PoseBetween(
-        IReadOnlyList<float> stated, Bracketing? pair, float fraction)
+        IReadOnlyList<float> stated, Bracketing? pair, float fraction, int? floor)
     {
         if (stated.Count == 0 || pair is not { } at)
         {
@@ -3591,32 +3664,66 @@ public sealed class ScenePropTrack
 
         ReadOnlySpan<float> from = _poseParameters.ValuesAt(at.Older);
         ReadOnlySpan<float> to = _poseParameters.ValuesAt(at.Newer);
+        int entryWidth = _poseParameters.WidthOf(at.Newer);
+        int width = Math.Min(stated.Count, entryWidth);
+        bool one = at.Older == at.Newer;
 
-        int count = Math.Min(stated.Count, from.Length);
+        // **`_Interpolate_Hermite` when there is a third, spaced sample** (`interpolatedvar.h:992-995`, `:1420-1458`):
+        // `m_bHermite` is `dt > 0.0001f` and `dt2 > 0.0001f` (`:844-858`), and the pose parameters are not
+        // `INTERPOLATE_LINEAR_ONLY` (`c_baseanimating.cpp:890`). The third sample is respaced by `TimeFixup_Hermite`.
+        Span<bool> loops = stackalloc bool[entryWidth];
 
-        if (from[..count].SequenceEqual(to[..count]))
+        for (int index = 0; index < loops.Length && index < PoseParameterLoops.Count; index++)
         {
-            return stated;
+            loops[index] = PoseParameterLoops[index];
         }
 
-        float[] blended = new float[stated.Count];
+        Span<float> fixup = stackalloc float[entryWidth];
+        // **No third sample older than the pruned floor**, as for the origin and the cycle (B860 review 7):
+        // `Truncate( i + 3 )` left nothing before it (`interpolatedvar.h:782-795`), so no valid `oldestindex` (`:851`).
+        bool hermite = !one
+            && _poseParameters.ChangeTimeAt(at.Newer) > _poseParameters.ChangeTimeAt(at.Older)
+            && (floor is not { } oldestHeld || _poseParameters.ChangeTimeAt(at.Older) > oldestHeld)
+            && _poseParameters.TimeFixup(at, fixup, loops);
+
+        Span<float> blended = stackalloc float[stated.Count];
 
         for (int index = 0; index < blended.Length; index++)
         {
-            // Past the history's width the model declares a parameter the entry cannot hold, so the
-            // stated value stands rather than a blend of nothing.
-            if (index >= count)
+            if (index >= width)
             {
                 blended[index] = stated[index];
                 continue;
             }
 
-            blended[index] = index < PoseParameterLoops.Count && PoseParameterLoops[index]
-                ? LoopingLerp(from[index], to[index], fraction)
-                : from[index] + ((to[index] - from[index]) * fraction);
+            float end = index < to.Length ? to[index] : 0f;
+
+            if (one)
+            {
+                blended[index] = end;
+                continue;
+            }
+
+            float start = index < from.Length ? from[index] : 0f;
+
+            blended[index] = (loops[index], hermite) switch
+            {
+                (true, true) => LoopingCurve(fixup[index], start, end, fraction),
+                (true, false) => LoopingLerp(start, end, fraction),
+                (false, true) => Curve(fixup[index], start, end, fraction),
+                (false, false) => start + ((end - start) * fraction),
+            };
         }
 
-        return blended;
+        for (int index = 0; index < blended.Length; index++)
+        {
+            if (BitConverter.SingleToInt32Bits(blended[index]) != BitConverter.SingleToInt32Bits(stated[index]))
+            {
+                return blended.ToArray();
+            }
+        }
+
+        return stated;
     }
 
 
@@ -3689,8 +3796,16 @@ public sealed class ScenePropTrack
     /// other way.
     /// </remarks>
     private static (float Pitch, float Yaw, float Roll) SlerpAngles(
-        in HistoryEntry from, in HistoryEntry to, float fraction)
+        in HistoryEntry from, in HistoryEntry to, float fraction, bool oneEntry)
     {
+        // **One entry is copied before any compare** (B870 part 3): `_Interpolate`'s `start == end` quick exit
+        // (`interpolatedvar.h:1313-1321`) runs ahead of `Lerp<QAngle>`, so an entry holding a NaN — which fails the
+        // `==` below — still draws as itself rather than slerping to NaN in every component.
+        if (oneEntry)
+        {
+            return (to.Pitch, to.Yaw, to.Roll);
+        }
+
         if (!DiffersFrom(from.Pitch, to.Pitch) &&
             !DiffersFrom(from.Yaw, to.Yaw) &&
             !DiffersFrom(from.Roll, to.Roll))
