@@ -2571,7 +2571,13 @@ public sealed class ScenePropTrack
         // Memoized on the history, since a variable that never settles would otherwise be scanned from its last change on
         // every call (B860 merge review).
         => history.SettleFrame(
-            schedule, variable.First, variable.Count, changed, last, frame => Settles(history, frame, schedule, variable));
+            schedule,
+            variable.First,
+            variable.Count,
+            changed,
+            last,
+            (History: history, Schedule: schedule, Variable: variable),
+            static (frame, state) => Settles(state.History, frame, state.Schedule, state.Variable));
 
     /// <summary>Whether the frame at a tick found nothing more to interpolate (`bNoMoreChanges`) and left the list.</summary>
     private static bool Settles(InterpolatedHistory history, int frame, InterpolationSchedule schedule, HistoryVariable variable) =>

@@ -31,16 +31,16 @@ public sealed class InterpolatedHistoryTests
         object schedule = new();
         System.Collections.Generic.List<int> asked = [];
 
-        history.SettleFrame(schedule, 0, -1, 10, 50, frame => { asked.Add(frame); return false; }).ShouldBeNull();
+        history.SettleFrame(schedule, 0, -1, 10, 50, asked, static (frame, list) => { list.Add(frame); return false; }).ShouldBeNull();
         int firstScan = asked.Count;
-        history.SettleFrame(schedule, 0, -1, 10, 60, frame => { asked.Add(frame); return frame == 55; }).ShouldBe(55);
+        history.SettleFrame(schedule, 0, -1, 10, 60, asked, static (frame, list) => { list.Add(frame); return frame == 55; }).ShouldBe(55);
         int secondScan = asked.Count - firstScan;
-        history.SettleFrame(schedule, 0, -1, 10, 70, frame => { asked.Add(frame); return true; }).ShouldBe(55);
+        history.SettleFrame(schedule, 0, -1, 10, 70, asked, static (frame, list) => { list.Add(frame); return true; }).ShouldBe(55);
         int thirdScan = asked.Count - firstScan - secondScan;
-        history.SettleFrame(schedule, 0, -1, 10, 54, frame => { asked.Add(frame); return true; }).ShouldBeNull();
+        history.SettleFrame(schedule, 0, -1, 10, 54, asked, static (frame, list) => { list.Add(frame); return true; }).ShouldBeNull();
 
         history.DropReceivedBefore(5, tail: 2);
-        history.SettleFrame(schedule, 0, -1, 10, 12, frame => { asked.Add(frame); return false; }).ShouldBeNull();
+        history.SettleFrame(schedule, 0, -1, 10, 12, asked, static (frame, list) => { list.Add(frame); return false; }).ShouldBeNull();
 
         (firstScan, secondScan, thirdScan, asked[^1]).ShouldBe((41, 5, 0, 12));
     }
@@ -59,10 +59,38 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [System.Math.Min(tick, 10)]);
         }
 
+        // Asked early first, so the memo is extended forward later, and again after an append that changes (review 18, Fable).
+        int? early = history.LatestChange(9, 0, -1);
         int? before = history.LatestChange(20, 0, -1);
+        history.Add(21, 21, [21]);
+        int? appended = history.LatestChange(21, 0, -1);
         history.DropReceivedBefore(5, tail: 2);
 
-        (before, history.LatestChange(20, 0, -1), history.LatestChange(9, 0, -1)).ShouldBe((10, 10, 9));
+        (early, before, appended, history.LatestChange(20, 0, -1), history.LatestChange(9, 0, -1))
+            .ShouldBe((9, 10, 21, 10, 9));
+    }
+
+    /// <summary>
+    /// **The memos are keyed by variable and by schedule** (B860 review 18, Sonnet). Two components, the first changing
+    /// every tick to 20 and the second fixed after 5: the first's latest change is 20, the second's 5. And one change
+    /// asked under two schedules settles where each says, not where the first one asked found.
+    /// </summary>
+    [Test]
+    public void Memos_TwoVariablesAndTwoSchedules_AnswerEachOwn()
+    {
+        InterpolatedHistory history = new(2);
+
+        for (int tick = 1; tick <= 20; tick++)
+        {
+            history.Add(tick, tick, [tick, System.Math.Min(tick, 5)]);
+        }
+
+        (int?, int?) latest = (history.LatestChange(20, 0, 1), history.LatestChange(20, 1, 1));
+        (int?, int?) settled = (
+            history.SettleFrame(new object(), 0, 1, 10, 50, 30, static (frame, at) => frame == at),
+            history.SettleFrame(new object(), 0, 1, 10, 50, 40, static (frame, at) => frame == at));
+
+        (latest, settled).ShouldBe(((20, 5), (30, 40)));
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

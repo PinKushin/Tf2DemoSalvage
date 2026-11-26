@@ -47167,8 +47167,12 @@ at 50's cut (38.67, keeping 38, 37, 36): 360, a 160-unit snap back. The engine's
 at 60 − 8 − 3.33 = 48.67 (`NoteChanged`, `interpolatedvar.h:667`), keeping 48, 47, 46, so the frame at 61 answers 460 and
 holds it until 61 + 19. Hold variant: last update at 55, landing at 64 — the engine's landing frame aims at 56, past the
 head, settles and holds 550; the viewer at 65 sees a change after the rise, does not hold, and floors near 360. Reach:
-a seek, scrub or first frame landing within about 1.5 s after a rise; the engine side of a skip is *interpolated*, as
-B860 records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
+a seek, scrub or first frame landing within about 1.5 s after a rise — **and plain playback** whenever frames run more
+than a tick apart (B860 review 18, the merge's cavecrew reviewer): frames at 48, 51 (read 48) and 54 (read 51) across a
+rise at 50, X ten a tick, last update stamped 43 — the frame at 51 still runs the old delay, aims at 43, settles and draws
+430, which the engine then holds; the viewer's frame at 54 models a frame at 50 aiming at 42, not settled, and floors
+at 360. Needs the last change in the tick or two before the rise. The engine side of a skip is *interpolated*, as B860
+records. Fix shape: carry the landing — the first frame whose read reached the step — into the schedule the track
 samples under, re-anchoring every step between the landing's read and the landing tick at the landing, so the modelled
 frames before it run under the old delay; a conformance test of each scenario (460, 550) first. *Not fixed*.
 
@@ -47593,9 +47597,27 @@ Merge review (the lead's `/code-review high`). Fixed:
   targets differ only by whole ticks was wrong.
 Not taken: the skip batch on a long playing frame (review 15's reason) and the face after a jump (B865).
 
+Review 18 (Fable, Sonnet, Codex, and the merge's cavecrew reviewer: no blocker). Fixed:
+- **A trim cleared the memos before shifting the lists** (Sonnet, Fable): a read between the two would rebuild them from
+  the old indices. The shift and the clear now run together under the memo lock. Trims run before any sampler exists
+  today (the build refuses samples while it trims), so this keeps that true rather than fixing a live race.
+- **The memo tests could not fail on a wrong key, nor on a fill that restarts** (Sonnet, Fable):
+  `Memos_TwoVariablesAndTwoSchedules_AnswerEachOwn` and the latest-change test asked early, then later, then after an
+  append, redden with the key dropped and the fill restarted.
+- `Same` answers false for entries of two widths rather than slicing past the narrower (Sonnet); the memos are made by
+  the first read that needs one (Fable); the settle callback captures nothing (Fable, `a-capturing-cache-factory`).
+- Records: the merge review's "the answer is unchanged" is *reasoned*, not differential; the first scan for a key still
+  walks from the change, once, under the lock, and is not measured (Fable).
+Filed into B869 (cavecrew): the frame that reads a rise can sit more than a tick past it whenever frames run more than a
+tick apart (below about 66.7 fps — arithmetic, the tick rate — or fast playback), the same root without a jump — frames at 48, 51, 54 across a rise at
+50 with the last change at 43 draw 430 at 51 and 360 at 54 where the engine holds 430. Not taken (cavecrew): the skip
+batch counting a windowed timeline's sparse frames as packets — latent, no window-backed timeline announces a frame
+(`WindowCache` is reached only by `WindowCheck`); it belongs with the first presenter that does.
+
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
-of a recording once one rise has happened, and two capturing delegates per floor inside the window. Bounded by the
-window's frames and a recording's handful of rises; a `--measure` across a rise on a populated demo is the number.
+of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a
+long rest that this once called bounded were not (the merge review reverses it and memoizes them); what is left is the
+window's frames and the first scan per key, *reasoned*. A `--measure` across a rise on a populated demo is the number.
 
 Review 1's not-taken "another reader samples under its own tick" is **reversed** here, in favour of the frame a tick on.
 

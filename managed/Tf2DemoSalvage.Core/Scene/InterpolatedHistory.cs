@@ -245,23 +245,24 @@ public sealed class InterpolatedHistory
 
         int values = _offsets[drop];
 
+        // The shift and the clear together under the memo's lock, so no memoized read can rebuild from the old indices
+        // between them (B860 review 18, Sonnet).
         lock (_memoLock)
         {
-            _changeOf.Clear();
-            _settles.Clear();
-        }
+            _changeTimes.RemoveRange(0, drop);
+            _received.RemoveRange(0, drop);
+            _flushedAt.RemoveRange(0, drop);
+            _offsets.RemoveRange(0, drop);
+            _generationStarts.RemoveRange(0, drop);
+            _values.RemoveRange(0, values);
 
-        _changeTimes.RemoveRange(0, drop);
-        _received.RemoveRange(0, drop);
-        _flushedAt.RemoveRange(0, drop);
-        _offsets.RemoveRange(0, drop);
-        _generationStarts.RemoveRange(0, drop);
-        _values.RemoveRange(0, values);
+            for (int index = 0; index < _offsets.Count; index++)
+            {
+                _offsets[index] -= values;
+                _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
+            }
 
-        for (int index = 0; index < _offsets.Count; index++)
-        {
-            _offsets[index] -= values;
-            _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
+            _memos = null;
         }
 
         // A trim runs before every checkpoint, and a copy copies a list's whole capacity, not its count (D217 step 4).
@@ -717,10 +718,12 @@ public sealed class InterpolatedHistory
 
         lock (_memoLock)
         {
-            if (!_changeOf.TryGetValue((first, count), out List<int>? changeOf))
+            Memos memos = _memos ??= new Memos();
+
+            if (!memos.ChangeOf.TryGetValue((first, count), out List<int>? changeOf))
             {
                 changeOf = [];
-                _changeOf[(first, count)] = changeOf;
+                memos.ChangeOf[(first, count)] = changeOf;
             }
 
             for (int index = changeOf.Count; index <= last; index++)
@@ -732,14 +735,25 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>For each variable, the latest change at or before each entry (<see cref="LatestChangeIndex"/>).</summary>
-    private readonly Dictionary<(int First, int Count), List<int>> _changeOf = [];
+    /// <summary>The memos, made by the first read that needs one: most histories never enter a rise window (review 18).</summary>
+    private Memos? _memos;
 
     /// <summary>Guards the memos, which a read extends: samplers read one history from more than one thread.</summary>
+    /// <remarks>
+    /// A trim shifts the lists and clears the memos under it too. Trims run before any sampler exists today (the timeline's
+    /// build refuses samples while it trims), so the lock is what keeps that true if one ever overlaps a read.
+    /// </remarks>
     private readonly object _memoLock = new();
 
-    /// <summary>Scan cursors for <see cref="SettleFrame"/>, keyed by what the scan depends on.</summary>
-    private readonly Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> _settles = [];
+    /// <summary>What <see cref="LatestChangeIndex"/> and <see cref="SettleFrame{TState}"/> remember.</summary>
+    private sealed class Memos
+    {
+        /// <summary>For each variable, the latest change at or before each entry.</summary>
+        public Dictionary<(int First, int Count), List<int>> ChangeOf { get; } = [];
+
+        /// <summary>Scan cursors, keyed by what the scan depends on.</summary>
+        public Dictionary<(object Schedule, int First, int Count, int Changed), (int Through, int? Settled)> Settles { get; } = [];
+    }
 
     /// <summary>
     /// The first frame from <paramref name="changed"/> through <paramref name="last"/> at which
@@ -750,21 +764,26 @@ public sealed class InterpolatedHistory
     /// <param name="count">Its component count.</param>
     /// <param name="changed">The re-arming latch's tick, where the scan starts.</param>
     /// <param name="last">The last frame to ask.</param>
+    /// <param name="state">What <paramref name="settles"/> needs, passed so the callback captures nothing (review 18).</param>
     /// <param name="settles">Whether a frame settled the variable: a function of the frame alone for one key.</param>
+    /// <typeparam name="TState">The callback's state.</typeparam>
     /// <returns>That frame, or null when none through <paramref name="last"/> did.</returns>
     /// <remarks>
     /// A variable that never settles — a standing player re-latched every tick never has its newest entry as `newer` —
     /// scanned every frame since its last change on every call. The scan's answer at a frame does not depend on when it
-    /// is asked, so the cursor carries on from where the last call stopped; a trim clears it.
+    /// is asked, so the cursor carries on from where the last call stopped; a trim clears it. The first scan for a key
+    /// still walks from the change, once (*not measured* on a populated demo).
     /// </remarks>
-    internal int? SettleFrame(object schedule, int first, int count, int changed, int last, Func<int, bool> settles)
+    internal int? SettleFrame<TState>(
+        object schedule, int first, int count, int changed, int last, TState state, Func<int, TState, bool> settles)
     {
         ArgumentNullException.ThrowIfNull(settles);
 
         lock (_memoLock)
         {
+            Memos memos = _memos ??= new Memos();
             (object, int, int, int) key = (schedule, first, count, changed);
-            (int through, int? settled) = _settles.TryGetValue(key, out (int Through, int? Settled) known)
+            (int through, int? settled) = memos.Settles.TryGetValue(key, out (int Through, int? Settled) known)
                 ? known
                 : (changed - 1, null);
 
@@ -775,16 +794,16 @@ public sealed class InterpolatedHistory
 
             for (int frame = through + 1; frame <= last; frame++)
             {
-                if (settles(frame))
+                if (settles(frame, state))
                 {
-                    _settles[key] = (frame, frame);
+                    memos.Settles[key] = (frame, frame);
                     return frame;
                 }
             }
 
             if (last > through)
             {
-                _settles[key] = (last, null);
+                memos.Settles[key] = (last, null);
             }
 
             return null;
@@ -990,10 +1009,20 @@ public sealed class InterpolatedHistory
     /// <returns><c>true</c> when every component matches.</returns>
     /// <param name="first">The variable's first component.</param>
     /// <param name="count">Its component count; negative for the whole entry.</param>
-    private bool Same(int left, int right, int first, int count) =>
-        count < 0
-            ? ValuesAt(left).SequenceEqual(ValuesAt(right))
-            : ValuesAt(left).Slice(first, count).SequenceEqual(ValuesAt(right).Slice(first, count));
+    /// <remarks>
+    /// Entries of two widths (B386, a model change without a reset) are not the same, and a variable the narrower one does
+    /// not reach is not compared past its end (B860 review 18, Sonnet: the memo now reaches entries the walk never did).
+    /// </remarks>
+    private bool Same(int left, int right, int first, int count)
+    {
+        ReadOnlySpan<float> a = ValuesAt(left);
+        ReadOnlySpan<float> b = ValuesAt(right);
+
+        return count < 0
+            ? a.SequenceEqual(b)
+            : a.Length >= first + count && b.Length >= first + count &&
+              a.Slice(first, count).SequenceEqual(b.Slice(first, count));
+    }
 
     /// <summary>The live entry before one, which is the engine's <c>oldestindex = i+1</c>.</summary>
     /// <param name="index">The older of the bracketing pair.</param>
