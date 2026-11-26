@@ -49,7 +49,7 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
     {
         StudioModelInfo model = StudioModel.Read(root);
 
-        List<byte[]> files = [root, .. StudioModelGroups.Read(root).Select(readFile).OfType<byte[]>()];
+        List<byte[]> files = [root, .. StudioModelGroups.Read(root).Select(Include).OfType<byte[]>()];
         List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
             [.. files.Select((file, group) => (group, StudioSequences.Read(file)))];
 
@@ -60,6 +60,24 @@ public sealed class StudioModelFacts(Func<string, byte[]?> readFile) : IModelFac
 
         return new ModelFacts(
             [.. pose.Select(parameter => parameter.Loop != 0f)], model.IsStaticProp, AsPlayed(LoopingFlags(table, groups)));
+    }
+
+    /// <summary>An `$includemodel`'s bytes, or null when it cannot be read — skipped as `PropModels.Find` skips it (B870 review 5).</summary>
+    /// <remarks>
+    /// One unreadable include drops that file and keeps the root and the others, as the draw path does; a failure here
+    /// must not make the whole model "no facts" while the viewer draws it from the same files.
+    /// </remarks>
+    private byte[]? Include(string path)
+    {
+        try
+        {
+            return readFile(path);
+        }
+        catch (IOException)
+        {
+            // The draw path logs the same file when it loads the model (`PropModels.Find`); here it is one include fewer.
+            return null;
+        }
     }
 
     /// <summary>One flag per merged sequence, so the cache holds a bool each rather than every parsed sequence.</summary>

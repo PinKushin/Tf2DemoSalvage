@@ -104,6 +104,28 @@ public sealed class StudioModelFactsTests
         reads.ShouldBe(1);
     }
 
+    /// <summary>
+    /// **An include that cannot be read is skipped, not the model**, as the draw path skips it: the root's own parameter and
+    /// static-prop bit still answer.
+    /// </summary>
+    [Test]
+    public void FactsOf_AnIncludeThatCannotBeRead_KeepsTheRootsFacts()
+    {
+        byte[] root = Header(StudioModelFlags.StaticProp, ("aim_pitch", 0f));
+
+        // One `mstudiomodelgroup_t` at 480: label index, then a name index relative to the entry, naming "inc.mdl" at 500.
+        BinaryPrimitives.WriteInt32LittleEndian(root.AsSpan(336), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(root.AsSpan(340), 480);
+        BinaryPrimitives.WriteInt32LittleEndian(root.AsSpan(484), 20);
+        "inc.mdl"u8.CopyTo(root.AsSpan(500));
+
+        StudioModelFacts facts = new(path => path == Sentry ? root : throw new System.IO.IOException("locked"));
+
+        ModelFacts read = facts.FactsOf(Sentry).ShouldNotBeNull();
+
+        (read.PoseParameterLoops.Count, read.StaticProp).ShouldBe((1, true));
+    }
+
     /// <summary>A model is read once however often the recording sets it.</summary>
     [Test]
     public void FactsOf_TheSamePathTwice_ReadsTheFileOnce()

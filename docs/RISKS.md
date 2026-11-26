@@ -47340,6 +47340,12 @@ read is read once (both kinds), and a sequence from an included model reads its 
 reddened. Not taken: Codex's "`ConcurrentDictionary` does not allow null values" (it does for a reference type; the
 missing-file and invalid-bytes tests run that path), as in review 1.
 
+**Review 5** (Codex and Sonnet: no findings; Fable had reviewed the edit before its commit; the cavecrew reviewer). Fixed:
+an `$includemodel` that cannot be read is skipped, as `PropModels.Find` skips it, instead of making the whole model "no
+facts" while the viewer draws it from the same files; tested (`FactsOf_AnIncludeThatCannotBeRead_KeepsTheRootsFacts`), its
+sabotage reddened. Noted: `FactsOf_AFailedReadTwice_ReadsTheFileOnce(False)` pins the older invalid-bytes caching; only the
+`True` case guards review 4's change.
+
 Review 1, not taken: Codex's `GetOrAdd` cannot cache null (it can: `ConcurrentDictionary` accepts null values for a reference type,
 and `FactsOf_AMissingOrUnreadableModel_IsNull` runs that path). `StudioModelFacts` beside `PropModels`' model read (Sonnet,
 Fable, minor): the two compose the same Content readers, but `PropModels` composes them inside the draw load with its
