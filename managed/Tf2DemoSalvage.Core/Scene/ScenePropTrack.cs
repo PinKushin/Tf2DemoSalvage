@@ -1056,16 +1056,10 @@ public sealed class ScenePropTrack
     /// <see cref="InterpolateCycle"/> refuses to blend across a change. Marked non-looping and never read
     /// from a respaced sample — see <see cref="CycleSequence"/>. B383 is the divergence that remains.
     /// </remarks>
-    private const int CycleComponents = 3;
+    private const int CycleComponents = 2;
 
     /// <summary>Which component of a cycle entry holds the sequence.</summary>
     private const int CycleSequence = 1;
-
-    /// <summary>
-    /// Which component holds the update's `m_nNewSequenceParity` (B878): compared against the parity at the last bone
-    /// setup, never interpolated. This project's, like the sequence.
-    /// </summary>
-    private const int CycleParity = 2;
 
     /// <summary>
     /// The cycle, stamped with <c>GetAnimTime()</c> (B382).
@@ -1093,10 +1087,10 @@ public sealed class ScenePropTrack
     private readonly InterpolatedHistory _animation = new(CycleComponents);
 
     /// <summary>The cycle history's flags for a looping sequence: the cycle wraps, the sequence does not.</summary>
-    private static readonly bool[] LoopingCycle = [true, false, false];
+    private static readonly bool[] LoopingCycle = [true, false];
 
     /// <summary>The cycle history's flags for a one-shot: nothing wraps.</summary>
-    private static readonly bool[] StraightCycle = [false, false, false];
+    private static readonly bool[] StraightCycle = [false, false];
 
     /// <summary>
     /// The pose parameters, stamped with <c>GetAnimTime()</c> and reset with the sequence (B382).
@@ -1918,10 +1912,11 @@ public sealed class ScenePropTrack
         bool settled = !FirstPoseAnswers(tick, schedule, target, anglesTarget, animationTarget, poseTarget)
             && Settled(_simulation, target, now, OriginVariable)
             && Settled(_simulation, anglesTarget, now, AnglesVariable)
-            && Settled(_animation, animationTarget, now, CycleVariable)
-            && Settled(_poseParameters, poseTarget, now, WholeVariable)
-            && (setup is not { } seen || FactsAt(tick).ClientSideAnimated || StaticPropModel || _noStudioHeader
-                || CycleAnchor(animationTarget, now, seen) < 0);
+            && (CycleAnchor(tick, setup) is { } reset
+                ? _animation.BracketAnchored(animationTarget, now, reset, CycleVariable.First, CycleVariable.Count)
+                    is not { NoMoreChanges: false }
+                : Settled(_animation, animationTarget, now, CycleVariable))
+            && Settled(_poseParameters, poseTarget, now, WholeVariable);
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
         // none because the packet arriving IS the notification; a reader holding the whole recording has to
@@ -2268,7 +2263,7 @@ public sealed class ScenePropTrack
             // blend across a change. **B383 is what remains**: the engine's trigger is the PARITY counter,
             // so it fires on a restart of the SAME sequence, and its reset discards the older cycles
             // rather than holding them.
-            Span<float> cycle = [pose.Cycle, pose.Sequence, pose.NewSequenceParity];
+            Span<float> cycle = [pose.Cycle, pose.Sequence];
 
             _animation.Add(animationAppliedAt, tick, cycle);
 
@@ -2705,7 +2700,7 @@ public sealed class ScenePropTrack
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="schedule">The schedule as the frame's <c>FRAME_START</c> left it (<see cref="InterpolationSchedule.AsOf"/>).</param>
     /// <returns>As <see cref="At(double)"/>.</returns>
-    internal ScenePose? At(double tick, InterpolationSchedule schedule) => At(tick, schedule, null, out _);
+    internal ScenePose? At(double tick, InterpolationSchedule schedule) => At(tick, schedule, null);
 
     /// <summary>
     /// <see cref="At(double, InterpolationSchedule)"/> as one view sees it: the cycle history reset at the newest update a
@@ -2714,12 +2709,9 @@ public sealed class ScenePropTrack
     /// <param name="tick">The moment.</param>
     /// <param name="schedule">The schedule.</param>
     /// <param name="setup">What the view last knew of this track's setup; null for no view (every update seen).</param>
-    /// <param name="anchoredAt">The anchor's arrival, for the view to keep at its next setup; null when none.</param>
     /// <returns>The pose.</returns>
-    internal ScenePose? At(double tick, InterpolationSchedule schedule, BoneSetup? setup, out int? anchoredAt)
+    internal ScenePose? At(double tick, InterpolationSchedule schedule, BoneSetup? setup)
     {
-        anchoredAt = null;
-
         if (AtKeyframe((int)Math.Floor(tick)) is not { } earlier)
         {
             return null;
@@ -2865,11 +2857,7 @@ public sealed class ScenePropTrack
 
         // **The view's reset, for a server-animated studio model only** (B878): a client-side-animated cycle is never
         // interpolated (below), and `PostDataUpdate` resets only a non-static-prop model's (`c_baseanimating.cpp:4745`).
-        int anchor = setup is { } seen && !FactsAt(tick).ClientSideAnimated && !StaticPropModel && !_noStudioHeader
-            ? CycleAnchor(animationTarget, (int)Math.Floor(tick), seen)
-            : InterpolatedHistory.AnchorSlot;
-
-        anchoredAt = anchor >= 0 ? _animation.ArrivalAt(anchor).Received : null;
+        HistoryAnchor? anchor = CycleAnchor(tick, setup);
 
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
@@ -3398,13 +3386,13 @@ public sealed class ScenePropTrack
     /// The changetime of the oldest cycle entry a rise's pruning left, or null: a pair starting on it has no third sample
     /// (B860 review 8, Fable).
     /// </param>
-    /// <param name="anchor">The cycle entry a view's unseen reset follows (B878), or <see cref="InterpolatedHistory.AnchorSlot"/>.</param>
+    /// <param name="anchor">A view's unseen reset of the cycle history (B878), or null.</param>
     private (CycleSample From, CycleSample To, CycleSample? Previous, float Fraction) AnimationNeighbours(
         double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops,
-        int? oldestHeld = null, int anchor = InterpolatedHistory.AnchorSlot)
+        int? oldestHeld = null, HistoryAnchor? anchor = null)
     {
-        Bracketing? found = anchor >= 0
-            ? _animation.BracketAnchored(target, arrivedBy, anchor)
+        Bracketing? found = anchor is { } reset
+            ? _animation.BracketAnchored(target, arrivedBy, reset)
             : _animation.Bracket(target, arrivedBy);
 
         if (found is not { } pair)
@@ -3453,47 +3441,63 @@ public sealed class ScenePropTrack
             animationFraction);
     }
 
+    /// <summary>A view's unseen reset of the cycle history at a moment (B878), or null — none, or a model it cannot apply to.</summary>
+    /// <param name="tick">The moment.</param>
+    /// <param name="setup">What the view last knew of this track's setup; null for no view.</param>
+    /// <returns>The reset as the history reads it.</returns>
+    /// <remarks>
+    /// **For a server-animated studio model only**: a client-side-animated cycle is never interpolated
+    /// (`c_baseanimating.cpp:892-896`), and `PostDataUpdate` resets only a non-static-prop model's (`:4745`).
+    /// </remarks>
+    private HistoryAnchor? CycleAnchor(double tick, BoneSetup? setup)
+    {
+        int now = (int)Math.Floor(tick);
+
+        return setup is { } seen && !FactsAt(tick).ClientSideAnimated && !StaticPropModel && !_noStudioHeader &&
+            UnseenResetAt(now, seen) is { } at
+            ? _animation.AnchorAt(at)
+            : null;
+    }
+
     /// <summary>
-    /// The cycle entry a view's unseen reset follows (B878): the newest update received after the view's last bone setup
-    /// whose parity differs from the setup's, else the anchor the view kept — either only within the bracket's reach.
+    /// The arrival of the newest update a view's bone setups did not see whose parity differs from the last one's (B878),
+    /// else the one the view kept; null when neither.
     /// </summary>
-    /// <param name="target">The cycle's target.</param>
     /// <param name="arrivedBy">The tick being played.</param>
     /// <param name="setup">What the view last knew.</param>
-    /// <returns>The entry, or <see cref="InterpolatedHistory.AnchorSlot"/> when none can change the answer.</returns>
+    /// <returns>The tick the engine's cycle history was last reset at by an update the view did not set up after.</returns>
     /// <remarks>
-    /// **Every update whose parity differs from `m_nPrevNewSequenceParity` resets the history** (`c_baseanimating.cpp:4738`),
-    /// and that member is written only at a bone setup (`:1835`) — so between setups the newest differing update is where
-    /// the engine's history starts. **Bounded by the reach**: below <see cref="InterpolatedHistory.AnchorReach"/> an anchor
-    /// changes nothing, so a long-unseen entity costs a few entries, not every update since it was last drawn.
+    /// **Every update whose parity differs from `m_nPrevNewSequenceParity` resets** (`c_baseanimating.cpp:4738-4747`), and
+    /// that member is written only at a setup (`:1835`). **The parity only counts up** (`( m_nNewSequenceParity + 1 ) &amp;
+    /// EF_PARITY_MASK`, `:5574`), so once one update after the setup differs every later one does, and the newest update is
+    /// the reset — one keyframe read. Every update, not only those that latch the cycle: the test runs in `PostDataUpdate`
+    /// of each. **The exception, not modelled**: eight sequence starts unseen bring the 3-bit counter back to the setup's
+    /// value, where the engine stops resetting.
     /// </remarks>
-    private int CycleAnchor(double target, int arrivedBy, BoneSetup setup)
+    internal int? UnseenResetAt(int arrivedBy, BoneSetup setup)
     {
-        if (_animation.Bracket(target, arrivedBy) is not { } pair)
+        int newest = KeyframeAtOrBefore(arrivedBy);
+
+        if (_keyframes.Count > newest && _keyframes.TickAt(newest) is var tick && tick <= arrivedBy && tick > setup.SetUpAt &&
+            _keyframes[newest].Pose.NewSequenceParity != setup.ParityThen)
         {
-            return InterpolatedHistory.AnchorSlot;
+            return tick;
         }
 
-        int reach = _animation.AnchorReach(pair, arrivedBy);
-        int pending = _animation.NewestDifferingSince(setup.SetUpAt, arrivedBy, reach, CycleParity, setup.ParityThen);
-
-        if (pending >= 0)
-        {
-            return pending;
-        }
-
-        return setup.AnchoredAt is { } kept && _animation.NewestReceivedBy(kept) is var entry && entry >= reach
-            ? entry
-            : InterpolatedHistory.AnchorSlot;
+        return setup.AnchoredAt is { } kept && kept <= arrivedBy ? kept : null;
     }
 
     /// <summary>The parity this track's newest update by a tick stated — what a bone setup then stores (B878).</summary>
     /// <param name="arrivedBy">The tick of the setup.</param>
-    /// <returns>The parity, or 0 when nothing has arrived.</returns>
-    internal int SequenceParityAt(int arrivedBy) =>
-        _animation.NewestReceivedBy(arrivedBy) is var newest && newest >= 0
-            ? (int)_animation.ValuesAt(newest)[CycleParity]
-            : 0;
+    /// <returns>The parity, or the constructor's −1 when nothing has arrived.</returns>
+    internal int SequenceParityAt(int arrivedBy)
+    {
+        int newest = KeyframeAtOrBefore(arrivedBy);
+
+        return _keyframes.Count > newest && _keyframes.TickAt(newest) <= arrivedBy
+            ? _keyframes[newest].Pose.NewSequenceParity
+            : -1;
+    }
 
     /// <summary>One end of the cycle blend: its cycle and the sequence it was recorded under.</summary>
     /// <param name="index">Which animation entry, for the sequence it was recorded under.</param>
@@ -3510,7 +3514,7 @@ public sealed class ScenePropTrack
     /// history and their own width, so putting them on a pose per end would allocate an array per end per
     /// entity per frame. <see cref="PoseBetween"/> reads them from that history directly.
     /// </remarks>
-    private CycleSample Animated(int index, float cycle, int anchor = InterpolatedHistory.AnchorSlot) =>
+    private CycleSample Animated(int index, float cycle, HistoryAnchor? anchor = null) =>
         new(cycle, (int)_animation.ValuesAt(index, anchor)[CycleSequence]);
 
     /// <summary>One end of the cycle blend (B593): all <see cref="InterpolateCycle"/> reads of a pose.</summary>
@@ -3698,7 +3702,7 @@ public sealed class ScenePropTrack
 
         ScenePose arrived = _keyframes[^1].Pose;
 
-        _animation.Reset(at, [arrived.Cycle, arrived.Sequence, arrived.NewSequenceParity]);
+        _animation.Reset(at, [arrived.Cycle, arrived.Sequence]);
         _poseParameters.Reset(at, PoseEntry(arrived.PoseParameters, stackalloc float[_poseParameters.Width]));
     }
 
@@ -3738,7 +3742,6 @@ public sealed class ScenePropTrack
         [
             _keyframes.Count > 0 ? _keyframes[^1].Pose.Cycle : 0f,
             _keyframes.Count > 0 ? _keyframes[^1].Pose.Sequence : 0f,
-            _keyframes.Count > 0 ? _keyframes[^1].Pose.NewSequenceParity : 0f,
         ];
 
         _animation.Reset(at, stated);

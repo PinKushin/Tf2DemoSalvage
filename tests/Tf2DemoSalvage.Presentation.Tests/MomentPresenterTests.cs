@@ -93,9 +93,10 @@ public sealed class MomentPresenterTests
 
     /// <summary>
     /// **A posed frame's bone setups are reported at the next frame, before its sample** (B878): the engine's frame
-    /// interpolates, then sets bones up, so the next sample's cycle resets are judged against what this frame posed. Shown at
-    /// 10 and posed, shown at 11: one report, for 10, made before 11's sample (the second). Shown at 12 with 11 never posed:
-    /// no report — nothing was set up.
+    /// interpolates, then sets bones up, so the next sample's cycle resets are judged against what this frame posed. Driven
+    /// as the frame loop drives it, `NextFrame` before each `Show` (B878 review 1, Fable: that cleared the flag the first cut
+    /// read). Shown at 10 and posed, shown at 11: one report, for 10, made before 11's sample (the second). Shown at 12 with
+    /// 11 never posed: no report — nothing was set up.
     /// </summary>
     [Test]
     public void Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling()
@@ -104,10 +105,13 @@ public sealed class MomentPresenterTests
         MomentPresenter presenter = Presenter(out FrameLedger _);
         presenter.Source = source;
 
+        presenter.NextFrame(null);
         presenter.Show(10d, View());
         source.SetUpReports.ShouldBeEmpty("the control: nothing posed yet");
         presenter.PoseNow();
+        presenter.NextFrame(null);
         presenter.Show(11d, View());
+        presenter.NextFrame(null);
         presenter.Show(12d, View());
 
         source.SetUpReports.ShouldBe([(10d, 1)]);

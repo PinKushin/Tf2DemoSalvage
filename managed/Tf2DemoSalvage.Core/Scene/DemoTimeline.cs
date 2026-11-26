@@ -7557,8 +7557,10 @@ public sealed class DemoTimeline
         // boolean "should reset" would restart on every update where it happened to be one.
         // **A first sighting is not a restart.** An entity's opening update states whatever value
         // it holds, and treating that as a change would stamp the clock for every prop the moment
-        // it appears — wrong for one that has been idling since the map loaded. **But the engine's new entity DOES
-        // compare its first values**, against −1 and `false` (B878, open).
+        // it appears — wrong for one that has been idling since the map loaded. **The engine's new entity does compare its
+        // first values**, against −1 and `false`, and neither draws differently here: the forced transition does nothing on an
+        // empty queue and the frame reset sets the cycle it already has; the cycle HISTORY's reset is the view's (B878,
+        // `BoneSetups`).
         bool restarted = false;
 
         // **Held until after the keyframe is added, because the engine's reset runs after the latch.**
@@ -8171,13 +8173,6 @@ public sealed class DemoTimeline
     /// <summary><see cref="PropsAt"/>'s body, run under its lock.</summary>
     private void Sample(double tick, ICollection<SceneProp> into, int? viewEntity, bool interpolating, BoneSetups? setups)
     {
-        // **A seek back forgets every setup** (*our choice*, B878): the engine's demo seek is not read, and a sample kept from
-        // later frames would anchor on setups that, at the new tick, have not happened.
-        if (setups is not null && _sampleSynced && tick < _sampledTo)
-        {
-            setups.Forget();
-        }
-
         bool newSetups = !ReferenceEquals(setups, _sampledSetups);
 
         _sampledSetups = setups;
@@ -8653,11 +8648,6 @@ public sealed class DemoTimeline
 
         ScenePose? sampled = blend ? SampleAt(track, tick, schedule) : stated;
 
-        if (!blend)
-        {
-            _sampledSetups?.NotePending(track, null);
-        }
-
         // A hidden entity is not drawn but is still tracked: it is coming back.
         SetLive(track, sampled is { Hidden: false } pose
             ? BuildProp(track, tick, pose, recorderTeam)
@@ -8683,20 +8673,9 @@ public sealed class DemoTimeline
         }
     }
 
-    /// <summary>A blended sample as the drawing view sees it, recording the anchor it used for that view's next setup (B878).</summary>
-    private ScenePose? SampleAt(ScenePropTrack track, double tick, InterpolationSchedule schedule)
-    {
-        if (_sampledSetups is not { } setups)
-        {
-            return track.At(tick, schedule);
-        }
-
-        ScenePose? pose = track.At(tick, schedule, setups.For(track), out int? anchoredAt);
-
-        setups.NotePending(track, anchoredAt);
-
-        return pose;
-    }
+    /// <summary>A blended sample as the drawing view sees it (B878).</summary>
+    private ScenePose? SampleAt(ScenePropTrack track, double tick, InterpolationSchedule schedule) =>
+        track.At(tick, schedule, _sampledSetups?.For(track));
 
     /// <summary><c>C_BaseEntity::ShouldInterpolate</c>, all four clauses (B385).</summary>
     /// <param name="asked">The track being asked about.</param>

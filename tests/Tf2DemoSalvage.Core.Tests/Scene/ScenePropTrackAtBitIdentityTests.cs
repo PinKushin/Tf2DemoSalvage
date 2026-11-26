@@ -28,9 +28,11 @@ public sealed class ScenePropTrackAtBitIdentityTests
     /// put back the hash returned to 0x17B4E77030C3A479, so the move is the slerp and nothing else. **Re-recorded for B870
     /// review 2** (2026-11-26): a linear blend and the spline's time fixup became Valve's `Lerp`, `A + (B - A) * flPercent`
     /// (`mathlib.h:629-635`), where `float.Lerp` rounds as `A * (1 - t) + B * t`. Control: with those two lines put back
-    /// the hash returned to 0xB2B825C3641C72CA.
+    /// the hash returned to 0xB2B825C3641C72CA. **Re-recorded for B878 review 1** (2026-11-26): a target before every entry
+    /// holds the oldest LIVE entry walked (`interpolatedvar.h:877-882`), not the run's first entry, which a later latch may
+    /// have flushed. Control: with that one line put back the hash returned to 0x4748661BCF2AE5AA.
     /// </remarks>
-    private const ulong ExpectedWindowsX64 = 0x4748661BCF2AE5AAUL;
+    private const ulong ExpectedWindowsX64 = 0x79C29EBB5B7DF5CUL;
 
 
     [Test]

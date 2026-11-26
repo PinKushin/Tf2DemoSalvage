@@ -47230,25 +47230,58 @@ camera decides it. A seek starts with no setup recorded (*our choice*: the engin
 conformance test: a prop updated across a parity change while unposed, then posed, draws the latest arrival's cycle
 for that window; posed every frame, it draws today's blend.
 
-**Fixed (2026-11-26, `fix/b878-predraw-cycle-reset`).** Each cycle entry carries its update's `m_nNewSequenceParity`
-(`ScenePose.NewSequenceParity`, 0 when never sent). `BoneSetups` is one view's record per track: the tick of its last
-setup, the parity then, and an anchor still in force. `InterpolatedHistory.BracketAnchored` reads the history as the
-engine holds it after an unseen reset — the live entries after the anchor plus three at its arrival with its value; out
-of reach the plain answer, before the anchor's arrival nothing brackets and the latest received value holds
-(`_Interpolate`'s early return). `ScenePropTrack.At` finds the anchor (`CycleAnchor`: the newest update after the setup
-with a different parity, else the kept one, searched only down to `AnchorReach`, so a long-unseen prop costs a few
-entries) for a server-animated, non-static studio model; `Motion` keeps the track lerping while it is in reach.
-`DemoTimeline.PropsAt(…, setups)` samples under it and records each anchor as pending; `NoteBonesSetUp` promotes it at
-the setup. `MomentPresenter.Show` reports the last posed frame's setups (`EntityModelSet.BonesSetUpSinceWorldPass`:
-every skeleton built since the world pass began — viewmodel, undrawn and attachment builds included) to the source
-before sampling, the engine's order; `TimelineMoments` makes its record at the first report, so a reader that never
-reports samples as before. A seek back forgets every setup (*our choice*). Tested by `AnchoredBracketConformanceTests`
-(6), `BoneSetupConformanceTests` (4: unposed across 40 holds 0.8 where posed every frame blends from the reset at 30;
-posed every frame equals no view; never posed holds; a seek forgets), `BoneSetupsReportTests`,
-`TimelineMomentsBoneSetupTests` and `Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling`; each sabotage reddened its
-test. Left: an attachment asked of an entity the frame did not pose sets its bones up in the engine (`CalcAttachments`)
-and answers null here, so it is not a setup — the effects' attachment queries read posed entities only. *Not measured on
-a real demo; not verified by looking.*
+**Fixed (2026-11-26, `fix/b878-predraw-cycle-reset`).** `BoneSetups` is one view's record per track: the tick of its
+last setup, the parity its newest update stated then (`ScenePose.NewSequenceParity`, 0 when never sent; −1 before any
+update), and the newest reset that setup had not seen. **The reset is the newest update after the setup, if its parity
+differs** (`ScenePropTrack.UnseenResetAt`): the parity only counts up (`:5574`), so once one update differs every later
+one does — one keyframe read, and every update counts, not only those that latch the cycle, since the test runs in each
+`PostDataUpdate`. `InterpolatedHistory.BracketAnchored` builds the engine's list after that reset — three entries at its
+tick holding the newest cycle received by then, then each later latch with `AddToHead`'s flush — and walks it as
+`GetInterpolationInfo` does, including "Didn't find any" holding the OLDEST walked (`interpolatedvar.h:877-882`); once
+the pair's third sample arrived after the reset it returns the plain answer without building anything. Only for a
+server-animated, non-static studio model (`:892-896`, `:4745`). `Motion` settles on that anchored answer's own
+`NoMoreChanges`, so a never-posed prop leaves the lerp list as the engine's does. `DemoTimeline.PropsAt(…, setups)`
+samples under it and `NoteBonesSetUp` records the setups; `MomentPresenter` reports a posed frame's
+(`EntityModelSet.BonesSetUpSinceWorldPass`: every skeleton built since the world pass began — viewmodel, undrawn and
+attachment builds included) at the next `Show`, before sampling, the engine's order; `TimelineMoments` makes its record
+at the first report, so a reader that never reports samples as before. Setups are kept across a seek (*our choice*: a
+setup after the tick played names no update after it until playback passes it again, and a rewind plays backwards frame
+by frame). **And the plain history's own walk**: a target before every entry held the run's first entry even when a later
+latch had flushed it; it now holds the oldest live entry walked, as the engine does (fingerprint re-recorded).
+
+Tested by `AnchoredBracketConformanceTests` (8: past the reset, before it holding the reset's value, a flushing latch,
+nothing after, the reset as third sample, out of reach, superseded, the plain walk's flushed first entry),
+`BoneSetupConformanceTests` (6: unposed across 40 holds 0.8 where posed every frame blends from 30; posed every frame
+equals no view at every tick with an update inside the window; never posed; a reset kept after posing again; a seek
+keeps the setups; an origin-only update is the reset), `BoneSetupsReportTests`, `TimelineMomentsBoneSetupTests`,
+`Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling` (through `NextFrame`, which cleared the flag the first cut read),
+and on a real demo `BoneSetupCorpusTests`: z1800, 3,000 ticks, posed every frame after a 200-tick warm-up equals the
+no-view props on all 878,668 compared, never posed differs on 3,005. Each sabotage reddened its test. Review 1 (Codex:
+no findings; Fable, Sonnet, the cavecrew reviewer) found the hold-before-the-reset reading wrong, the report dead in the
+frame loop, the anchor taken only from cycle entries, and never-posed props never settling — all fixed above. Left,
+*not modelled*: eight sequence starts unseen wrap the 3-bit parity back to the setup's, where the engine stops resetting;
+an attachment asked of an entity the frame did not pose sets its bones up in the engine (`CalcAttachments`) and answers
+null here, so it is not a setup. Filed: B879 (the delay rise's floor read off the plain history), B880 (the transition
+forced by the same stale parity). *Not verified by looking.*
+
+## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
+
+Found in B878 review 1 (the cavecrew reviewer), *read*. `ScenePropTrack.At` computes the cycle's target and its
+pruned floor (`TargetFor`, `oldestHeld`, the B860 rise machinery) from the stored history, while B878's anchored walk
+reads the engine's list after an unseen reset — three entries at the reset where the stored history has older ones. A
+rise inside the window after such a reset can then hold or floor the target against entries the engine's list does not
+hold. No test combines the two. Fix shape: derive the cycle's target and floor from the anchored list when an anchor is
+in force; a conformance test of a rise across an unseen reset.
+
+## B880 — a sequence transition forced at bone setup by a parity the last setup did not see (2026-11-26) — OPEN
+
+Found in B878 review 1 (Fable, the cavecrew reviewer), *not read beyond the call*. `MaintainSequenceTransitions` calls
+`CheckForSequenceChange( hdr, GetSequence(), m_nNewSequenceParity != m_nPrevNewSequenceParity, … )`
+(`c_baseanimating.cpp:1828-1835`) — the same view-time parity B878 is about, so an entity that started a sequence while
+unseen gets a forced transition at its first setup after. Players included: their cycle is client-side, but the
+transitioner is not. `EntityModels.Autoplay.cs` records the forced transition as not reproduced. Fix shape: read
+`CSequenceTransitioner` with a non-empty queue, then drive the viewer's transition from `BoneSetups` as the cycle's reset
+is.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 
