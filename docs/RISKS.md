@@ -47285,7 +47285,11 @@ and sample it at the predicted time; a conformance test predicting a weapon's cy
 
 ## B860 — after the interpolation delay rises, the viewer re-blends what the engine holds (2026-11-25) — FIXED (2026-11-25; predicted entities' drawn values interim, B862)
 
-**Fixed**, every part this entry names (the evidence is findings 115):
+**Fixed**, every part this entry names (the evidence is findings 115), short of what its reviews filed open: B862
+(prediction's own history and time), B863 (followers), B864 (a latch that changed nothing), B865 (the first window,
+re-parenting, the face's jump, creation), B866 (extrapolation), B867 (readers of where an entity is), B868 (the cycle
+across a sequence change) and B869 (frames a fractional tick or several ticks from the step, and jumps landing just past
+it; review 26, Fable):
 
 - *A settled entity holds; a moving one is floored at the history the old amount kept* (part 1): `ScenePropTrack.TargetFor`
   per history, through `InterpolationSchedule.LastRiseAtOrBefore`/`MaxTargetBefore` and
@@ -47735,6 +47739,18 @@ blocker) — the fixes above, and (Fable) a backward ask far before the run seed
 traced that even a retry over the duplicated appends answers the newest change at or before the tick; review 24's
 "left the list unsorted on a retry" was true of the list and shown for no answer. B860's review 13 record is moved back
 between 12 and 14.
+
+Review 26 and merge review 6 (Fable, Sonnet, Codex, the cavecrew reviewer and the lead's `/code-review high`).
+Fixed: **no test reached the far-before reseed** (lead, Sonnet, cavecrew) — the asks in the reseed tests sat within 512 of
+the run's start; `LatestChange_FarBeforeTheRun_SeedsFromTheTickAsked` asks 1,100 entries before it (300 at 800) and
+reddens when that branch seeds without walking back to a change. Deleting the branch leaves the answers the same (it
+saves work), so the test pins the branch's correctness, not its presence. A test comment that called an ask "past the
+reseed gap" is corrected; the gap's remarks cover both directions; two stacked comments merged. Not taken: Codex's
+"blocker" that a rewind sets `Start` past the tick asked — the walk keeps every change it passes and stops on a change at or
+before the tick, so `Start` is at or before it (its own example, a run from 100, a change at 90, an ask at 89: `Start`
+becomes 80 and an ask at 90 answers 90); two callers alternating far apart would repeat walks (lead, Sonnet) — no caller
+alternates, recorded on the constant; after a throw a retry may leave repeated appends (Sonnet, lead) — the throw is a
+caller bug no production variable makes, recorded in the code.
 
 Not measured (Sonnet, Fable): the frame cost of the window after a rise — `MaxTargetBefore` per `TargetFor` for the rest
 of a recording once one rise has happened, and two capturing delegates per floor inside the window. The walks back to a

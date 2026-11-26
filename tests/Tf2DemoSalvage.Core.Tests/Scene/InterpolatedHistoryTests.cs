@@ -243,10 +243,45 @@ public sealed class InterpolatedHistoryTests
             history.Add(tick, tick, [tick >= 5 ? 2f : 1f]);
         }
 
-        // Then far back again (past the reseed gap) and forward once more: 3 is 1, 2,000 is 5 (review 25).
+        // Then back near the start and forward once more: 3 is 1, 2,000 is 5.
         int[] asked = [10, 2000, 1000, 7, 3, 2000];
 
         System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([5, 5, 5, 5, 1, 5]);
+    }
+
+    /// <summary>
+    /// **Far before the run, it seeds from the tick asked** (B860 review 26): values change at 1, 300, 1,500 and 1,900 over
+    /// 2,000 entries. Asked at 2,000 (1,900; the run starts at 1,900), then at 800 — more than 512 before it — (300), then
+    /// at 1,600 (1,500) and 2,000 (1,900) again.
+    /// </summary>
+    [Test]
+    public void LatestChange_FarBeforeTheRun_SeedsFromTheTickAsked()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 2000; tick++)
+        {
+            float value = 1f;
+
+            if (tick >= 1900)
+            {
+                value = 4f;
+            }
+            else if (tick >= 1500)
+            {
+                value = 3f;
+            }
+            else if (tick >= 300)
+            {
+                value = 2f;
+            }
+
+            history.Add(tick, tick, [value]);
+        }
+
+        int[] asked = [2000, 800, 1600, 2000];
+
+        System.Linq.Enumerable.Select(asked, tick => history.LatestChange(tick, 0, -1)).ShouldBe([1900, 300, 1500, 1900]);
     }
 
     private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)

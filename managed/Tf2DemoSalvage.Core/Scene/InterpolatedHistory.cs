@@ -785,8 +785,8 @@ public sealed class InterpolatedHistory
 
             // Appended directly: this runs most frames inside a rise window, and a list collected first allocated every time
             // (merge review 4). Nothing is rolled back on a throw from `Same`: that throw is a caller asking a span its
-            // history cannot hold, which no production variable does (review 25, Fable, who traced that even a retry answers
-            // the same).
+            // history cannot hold, which no production variable does (review 25). After one, the lists may hold appends a
+            // retry repeats, so a caller that catches it and asks again is relying on nothing (review 26).
             for (int index = run.Through + 1; index <= last; index++)
             {
                 if (IsChange(index, first, count))
@@ -799,10 +799,8 @@ public sealed class InterpolatedHistory
 
             // Asked before the run begins: walk back from it until a change at or before `last`, keeping every change met. It
             // ends at the latest at the generation start, which is a change and is at or before `last`. Kept newest first in
-            // its own list and APPENDED, so a rewind asking one step back at a time costs what it walks, not the whole memo
-            // (merge review 3).
-            // Appended directly in walk order, which is newest first (merge review 5: a list collected first allocated on
-            // every rewind step).
+            // its own list and appended directly in walk order, so a rewind asking one step back at a time costs what it walks,
+            // not the whole memo, and allocates nothing (merge reviews 3 and 5).
             if (last < run.Start)
             {
                 int index = run.Start - 1;
@@ -836,11 +834,14 @@ public sealed class InterpolatedHistory
         }
     }
 
-    /// <summary>How far past what a run examined a call may ask before the run is started again from that call.</summary>
+    /// <summary>How far past or before what a run examined a call may ask before the run is started again from that call.</summary>
     /// <remarks>
     /// A rise window is the old delay's span plus the new one's, tens of ticks at TF2's settings (*reasoned* from the
-    /// delays, not measured); a gap of this many entries is a later window. The walk back from the new tick stops at what
-    /// the run examined, so it never costs more than the forward scan would.
+    /// delays, not measured); a gap of this many entries is a later window. Far past the run, the walk back from the new
+    /// tick stops at what the run examined, so it never costs more than the forward scan would. Far before it, the walk
+    /// back has no such bound: it runs to the latest change, as a first call does. Two callers alternating between ticks
+    /// this far apart would repeat those walks; the presenter, the seek scan and the probes each ask in one direction
+    /// (*reasoned*, review 26).
     /// </remarks>
     private const int ReseedGap = 512;
 
