@@ -139,13 +139,21 @@ public sealed class DemoCensusStreamTests
     /// **A failure opening the install is a recorded row failure, not the end of the census** (review 5): the interp
     /// reading throws as an unreadable config would, and the row says so under the timeline, the one stage that needs
     /// the install, while every other stage still runs. Control: the container passes after it, and no build ran.
+    /// `OpenGame` is stubbed with the no-install answer (review 6): the default opens this machine's real TF2 and keeps it
+    /// in <see cref="ProbeInstall"/>'s statics, which a test must not do.
     /// </summary>
     [Test]
-    public void Run_WhenOpeningTheInstallThrows_FailsTheTimelineAndRunsTheRest()
+    public void Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest()
     {
         string path = WriteDemo();
+        int opened = 0;
         int builds = 0;
         DemoCensus census = Census(path, out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ =>
+        {
+            opened++;
+            return ProbeInstall.Open(folder: null, output: null);
+        };
         census.ReadInterp = () => throw new InvalidDataException("an unreadable config");
         census.Build = (_, _, _) =>
         {
@@ -155,22 +163,54 @@ public sealed class DemoCensusStreamTests
 
         census.Run();
 
-        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), builds)
-            .ShouldBe(("fail", "InvalidDataException: an unreadable config", "pass", 0));
+        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), opened, builds)
+            .ShouldBe(("fail", "InvalidDataException: an unreadable config", "pass", 1, 0));
+    }
+
+    /// <summary>
+    /// **The install's own open throwing takes the same guarded path** (review 6): the timeline fails with it, the interp
+    /// is never read, no build runs, and the container still passes.
+    /// </summary>
+    [Test]
+    public void Run_WhenOpeningTheGameThrows_FailsTheTimelineAndRunsTheRest()
+    {
+        string path = WriteDemo();
+        int interps = 0;
+        int builds = 0;
+        DemoCensus census = Census(path, out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ => throw new IOException("an unreadable archive");
+        census.ReadInterp = () =>
+        {
+            interps++;
+            return new ClientInterp();
+        };
+        census.Build = (_, _, _) =>
+        {
+            builds++;
+            throw new InvalidOperationException("no build runs when the install did not open");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), interps, builds)
+            .ShouldBe(("fail", "IOException: an unreadable archive", "pass", 0, 0));
     }
 
     /// <summary>
     /// **A warming build that throws leaves none of its time in `timeline_seconds`** (review 5). The reachable case: an
     /// <see cref="OutOfMemoryException"/> under the census heap limit, which the stage records as a budget skip and still
     /// writes its seconds. The warming build spins a full second first, so a column that kept it reads at least 1.0; one
-    /// that left it out reads the file read and nothing else. Control: the stage did take the budget skip.
+    /// that left it out reads the file read and nothing else. Control: the stage did take the budget skip. **The warming
+    /// runs only over non-empty archives** (`ProbeInstall.Warm`), and that is asserted (review 6): over empty archives the
+    /// spinning build is the measured one, and the test would read it. An existing folder with no `gameinfo.txt` opens as
+    /// one source, its loose files (`GameArchives.Open`); a file in it is not needed, which a sabotage showed.
     /// </summary>
     [Test]
     public void Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds()
     {
         string install = Directory.CreateDirectory(Path.Combine(_folder, "tf")).FullName;
-        File.WriteAllText(Path.Combine(install, "census-marker.txt"), "here");
         GameContent game = ProbeInstall.Open(install, output: null);
+        game.Archives.IsEmpty.ShouldBeFalse("the precondition: an existing folder opens as one loose-file source");
 
         DemoCensus census = Census(WriteDemo(), out CensusRow row, "timeline", Megabyte(64));
         census.OpenGame = _ => game;

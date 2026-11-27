@@ -200,6 +200,8 @@ internal sealed class DemoCensus
         // the timeline stage they cost the first demo's row alone, which then differed from the rest by its place in the run.
         // Guarded as a stage is (review 5): an unreadable config or an out-of-memory opening the install under the heap
         // limit is the timeline's recorded failure or budget skip, not the end of the census. Its time is no column.
+        // A persistent failure is retried on every demo (review 6): `ProbeInstall` keeps only what opened, never a throw,
+        // so each row pays the attempt and records the same failure.
         if (_options.Stages.Contains("timeline"))
         {
             _log.WriteLine(Invariant($"{DateTime.UtcNow:O} OPEN install"));
@@ -219,9 +221,11 @@ internal sealed class DemoCensus
     /// <summary>Runs one stage, timing it and turning anything production code throws into that stage's failure.</summary>
     /// <remarks>
     /// The stage is logged BEFORE it runs (`logs-are-the-debugger.md`), so a process that dies here names the demo and
-    /// the stage. **`_untimed` is zeroed in a `finally`** (review 5), so time a stage hands back can never be taken off
-    /// the next stage's seconds, whatever threw where: `Guarded` catches the body's throws, and anything else that left
-    /// this method still passes the reset.
+    /// the stage. **The seconds are written for a failed or skipped stage too**: one the install's failed open stopped
+    /// at its first line carries about 0 (review 6), which the summary's per-stage sum adds as nothing. `_untimed` is
+    /// zeroed after, so time one stage hands back is never taken off the next's. No `finally` (review 6 removed review
+    /// 5's): `Guarded` swallows every throw of the body, so only `_row.Set` could leave here early, and that ends the
+    /// census of this demo, whose `DemoCensus` is not used again.
     /// </remarks>
     private void Stage(string stage, Action body)
     {
@@ -236,15 +240,9 @@ internal sealed class DemoCensus
         _log.WriteLine(Invariant($"{DateTime.UtcNow:O} STAGE {stage}"));
         long started = Stopwatch.GetTimestamp();
 
-        try
-        {
-            _ = Guarded(stage, body);
-            _row.Set(stage + "_seconds", (Stopwatch.GetElapsedTime(started) - _untimed).TotalSeconds);
-        }
-        finally
-        {
-            _untimed = TimeSpan.Zero;
-        }
+        _ = Guarded(stage, body);
+        _row.Set(stage + "_seconds", (Stopwatch.GetElapsedTime(started) - _untimed).TotalSeconds);
+        _untimed = TimeSpan.Zero;
     }
 
     /// <summary>Runs <paramref name="body"/>, turning anything it throws into <paramref name="stage"/>'s failure.</summary>

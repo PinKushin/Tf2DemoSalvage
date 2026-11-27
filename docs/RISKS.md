@@ -47399,29 +47399,35 @@ first". **Our downloads are not searched either**: `MapLocator.Find` reaches `Ow
 the constructor threw before any of it. **But a downloaded map is NOT fetched again** (review 5 corrected review 4's
 "fetched again on every open", *read*): `PrepareAsync` falls to `FetchAsync`, and `MapDownloader.TryDownloadAsync`
 returns the cached file when it exists (`MapDownloader.cs` ~:193-200) before any request. So a map `TF2_FOLDER` holds is
-downloaded once into our folder, and every later open costs a false "is not installed; fetching it" log line and one
-`File.Exists`. `MapLocator`'s constructor also refuses an empty `ownMapsFolder`, but `MapDownloader.DefaultFolder` is
+downloaded once into our folder — **and then not drawn, on that open or any later one** (review 6 corrected review 5's
+"every later open costs a false log line", Fable, Sonnet, the cavecrew reviewer, Codex, *read*): `ReadMapNamed`
+(`ViewerPresenter.cs` ~:799-845) draws from `_maps.Find(mapName).Path`, which goes through the same failing `Locate`,
+and takes only `prepared.Status` from the prepare, never `prepared.Path`. A fetch that succeeded has an empty status, so
+the load says "Map X is not installed" and builds no world. Moot for the viewer on any Windows host (below), but that is
+what a host reaching B890 would see. `MapLocator`'s constructor also refuses an empty `ownMapsFolder`, but `MapDownloader.DefaultFolder` is
 never empty: with `LocalApplicationData` empty, `Path.Combine` makes it the relative `Tf2DemoSalvage/maps`, resolved
 against the working directory — an oddity of its own, not a second trigger of this one (review 5 asked; *read*).
 
 **Where it is reachable — a non-Windows host only** (review 4 corrected review 3's triggers, Fable and the cavecrew
 reviewer, *read*). `SteamInstall.Machine` takes `TF2VIEW_STEAM_ROOT` only when it is `{ Length: > 0 }`: set empty, it
 falls through to the registry and `ProgramFilesX86`, so "a probe run under `TF2VIEW_STEAM_ROOT` naming nothing" cannot
-happen; set non-empty, the root is named. And on 64-bit Windows `Environment.SpecialFolder.ProgramFilesX86` names a
-folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not; on 32-bit
-Windows it is documented empty (review 5 qualified "always"). Only where the registry answers nothing AND
-`ProgramFilesX86` is empty — Linux or macOS, or 32-bit Windows — is `Root` null and the library path empty.
+happen; set non-empty, the root is named. And on Windows `Environment.SpecialFolder.ProgramFilesX86` always names a
+folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not. **On a
+32-bit OS too** (review 6 withdrew review 5's "on 32-bit Windows it is documented empty", Fable, Sonnet, the cavecrew
+reviewer, Codex): Microsoft's `KNOWNFOLDERID` table gives `FOLDERID_ProgramFilesX86` on a 32-bit OS as
+`%SystemDrive%\Program Files`, not empty — *read, not run on a 32-bit OS*. So only where the registry answers nothing AND
+`ProgramFilesX86` is empty — Linux or macOS — is `Root` null and the library path empty.
 
 **On today's code it is a probe bug, not a viewer one — priority lowered** (review 5, *read*). The viewer is
 `net10.0-windows` (`Tf2DemoSalvage.Viewer3D.csproj`), and the only callers of `PrepareAsync` and `Find` are
 `ViewerPresenter.cs` ~:805 and ~:1039; `Presentation` is `net10.0`, but nothing else reaches it, and the CLI constructs no
 `MapProvider`. So the reachable form is **`ProbeInstall.Map` answers null on a non-Windows host** (Linux CI, a probe run
-there); the viewer meets it only on 32-bit Windows with no Steam registry key.
+there), as `ProbeInstall.Map`'s remark says; the viewer never meets B890 on any Windows .NET 10 runs on (review 6).
 
 **What is verified and what is not.** Verified, *read*: `Locate` answers null and `Find` answers `NotInstalled` (the
 code path above, `MapProvider.cs` ~:152-200, and `MapLocator`'s constructor guard). The download is *read, not run*:
 `PrepareAsync` (~:307-345) calls `Locate`, and on null tells `fetching` and awaits `FetchAsync`, so the viewer's map load
-downloads a map `TF2_FOLDER` holds, once. **The failing-first test exists** (review 5 corrected "none can on Windows"
+downloads a map `TF2_FOLDER` holds, once, and then draws no world from it (above). **The failing-first test exists** (review 5 corrected "none can on Windows"
 and "needs a seam for `ProgramFilesX86`"): `MapProvider`'s constructor takes `steamLibraryFile` as a plain string
 (`MapProvider.cs` ~:82-94), so `MapProviderTests.Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` passes `""`
 with a game folder whose `maps` holds the map, and asserts it is found. It is `[Explicit]` until this branch — it fails on
@@ -47442,8 +47448,30 @@ Valve map it finds by name, never the version the demo recorded, and the D162 pa
 wired, a versioned download is never found by `Locate`**: `MapLocator.Find` looks for `<name>.bsp` alone in every root,
 ours included, on every host, so the `<name>.<HEX>.bsp` the downloader kept is missed and only `TryDownloadAsync`'s own
 `File.Exists` on the same name finds it again — a false "fetching" every open, and `Find` reporting `NotInstalled` for a
-map that is here. Fix shape: hand the demo's `MapHash` and server ConVars to the prepare and the find
-(`MapWanted.From`), and have `Locate` try the checksum's cache name in our folder first. *Not fixed* (its own branch).
+map that is here. **And the fetched file is then not drawn** (review 6 corrected "a false fetching", *read*):
+`ReadMapNamed` (`ViewerPresenter.cs` ~:799-845) draws from `_maps.Find(mapName).Path` and takes only `prepared.Status`,
+never `prepared.Path`, so a `<name>.<HEX>.bsp` the prepare fetched is followed by "Map X is not installed" and no world.
+
+**What a user sees today** (review 6): an old demo on a Valve map that has changed since draws today's geometry, silently
+— no `VersionMismatch` status, because nothing asks. **Medium**: D162 is the owner's direction and it is unimplemented in
+production. D162 names the field `MapCrc`; it is `MapHash` (finding 43), and D162 now carries a pointer saying so.
+
+**Fix shape** (review 6 completed review 5's, *read*):
+
+1. **Hand the version to the prepare and the find.** The demo's `MapHash` and server ConVars, through `MapWanted.From`.
+2. **An installed Valve map must be checked, not taken.** `PrepareAsync` returns at `Locate(mapName) is { }`
+   (`MapProvider.cs` ~:327), so an installed map is never fetched, checksum or not. It must go through
+   `Find(name, checksum)` and fetch on a `VersionMismatch`.
+3. **`ReadMapNamed` must take `prepared.Path`** when the prepare found or fetched one, rather than searching again.
+4. **The order conflicts with B507.** `PrepareAsync` runs from the 1,072-byte header, in parallel with the decode, so the
+   map is ready when the decode is. `MapHash` and `sv_downloadurl` come from signon (`svc_ServerInfo` and the server's
+   ConVars), not the header. The fix either decodes the signon first (a short read, then the fetch) or prepares by name
+   as now and re-checks the version once the decode has it.
+5. **Ask the demo's own server first.** `FetchAsync(string)` builds a `MapWanted` with no `DemoDownloadUrl`, so the
+   demo's `sv_downloadurl`, which D162 puts first for a community map, is never asked.
+6. **`Locate` tries the checksum's cache name in our folder first**, so a versioned download is found again.
+
+*Not fixed* (its own branch).
 
 ## B893 — the `res`, `scheme` and `hud` probes do not read the viewer's chosen HUD (2026-11-27) — OPEN
 
@@ -47820,8 +47848,8 @@ N, X)" here is this numbering, not theirs.
   can never come off another's, whatever threw.
 - **B890's record** corrected: a downloaded map is not fetched again (`TryDownloadAsync` returns the cached file), only
   falsely announced; on today's code it is a probe bug on a non-Windows host (the viewer is `net10.0-windows`), priority
-  lowered; the failing-first test needs no seam and now exists, `[Explicit]`; `ProgramFilesX86` is empty on 32-bit
-  Windows; an empty `ownMapsFolder` also throws, but `DefaultFolder` is never empty. The checksum-named download
+  lowered; the failing-first test needs no seam and now exists, `[Explicit]`; ~~`ProgramFilesX86` is empty on 32-bit
+  Windows~~ (withdrawn in review 6: it is `%SystemDrive%\Program Files` there); an empty `ownMapsFolder` also throws, but `DefaultFolder` is never empty. The checksum-named download
   `MapLocator` never finds is its own finding, with the larger one under it — no production caller asks for a version —
   **B894**.
 - **`scheme`, `hud` and `res` said `custom` reads what the viewer reads.** It reads whichever HUD sorts first; the viewer
@@ -47850,6 +47878,44 @@ New and changed tests, each sabotaged with an exact inverse edit and seen to red
   than `tenth`'s 1,032 — so with the copier warm, the comparison still sees the interp.
 - `Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` (Presentation, `[Explicit]`, B890) — run explicitly it
   fails on today's code (null where the game folder's map). Not sabotaged: it is red now, which is its point.
+
+*Not verified by looking.*
+
+**Review 6 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** No code defect; a test seam and records. Fixed
+on `fix/b874-r6`:
+
+- **The install-open test opened this machine's TF2.** It stubbed `ReadInterp` and `Build` but not `OpenGame`, so
+  `ProbeInstall.Game` opened the real install and kept it in `ProbeInstall`'s statics, where `ProbeInstallTests` could
+  race it. `OpenGame` is now stubbed with the no-install answer, and the test is renamed for what throws in it:
+  `Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest`. `OpenGame` itself throwing is its own test.
+- **The out-of-memory test's precondition is asserted.** `ProbeInstall.Warm` warms only over non-empty archives; over
+  empty ones the spinning build would be the measured one. The test now asserts that the folder holding one loose file
+  opens non-empty archives.
+- **`Stage`'s `finally` was dead and is removed.** `Guarded` swallows every throw of the body, so only `_row.Set` could
+  leave `Stage` early, and that ends the demo's census, whose `DemoCensus` is not used again (one per demo,
+  `DecodeCensusProbe.cs` ~:272). The warming `finally` in `Timeline`, which review 5 tested, stays.
+- **Recorded in the code**: a failed install open leaves `timeline_seconds` about 0, written by `Stage` as for any failed
+  or skipped stage, and the summary's per-stage sum adds it as nothing; a persistent failure is retried on every demo,
+  because `ProbeInstall` keeps only what opened, never a throw.
+- **B890**: review 5's "32-bit Windows" trigger withdrawn (`FOLDERID_ProgramFilesX86` is `%SystemDrive%\Program Files`
+  on a 32-bit OS), so the viewer never meets B890 on Windows; "every later open costs a false log line" corrected — a
+  host that reaches it fetches the map and then draws no world, since `ReadMapNamed` never takes `prepared.Path`.
+- **B894**: the same not-drawn consequence for a versioned download; what a user sees (an old demo on a changed Valve map
+  draws today's geometry silently); severity medium; the fix shape completed (installed maps checked, `prepared.Path`
+  taken, the header-versus-signon order against B507, the demo's own `sv_downloadurl`). **D162** names `MapCrc`; a
+  pointer there now says `MapHash`.
+
+New and changed tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest` (renamed from `…WhenOpeningTheInstallThrows…`) and
+  `Run_WhenOpeningTheGameThrows_FailsTheTimelineAndRunsTheRest` (new) (Corpus). Sabotage: `Run` calling `OpenInstall()`
+  unguarded reddened both and nothing else. Sabotage: `OpenInstall` opening `ProbeInstall.Open(null, …)` in place of the
+  `OpenGame` seam reddened both, and the out-of-memory test too, since an empty install skips the warming and the
+  spinning build becomes the measured one.
+- `Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds`, its new precondition. A first sabotage, the
+  loose file not written, left it GREEN: an existing folder with no `gameinfo.txt` is one source whether or not it holds
+  a file (`GameArchives.Open`), so the file was never what the precondition needed, and it was removed. Sabotage: the
+  install opened from a folder that does not exist reddened it alone, on the precondition's message.
 
 *Not verified by looking.*
 

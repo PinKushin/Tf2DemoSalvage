@@ -8503,6 +8503,10 @@ practice: learn the steps from DepotDownloader, write them ourselves, and do not
 already computes the CRC as the engine does. Valve maps keep their names across changes, so the name
 cannot choose the version and the CRC can.
 
+*Pointer (2026-11-27, B874 review 6):* the field is `MapHash`, not `MapCrc` — finding 43 measured `mapCRC` as
+`FFFFFFFF`, never filled, from 2013 on, with the map hash carrying the CRC or MD5; `MapProvider.Find`'s `checksum` takes
+`DemoTimeline.MapHash`. No production caller passes it yet: B894.
+
 **Steam login is the user's, through QR.** SteamKit2's QR session: the program shows a code, the user
 approves it in the Steam mobile app, and no password passes through this program. That goes a step
 beyond what the owner asked, which was only that the program need not handle credentials.
