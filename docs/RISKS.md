@@ -47360,6 +47360,14 @@ on the wrong track — a debug flag only; normal playback reports at the tick it
 confirmed: `Builder.Trim` runs only in the checkpoint walk, windows reach only `WindowCheck`, which samples with no
 setups, and `Source` is set in one place (`DemoSystems.cs:262`) (Fable). *Not verified by looking.*
 
+Review 8 (Codex, Fable, Sonnet, the cavecrew reviewer). The clamp's other direction — a signon's update stamped above
+the packets after it — is B881's too, and on the corpus neither direction occurs: 161 demos, no signon entity
+snapshot, no packet below the running maximum (B881, measured; Fable's own z1800 trace agrees). A late update of a new
+parity starts its run at its arrival, now pinned where the run's stride reads it
+(`UnseenResetAt_ALateUpdateOfANewParity_StartsItsRunAtItsArrival`; the run begun at its stamp reddened it — a first
+version without a later update in the run did not, the binary search masking the one misplaced run). *Not verified by
+looking.*
+
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
 Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
@@ -47370,10 +47378,19 @@ packets up to the running maximum of their ticks because a file's packet ticks n
 packet is read, so an update's arrival is that running maximum, not its stamp. The keyframes (`PoseKeyframes`, no order
 check) and the interpolated histories' received ticks take the raw stamp, so an update stamped below the newest lands
 out of order in lists searched as sorted; B878's update runs clamp to the track's newest, which is the running maximum
-only for that track. **To read first**: whether any signon in the corpus carries `svc_PacketEntities` for a prop, and
-whether any real file's packets run backwards (only a synthetic one is known, `DemoPlayerConformanceTests.Backwards`).
-Fix shape, if either does: pass the running maximum of packet ticks as the arrival into `Add`, beside the stamp, for
-every store that answers "arrived by". *Not verified by looking.*
+only for that track. **A signon's update goes the other way** (B878 review 8, Sonnet, Fable, the cavecrew reviewer): it
+arrives before every packet but is stamped with the server's tick, so every store of the track — keyframes included —
+starts there and the track is not alive before it; B878's runs agree, so B878 is off for such a track rather than
+wrong.
+
+**Measured, 2026-11-26** (`packet-tick-order`, every gcor and lcor demo, 161): **no signon carries an entity snapshot,
+and no packet is stamped below the running maximum of the packets before it.** The control: every one of the 161 has
+signon commands, read on the same stream (z1800's first at 70,718, etf2l-12025's at 146,124), and each counts 3,874 to
+16,213 snapshots in its packets. So neither case reaches a track on any demo held; the only backwards file known is
+synthetic (`DemoPlayerConformanceTests.Backwards`). Fix shape, if one turns up: give every store of the track the
+arrival beside the stamp — the running maximum of packet ticks for a packet, and for a signon what the convars take
+(`lastPacketTick + 1`, or the start before any packet, `DemoTimeline`'s `SetConVarMessage` case). *Not verified by
+looking.*
 
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
 

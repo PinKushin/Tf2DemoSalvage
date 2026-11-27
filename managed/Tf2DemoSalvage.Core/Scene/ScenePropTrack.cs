@@ -2259,7 +2259,8 @@ public sealed class ScenePropTrack
         // file's packets can run backwards — and the player delivers a packet once the running maximum of their ticks is
         // reached (`DemoPlayer.FirstPacketPast`), where `PostDataUpdate` runs. So an update stamped below the newest counts
         // at the newest's tick, the runs stay ordered for their searches, and nothing ends a build (as `HeldValues.Set`,
-        // B878 review 7 — reversing review 6's assert). The keyframes keep the raw stamp: B881.
+        // B878 review 7 — reversing review 6's assert). The keyframes keep the raw stamp, and a signon's update is stamped
+        // with the server's tick where it arrived before every packet — both for every store of the track at once: B881.
         UpdateRun? previous = _updates.Count > 0 ? _updates[^1] : null;
         int arrived = previous is { } newest ? Math.Max(tick, newest.Last) : tick;
 

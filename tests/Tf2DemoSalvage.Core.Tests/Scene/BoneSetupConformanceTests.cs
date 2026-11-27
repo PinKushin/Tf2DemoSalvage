@@ -273,6 +273,25 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **A late update of a NEW parity starts its run at its arrival** (B878 review 8, Sonnet, Fable): 0 at 100, 1 at 110,
+    /// then 2 stamped 108, then 2 again at 115. The 2 run begins at 110 and steps by 5, so asked at 112 its newest update
+    /// is 110 — the reset for a setup at 105 that saw 0. Begun at its stamp it would step from 108 and answer 108, a tick
+    /// at which nothing arrived.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_ALateUpdateOfANewParity_StartsItsRunAtItsArrival()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(108, new ScenePose { NewSequenceParity = 2, X = 2 }, appliedAt: 108, animationAppliedAt: 105);
+        track.Add(115, new ScenePose { NewSequenceParity = 2, X = 3 }, appliedAt: 115, animationAppliedAt: 112);
+
+        track.SequenceParityAt(112).ShouldBe(2, "the newest arrival");
+        track.UnseenResetAt(112, new BoneSetup(105, 0, null)).ShouldBe(110);
+    }
+
+    /// <summary>
     /// **A run extends only by its stride** (B878 review 5, Fable): parity 0 at 90; parity 1 at 100, 102, 104, then 107.
     /// A setup at 95 saw 0. Asked at 106 the newest update is 104 — had 107 joined the two-tick run as a three-tick one,
     /// the answer would be 106, a tick with no update.
