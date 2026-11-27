@@ -199,6 +199,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     private readonly EntityModelSet _models;
 
+    /// <summary>The entities the last frame set bones up for (B878).</summary>
+    /// <param name="into">Filled with their indices; cleared first.</param>
+    public void BonesSetUp(ISet<int> into) => _models.BonesSetUpSinceWorldPass(into);
+
     /// <summary>The client's dlights and elights (B425), handed to every <see cref="Lighting"/> this scene is given.</summary>
     private readonly DynamicLights _dynamic = new();
 

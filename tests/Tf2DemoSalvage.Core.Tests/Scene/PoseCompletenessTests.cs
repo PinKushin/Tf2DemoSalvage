@@ -269,6 +269,9 @@ public sealed class PoseCompletenessTests
         // right on everything except the taunt it exists for.
         ResetEventsParity = 3,
 
+        // Non-zero and unlike the events parity, for the same reason (B878).
+        NewSequenceParity = 6,
+
         // Not 1, which is the default and would make the completeness assertion compare a default
         // against a default. This pair caught PlaybackRate the moment it was added, which is the
         // entire point of the control.

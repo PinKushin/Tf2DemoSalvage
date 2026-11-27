@@ -91,6 +91,63 @@ public sealed class MomentPresenterTests
         source.FrameTicks.ShouldBe([10d, 10.5d, 10.5d, 11.25d, 9d, 12d, 12d]);
     }
 
+    /// <summary>
+    /// **A posed frame's bone setups are reported at the next frame, before its sample** (B878): the engine's frame
+    /// interpolates, then sets bones up, so the next sample's cycle resets are judged against what this frame posed. Driven
+    /// as the frame loop drives it, `NextFrame` before each `Show` (B878 review 1, Fable: that cleared the flag the first cut
+    /// read). The first frame of a source reports nothing set up, before its sample (B878 review 2, Fable: else it blended
+    /// once and snapped). Shown at 10 and posed, shown at 11: a report for 10, made before 11's sample (the second). A
+    /// players-only pose in between — the decal replay's, at an earlier tick — sets nothing up and leaves it for 10 (review
+    /// 2, the cavecrew reviewer). Shown at 12 with 11 never posed: no report.
+    /// </summary>
+    [Test]
+    public void Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling()
+    {
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.NextFrame(null);
+        presenter.Show(10d, View());
+        source.SetUpReports.ShouldBe([(10d, 0)], "the control: the first frame reports nothing set up");
+        presenter.PoseNow();
+
+        presenter.PlayersOnly = true;
+        presenter.Show(9d, View());
+        presenter.PoseNow();
+        presenter.PlayersOnly = false;
+
+        presenter.NextFrame(null);
+        presenter.Show(11d, View());
+        presenter.NextFrame(null);
+        presenter.Show(12d, View());
+
+        source.SetUpReports.ShouldBe([(10d, 0), (10d, 1)]);
+    }
+
+    /// <summary>
+    /// **A new source is never told the old one's setups** (B878 review 4, the cavecrew reviewer): shown at 10 under one
+    /// source, then a second source is set and a pose is asked for before its first `Show`. The held build is the old
+    /// source's, so nothing is posed, and the new source's first frame reports nothing set up — not a setup at 10.
+    /// </summary>
+    [Test]
+    public void Source_ChangedWithABuildHeld_ReportsNothingOfTheOldSource()
+    {
+        StubSource first = new();
+        StubSource second = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = first;
+        presenter.Show(10d, View());
+
+        presenter.Source = second;
+        presenter.PoseNow();
+        presenter.NextFrame(null);
+        presenter.Show(20d, View());
+
+        second.SetUpReports.ShouldBe([(20d, 0)]);
+        first.SetUpReports.ShouldBe([(10d, 0)], "the control: the first source's own first frame");
+    }
+
     [Test]
     public void Show_WhilePlaying_LeavesInterpolationOn()
     {
@@ -596,6 +653,11 @@ public sealed class MomentPresenterTests
             FrameStarts.Add(lastRead);
             FrameTicks.Add(frameTick);
         }
+
+        /// <summary>Each bone-setup report's tick, and the props sampled before it in the same call order (B878).</summary>
+        public List<(double Tick, int PropCallsBefore)> SetUpReports { get; } = [];
+
+        public void BonesSetUp(IReadOnlySet<int> entities, double tick) => SetUpReports.Add((tick, PropCalls));
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {
