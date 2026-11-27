@@ -58,7 +58,9 @@ public sealed class TimelineHoldersProbe : IProbe
         // The install opened before the first reading, its class scripts and model facts object with it, as the viewer's
         // are before a demo loads (B874), and warmed by two throwaway builds: what a first build leaves (the facts' per-model
         // cache among it) is printed apart, with the second build's as its control, and the total is the timeline's alone.
+        // The watcher's interp is read before the first build too (review 4), so running the configs is in no figure.
         GameContent game = ProbeInstall.Game(output);
+        _ = ProbeInstall.Interp();
         byte[] file = File.ReadAllBytes(path);
         (long, long)? firstBuild = ProbeInstall.Warm(file, game, Live);
         long before = Live();

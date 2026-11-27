@@ -116,6 +116,43 @@ public sealed class TimelineBuilderSnapshotTests
         (scripts.Asked, facts.Asked).ShouldBe((62, 4));
     }
 
+    /// <remarks>
+    /// **The snapshot the `timeline-resume` probe measures is walked with the install's inputs** (B874 review 4): each of
+    /// <c>MeasureSnapshot</c>'s three is observed. The scripts and the facts are counted, and walked through every command
+    /// they are asked what a straight build asks them (31 and 2, the control the resume test also takes). The interp is seen
+    /// in the builder's own state: the scout's one jump is queued to fire an interpolation window after it arrives (B437), so
+    /// under TF2's tenth of a second it has fired before the demo ends and the queue holds nothing, while under a hundred
+    /// seconds it is still waiting, and a snapshot copies it. Control: no interp at all is TF2's defaults.
+    /// </remarks>
+    [Test]
+    public void MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem()
+    {
+        byte[] scout = SyntheticPlayer.ScoutJump();
+        byte[] prop = SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl", "models/props_gameplay/door.mdl"],
+            (0, 2, [0.2f], null, null),
+            (10, 2, [0.6f], null, null),
+            (20, 1, [0.9f, 0.5f], null, null));
+        CountingScripts scripts = new();
+        CountingFacts facts = new();
+
+        // A first copy also allocates the copier's own reflection over each type, which the counter sees; not measured.
+        _ = DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout));
+        long defaults = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout)));
+        long tenth = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout), client: new ClientInterp()));
+        long late = Queued(DemoTimeline.MeasureSnapshot(
+            scout, DemoTimeline.CommandCount(scout), client: new ClientInterp(Interp: 100f), classes: scripts));
+        _ = DemoTimeline.MeasureSnapshot(prop, DemoTimeline.CommandCount(prop), models: facts);
+
+        tenth.ShouldBe(defaults, "the control: no interp is TF2's defaults");
+        late.ShouldBeGreaterThan(tenth, "a jump still waiting to fire is copied with the queue");
+        (scripts.Asked, facts.Asked).ShouldBe((31, 2));
+    }
+
+    /// <summary>What copying the builder's queue of gestures waiting to fire allocates.</summary>
+    private static long Queued((long Total, IReadOnlyList<(string Field, long Bytes)> Fields) cost) =>
+        cost.Fields.Single(field => field.Field == "queuedGestures").Bytes;
+
     /// <summary>The one player's jump activity on every frame, in tick order.</summary>
     private static List<PlayerActivity?> Jumps(DemoTimeline timeline) =>
         [.. timeline.Frames.Select(frame => frame.Players.Single().JumpActivity)];

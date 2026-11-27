@@ -47394,12 +47394,27 @@ Found testing B874 review 2, moved out of B874 in review 3 (Fable, Sonnet, the c
 is empty when NO Steam root is named at all (`SteamInstall.Root` null) — not merely when the named root has no
 `libraryfolders.vdf`, which the constructor tolerates (Fable). `Locate` catches the `ArgumentException` and answers null
 before the install's own `maps` — the first search root, `TF2_FOLDER`'s or the picker's (D203) — is searched, so
-`Find` returns `NotInstalled` because `GameFolder()` still answers, and the viewer downloads a map that is installed.
-Defeats D203's "the game folder's own maps come first". Reachable wherever Windows' `ProgramFilesX86\Steam` fallback
-does not name a root: Linux CI, a machine with no Steam and `TF2_FOLDER` set, a probe run under `TF2VIEW_STEAM_ROOT`
-naming nothing. The probes inherit it through `ProbeInstall.Map`, as they should. Fix shape: search the game folder's
-`maps` whether or not a library file is named — `MapLocator` taking a null library, or `Locate` searching the game root
-before constructing it — with a test that names `TF2_FOLDER` and no Steam root. *Not fixed* (its own branch).
+`Find` returns `NotInstalled` because `GameFolder()` still answers. Defeats D203's "the game folder's own maps come
+first". **Our downloads are not searched either**: `MapLocator.Find` reaches `OwnMapsFolder` last, after the library, and
+the constructor threw before any of it, so a map downloaded once is not found on the next open and is fetched again
+(review 4, Sonnet).
+
+**Where it is reachable — a non-Windows host only** (review 4 corrected review 3's triggers, Fable and the cavecrew
+reviewer, *read*). `SteamInstall.Machine` takes `TF2VIEW_STEAM_ROOT` only when it is `{ Length: > 0 }`: set empty, it
+falls through to the registry and `ProgramFilesX86`, so "a probe run under `TF2VIEW_STEAM_ROOT` naming nothing" cannot
+happen; set non-empty, the root is named. And on Windows `Environment.SpecialFolder.ProgramFilesX86` always names a
+folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not. Only where
+the registry answers nothing AND `ProgramFilesX86` is empty — Linux or macOS: Linux CI, and the probes or the CLI run
+there — is `Root` null and the library path empty.
+
+**What is verified and what is not.** Verified, *read*: `Locate` answers null and `Find` answers `NotInstalled` (the
+code path above, `MapProvider.cs` ~:152-200, and `MapLocator`'s constructor guard). The download is *read, not run*:
+`PrepareAsync` (~:307-345) calls `Locate`, and on null tells `fetching` and awaits `FetchAsync`, so the viewer's map load
+downloads a map `TF2_FOLDER` holds — and, by the paragraph above, again on every open. No test runs `PrepareAsync` on a
+host with no Steam root; none can on Windows. The probes inherit it through `ProbeInstall.Map`, as they should. Fix
+shape: search the game folder's `maps` and our downloads whether or not a library file is named — `MapLocator` taking a
+null library, or `Locate` searching those before constructing it — with a test that names `TF2_FOLDER` and no Steam root
+(which needs a seam for `ProgramFilesX86`, since Windows always has one). *Not fixed* (its own branch).
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
@@ -47575,10 +47590,9 @@ twelve more opened their own through
 probe that builds a timeline holds one install, the one the viewer would find. Probes that measure a build's heap or bytes
 (`timeline-cost`, `timeline-heap`, `timeline-holders`, `timeline-windows`, the census) open the install before their
 first reading — `timeline-cost` before its loop, so its GC-pause column no longer includes the open (review 2). **The
-heap probes warm the install first** (`ProbeInstall.Warm`, one throwaway build): the model facts cache what each model
-tells `OnNewModel` on the first build that asks, and that cache is the install's, kept after the timeline is gone, so it
-used to land in "held by the timeline". Each now prints that growth as its own line (the census as `install_cache_mb`)
-and "held by the timeline" is the timeline's alone; the throwaway costs the stage its time again, not its peak.
+heap probes warm the install first** (`ProbeInstall.Warm`): the model facts cache what each model tells `OnNewModel` on
+the first build that asks, and that cache is the install's, kept after the timeline is gone, so it used to land in "held
+by the timeline". How they warm, what they print and what is timed: the review 3 and 4 bullets below, its one account.
 `timeline-heap --map` says what its map figure is: what reading the map added, the map and whatever it cached in the
 install, which it cannot tell apart. `timeline-windows`' checkpoint walk takes the same install and the watcher's interp
 (B872). **`timeline-resume` compares with the install**: `BuildThroughSnapshot` takes the interp, class scripts and
@@ -47652,10 +47666,10 @@ viewer's map search with no Steam root named — now B890.
   one wording), not as "the install's caches", since the first delta is all a first build left. Skipped, and said, with no
   install. The census's `install_cache_mb` is now `first_build_heap_mb` and `second_build_heap_mb`, documented in
   `DecodeCensusReport` as incremental and order-dependent (the install is opened once per run).
-- **Timings**: the census's `timeline_seconds` excluded the warming builds' time no longer — it does now, handed back to
-  `Stage` as untimed. `timeline-windows` timed only a warm walk, missing the first reads the viewer's first walk pays:
-  it now times the cold walk (the first of the two warming walks) and the kept warm one, and says which is which; `cost`
-  mode walks three times with an install, once without, and keeps its purpose. `timeline-cost` builds each demo once,
+- **Timings**: the census's `timeline_seconds` included the warming builds' time; it no longer does, their time handed
+  back to `Stage` as untimed. `timeline-windows` timed only a warm walk, missing the first reads the viewer's first walk pays:
+  it now times the cold walk (the first of the two warming walks) and the kept warm one, and says which is which; every
+  mode walks three times with an install, once without (review 4 corrected "`cost` mode"), and `cost` keeps its purpose. `timeline-cost` builds each demo once,
   uncounted, before its counted build, so no row pays the facts' first reads for a later demo; the comment says so.
 - **`timeline-resume cost`** measured a bare snapshot: `MeasureSnapshot` takes the interp, class scripts and model facts
   as `BuildThroughSnapshot` does, and the probe passes the install's. So the install is on both sides of the resume
@@ -47677,7 +47691,11 @@ viewer's map search with no Steam root named — now B890.
   `Res`, `SceneImage`, `Scheme`, `ShaderFaces`, `ShaderParity`, `SoundRead`, `StaticPropFlagCensus`, `StyledProps`,
   `TexelPng`, `TraceCost`, `VertexColourFace`, `VphysicsMaterial`, `WaterBrushEntity`, `WeaponScript` and
   `WorldCulling`. The same folder, its search path opened a second time; their answers are the viewer's because the
-  folder is, except `ModelFlag`'s, which leaves `custom/` out on purpose.
+  folder is, except three that leave `custom/` out by default (review 4 corrected "except `ModelFlag`'s"): `ModelFlag`,
+  on purpose, and `Res` and `Scheme`, which say "stock unless asked" (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
+  Asked with `custom`, those two read the whole `custom/` folder, which is not the viewer's HUD either: the viewer's HUD
+  reads the install's `Archives.WithHud(chosen)`, the saved `ChosenHud` (or a launch `--hud`), and its own custom folder
+  through `WithOwnCustom`; neither probe reads either. Recorded, not changed: a stock answer is what those two exist for.
 
 New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
 
@@ -47697,6 +47715,49 @@ New tests, each sabotaged with an exact inverse edit and seen to redden, then re
   double. Sabotage: `SharedInputs` not sharing them (a deep copy) reddened it alone, (31, 2) where (62, 4).
 `Precache` (`game.MuzzleFlashes.Precache()` in `Open`) has no test: it moves WHEN the weapon scripts are read, not what
 any probe answers, so no assertion on an answer can redden on its absence; it matters to the timing probes only.
+
+*Not verified by looking.*
+
+**Review 4 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** Fixed on `fix/b874-r4`:
+
+- **`MeasureSnapshot`'s three new inputs had no test.** One now observes each (below).
+- **`timeline-cost`'s rows are warm and said so only in a comment.** The header line says every row is warm, and the
+  first demo's throwaway build — this process's first, the viewer's cold open — is printed once per run on its own
+  labelled `COLD first build` line: its carried total, gc-paused and allocated. The throwaway's garbage is collected
+  (a full blocking collection) before the row's `gcBefore`, so no row's gc-paused collects what the throwaway left.
+  The class remarks no longer say `DecodedDemo` logs "the same split the viewer pays": the same columns, from a cold build.
+- **The census opened the install inside the timeline stage's clock**, so the first row paid it. `DemoCensus.Run` opens
+  it, and reads the interp, before the first stage when the timeline stage is asked. `_untimed` is set in a `finally`
+  around `Warm`, so a warming build that throws leaves none of its time in `timeline_seconds`.
+- **The interp is read before `Warm` in every heap and timing probe** (`timeline-heap`, `timeline-holders`,
+  `timeline-cost`, the census; `timeline-windows` already did), so no first-build figure includes running the configs.
+- **`timeline-windows`' walks do the same work**: with `cost`, the warming walks take a census into a dictionary thrown
+  away, as the kept one does. The cold label names JIT and static initializers beside the install's first reads; the
+  comment says every mode walks three times with archives.
+- **"No install" was the wrong word for what `Warm` skips on** (empty archives; "found" is the folder): `Said` and
+  `timeline-windows` say "no archives", and `Warm`'s remarks say both cases.
+- **B890's trigger and consequences**, rewritten there: only a non-Windows host reaches it; our downloads are missed too;
+  what is read and what is not run.
+- **This entry's body restated review 3's superseded facts** ("one throwaway build", `install_cache_mb`, "costs the stage
+  its time again"): deleted, the review bullets are the one account. The garbled review 3 timing bullet is rewritten, and
+  "except `ModelFlag`'s" now names `Res` and `Scheme` and what they do not read.
+- **Codex: the lazy interp reads the configs when first asked**, the viewer at session start; said in `ProbeInstall`'s
+  remarks (one short process).
+
+New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem` (Core) — walked through every command, the counting
+  scripts are asked 31 times and the facts twice, a straight build's counts; a 100-second interp leaves the scout's jump
+  queued, so the snapshot's `queuedGestures` copy is larger than under TF2's tenth (control: no interp equals TF2's
+  defaults, after one unmeasured snapshot, since the first copy also pays the copier's own reflection: 1,088 against
+  1,032 bytes without it). Sabotages in `MeasureSnapshot`'s `Start` call: `new ClientInterp()` for the interp reddened it
+  at `late`; `null` scripts at `(scripts.Asked, facts.Asked)`; `null` facts at the same, `(31, 0)` where `(31, 2)`.
+- `Said_WithAndWithoutFigures_NamesTheArchivesAndPrintsMegabytes` (Corpus) — the exact line for nothing warmed and for
+  1.5 MB and 0.5 MB. Sabotages: the null branch back on "no install" reddened it alone; the control's figure printed
+  from `First` reddened it alone.
+
+The census's `finally` has no test: making a warming build throw needs a demo the build throws on, and the decode is
+total by design (`docs/memory/decode-must-be-total.md`), so it is read, not run.
 
 *Not verified by looking.*
 

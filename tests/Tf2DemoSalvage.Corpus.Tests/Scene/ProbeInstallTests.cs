@@ -110,8 +110,9 @@ public sealed class ProbeInstallTests
     /// <c>autoexec.cfg</c> sets. `MapLocator`, which the probes used, never reads the variable. The machine is hidden: the
     /// Steam root is the same bare folder, which lists no library, and the settings file does not exist, so the interp is
     /// the config's. (A Steam root is NAMED, though its library file is absent, which `MapProvider.Locate` tolerates:
-    /// with no Steam root named at all, `Locate` answers null before it reads the install's <c>maps</c> — B890, the
-    /// viewer's own, which Windows' Program Files fallback hides and a root naming nothing would reach.)
+    /// with no Steam root named at all, `Locate` answers null before it reads the install's <c>maps</c> or our downloads —
+    /// B890, the viewer's own. Not reachable from here: an empty `TF2VIEW_STEAM_ROOT` is ignored and falls through to
+    /// Program Files, which on Windows always names a root, so only a non-Windows host has none.)
     /// </summary>
     [Test]
     [NonParallelizable]
@@ -422,6 +423,22 @@ public sealed class ProbeInstallTests
         {
             Directory.Delete(folder, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// **What is printed is what was warmed** (review 4): nothing warmed is said as "no archives", the condition
+    /// <see cref="ProbeInstall.Warm(GameContent, Func{long}, Action)"/> skips on, never "no install", which is the folder's
+    /// answer; and figures are megabytes of the bytes given, a first build's 1.5 MB and its control's 0.5 MB.
+    /// </summary>
+    [Test]
+    public void Said_WithAndWithoutFigures_NamesTheArchivesAndPrintsMegabytes()
+    {
+        ProbeInstall.Said(null, "the total").ShouldBe(
+            "no archives, nothing warmed: the total below includes whatever a first build leaves on the heap");
+        ProbeInstall.Said((1572864L, 524288L), "the total").ShouldBe(
+            "heap a first build leaves 1.5 MB, not in the total: the install's per-model caches and anything else the process "
+            + "keeps; control, a second build leaves 0.5 MB (about 0 when the first left a cache); incremental, a model an "
+            + "earlier build read is not counted");
     }
 
     /// <summary>

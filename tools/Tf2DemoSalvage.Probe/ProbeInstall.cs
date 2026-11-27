@@ -32,6 +32,9 @@ namespace Tf2DemoSalvage.Probe;
 /// run over them (`ViewerSession` attaches the console to the settings and then runs `LoadUserConfig`), unless
 /// `TF2VIEW_NO_CONFIGS=1`. **Only <see cref="Interp"/> and the builds run the configs** (review 3): a probe that asks only
 /// for the folder, the install or a map never reads them, so a config the console cannot read costs those nothing.
+/// **Read when first asked, not at start** (review 4): the viewer runs the configs once at session start, this at the first
+/// <see cref="Interp"/>, so a config edited in between is read here and not there — a probe is one short process, so the
+/// window is that process's first seconds. A heap or timing probe asks for it before its first measured build.
 /// **Three things the viewer reads that a probe cannot**: a `+cl_interp` on the viewer's own command
 /// line; a config in the program's own `custom/` folder, which sits beside the viewer's executable rather than this one;
 /// and an `autoexec.cfg` that sets `cl_game_folder`, which moves the viewer's folder after the configs ran, where this
@@ -86,8 +89,8 @@ public static class ProbeInstall
     /// <remarks>
     /// <see cref="MapProvider.Locate"/>, the viewer's own search, over what <see cref="Folder"/> found, so a map under
     /// <c>TF2_FOLDER</c>'s <c>maps</c> that no Steam library lists is found here when the viewer finds it (D203) — and
-    /// missed when the viewer misses it: with no Steam root named at all, <c>Locate</c> answers null before that folder is
-    /// searched (B890).
+    /// missed when the viewer misses it: with no Steam root named at all, which happens only on a non-Windows host,
+    /// <c>Locate</c> answers null before that folder or our downloads are searched (B890).
     /// </remarks>
     public static string? Map(string name)
     {
@@ -104,7 +107,7 @@ public static class ProbeInstall
     /// <param name="file">The whole demo file.</param>
     /// <param name="game">The install.</param>
     /// <param name="live">The probe's reading of the live heap.</param>
-    /// <returns>What each build left on the heap, or null with no install, when nothing is built.</returns>
+    /// <returns>What each build left on the heap, or null when the install's archives are empty and nothing is built.</returns>
     public static (long First, long Second)? Warm(ReadOnlyMemory<byte> file, GameContent game, Func<long> live) =>
         Warm(game, live, () => _ = Timeline(file, game));
 
@@ -112,7 +115,7 @@ public static class ProbeInstall
     /// <param name="game">The install.</param>
     /// <param name="live">The probe's reading of the live heap.</param>
     /// <param name="build">The throwaway work: a build, or whatever the probe measures next.</param>
-    /// <returns>What each run left on the heap, or null with no install, when nothing is run.</returns>
+    /// <returns>What each run left on the heap, or null when the install's archives are empty and nothing is run.</returns>
     /// <remarks>
     /// **For a heap reading**: the model facts cache what each model tells `OnNewModel` (B870) the first time a build asks,
     /// and that cache is the install's, kept after the timeline is gone, so a reading across one cold build counts it as
@@ -120,8 +123,9 @@ public static class ProbeInstall
     /// first build left on the heap**, the install's caches and any other state the process keeps, which this cannot tell
     /// apart — so it is named for what it is (<see cref="Said"/>), not called the install's cache. **The second is its
     /// control**: a cache is filled once, so a second build must leave about nothing; a figure that does not fall is not a
-    /// cache. **Incremental**: a model an earlier build in this process read is not counted again. **Skipped with no
-    /// install**, where the facts read nothing and there is no install cache to separate.
+    /// cache. **Incremental**: a model an earlier build in this process read is not counted again. **Skipped when the
+    /// install's archives are empty**, where the facts read nothing and there is no install cache to separate: no folder
+    /// found, or a folder found whose archives open empty (review 4: "found" is the folder, this is the archives).
     /// </remarks>
     public static (long First, long Second)? Warm(GameContent game, Func<long> live, Action build)
     {
@@ -144,12 +148,12 @@ public static class ProbeInstall
     }
 
     /// <summary>The line a probe prints for <see cref="Warm(GameContent, Func{long}, Action)"/>'s figures.</summary>
-    /// <param name="heap">The figures, or null when nothing was warmed.</param>
+    /// <param name="heap">The figures, or null when nothing was warmed (the install's archives are empty).</param>
     /// <param name="measured">What the probe's own figure is of, which these are not part of.</param>
     /// <returns>The line.</returns>
     public static string Said((long First, long Second)? heap, string measured) =>
         heap is not { } left
-            ? $"no install, nothing warmed: {measured} below includes whatever a first build leaves on the heap"
+            ? $"no archives, nothing warmed: {measured} below includes whatever a first build leaves on the heap"
             : string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"heap a first build leaves {left.First / 1048576d:0.0} MB, not in {measured}: the install's per-model caches and anything else the process keeps; control, a second build leaves {left.Second / 1048576d:0.0} MB (about 0 when the first left a cache); incremental, a model an earlier build read is not counted");

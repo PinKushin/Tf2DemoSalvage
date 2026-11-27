@@ -62,8 +62,10 @@ public sealed class TimelineHeapProbe : IProbe
         // The control: the heap before anything is built. The install is opened first, its class scripts and model facts
         // object with it, as the viewer's are before a demo loads (B874), then warmed by two throwaway builds: what a first
         // build leaves (the facts' per-model cache among it) is its own line, with the second build's as its control, and
-        // "timeline holds" is the timeline's alone. With no install nothing is warmed and the line says so.
+        // "timeline holds" is the timeline's alone. With no archives nothing is warmed and the line says so. The watcher's
+        // interp is read before the first build too (review 4), so running the configs is in no figure, as in every probe.
         GameContent install = ProbeInstall.Game(output);
+        _ = ProbeInstall.Interp();
         byte[] file = File.ReadAllBytes(path);
         (long, long)? firstBuild = ProbeInstall.Warm(file, install, Live);
         long before = Live();

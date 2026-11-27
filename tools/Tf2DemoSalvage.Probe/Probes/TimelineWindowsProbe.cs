@@ -55,18 +55,21 @@ public sealed class TimelineWindowsProbe : IProbe
         // The walk and the whole timeline both build with the install, as the viewer's do (B872, B874). It is opened before
         // the heap reading, its class scripts and model facts object with it, as the viewer's are before a demo loads.
         //
-        // **Two clocks, because the viewer pays both** (review 3): with an install, the first walk here is the COLD one —
+        // **Two clocks, because the viewer pays both** (review 3): with archives, the first walk here is the COLD one —
         // it pays every first read of the install (the model facts' per-model reads, B870), as the viewer's first walk of a
-        // demo does — and it is timed and dropped, then a second warms the heap's control (`ProbeInstall.Warm`), and the
-        // walk KEPT is a third, timed warm. So `cost` walks three times with an install, once without. The cold time is the
-        // viewer's; the warm one is the checkpoints' own work. Neither counts opening the install. The retained heap is the
-        // kept walk's alone: what a first walk left is its own line, with the second walk's as its control.
+        // demo does, and this process's JIT and static initializers, which the viewer's first walk pays too — and it is
+        // timed and dropped, then a second warms the heap's control (`ProbeInstall.Warm`), and the walk KEPT is a third,
+        // timed warm. So every mode walks three times with archives, once without. The cold time is the viewer's; the warm
+        // one is the checkpoints' own work. Neither counts opening the install or running the configs. **The three do the
+        // same work** (review 4): with `cost`, each takes a census of what it creates, the warming ones into a dictionary
+        // thrown away, so the cold and warm times differ by warmth alone. The retained heap is the kept walk's alone: what a
+        // first walk left is its own line, with the second walk's as its control.
         GameContent game = ProbeInstall.Game(output);
         WindowSettings settings = new(ProbeInstall.Interp());
         TimeSpan? coldWalk = null;
         (long, long)? firstWalk = ProbeInstall.Warm(game, Live, () =>
         {
-            TimeSpan took = Walk(null).Took;
+            TimeSpan took = Walk(costOnly ? [] : null).Took;
             coldWalk ??= took;
         });
         output.WriteLine("  " + ProbeInstall.Said(firstWalk, "the retained heap (a walk's, here)"));
@@ -96,8 +99,8 @@ public sealed class TimelineWindowsProbe : IProbe
         (long total, long largest) = checkpoints.Cost();
 
         output.WriteLine(coldWalk is { } cold
-            ? $"  walk {cold.TotalSeconds:0.0} s cold (the first, paying the install's first reads as the viewer's first walk does), {warmWalk.TotalSeconds:0.0} s warm (the walk kept); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB"
-            : $"  walk {warmWalk.TotalSeconds:0.0} s (no install: the only walk); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB");
+            ? $"  walk {cold.TotalSeconds:0.0} s cold (the first, paying the install's first reads and this process's JIT and static initializers, as the viewer's first walk does), {warmWalk.TotalSeconds:0.0} s warm (the walk kept); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB"
+            : $"  walk {warmWalk.TotalSeconds:0.0} s (no archives: the only walk, cold); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB");
         // Retained heap is what the checkpoints HOLD (they share unchanged objects); this is what a resume ALLOCATES.
         output.WriteLine($"  a resume copies {total / ticks.Length / 1048576d:0.0} MB on average, largest {largest / 1048576d:0.0} MB");
 

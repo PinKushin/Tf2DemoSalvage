@@ -181,6 +181,14 @@ internal sealed class DemoCensus
     /// <summary>Runs every stage in order.</summary>
     public void Run()
     {
+        // The install opened and the watcher's interp read before any stage's clock (review 4): once per process, so in
+        // the timeline stage they cost the first demo's row alone, which then differed from the rest by its place in the run.
+        if (_options.Stages.Contains("timeline"))
+        {
+            _ = ProbeInstall.Game(_log);
+            _ = ProbeInstall.Interp();
+        }
+
         Stage("container", Container);
         Stage("schema", Schema);
         Stage("messages", Messages);
@@ -764,15 +772,25 @@ internal sealed class DemoCensus
         // The one stage that still holds the file (B439, out of B449's scope), read only once its budget allows it.
         byte[] bytes = File.ReadAllBytes(_path);
 
-        // The install opened before the first heap reading, its class scripts and model facts object with it, as the
-        // viewer's are before a demo loads (B874), then warmed by two throwaway builds: what a first build leaves (the facts'
-        // per-model cache among it) is its own column, with the second build's as its control, and the held figure is the
-        // timeline's alone. The throwaways are not in `timeline_seconds` (review 3: one throwaway doubled it): their time is handed
-        // back to `Stage` as untimed. Nor in the peak, since each is collected before the measured build.
+        // The install was opened and the watcher's interp read before the first stage (`Run`), as the viewer's are before a
+        // demo loads (B874), so neither is in this stage's clock. Warmed here by two throwaway builds: what a first build
+        // leaves (the facts' per-model cache among it) is its own column, with the second build's as its control, and the
+        // held figure is the timeline's alone. The throwaways are not in `timeline_seconds` (review 3: one throwaway doubled
+        // it): their time is handed back to `Stage` as untimed, in a `finally`, so a build that throws while warming leaves
+        // none of its time in the column either (review 4). Nor in the peak, since each is collected before the measured build.
         GameContent game = ProbeInstall.Game(_log);
         long warming = Stopwatch.GetTimestamp();
-        (long First, long Second)? firstBuild = ProbeInstall.Warm(bytes, game, LiveHeap);
-        _untimed = Stopwatch.GetElapsedTime(warming);
+        (long First, long Second)? firstBuild;
+
+        try
+        {
+            firstBuild = ProbeInstall.Warm(bytes, game, LiveHeap);
+        }
+        finally
+        {
+            _untimed = Stopwatch.GetElapsedTime(warming);
+        }
+
         long before = LiveHeap();
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
         long held = LiveHeap() - before;
