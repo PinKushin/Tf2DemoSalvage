@@ -54,10 +54,9 @@ public sealed class DarkMaterialsProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = arguments.Count > 0 ? arguments[0] : "cp_process_final";
 
-        if (locator.Find(mapName) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(mapName) is not { } path || ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine($"No map named '{mapName}', or no game.");
             return;

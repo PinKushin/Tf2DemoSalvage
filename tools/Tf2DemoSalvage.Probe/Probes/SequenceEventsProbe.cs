@@ -28,9 +28,7 @@ public sealed class SequenceEventsProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
@@ -38,7 +36,7 @@ public sealed class SequenceEventsProbe : IProbe
 
         string model = arguments.Count > 0 ? arguments[0] : "models/player/heavy_animations.mdl";
         string filter = arguments.Count > 1 ? arguments[1] : string.Empty;
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (game.Archives.Read(model) is not { } bytes)
         {

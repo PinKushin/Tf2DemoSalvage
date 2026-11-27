@@ -46,7 +46,7 @@ public sealed class VoiceMemoryProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         // Once to load the codec libraries' availability, then timed: the viewer lays this out on the frame thread.
         _ = VoicePlan.From(timeline.VoiceInits, timeline.Voice, timeline.IntervalPerTick);
         long before = DemoCensus.LiveHeap();

@@ -47,7 +47,7 @@ public sealed class SoundFlagsProbe : IProbe
 
             try
             {
-                sounds = DemoTimeline.Build(File.ReadAllBytes(demo)).Sounds;
+                sounds = ProbeInstall.Timeline(File.ReadAllBytes(demo), output).Sounds;
             }
             catch (InvalidDataException unreadable)
             {

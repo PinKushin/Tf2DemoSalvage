@@ -32,7 +32,7 @@ public sealed class PaintKitsProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        GameArchives archives = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder()).WithoutCustom();
+        GameArchives archives = ProbeInstall.Game(output).Archives.WithoutCustom();
 
         if (archives.Read(PaintKitDefinitions.FilePath) is not { } file)
         {
@@ -240,7 +240,7 @@ public sealed class PaintKitsProbe : IProbe
         };
         int painted = 0;
 
-        foreach (Tf2DemoSalvage.Core.Scene.ScenePlayer player in Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(demo)).PlayersAt(tick))
+        foreach (Tf2DemoSalvage.Core.Scene.ScenePlayer player in ProbeInstall.Timeline(File.ReadAllBytes(demo), output).PlayersAt(tick))
         {
             foreach (Tf2DemoSalvage.Core.Scene.SceneItem item in player.Items ?? [])
             {
@@ -267,7 +267,7 @@ public sealed class PaintKitsProbe : IProbe
         // forced material and its composite, so an unpainted world weapon says which half is missing.
         WeaponModels weapons = new(archives.Read, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
         List<Tf2DemoSalvage.Core.Scene.SceneProp> props = [];
-        Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(demo)).PropsAt(tick, props);
+        ProbeInstall.Timeline(File.ReadAllBytes(demo), output).PropsAt(tick, props);
         int asked = 0;
 
         foreach (Tf2DemoSalvage.Core.Scene.SceneProp prop in props)

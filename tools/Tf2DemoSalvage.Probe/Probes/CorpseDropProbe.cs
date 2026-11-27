@@ -47,9 +47,7 @@ public sealed class CorpseDropProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
@@ -60,17 +58,17 @@ public sealed class CorpseDropProbe : IProbe
 
         if (mapName == "void")
         {
-            Void(output, folder, model);
+            Void(output, model);
             return;
         }
 
-        if (locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine($"No map named '{mapName}'.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         byte[] map = File.ReadAllBytes(mapPath);
         PakFile pak = PakFile.ReadFrom(map);
         byte[]? Read(string file) => pak.ReadFile(file) ?? game.Archives.Read(file);
@@ -184,9 +182,9 @@ public sealed class CorpseDropProbe : IProbe
     /// The joints alone: the corpse in its bind pose, no gravity, no map. **Nothing should move**, so any speed that
     /// appears or grows is the joint solve's own.
     /// </summary>
-    private static void Void(TextWriter output, string folder, string model)
+    private static void Void(TextWriter output, string model)
     {
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (game.Archives.Read(model) is not { } modelBytes || game.Archives.Read(Path.ChangeExtension(model, ".phy")) is not { } physicsBytes ||
             RagdollBody.Build(PhysicsModel.Read(physicsBytes), StudioBones.Read(modelBytes)) is not { } ragdoll)

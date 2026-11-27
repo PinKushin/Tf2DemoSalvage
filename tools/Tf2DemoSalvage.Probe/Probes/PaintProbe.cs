@@ -62,8 +62,7 @@ public sealed class PaintProbe : IProbe
 
         int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Said out loud: the paint attribute is looked up by NAME in items_game.txt, so with no
         // install every item reads as unpainted and the report would blame the demo.
@@ -71,8 +70,8 @@ public sealed class PaintProbe : IProbe
             $"{Path.GetFileName(path)} tick {tick.ToString(CultureInfo.InvariantCulture)}, "
             + $"game {folder ?? "NOT FOUND — every item will read as unpainted"}");
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        GameContent game = ProbeInstall.Game(output);
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);

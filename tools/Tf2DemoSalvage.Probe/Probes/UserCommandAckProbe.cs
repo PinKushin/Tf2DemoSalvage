@@ -41,7 +41,7 @@ public sealed class UserCommandAckProbe : IProbe
         byte[] bytes = File.ReadAllBytes(path);
         int from = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         int to = int.Parse(arguments[2], CultureInfo.InvariantCulture);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, output);
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeaderBytes)))
         {

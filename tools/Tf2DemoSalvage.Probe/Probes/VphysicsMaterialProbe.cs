@@ -164,9 +164,8 @@ public sealed class VphysicsMaterialProbe : IProbe
     /// </summary>
     private static void Parse(TextWriter output, nint module, bool edgesOnly)
     {
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("The game is not installed, so its surface files cannot be read.");
             return;

@@ -66,14 +66,13 @@ public sealed class BoneFlagProbe : IProbe
         }
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(file).MapName;
 
         if (mapName.Length == 0 ||
-            locator.Find(mapName) is not { } mapPath ||
-            locator.FindGameFolder() is not { } folder)
+            ProbeInstall.Map(mapName) is not { } mapPath ||
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
@@ -89,7 +88,6 @@ public sealed class BoneFlagProbe : IProbe
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // **Players are not props, and IK lives on nothing else.** `PropsAt` reports entities with
         // models — weapons, cosmetics, buildings — and a PLAYER becomes a prop only when

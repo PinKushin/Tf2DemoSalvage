@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -49,19 +50,21 @@ public sealed class PoseResetProbe : IProbe
 
         int every = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 33;
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The game could not be found.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         Counting facts = new(game.ModelFacts);
         byte[] file = File.ReadAllBytes(path);
+        ClientInterp interp = ProbeInstall.Interp();
 
-        DemoTimeline with = DemoTimeline.Build(file, models: facts);
-        DemoTimeline again = DemoTimeline.Build(file, models: game.ModelFacts);
-        DemoTimeline without = DemoTimeline.Build(file);
+        // Built here rather than through `ProbeInstall.Timeline`, because the facts are the variable — counted, the install's,
+        // none; the class scripts and the interp are the viewer's in all three, so only the facts differ (B874).
+        DemoTimeline with = DemoTimeline.Build(file, client: interp, classes: game.ClassAnimation, models: facts);
+        DemoTimeline again = DemoTimeline.Build(file, client: interp, classes: game.ClassAnimation, models: game.ModelFacts);
+        DemoTimeline without = DemoTimeline.Build(file, client: interp, classes: game.ClassAnimation);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

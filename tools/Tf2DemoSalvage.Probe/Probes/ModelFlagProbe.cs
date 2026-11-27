@@ -32,7 +32,7 @@ public sealed class ModelFlagProbe : IProbe
 
         if (arguments.Count == 0 ||
             !int.TryParse(arguments[0].Replace("0x", string.Empty, StringComparison.OrdinalIgnoreCase), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int mask) ||
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } game)
+            ProbeInstall.Folder(output) is not { } game)
         {
             output.WriteLine("usage: model-flag <hex mask>, with TF2 installed");
             return;

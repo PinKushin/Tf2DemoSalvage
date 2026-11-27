@@ -46,8 +46,7 @@ public sealed class AttachmentProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("The game folder could not be found, so there is no schema to read.");
             return;
@@ -78,8 +77,8 @@ public sealed class AttachmentProbe : IProbe
                 return;
             }
 
-            GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+            GameContent game = ProbeInstall.Game(output);
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), game);
 
             List<string> attachments = [.. game.Weapons.AllAttachmentsIn(timeline)];
 

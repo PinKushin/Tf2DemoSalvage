@@ -69,17 +69,15 @@ public sealed class PoseLayerProbe : IProbe
         int? only = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : null;
 
         byte[] bytes = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, output);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
         if (map.Assets is not { } assets)

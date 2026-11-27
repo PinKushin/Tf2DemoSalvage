@@ -32,7 +32,11 @@ internal sealed class CensusRow
         ("entities", ["snapshots", "snapshots_exact", "entities", "snapshot_throws", "slack_bits"]),
         ("trace", ["trace_lines", "trace_chars", "trace_packets", "trace_stopped", "trace_undecoded", "trace_anonymous"]),
         ("assembly", ["assembly_bytes", "rebuilt_bytes", "first_difference"]),
-        ("timeline", ["timeline_frames", "timeline_props", "timeline_players", "timeline_events", "timeline_mb", "timeline_ratio"]),
+        // `first_build_heap_mb` is what a first build of the demo left on the heap and `second_build_heap_mb` its control, about
+        // 0 when the first left a cache (`ProbeInstall.Warm`); empty with no install. **Incremental and order-dependent**:
+        // the install is opened once per run, so a model an earlier demo read is not counted again, and the same demo reads
+        // differently at a different place in the pool. Read the column summed over a run, not per demo.
+        ("timeline", ["timeline_frames", "timeline_props", "timeline_players", "timeline_events", "timeline_mb", "timeline_ratio", "first_build_heap_mb", "second_build_heap_mb"]),
         ("voice", ["voice_codec", "voice_packets", "voice_frames", "voice_silent", "voice_speakers", "voice_bad"]),
     ];
 

@@ -79,7 +79,7 @@ public sealed class SpyDrawProbe : IProbe
 
         output.WriteLine($"{Path.GetFileName(path)} ticks {from}-{to}");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         List<ScenePlayer> players = [];
         List<SceneProp> props = [];

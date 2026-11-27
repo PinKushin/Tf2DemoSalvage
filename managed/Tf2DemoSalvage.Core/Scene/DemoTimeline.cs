@@ -3116,14 +3116,23 @@ public sealed class DemoTimeline
     /// <param name="file">The whole demo file.</param>
     /// <param name="snapshotAfter">How many commands to walk before the snapshot.</param>
     /// <param name="stopAfter">How many commands the RESUMED builder walks in all before finishing; the end by default.</param>
-    /// <returns>The timeline the resumed builder produces, which must equal a straight build's.</returns>
+    /// <param name="client">The watcher's interp settings, as <see cref="Build"/> takes them; TF2's defaults when null.</param>
+    /// <param name="classes">The install's class scripts, as <see cref="Build"/> takes them, or null for none.</param>
+    /// <param name="models">The install's model facts, as <see cref="Build"/> takes them, or null for none.</param>
+    /// <returns>The timeline the resumed builder produces, which must equal a straight build's with the same arguments.</returns>
     /// <remarks>
     /// **The live builder runs past the snapshot before it is abandoned** so the resume is tested against output lists
     /// that have grown and changed since — which is what a seek does after playing on.
     /// </remarks>
-    internal static DemoTimeline BuildThroughSnapshot(ReadOnlyMemory<byte> file, int snapshotAfter, int stopAfter = int.MaxValue)
+    internal static DemoTimeline BuildThroughSnapshot(
+        ReadOnlyMemory<byte> file,
+        int snapshotAfter,
+        int stopAfter = int.MaxValue,
+        ClientInterp? client = null,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null)
     {
-        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, client ?? new ClientInterp(), classes, models, out List<DemoCommand> commands) is not { } builder)
         {
             return new DemoTimeline([]);
         }
@@ -3180,10 +3189,19 @@ public sealed class DemoTimeline
     /// <summary>Walks <paramref name="at"/> commands and measures what a snapshot there allocates (D217).</summary>
     /// <param name="file">The whole demo file.</param>
     /// <param name="at">Where the snapshot is taken.</param>
+    /// <param name="client">The watcher's interp settings, as <see cref="Build"/> takes them; TF2's defaults when null.</param>
+    /// <param name="classes">The install's class scripts, as <see cref="Build"/> takes them, or null for none.</param>
+    /// <param name="models">The install's model facts, as <see cref="Build"/> takes them, or null for none; shared by the
+    /// snapshot, not counted in it.</param>
     /// <returns>The whole snapshot's bytes and each field's.</returns>
-    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(ReadOnlyMemory<byte> file, int at)
+    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(
+        ReadOnlyMemory<byte> file,
+        int at,
+        ClientInterp? client = null,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null)
     {
-        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, client ?? new ClientInterp(), classes, models, out List<DemoCommand> commands) is not { } builder)
         {
             return (0, []);
         }

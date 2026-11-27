@@ -58,7 +58,7 @@ public sealed class DrawnPropProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         // **The demo's own ticks, not zero.** A recording starts wherever the server was, so a
         // hardcoded tick reports a plausible count of nothing at all.
@@ -85,13 +85,10 @@ public sealed class DrawnPropProbe : IProbe
         // `CarriedProbe` already ran the resolution and its own notes already warn that a probe
         // skipping it "cannot report a weapon named only by its item". Same rule, applied here:
         // **a probe runs the production path or it is worthless.**
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
-
         output.WriteLine(
-            $"game {folder ?? "NOT FOUND - every schema-named model will read as absent"}");
+            $"game {ProbeInstall.Folder(output) ?? "NOT FOUND - every schema-named model will read as absent"}");
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 

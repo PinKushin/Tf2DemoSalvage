@@ -41,7 +41,7 @@ public sealed class LastingBloodProbe : IProbe
         }
 
         int shown = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 10;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> impacts =
             ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
 

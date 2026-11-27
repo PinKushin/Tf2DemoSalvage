@@ -52,11 +52,10 @@ public sealed class AnimSlotProbe : IProbe
             return;
         }
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         foreach (string demo in arguments)
         {
@@ -81,7 +80,7 @@ public sealed class AnimSlotProbe : IProbe
     /// <summary>One demo's census.</summary>
     private static void Census(TextWriter output, string path, string? folder, GameContent game)
     {
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         // Built exactly as the viewer builds it, so the roles and the schema are the ones production reads.
         if (DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance) is not GameAppearance

@@ -55,11 +55,10 @@ public sealed class PhysDispProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         string mapName = arguments.Count > 0 ? arguments[0] : "koth_harvest_final";
 
-        if (locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine($"No map named '{mapName}'.");
             return;

@@ -48,11 +48,10 @@ public sealed class DetailControllerProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         if (arguments.Count > 0)
         {
-            if (locator.Find(arguments[0]) is not { } named)
+            if (ProbeInstall.Map(arguments[0]) is not { } named)
             {
                 output.WriteLine($"No map named '{arguments[0]}'.");
                 return;
@@ -64,7 +63,7 @@ public sealed class DetailControllerProbe : IProbe
 
         // The folder is taken from a map the locator found rather than rebuilt, so the census and
         // a single lookup can never disagree about which install they read.
-        if (locator.Find("koth_harvest_final") is not { } anyMap)
+        if (ProbeInstall.Map("koth_harvest_final") is not { } anyMap)
         {
             output.WriteLine("No installed maps found.");
             return;

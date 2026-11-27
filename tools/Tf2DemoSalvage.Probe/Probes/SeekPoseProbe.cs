@@ -60,17 +60,15 @@ public sealed class SeekPoseProbe : IProbe
         string[] spreads = arguments.Count > 2 ? [.. arguments.Skip(2)] : ["1", "5", "6", "0"];
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         string mapName = Core.Container.DemoHeader.Parse(file).MapName;
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
         if (map.Assets is not { } assets)

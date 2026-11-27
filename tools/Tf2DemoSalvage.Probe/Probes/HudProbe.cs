@@ -14,7 +14,9 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <summary>The viewer's HUD viewport built from the install: its panels, and every quad one frame of it draws.</summary>
 /// <remarks>
 /// Runs <see cref="VguiHud"/> itself — the production path — on a 1920 × 1080 surface, with a GDI that makes no fonts,
-/// so text is absent and every fill and texture is present. Stock files by default; `custom` reads what the viewer does.
+/// so text is absent and every fill and texture is present. Stock files by default; `custom` searches all of `tf/custom`,
+/// so each file comes from whichever HUD sorts first. **Neither is what the viewer reads**: it reads
+/// `Archives.WithHud(ChosenHud)` (`GameContent`), the saved HUD's folder and no other under `custom/` (B893).
 /// </remarks>
 public sealed class HudProbe : IProbe
 {
@@ -31,7 +33,7 @@ public sealed class HudProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Contains("custom");
-        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+        GameArchives all = ProbeInstall.Game(output).Archives;
         GameArchives archives = custom ? all : all.WithoutCustom();
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
         IReadOnlyList<HudGameEvent> events = [];
@@ -43,7 +45,7 @@ public sealed class HudProbe : IProbe
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
             AttributeHooks? hooks = items is null ? null : new AttributeHooks(items);
-            Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+            Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), output);
             int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
             state = HudStates.For(timeline, tick, new TfWeaponData(archives.Read), hooks);

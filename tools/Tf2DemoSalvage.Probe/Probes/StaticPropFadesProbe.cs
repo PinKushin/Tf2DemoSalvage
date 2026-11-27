@@ -44,17 +44,16 @@ public sealed class StaticPropFadesProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         if (arguments.Count == 0)
         {
-            Census(output, locator);
+            Census(output);
             return;
         }
 
         string mapName = arguments[0];
 
-        if (locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine($"No map named '{mapName}'.");
             return;
@@ -86,9 +85,9 @@ public sealed class StaticPropFadesProbe : IProbe
         }
     }
 
-    private static void Census(TextWriter output, MapLocator locator)
+    private static void Census(TextWriter output)
     {
-        if (locator.Find("koth_harvest_final") is not { } anyMap)
+        if (ProbeInstall.Map("koth_harvest_final") is not { } anyMap)
         {
             output.WriteLine("No installed maps found.");
             return;

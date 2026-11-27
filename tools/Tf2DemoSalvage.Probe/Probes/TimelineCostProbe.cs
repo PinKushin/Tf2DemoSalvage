@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -19,9 +20,15 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// not the test count.
 ///
 /// **The columns, because the total alone says nothing about what to fix.** `DecodedDemo` logs the
-/// same split when the viewer opens a demo (B265, where splitting one number took a frame from 96
+/// same columns when the viewer opens a demo (B265, where splitting one number took a frame from 96
 /// to 447 fps), but nothing outside the viewer could ask for it — so a question about decode cost
 /// meant launching a window and reading a log.
+///
+/// **The rows are WARM and the viewer's first open is not** (B874 reviews 3 and 4): each row is a
+/// second build of its demo, after an uncounted one, so no row pays the model facts' first reads, the
+/// first-run static initializers or JIT, all of which the viewer's first open of a demo pays. That
+/// cold build is printed once per run, on its own labelled line: the first demo's first build, the
+/// figure to set beside the viewer's log line.
 ///
 /// **The values are CARRIED, not recomputed** (B243). `DemoTimeline.Build` times its own phases and
 /// hands them out as <see cref="TimelinePhases"/>; this prints those. A probe that re-timed the
@@ -52,7 +59,15 @@ public sealed class TimelineCostProbe : IProbe
 
         output.WriteLine(
             "demo                                        MB   total  commands   schema messages entities sampling"
-            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused  allocated");
+            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused  allocated"
+            + "  (every row WARM: a second build of its demo; the cold first build is its own line)");
+
+        // The install opened and the watcher's interp read before any count or clock, its class scripts and model facts
+        // object with it, as the viewer's are before a demo loads (B874), so neither the GC pauses nor the bytes include
+        // opening it or running the configs.
+        GameContent game = ProbeInstall.Game(output);
+        _ = ProbeInstall.Interp();
+        bool coldSaid = false;
 
         foreach (string asked in arguments)
         {
@@ -66,17 +81,46 @@ public sealed class TimelineCostProbe : IProbe
 
             byte[] file = File.ReadAllBytes(path);
 
+            // **Every row is a WARM build** (review 3): a throwaway build of the same demo first, uncounted. The model facts
+            // cache what each model tells `OnNewModel` (B870) the first time any build in this process asks, so without it
+            // the first demo listed paid every model's read and a later demo sharing those models paid none — rows that
+            // differed by their order on the command line. So no row counts the facts' first reads, which the viewer's
+            // first open of a demo does pay (`timeline-heap` prints the heap they leave), nor the build's first-run static
+            // initializers and JIT. **The first demo's throwaway is the viewer's cold open** (review 4), so it is measured as
+            // a row is and printed once, labelled, apart from the rows.
+            (double coldTotal, long coldAllocated, TimeSpan coldGcPaused) = Throwaway(file, game);
+
+            if (!coldSaid)
+            {
+                coldSaid = true;
+                // Review 5: "this probe's first", which is the process's first only when nothing built before it; and with no
+                // archives the facts read nothing, so only JIT and static initializers are paid, as `timeline-windows` says.
+                string pays = game.Archives.IsEmpty
+                    ? "no archives, so only JIT and static initializers"
+                    : "the model facts' first reads, JIT and static initializers";
+                output.WriteLine(
+                    $"COLD first build, {Path.GetFileNameWithoutExtension(path)}: {Seconds(coldTotal):0.00}s, "
+                    + $"gc-paused {coldGcPaused.TotalSeconds:0.00}s, allocated {coldAllocated / (1024d * 1024d):0}MB: this probe's "
+                    + $"first build (the process's first unless another build ran before it), paying {pays}, as the viewer's "
+                    + "first open does, and any file the OS had not cached; not a row");
+            }
+
+            // The throwaway's garbage collected before the row's counts start (review 4), so no row's gc-paused is
+            // collecting what the throwaway left: a full blocking collection, as the heap probes read the heap. The
+            // throwaway timeline is unreachable here, having lived only inside `Throwaway`.
+            _ = DemoCensus.LiveHeap();
+
             // GC pauses land in whichever column allocates; this says how much of the total they are.
             TimeSpan gcBefore = GC.GetTotalPauseDuration();
 
             // **Bytes allocated are the build's steadiest cost** (B613): seconds move with whatever else the machine is
             // doing, while bytes move only with the code. Counted on THIS thread, because the build runs on the calling
             // thread and Core starts none of its own, so the runtime's background threads (tiered JIT, finalizer) stay out
-            // of it. Two things still land in it: static initializers the build runs for the first time in this process
-            // (the first demo asked pays them, later ones do not), and a few MB that move with timing — the process-wide
-            // count read 30,163 to 30,182 MB for one binary (measurements/2026-11-14-f12-decode-allocation.md).
+            // of it. Still in it: a few MB that move with timing — the process-wide count read 30,163 to 30,182 MB for one
+            // binary (measurements/2026-11-14-f12-decode-allocation.md). The first-run static initializers no longer are:
+            // the warming build above ran them.
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-            DemoTimeline timeline = DemoTimeline.Build(file);
+            DemoTimeline timeline = ProbeInstall.Timeline(file, game);
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
             TimelinePhases phases = timeline.Phases;
@@ -115,6 +159,18 @@ public sealed class TimelineCostProbe : IProbe
                 + $"{gcPaused.TotalSeconds,9:0.00}s "
                 + $"{allocated / (1024d * 1024d),9:0}MB");
         }
+    }
+
+    /// <summary>The uncounted build before a row, measured as a row is: its own total, carried, and this thread's bytes and the GC's pauses across it.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static (double TotalMilliseconds, long Allocated, TimeSpan GcPaused) Throwaway(byte[] file, GameContent game)
+    {
+        TimeSpan gcBefore = GC.GetTotalPauseDuration();
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        DemoTimeline timeline = ProbeInstall.Timeline(file, game);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        return (timeline.Phases.Total, allocated, GC.GetTotalPauseDuration() - gcBefore);
     }
 
     private static double Megabytes(int bytes) => bytes / (1024d * 1024d);

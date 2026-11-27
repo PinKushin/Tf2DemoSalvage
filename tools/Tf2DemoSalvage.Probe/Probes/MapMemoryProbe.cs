@@ -58,16 +58,15 @@ public sealed class MapMemoryProbe : IProbe
         }
 
         int size = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 256;
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(arguments[0]) is not { } path || ProbeInstall.Folder(output) is null)
         {
             output.WriteLine($"No map '{arguments[0]}' or no game folder.");
             return;
         }
 
         byte[] bytes = File.ReadAllBytes(path);
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         long gameBefore = StateCopy.Footprint(game, Empty(), Empty());
         output.WriteLine($"{path}: file {Mb(bytes.Length)} MB, maxTextureSize {size}");
         output.WriteLine($"control: GameContent before the load = {Mb(gameBefore)} MB");

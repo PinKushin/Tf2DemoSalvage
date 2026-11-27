@@ -33,7 +33,7 @@ public sealed class BuildingProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         Dictionary<int, string> last = [];
         int withBuilder = 0;
         int resolved = 0;

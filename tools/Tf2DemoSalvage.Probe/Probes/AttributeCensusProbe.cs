@@ -52,7 +52,7 @@ public sealed class AttributeCensusProbe : IProbe
 
             try
             {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+                timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
             }
             catch (Exception failure) when (failure is InvalidDataException or IOException or ArgumentException or InvalidOperationException)
             {

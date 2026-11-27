@@ -35,7 +35,7 @@ public sealed class PlayerTeamsProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         Dictionary<int, (int? Team, bool IsEnemy)> last = [];
         int changes = 0;
 

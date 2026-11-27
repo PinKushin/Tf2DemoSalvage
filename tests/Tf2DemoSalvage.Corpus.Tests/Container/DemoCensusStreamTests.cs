@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Probe;
 using Tf2DemoSalvage.Probe.Probes;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Corpus.Tests.Container;
 
@@ -131,7 +135,109 @@ public sealed class DemoCensusStreamTests
             .ShouldBe((CensusRow.Shape("tail not carried: bytes after dem_stop"), "1188", "byte 1188"));
     }
 
-    private DemoCensus Census(string path, out CensusRow row)
+    /// <summary>
+    /// **A failure opening the install is a recorded row failure, not the end of the census** (review 5): the interp
+    /// reading throws as an unreadable config would, and the row says so under the timeline, the one stage that needs
+    /// the install, while every other stage still runs. Control: the container passes after it, and no build ran.
+    /// `OpenGame` is stubbed with the no-install answer (review 6): the default opens this machine's real TF2 and keeps it
+    /// in <see cref="ProbeInstall"/>'s statics, which a test must not do.
+    /// </summary>
+    [Test]
+    public void Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest()
+    {
+        string path = WriteDemo();
+        int opened = 0;
+        int builds = 0;
+        DemoCensus census = Census(path, out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ =>
+        {
+            opened++;
+            return ProbeInstall.Open(folder: null, output: null);
+        };
+        census.ReadInterp = () => throw new InvalidDataException("an unreadable config");
+        census.Build = (_, _, _) =>
+        {
+            builds++;
+            throw new InvalidOperationException("no build runs when the install did not open");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), opened, builds)
+            .ShouldBe(("fail", "InvalidDataException: an unreadable config", "pass", 1, 0));
+    }
+
+    /// <summary>
+    /// **The install's own open throwing takes the same guarded path** (review 6): the timeline fails with it, the interp
+    /// is never read, no build runs, and the container still passes.
+    /// </summary>
+    [Test]
+    public void Run_WhenOpeningTheGameThrows_FailsTheTimelineAndRunsTheRest()
+    {
+        string path = WriteDemo();
+        int interps = 0;
+        int builds = 0;
+        DemoCensus census = Census(path, out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ => throw new IOException("an unreadable archive");
+        census.ReadInterp = () =>
+        {
+            interps++;
+            return new ClientInterp();
+        };
+        census.Build = (_, _, _) =>
+        {
+            builds++;
+            throw new InvalidOperationException("no build runs when the install did not open");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), interps, builds)
+            .ShouldBe(("fail", "IOException: an unreadable archive", "pass", 0, 0));
+    }
+
+    /// <summary>
+    /// **A warming build that throws leaves none of its time in `timeline_seconds`** (review 5). The reachable case: an
+    /// <see cref="OutOfMemoryException"/> under the census heap limit, which the stage records as a budget skip and still
+    /// writes its seconds. The warming build spins a full second first, so a column that kept it reads at least 1.0; one
+    /// that left it out reads the file read and nothing else. Control: the stage did take the budget skip. **The warming
+    /// runs only over non-empty archives** (`ProbeInstall.Warm`), and that is asserted (review 6): over empty archives the
+    /// spinning build is the measured one, and the test would read it. An existing folder with no `gameinfo.txt` opens as
+    /// one source, its loose files (`GameArchives.Open`); a file in it is not needed, which a sabotage showed.
+    /// </summary>
+    [Test]
+    public void Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds()
+    {
+        string install = Directory.CreateDirectory(Path.Combine(_folder, "tf")).FullName;
+        GameContent game = ProbeInstall.Open(install, output: null);
+        game.Archives.IsEmpty.ShouldBeFalse("the precondition: an existing folder opens as one loose-file source");
+
+        DemoCensus census = Census(WriteDemo(), out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ => game;
+        census.ReadInterp = () => new ClientInterp();
+        census.Build = (_, _, _) =>
+        {
+            long started = Stopwatch.GetTimestamp();
+
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1))
+            {
+                // Spinning: the time a warming build spends before it runs out.
+            }
+
+            // The runtime's own OutOfMemoryException: an array past Array.MaxLength is refused before anything is allocated.
+            _ = new byte[int.MaxValue];
+            throw new InvalidOperationException("unreachable: the allocation above throws");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_skip"]).ShouldBe(("skip", "budget"), "the control: the warming build threw");
+        double.Parse(row["timeline_seconds"], System.Globalization.CultureInfo.InvariantCulture).ShouldBeLessThan(0.5);
+    }
+
+    private static long Megabyte(int count) => count * 1048576L;
+
+    private DemoCensus Census(string path, out CensusRow row, string stage = "assembly", long budget = 1)
     {
         row = new CensusRow();
         row["path"] = path;
@@ -142,9 +248,9 @@ public sealed class DemoCensusStreamTests
             Roots = [path],
             CsvPath = Path.Combine(_folder, "census.csv"),
             SummaryPath = Path.Combine(_folder, "census.md"),
-            Stages = new HashSet<string>(["assembly"], StringComparer.Ordinal),
+            Stages = new HashSet<string>([stage], StringComparer.Ordinal),
             TempDirectory = _folder,
-            BudgetBytes = 1,
+            BudgetBytes = budget,
         };
 
         byte[] header = new byte[DemoHeader.SizeBytes];

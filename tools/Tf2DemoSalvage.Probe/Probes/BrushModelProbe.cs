@@ -50,8 +50,7 @@ public sealed class BrushModelProbe : IProbe
         string map = arguments[0];
         int index = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-        string? path = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .Find(map.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? map[..^4] : map);
+        string? path = ProbeInstall.Map(map.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? map[..^4] : map);
 
         if (path is null)
         {

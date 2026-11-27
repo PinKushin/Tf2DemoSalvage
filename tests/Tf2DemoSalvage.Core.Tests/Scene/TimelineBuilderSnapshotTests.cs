@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -55,6 +56,134 @@ public sealed class TimelineBuilderSnapshotTests
                 TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(demo, at, stop))
                     .ShouldBe(straight, $"snapshot after {at}, stopped after {stop} of {commands} commands");
             }
+        }
+    }
+
+    /// <remarks>
+    /// **The install reaches the resume** (B874 review 3): a scout whose class script says `DontDoNewJump` jumps the single
+    /// old <see cref="PlayerActivity.LegacyJump"/> (B437), and a build snapshotted at every command and resumed with those
+    /// scripts equals the straight build with them and keeps that jump. Control: the straight build without the scripts
+    /// never takes it, so a resume that dropped them would differ.
+    /// </remarks>
+    [Test]
+    public void BuildThroughSnapshot_WithClassScriptsAtEveryCut_EqualsTheStraightBuildAndKeepsTheOldJump()
+    {
+        byte[] demo = SyntheticPlayer.ScoutJump();
+        int commands = DemoTimeline.CommandCount(demo);
+        ClientInterp client = new();
+        DemoTimeline straight = DemoTimeline.Build(demo, client: client, classes: new CountingScripts());
+
+        Jumps(DemoTimeline.Build(demo, client: client, classes: null))
+            .ShouldNotContain(PlayerActivity.LegacyJump, "the control: with no scripts the engine's new jump holds");
+        Jumps(straight).ShouldContain(PlayerActivity.LegacyJump);
+
+        for (int at = 0; at <= commands; at++)
+        {
+            DemoTimeline resumed = DemoTimeline.BuildThroughSnapshot(demo, at, client: client, classes: new CountingScripts());
+
+            TimelineFingerprint.Of(resumed).ShouldBe(TimelineFingerprint.Of(straight), $"snapshot after {at} of {commands} commands");
+            Jumps(resumed).ShouldBe(Jumps(straight), $"snapshot after {at} of {commands} commands");
+        }
+    }
+
+    /// <remarks>
+    /// **The scripts and the model facts are shared by a snapshot, never copied** (`SharedInputs`): a resume asks the very
+    /// objects it was handed. Snapshotted before the first command, the live builder walks every command and the resume
+    /// walks them all again, so each object is asked twice what a straight build asks it; a deep copy would be asked the
+    /// resume's share itself, leaving the originals at the straight count. The scripts are asked on the jumping scout, the
+    /// facts on a prop whose model is set twice (the scout's demo sets none).
+    /// </remarks>
+    [Test]
+    public void BuildThroughSnapshot_WithTheInstallsInputs_AsksTheSameObjectsInTheResume()
+    {
+        byte[] scout = SyntheticPlayer.ScoutJump();
+        byte[] prop = SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl", "models/props_gameplay/door.mdl"],
+            (0, 2, [0.2f], null, null),
+            (10, 2, [0.6f], null, null),
+            (20, 1, [0.9f, 0.5f], null, null));
+        CountingScripts straightScripts = new();
+        CountingFacts straightFacts = new();
+        CountingScripts scripts = new();
+        CountingFacts facts = new();
+
+        _ = DemoTimeline.Build(scout, client: new ClientInterp(), classes: straightScripts);
+        _ = DemoTimeline.Build(prop, client: new ClientInterp(), models: straightFacts);
+        _ = DemoTimeline.BuildThroughSnapshot(scout, 0, client: new ClientInterp(), classes: scripts);
+        _ = DemoTimeline.BuildThroughSnapshot(prop, 0, client: new ClientInterp(), models: facts);
+
+        (straightScripts.Asked, straightFacts.Asked).ShouldBe((31, 2), "the control: a straight build asks each");
+        (scripts.Asked, facts.Asked).ShouldBe((62, 4));
+    }
+
+    /// <remarks>
+    /// **The snapshot the `timeline-resume` probe measures is walked with the install's inputs** (B874 review 4): each of
+    /// <c>MeasureSnapshot</c>'s three is observed. The scripts and the facts are counted, and walked through every command
+    /// they are asked what a straight build asks them (31 and 2, the control the resume test also takes). The interp is seen
+    /// in the builder's own state: the scout's one jump is queued to fire an interpolation window after it arrives (B437), so
+    /// under TF2's tenth of a second it has fired before the demo ends and the queue holds nothing, while under a hundred
+    /// seconds it is still waiting, and a snapshot copies it. Control: no interp at all is TF2's defaults.
+    ///
+    /// **Warmed with the `late` configuration first** (review 5): the copier reflects over a queue's element type on the
+    /// first copy that holds an element, and only `late`'s queue holds one, so an unwarmed `late` counted that setup too
+    /// and `late > tenth` was partly the copier's first look. With it warmed, the two differ by the queued jump alone:
+    /// what the interp left waiting, copied.
+    /// </remarks>
+    [Test]
+    public void MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem()
+    {
+        byte[] scout = SyntheticPlayer.ScoutJump();
+        byte[] prop = SyntheticAnimatingProp.Demo(
+            [string.Empty, "models/buildables/sentry1.mdl", "models/props_gameplay/door.mdl"],
+            (0, 2, [0.2f], null, null),
+            (10, 2, [0.6f], null, null),
+            (20, 1, [0.9f, 0.5f], null, null));
+        CountingScripts scripts = new();
+        CountingFacts facts = new();
+
+        // A first copy also allocates the copier's own reflection over each type, which the counter sees; not measured.
+        // The `late` interp's, without the counted scripts, so the queue's element type is reflected here too.
+        _ = DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout), client: new ClientInterp(Interp: 100f));
+        long defaults = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout)));
+        long tenth = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout), client: new ClientInterp()));
+        long late = Queued(DemoTimeline.MeasureSnapshot(
+            scout, DemoTimeline.CommandCount(scout), client: new ClientInterp(Interp: 100f), classes: scripts));
+        _ = DemoTimeline.MeasureSnapshot(prop, DemoTimeline.CommandCount(prop), models: facts);
+
+        tenth.ShouldBe(defaults, "the control: no interp is TF2's defaults");
+        late.ShouldBeGreaterThan(tenth, "a jump still waiting to fire is copied with the queue");
+        (scripts.Asked, facts.Asked).ShouldBe((31, 2));
+    }
+
+    /// <summary>What copying the builder's queue of gestures waiting to fire allocates.</summary>
+    private static long Queued((long Total, IReadOnlyList<(string Field, long Bytes)> Fields) cost) =>
+        cost.Fields.Single(field => field.Field == "queuedGestures").Bytes;
+
+    /// <summary>The one player's jump activity on every frame, in tick order.</summary>
+    private static List<PlayerActivity?> Jumps(DemoTimeline timeline) =>
+        [.. timeline.Frames.Select(frame => frame.Players.Single().JumpActivity)];
+
+    /// <summary>Class scripts in which the scout jumps the old way, counting every ask.</summary>
+    private sealed class CountingScripts : IClassAnimationScripts
+    {
+        public int Asked { get; private set; }
+
+        public ClassAnimationScript ScriptOf(int? playerClass)
+        {
+            Asked++;
+            return new ClassAnimationScript(DontDoAirwalk: false, DontDoNewJump: playerClass == SyntheticPlayer.ScoutClass);
+        }
+    }
+
+    /// <summary>Model facts that know no model, counting every ask.</summary>
+    private sealed class CountingFacts : IModelFacts
+    {
+        public int Asked { get; private set; }
+
+        public ModelFacts? FactsOf(string modelPath)
+        {
+            Asked++;
+            return null;
         }
     }
 

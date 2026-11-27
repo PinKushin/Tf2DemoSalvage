@@ -35,9 +35,8 @@ public sealed class CubeRaysProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (arguments.Count < 4 || locator.Find(arguments[0]) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (arguments.Count < 4 || ProbeInstall.Map(arguments[0]) is not { } path || ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine(Summary);
             return;

@@ -51,7 +51,7 @@ public sealed class VolumeRampProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } game)
+        if (ProbeInstall.Game(output).Archives is not { IsEmpty: false } archives)
         {
             output.WriteLine("TF2 is not installed: no sounds to play");
             return;
@@ -65,9 +65,9 @@ public sealed class VolumeRampProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         SoundCache sounds = new(NullLogger.Instance);
-        sounds.Level(GameArchives.Open(game).Read);
+        sounds.Level(archives.Read);
         ActiveLoops loops = new();
         SoundPresenter presenter = new(new SoundscapeSystem(loops, sounds.Sample, NullLogger.Instance), loops, sounds.Sample, NullLogger.Instance)
         {

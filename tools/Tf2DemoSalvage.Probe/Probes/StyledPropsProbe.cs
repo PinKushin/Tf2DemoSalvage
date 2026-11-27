@@ -38,9 +38,8 @@ public sealed class StyledPropsProbe : IProbe
             return;
         }
 
-        MapLocator maps = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (maps.FindGameFolder() is not { } game)
+        if (ProbeInstall.Folder(output) is not { } game)
         {
             output.WriteLine("no game folder");
             return;
@@ -50,7 +49,7 @@ public sealed class StyledPropsProbe : IProbe
 
         foreach (string name in arguments)
         {
-            if (maps.Find(name) is not { } path)
+            if (ProbeInstall.Map(name) is not { } path)
             {
                 output.WriteLine($"{name}: not found");
                 continue;

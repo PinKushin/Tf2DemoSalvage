@@ -47,7 +47,7 @@ public sealed class GroundEntityProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         Dictionary<(int Index, int Serial), (int Held, int None, HashSet<int> Values)> players = [];
 
         for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick++)

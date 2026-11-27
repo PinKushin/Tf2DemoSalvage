@@ -36,10 +36,9 @@ public sealed class OverlayVertexAlphaProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments.Count > 0 ? arguments[0] : "cp_process_final") is not { } anyMap ||
-            locator.FindGameFolder() is not { } folder ||
+        if (ProbeInstall.Map(arguments.Count > 0 ? arguments[0] : "cp_process_final") is not { } anyMap ||
+            ProbeInstall.Folder(output) is not { } folder ||
             Path.GetDirectoryName(anyMap) is not { } mapFolder)
         {
             output.WriteLine("No map or no TF2 install.");

@@ -46,7 +46,7 @@ public sealed class RopeEventsProbe : IProbe
 
         foreach (string demo in demos)
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
             int shakes = timeline.Dispatches.All.Count(dispatch =>
                 string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ShakeRopes", StringComparison.Ordinal));
             int ropes = timeline.Props.Count(track => track.ClassName == RopeImpulseFeed.RopeClassName);
@@ -62,9 +62,8 @@ public sealed class RopeEventsProbe : IProbe
 
     private static void Maps(TextWriter output)
     {
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find("koth_harvest_final") is not { } anyMap)
+        if (ProbeInstall.Map("koth_harvest_final") is not { } anyMap)
         {
             output.WriteLine("No installed maps found.");
             return;

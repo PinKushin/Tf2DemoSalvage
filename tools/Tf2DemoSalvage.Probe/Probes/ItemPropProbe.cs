@@ -68,11 +68,10 @@ public sealed class ItemPropProbe : IProbe
         bool strided = int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int stride) && stride > 0;
         stride = strided ? stride : DefaultStride;
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         output.WriteLine($"game {folder ?? "NOT FOUND - every schema lookup answers null"}, every {stride.ToString(CultureInfo.InvariantCulture)} ticks");
 
         foreach (string demo in arguments.Skip(strided ? 2 : 1))
@@ -98,7 +97,7 @@ public sealed class ItemPropProbe : IProbe
     /// <summary>One demo's census.</summary>
     private static void Census(TextWriter output, string path, HashSet<int> wanted, int stride, GameContent game)
     {
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<ScenePropTrack> withItem = [.. timeline.Props.Where(track => track.ItemDefinitionIndex is not null)];
         List<ScenePropTrack> named = [.. withItem.Where(track => wanted.Contains(track.ItemDefinitionIndex ?? -1))];

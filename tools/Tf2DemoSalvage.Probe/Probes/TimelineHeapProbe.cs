@@ -59,11 +59,20 @@ public sealed class TimelineHeapProbe : IProbe
             return;
         }
 
-        // The control: the heap before anything is built, so the difference is the timeline's.
+        // The control: the heap before anything is built. The install is opened first, its class scripts and model facts
+        // object with it, as the viewer's are before a demo loads (B874), then warmed by two throwaway builds: what a first
+        // build leaves (the facts' per-model cache among it) is its own line, with the second build's as its control, and
+        // "timeline holds" is the timeline's alone. With no archives nothing is warmed and the line says so. The watcher's
+        // interp is read before the first build too (review 4), so running the configs is in no figure, as in every probe.
+        GameContent install = ProbeInstall.Game(output);
+        _ = ProbeInstall.Interp();
+        byte[] file = File.ReadAllBytes(path);
+        (long, long)? firstBuild = ProbeInstall.Warm(file, install, Live);
         long before = Live();
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(file, install);
         long after = Live();
 
+        output.WriteLine(ProbeInstall.Said(firstBuild, "what the timeline holds"));
         output.WriteLine(
             $"{Path.GetFileNameWithoutExtension(path)}: frames {timeline.Frames.Count}, props {timeline.Props.Count}, "
             + $"players {timeline.PlayerTracks.Count}; live heap {Mb(before):0} MB before, {Mb(after):0} MB after "
@@ -71,15 +80,13 @@ public sealed class TimelineHeapProbe : IProbe
 
         // The map the viewer reads next, through the same `LoadedMap.Read` (texture quality 0, as the other probes pass).
         LoadedMap? map = null;
-        string mapName = DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        string mapName = DemoHeader.Parse(file).MapName;
 
         if (arguments.Contains("--map")
-            && locator.Find(mapName) is { } mapPath
-            && locator.FindGameFolder() is { } folder)
+            && ProbeInstall.Map(mapName) is { } mapPath
+            && !install.Archives.IsEmpty)
         {
-            GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-            map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
+            map = LoadedMap.Read(File.ReadAllBytes(mapPath), install, timeline, 0, NullLoggerFactory.Instance, mapPath);
             // What the viewer's "memory after load" line read before D199: the heap as the LAST collection left it, of
             // whatever kind, counting every dead object no full collection had reached. The viewer now collects first.
             GCMemoryInfo asLogged = GC.GetGCMemoryInfo();
@@ -88,7 +95,9 @@ public sealed class TimelineHeapProbe : IProbe
                 + $"(committed {Mb(asLogged.TotalCommittedBytes):0} MB, last GC gen{asLogged.Generation})");
 
             long withMap = Live();
-            output.WriteLine($"with {mapName}: live heap {Mb(withMap):0} MB (map and game content hold {Mb(withMap - after):0} MB)");
+            // The install as opened is in neither figure: `before` was read after it. What reading the map adds is the map
+            // and whatever the read caches in the install, which this cannot tell apart.
+            output.WriteLine($"with {mapName}: live heap {Mb(withMap):0} MB (reading the map added {Mb(withMap - after):0} MB: the map, and what it cached in the install)");
 
             // What the viewer does once the world is on the device (B407): the textures' pixels go.
             map.Assets?.ReleaseUploaded();

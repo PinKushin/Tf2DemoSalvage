@@ -31,13 +31,13 @@ public sealed class SkyHdrProbe : IProbe
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         Dictionary<string, int> tally = new(StringComparer.Ordinal);
         Dictionary<string, string> example = new(StringComparer.Ordinal);
         int skies = 0;

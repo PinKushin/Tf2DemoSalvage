@@ -36,7 +36,7 @@ public sealed class ModelChangesProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         List<ScenePropTrack> tracks = [.. timeline.Props, .. timeline.PlayerTracks];
         int changed = 0;
         int entries = 0;

@@ -57,8 +57,7 @@ public sealed class MapNearProbe : IProbe
         float z = Coordinate(arguments[3]);
         float radius = arguments.Count > 4 ? Coordinate(arguments[4]) : DefaultRadius;
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-        string? path = locator.Find(
+        string? path = ProbeInstall.Map(
             map.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? map[..^4] : map);
 
         if (path is null)

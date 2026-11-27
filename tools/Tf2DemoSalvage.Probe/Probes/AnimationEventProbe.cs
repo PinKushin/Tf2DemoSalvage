@@ -62,22 +62,19 @@ public sealed class AnimationEventProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader
             .Parse(File.ReadAllBytes(path)).MapName;
 
         if (mapName.Length == 0
-            || locator.Find(mapName) is not { } mapPath
-            || locator.FindGameFolder() is not { } folder)
+            || ProbeInstall.Map(mapName) is not { } mapPath
+            || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
         }
-
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // **Through the map's loaded assets, because the sequence list has to be the MERGED one.**
         // A TF2 player model declares no events of its own — they live in the included

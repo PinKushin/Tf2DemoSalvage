@@ -41,11 +41,10 @@ public sealed class TracerProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         if (DemoCorpus.Find(arguments[0], output) is not { } path ||
-            locator.FindGameFolder() is not { } folder ||
-            locator.Find(arguments[1]) is not { } mapPath)
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game ||
+            ProbeInstall.Map(arguments[1]) is not { } mapPath)
         {
             output.WriteLine("Demo, game or map not found.");
             return;
@@ -53,8 +52,7 @@ public sealed class TracerProbe : IProbe
 
         int shown = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 5;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
 
         IReadOnlyList<ShotTracer> tracers = map.Tracers;

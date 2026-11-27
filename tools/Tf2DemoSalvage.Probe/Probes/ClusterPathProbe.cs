@@ -38,7 +38,7 @@ public sealed class ClusterPathProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         if (arguments.Count < 5 || DemoCorpus.Find(arguments[0], output) is not { } demo ||
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(arguments[1]) is not { } map)
+            ProbeInstall.Map(arguments[1]) is not { } map)
         {
             output.WriteLine("Usage: cluster-path <demo> <map> <entity> <fromTick> <toTick> [re-marks]");
             return;
@@ -52,7 +52,7 @@ public sealed class ClusterPathProbe : IProbe
         ReadOnlyMemory<byte> file = File.ReadAllBytes(map);
         BspLeafTree tree = BspLeafTree.Read(file);
         BspVisibility pvs = BspVisibility.Read(file);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
 
         List<(int Tick, int Cluster, (float X, float Y, float Z) Eye)> path = [];
 

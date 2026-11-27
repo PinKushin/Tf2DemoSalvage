@@ -54,7 +54,7 @@ public sealed class ExplosionProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         IReadOnlyList<SceneExplosion> blasts = timeline.Explosions.All;
 
         output.WriteLine(string.Create(

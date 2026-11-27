@@ -34,20 +34,18 @@ public sealed class TexdataProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         string path = $"maps/{arguments[0]}.bsp";
 
         byte[]? bytes = game.Archives.Read(path);
 
-        if (bytes is null && locator.Find(arguments[0]) is { } file)
+        if (bytes is null && ProbeInstall.Map(arguments[0]) is { } file)
         {
             bytes = File.ReadAllBytes(file);
         }

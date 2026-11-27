@@ -46,9 +46,8 @@ public sealed class PropLightProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(arguments[0]) is not { } path || ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine($"No map named '{arguments[0]}', or no game folder.");
             return;

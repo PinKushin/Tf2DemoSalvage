@@ -82,7 +82,7 @@ public sealed class ViewerCensusProbe : IProbe
                 ? Math.Max(1, every)
                 : 50;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
@@ -90,14 +90,12 @@ public sealed class ViewerCensusProbe : IProbe
             $"{timeline.Props.Count:N0} prop tracks, {timeline.PlayerTracks.Count:N0} player tracks, " +
             $"sampling every {stride}"));
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("No TF2 install, so nothing can be resolved. This is not a finding.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         IPlayerAppearance appearance = DemoAppearance.Ensure(
             DemoAppearance.None, timeline, game, NullLogger.Instance);
@@ -109,8 +107,7 @@ public sealed class ViewerCensusProbe : IProbe
             .Parse(File.ReadAllBytes(path)).MapName;
 
         if (mapName.Length == 0 ||
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .Find(mapName) is not { } mapPath)
+            ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine("  The demo's map was not found, so geometry cannot resolve. Not a finding.");
             return;

@@ -80,8 +80,7 @@ public sealed class CarriedProbe : IProbe
             ? int.Parse(arguments[2], CultureInfo.InvariantCulture)
             : null;
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder(output);
 
         // **Said out loud rather than assumed**, because every model path below comes from the
         // item schema in this folder — with no install, every weapon reads as "no model" and the
@@ -90,8 +89,8 @@ public sealed class CarriedProbe : IProbe
             $"{Path.GetFileName(path)} tick {tick.ToString(CultureInfo.InvariantCulture)}, "
             + $"game {folder ?? "NOT FOUND — every model lookup will answer null"}");
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        GameContent game = ProbeInstall.Game(output);
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);

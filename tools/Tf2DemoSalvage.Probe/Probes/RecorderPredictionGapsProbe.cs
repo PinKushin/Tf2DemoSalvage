@@ -253,7 +253,7 @@ public sealed class RecorderPredictionGapsProbe : IProbe
             $"within 1 u/s {agree} ({100d * agree / Math.Max(1, compared):0.0}%); zeroed (predicted < 0.5, server > 0.5) {zeroed} ({100d * zeroed / Math.Max(1, compared):0.0}%), of them the server over 100 u/s {zeroedRunning}"));
         // Whether the installed map is the build the demo was recorded on (MapHash, finding 43): stuck-in-world gaps need it.
         string mapName = DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
-        bool? sameMap = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(mapName) is { } mapPath
+        bool? sameMap = ProbeInstall.Map(mapName) is { } mapPath
             ? BspMapChecksum.Matches(File.ReadAllBytes(mapPath), timeline.MapHash)
             : null;
         output.WriteLine($"map {mapName}: installed build matches the recorded MapHash: {sameMap?.ToString() ?? "unknown"}");

@@ -53,7 +53,7 @@ public sealed class MergedAttachmentProbe : IProbe
 
     private static void Report(TextWriter output, string path)
     {
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         int merged = 0;
         int parented = 0;

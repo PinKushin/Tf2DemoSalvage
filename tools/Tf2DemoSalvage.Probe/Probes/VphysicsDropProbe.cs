@@ -394,7 +394,7 @@ public sealed class VphysicsDropProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
@@ -415,7 +415,7 @@ public sealed class VphysicsDropProbe : IProbe
             $"IPhysics={physics:x} IPhysicsCollision={collision:x} IPhysicsSurfaceProps={surfaceProps:x}");
         output.Flush();
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         int surfaceFiles = ParseRealSurfaces(game, surfaceProps);
         output.WriteLine($"ParseSurfaceData -> {surfaceFiles} manifest file(s) parsed from scripts/surfaceproperties_manifest.txt");
         output.Flush();

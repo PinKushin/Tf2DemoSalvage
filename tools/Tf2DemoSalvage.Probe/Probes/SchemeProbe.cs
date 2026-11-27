@@ -10,7 +10,11 @@ using Tf2DemoSalvage.Scene.Hud;
 namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>Colour names resolved through a scheme file as `vgui2.dll`'s `CScheme` resolves them.</summary>
-/// <remarks>Stock `resource/clientscheme.res` by default, `tf/custom` left out; `custom` as the last argument reads what the viewer would.</remarks>
+/// <remarks>
+/// Stock `resource/clientscheme.res` by default, `tf/custom` left out; `custom` as the last argument searches all of
+/// `tf/custom`, so the file comes from whichever HUD sorts first. **Neither is what the viewer reads**: it reads
+/// `Archives.WithHud(ChosenHud)` (`GameContent`), the saved HUD's folder and no other under `custom/` (B893).
+/// </remarks>
 public sealed class SchemeProbe : IProbe
 {
     /// <inheritdoc/>
@@ -26,7 +30,7 @@ public sealed class SchemeProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Count > 0 && arguments[^1] == "custom";
-        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+        GameArchives all = GameArchives.Open(ProbeInstall.Folder(output));
         GameArchives archives = custom ? all : all.WithoutCustom();
         const string Path = "resource/clientscheme.res";
 

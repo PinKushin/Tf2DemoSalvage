@@ -56,7 +56,7 @@ public sealed class RosterProbe : IProbe
 
         string filter = arguments.Count > 1 ? arguments[1] : string.Empty;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

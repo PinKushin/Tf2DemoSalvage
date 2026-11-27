@@ -61,7 +61,7 @@ public sealed class OverlayFaceFilterProbe : IProbe
 
         string map = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(map) is not { } mapPath)
+        if (ProbeInstall.Map(map) is not { } mapPath)
         {
             output.WriteLine($"No map named '{map}'.");
             return;

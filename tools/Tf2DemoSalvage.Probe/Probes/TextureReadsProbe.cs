@@ -41,16 +41,14 @@ public sealed class TextureReadsProbe : IProbe
 
         int size = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 0;
         int rows = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : 15;
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(arguments[0]) is not { } path || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine($"No map '{arguments[0]}' or no game folder.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline? timeline = arguments.Count > 1 && arguments[1] != "-" ? DemoTimeline.Build(File.ReadAllBytes(arguments[1])) : null;
+        DemoTimeline? timeline = arguments.Count > 1 && arguments[1] != "-" ? ProbeInstall.Timeline(File.ReadAllBytes(arguments[1]), game) : null;
         TextureReadTally tally = new();
         MapAssets.TextureReads = tally;
 

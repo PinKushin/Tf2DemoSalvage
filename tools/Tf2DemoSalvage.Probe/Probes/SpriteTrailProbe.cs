@@ -52,7 +52,7 @@ public sealed class SpriteTrailProbe : IProbe
         }
 
         int shown = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 20;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         List<ScenePropTrack> trails =
             [.. timeline.Props.Where(track => string.Equals(track.ClassName, "CSpriteTrail", StringComparison.Ordinal))];

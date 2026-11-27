@@ -76,7 +76,7 @@ public sealed class ViewmodelProbe : IProbe
             }
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         // **The recorder is the wrong subject on a SourceTV demo, and the probe ANSWERED rather
         // than failing** — entity 1 is the SourceTV, which holds nothing, so this reported "the

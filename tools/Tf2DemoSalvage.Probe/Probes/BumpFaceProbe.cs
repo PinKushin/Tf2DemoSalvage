@@ -40,9 +40,8 @@ public sealed class BumpFaceProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path)
+        if (ProbeInstall.Map(arguments[0]) is not { } path)
         {
             output.WriteLine($"No map named '{arguments[0]}'.");
             return;
@@ -51,7 +50,7 @@ public sealed class BumpFaceProbe : IProbe
         string filter = arguments.Count > 1 ? arguments[1] : string.Empty;
         ReadOnlyMemory<byte> file = File.ReadAllBytes(path);
         PakFile pak = PakFile.ReadFrom(file);
-        GameArchives? archives = locator.FindGameFolder() is { } folder ? GameArchives.Open(folder) : null;
+        GameArchives? archives = ProbeInstall.Folder(output) is { } folder ? GameArchives.Open(folder) : null;
         IReadOnlyList<string> materials = [.. BspMaterials.Read(file).Select(material => material.Name)];
         Dictionary<string, (int Faces, int Bumped, int Terrain, int TerrainBumped)> rows = new(StringComparer.OrdinalIgnoreCase);
 

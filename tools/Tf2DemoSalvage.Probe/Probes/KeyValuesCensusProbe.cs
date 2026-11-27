@@ -48,7 +48,7 @@ public sealed class KeyValuesCensusProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } game)
+        if (ProbeInstall.Folder(output) is not { } game)
         {
             output.WriteLine("No TF2 install found, so there is nothing to read.");
             return;

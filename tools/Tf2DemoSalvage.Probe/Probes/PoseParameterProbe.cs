@@ -64,9 +64,8 @@ public sealed class PoseParameterProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         // The map is named in the demo's HEADER, and it is needed because the geometry loader —
         // the production one, which is the only one worth asking — comes off the loaded map.
@@ -74,8 +73,8 @@ public sealed class PoseParameterProbe : IProbe
             .Parse(File.ReadAllBytes(path)).MapName;
 
         if (mapName.Length == 0
-            || locator.Find(mapName) is not { } mapPath
-            || locator.FindGameFolder() is not { } folder)
+            || ProbeInstall.Map(mapName) is not { } mapPath
+            || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
@@ -93,7 +92,6 @@ public sealed class PoseParameterProbe : IProbe
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // The production resolution step, for the same reason `props` runs it: a model named only
         // by an item is absent until this happens (B263).

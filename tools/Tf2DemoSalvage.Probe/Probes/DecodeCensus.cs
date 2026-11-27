@@ -13,6 +13,7 @@ using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Text;
+using Tf2DemoSalvage.Scene;
 
 using static System.FormattableString;
 
@@ -92,6 +93,9 @@ internal sealed class DemoCensus
 
     /// <summary>The tick of command <see cref="_at"/>, carried from the command itself.</summary>
     private int _atTick;
+
+    /// <summary>Time a stage spent on work that is not its measurement (the timeline's warming builds), left out of its seconds.</summary>
+    private TimeSpan _untimed;
 
     public DemoCensus(CensusRow row, string path, long length, DemoHeader header, CensusOptions options, TextWriter log)
     {
@@ -174,9 +178,36 @@ internal sealed class DemoCensus
         _at = -1;
     }
 
+    /// <summary>TEST SEAM: opens the install; production is <see cref="ProbeInstall.Game"/>.</summary>
+    internal Func<TextWriter, GameContent> OpenGame { get; set; } = ProbeInstall.Game;
+
+    /// <summary>TEST SEAM: reads the watcher's interp; production is <see cref="ProbeInstall.Interp"/>.</summary>
+    internal Func<ClientInterp> ReadInterp { get; set; } = ProbeInstall.Interp;
+
+    /// <summary>TEST SEAM: one timeline build, the warming throwaways' and the measured one's alike.</summary>
+    internal Func<ReadOnlyMemory<byte>, GameContent, ClientInterp, DemoTimeline> Build { get; set; } = ProbeInstall.Timeline;
+
+    private GameContent? _game;
+    private ClientInterp _interp = new();
+
+    /// <summary>Whether the install opened and the interp was read; false is a failure <see cref="Run"/> already recorded.</summary>
+    private bool _installed;
+
     /// <summary>Runs every stage in order.</summary>
     public void Run()
     {
+        // The install opened and the watcher's interp read before any stage's clock (review 4): once per process, so in
+        // the timeline stage they cost the first demo's row alone, which then differed from the rest by its place in the run.
+        // Guarded as a stage is (review 5): an unreadable config or an out-of-memory opening the install under the heap
+        // limit is the timeline's recorded failure or budget skip, not the end of the census. Its time is no column.
+        // A persistent failure is retried on every demo (review 6): `ProbeInstall` keeps only what opened, never a throw,
+        // so each row pays the attempt and records the same failure.
+        if (_options.Stages.Contains("timeline"))
+        {
+            _log.WriteLine(Invariant($"{DateTime.UtcNow:O} OPEN install"));
+            _installed = Guarded("timeline", OpenInstall);
+        }
+
         Stage("container", Container);
         Stage("schema", Schema);
         Stage("messages", Messages);
@@ -189,16 +220,14 @@ internal sealed class DemoCensus
 
     /// <summary>Runs one stage, timing it and turning anything production code throws into that stage's failure.</summary>
     /// <remarks>
-    /// **The catch is a backstop, never a design path** (`docs/memory/decode-must-be-total.md`): a throw out of the
-    /// production path on a real demo is a defect, and the census's job is to name it and move to the next demo
-    /// rather than stop at the first, which is the masking half of B440. An out-of-memory under the heap limit is a
-    /// budget skip, not a decode failure. The stage is logged BEFORE it runs (`logs-are-the-debugger.md`), so a
-    /// process that dies here names the demo and the stage.
+    /// The stage is logged BEFORE it runs (`logs-are-the-debugger.md`), so a process that dies here names the demo and
+    /// the stage. **The seconds are written for a failed or skipped stage too**: one the install's failed open stopped
+    /// at its first line carries about 0 (review 6), which the summary's per-stage sum adds as nothing. `_untimed` is
+    /// zeroed after, so time one stage hands back is never taken off the next's. No `finally` (review 6 removed review
+    /// 5's): `Guarded` swallows every throw of the body, so only what runs outside it — the log line before, `_row.Skip`
+    /// or `_row.Fail` in its own handlers, `_row.Set` after — could leave here early, and any of those ends the census of
+    /// this demo, whose `DemoCensus` is not used again.
     /// </remarks>
-    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
-        Justification = "A census reports every exception the production path throws as a finding; see remarks.")]
-    [SuppressMessage("Major Code Smell", "S2221:\"Exception\" should not be caught",
-        Justification = "As CA1031: the exception is the finding.")]
     private void Stage(string stage, Action body)
     {
         // The container and the schema always run: every other stage reads their output, and both take under a
@@ -212,9 +241,29 @@ internal sealed class DemoCensus
         _log.WriteLine(Invariant($"{DateTime.UtcNow:O} STAGE {stage}"));
         long started = Stopwatch.GetTimestamp();
 
+        _ = Guarded(stage, body);
+        _row.Set(stage + "_seconds", (Stopwatch.GetElapsedTime(started) - _untimed).TotalSeconds);
+        _untimed = TimeSpan.Zero;
+    }
+
+    /// <summary>Runs <paramref name="body"/>, turning anything it throws into <paramref name="stage"/>'s failure.</summary>
+    /// <returns>Whether the body ran to its end.</returns>
+    /// <remarks>
+    /// **The catch is a backstop, never a design path** (`docs/memory/decode-must-be-total.md`): a throw out of the
+    /// production path on a real demo is a defect, and the census's job is to name it and move to the next demo
+    /// rather than stop at the first, which is the masking half of B440. An out-of-memory under the heap limit is a
+    /// budget skip, not a decode failure.
+    /// </remarks>
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types",
+        Justification = "A census reports every exception the production path throws as a finding; see remarks.")]
+    [SuppressMessage("Major Code Smell", "S2221:\"Exception\" should not be caught",
+        Justification = "As CA1031: the exception is the finding.")]
+    private bool Guarded(string stage, Action body)
+    {
         try
         {
             body();
+            return true;
         }
         catch (OutOfMemoryException)
         {
@@ -233,7 +282,14 @@ internal sealed class DemoCensus
             _at = -1;
         }
 
-        _row.Set(stage + "_seconds", Stopwatch.GetElapsedTime(started).TotalSeconds);
+        return false;
+    }
+
+    /// <summary>Opens the install and reads the watcher's interp, as the viewer has both before a demo loads.</summary>
+    private void OpenInstall()
+    {
+        _game = OpenGame(_log);
+        _interp = ReadInterp();
     }
 
     /// <summary>Skips a stage whose prerequisite failed, and says so.</summary>
@@ -742,6 +798,12 @@ internal sealed class DemoCensus
     /// </remarks>
     private void Timeline()
     {
+        // Opening the install failed, and `Run` recorded it as this stage's failure or budget skip.
+        if (!_installed || _game is not { } game)
+        {
+            return;
+        }
+
         if (!Requires("timeline", _read, "the container did not read"))
         {
             return;
@@ -758,9 +820,36 @@ internal sealed class DemoCensus
 
         // The one stage that still holds the file (B439, out of B449's scope), read only once its budget allows it.
         byte[] bytes = File.ReadAllBytes(_path);
+
+        // The install was opened and the watcher's interp read before the first stage (`Run`), as the viewer's are before a
+        // demo loads (B874), so neither is in this stage's clock. Warmed here by two throwaway builds: what a first build
+        // leaves (the facts' per-model cache among it) is its own column, with the second build's as its control, and the
+        // held figure is the timeline's alone. The throwaways are not in `timeline_seconds` (review 3: one throwaway doubled
+        // it): their time is handed back to `Stage` as untimed, in a `finally`, so a build that throws while warming leaves
+        // none of its time in the column either (review 4). The reachable case is an `OutOfMemoryException` under the
+        // census heap limit, which `Guarded` records as a budget skip with the stage's seconds still written (review 5).
+        // Nor in the peak, since each is collected before the measured build.
+        long warming = Stopwatch.GetTimestamp();
+        (long First, long Second)? firstBuild;
+
+        try
+        {
+            firstBuild = ProbeInstall.Warm(game, LiveHeap, () => _ = Build(bytes, game, _interp));
+        }
+        finally
+        {
+            _untimed = Stopwatch.GetElapsedTime(warming);
+        }
+
         long before = LiveHeap();
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = Build(bytes, game, _interp);
         long held = LiveHeap() - before;
+
+        if (firstBuild is { } left)
+        {
+            _row.Set("first_build_heap_mb", (double)left.First / Megabyte);
+            _row.Set("second_build_heap_mb", (double)left.Second / Megabyte);
+        }
 
         _row.Set("timeline_frames", timeline.Frames.Count);
         _row.Set("timeline_props", timeline.Props.Count);

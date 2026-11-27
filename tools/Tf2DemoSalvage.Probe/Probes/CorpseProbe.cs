@@ -61,7 +61,7 @@ public sealed class CorpseProbe : IProbe
 
         try
         {
-            timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         }
         catch (InvalidDataException truncated)
         {
@@ -455,11 +455,8 @@ public sealed class CorpseProbe : IProbe
         // **Opened ONCE and kept**, because the gib supplier below needs the same install. This
         // line used to open it, take `.Weapons.Items` and throw the rest away, so a second consumer
         // would have paid to read every archive again.
-        GameContent? install =
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                    .FindGameFolder() is { } gameFolder
-                ? GameContent.Open(gameFolder, NullLoggerFactory.Instance)
-                : null;
+        GameContent opened = ProbeInstall.Game(output);
+        GameContent? install = opened.Archives.IsEmpty ? null : opened;
 
         ItemSchema? schema = install?.Weapons.Items;
 
@@ -542,8 +539,7 @@ public sealed class CorpseProbe : IProbe
         // and silently changes nothing — a feature that runs, counts, and draws the same pose. The
         // engine has the same dependency: `GetSequenceForDeath` returns whatever
         // `LookupSequence( "primary_death_headshot" )` gives, including -1.
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .FindGameFolder() is { } where &&
+        if (ProbeInstall.Folder(output) is { } where &&
             File.Exists(Path.Combine(where, "tf2_misc_dir.vpk")))
         {
             VpkArchive models = VpkArchive.Open(Path.Combine(where, "tf2_misc_dir.vpk"));

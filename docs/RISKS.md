@@ -47385,6 +47385,116 @@ redone from a committed pre-run record (six alternating runs), and its verdict c
 nothing resolved, the `sample` phase leaning up. The handoff memory on the branch now says FIXED. *Not verified by
 looking.*
 
+## B890 — with no Steam root named, the viewer's map search answers null before it searches `TF2_FOLDER`'s `maps` (2026-11-27) — OPEN
+
+Found testing B874 review 2, moved out of B874 in review 3 (Fable, Sonnet, the cavecrew reviewer), *read*.
+`MapProvider.Locate` (`managed/Tf2DemoSalvage.Presentation/MapProvider.cs`, ~:152-166) builds
+`new MapLocator(_steamLibraryFile, _ownMapsFolder, game)`, and `MapLocator`'s constructor refuses an empty library path
+(`ThrowIfNullOrWhiteSpace`). `MapProvider.SteamLibraryFile` is `SteamInstall.Machine.LibraryFile ?? string.Empty`, which
+is empty when NO Steam root is named at all (`SteamInstall.Root` null) — not merely when the named root has no
+`libraryfolders.vdf`, which the constructor tolerates (Fable). `Locate` catches the `ArgumentException` and answers null
+before the install's own `maps` — the first search root, `TF2_FOLDER`'s or the picker's (D203) — is searched, so
+`Find` returns `NotInstalled` because `GameFolder()` still answers. Defeats D203's "the game folder's own maps come
+first". **Our downloads are not searched either**: `MapLocator.Find` reaches `OwnMapsFolder` last, after the library, and
+the constructor threw before any of it. **But a downloaded map is NOT fetched again** (review 5 corrected review 4's
+"fetched again on every open", *read*): `PrepareAsync` falls to `FetchAsync`, and `MapDownloader.TryDownloadAsync`
+returns the cached file when it exists (`MapDownloader.cs` ~:193-200) before any request. So a map `TF2_FOLDER` holds is
+downloaded once into our folder — **and then not drawn, on that open or any later one** (review 6 corrected review 5's
+"every later open costs a false log line", Fable, Sonnet, the cavecrew reviewer, Codex, *read*): `ReadMapNamed`
+(`ViewerPresenter.cs` ~:799-845) draws from `_maps.Find(mapName).Path`, which goes through the same failing `Locate`,
+and takes only `prepared.Status` from the prepare, never `prepared.Path`. A fetch that succeeded has an empty status, so
+the load says "Map X is not installed" and builds no world. Moot for the viewer on any Windows host (below), but that is
+what a host reaching B890 would see. `MapLocator`'s constructor also refuses an empty `ownMapsFolder`, but `MapDownloader.DefaultFolder` is
+never empty: with `LocalApplicationData` empty, `Path.Combine` makes it the relative `Tf2DemoSalvage/maps`, resolved
+against the working directory — an oddity of its own, not a second trigger of this one (review 5 asked; *read*).
+
+**Where it is reachable — a non-Windows host only** (review 4 corrected review 3's triggers, Fable and the cavecrew
+reviewer, *read*). `SteamInstall.Machine` takes `TF2VIEW_STEAM_ROOT` only when it is `{ Length: > 0 }`: set empty, it
+falls through to the registry and `ProgramFilesX86`, so "a probe run under `TF2VIEW_STEAM_ROOT` naming nothing" cannot
+happen; set non-empty, the root is named. And on Windows `Environment.SpecialFolder.ProgramFilesX86` always names a
+folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not. **On a
+32-bit OS too** (review 6 withdrew review 5's "on 32-bit Windows it is documented empty", Fable, Sonnet, the cavecrew
+reviewer, Codex): Microsoft's `KNOWNFOLDERID` table gives `FOLDERID_ProgramFilesX86` on a 32-bit OS as
+`%SystemDrive%\Program Files`, not empty — *read, not run on a 32-bit OS*. So only where the registry answers nothing AND
+`ProgramFilesX86` is empty — Linux or macOS — is `Root` null and the library path empty.
+
+**On today's code it is a probe bug, not a viewer one — priority lowered** (review 5, *read*). The viewer is
+`net10.0-windows` (`Tf2DemoSalvage.Viewer3D.csproj`), and the only callers of `PrepareAsync` and `Find` are
+`ViewerPresenter.cs` ~:805 and ~:1039; `Presentation` is `net10.0`, but nothing else reaches it, and the CLI constructs no
+`MapProvider`. So the reachable form is **`ProbeInstall.Map` answers null on a non-Windows host** (Linux CI, a probe run
+there), as `ProbeInstall.Map`'s remark says; the viewer never meets B890 on any Windows .NET 10 runs on (review 6).
+
+**What is verified and what is not.** Verified, *read*: `Locate` answers null and `Find` answers `NotInstalled` (the
+code path above, `MapProvider.cs` ~:152-200, and `MapLocator`'s constructor guard). The download is *read, not run*:
+`PrepareAsync` (~:307-345) calls `Locate`, and on null tells `fetching` and awaits `FetchAsync`, so the viewer's map load
+downloads a map `TF2_FOLDER` holds, once, and then draws no world from it (above). **The failing-first test exists** (review 5 corrected "none can on Windows"
+and "needs a seam for `ProgramFilesX86`"): `MapProvider`'s constructor takes `steamLibraryFile` as a plain string
+(`MapProvider.cs` ~:82-94), so `MapProviderTests.Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` passes `""`
+with a game folder whose `maps` holds the map, and asserts it is found. It is `[Explicit]` until this branch — it fails on
+today's code, seen 2026-11-27 — and B890's fix removes the attribute. The probes inherit the bug through
+`ProbeInstall.Map`, as they should. Fix shape: search the game folder's `maps` and our downloads whether or not a library
+file is named — `MapLocator` taking a null library, or `Locate` searching those before constructing it. *Not fixed* (its
+own branch).
+
+## B894 — the viewer never asks for the map version a demo recorded, and a versioned download is never found again (2026-11-27) — OPEN
+
+Found in B874 review 5 (asked by the reviewers whether it is a viewer bug), *read*. D162 settled that "an old demo gets
+the map … it was recorded against": `MapProvider.Find(mapName, checksum)` reports a `VersionMismatch`, and
+`FetchAsync(MapWanted)` fetches by `MapWanted.Checksum` and keeps the file under `MapDownloader.CacheName(wanted)`,
+`<name>.<HEX>.bsp`, so two versions sit side by side. **No production caller passes a checksum**: `ViewerPresenter`
+calls `_maps.Find(mapName)` (~:805) and `_maps.PrepareAsync`, which fetches through `FetchAsync(string)`, a `MapWanted`
+with no checksum; `MapWanted.From` has no caller outside `MapDownloaderTests`. So the viewer draws whichever copy of a
+Valve map it finds by name, never the version the demo recorded, and the D162 path runs only in tests. **And once it is
+wired, a versioned download is never found by `Locate`**: `MapLocator.Find` looks for `<name>.bsp` alone in every root,
+ours included, on every host, so the `<name>.<HEX>.bsp` the downloader kept is missed and only `TryDownloadAsync`'s own
+`File.Exists` on the same name finds it again — a false "fetching" every open, and `Find` reporting `NotInstalled` for a
+map that is here. **And, once wired, the fetched file is then not drawn** (review 6 corrected "a false fetching"; review
+7 made the condition explicit — today `FetchAsync(string)` passes no checksum, so no `<name>.<HEX>.bsp` is produced):
+`ReadMapNamed` (`ViewerPresenter.cs` ~:799-845) draws from `_maps.Find(mapName).Path` and takes only `prepared.Status`,
+never `prepared.Path`, so a `<name>.<HEX>.bsp` the prepare fetched is followed by "Map X is not installed" and no world —
+when no plain `<name>.bsp` exists in any root. For an installed Valve map, `Find(mapName)` finds the installed copy and
+draws it silently, which is today's case below.
+
+**What a user sees today** (review 6): an old demo on a Valve map that has changed since draws today's geometry, silently
+— no `VersionMismatch` status, because nothing asks. **Medium**: D162 is the owner's direction and it is unimplemented in
+production. D162 names the field `MapCrc`; it is `MapHash` (finding 43), and D162 now carries a pointer saying so.
+
+**Fix shape** (review 6 completed review 5's, *read*):
+
+1. **Hand the version to the prepare and the find.** The demo's `MapHash` and server ConVars, through `MapWanted.From`.
+2. **An installed Valve map must be checked, not taken.** `PrepareAsync` returns at `Locate(mapName) is { }`
+   (`MapProvider.cs` ~:327), so an installed map is never fetched, checksum or not. It must go through
+   `Find(name, checksum)` and fetch on a `VersionMismatch`. **When no source has the recorded version**, draw the
+   installed copy and surface the `VersionMismatch` status — the fallback `MapProvider.Find`'s own comment names
+   (~:207-209) — never no world (review 7). A changed Valve map will usually fail every root today:
+   `MapDownloader.Roots` (~:238-254) asks only the demo's `sv_downloadurl` and the FastDL mirror; D162's Steam-by-version
+   source (D161) is in neither the downloader nor this shape — wire it or record why not.
+3. **`ReadMapNamed` must take `prepared.Path`** when the prepare found or fetched one, rather than searching again. The
+   synchronous `LoadDemo` and a reload have no `prepared` (`ViewerPresenter.cs` ~:791-793): they need the checksum
+   passed to `Find`/`Locate` directly.
+4. **The order conflicts with B507.** `PrepareAsync` runs from the 1,072-byte header, in parallel with the decode, so the
+   map is ready when the decode is. `MapHash` and `sv_downloadurl` come from signon (`svc_ServerInfo` and the server's
+   ConVars), not the header. The fix either decodes the signon first (a short read, then the fetch) or prepares by name
+   as now and re-checks the version once the decode has it.
+5. **Ask the demo's own server first.** `FetchAsync(string)` builds a `MapWanted` with no `DemoDownloadUrl`, so the
+   demo's `sv_downloadurl`, which D162 puts first for a community map, is never asked.
+6. **`Locate` tries the checksum's cache name in our folder first**, so a versioned download is found again — it takes
+   no checksum today, and the versioned name must beat the game folder's `<name>.bsp`, which `Locate` searches first
+   (`MapProvider.cs` ~:156-160).
+
+*Not fixed* (its own branch).
+
+## B893 — the `res`, `scheme` and `hud` probes do not read the viewer's chosen HUD (2026-11-27) — OPEN
+
+Found in B874 review 5 (Fable, Sonnet, the cavecrew reviewer, Codex), *read*. The viewer reads its HUD files through
+`Archives.WithHud(ChosenHud)` (`GameContent.cs` ~:108), the saved `ChosenHud` (or a launch `--hud`): that HUD's folder
+under `custom/` and no other. The three probes read stock (`WithoutCustom`) by default, and with `custom` the whole
+`custom/` search path, so a file comes from whichever HUD sorts first — neither is the viewer's answer when more than
+one HUD is installed or the chosen one is not first. Probes run the production path (CLAUDE.md, D126). Fix shape: a
+`chosen` mode, or the default, that reads `ProbeInstall.Game(…).Archives.WithHud(` the saved choice `)`, keeping stock
+as an explicit mode since a stock answer is what `res` and `scheme` were written for. Their comments now say what each
+mode reads (review 5). *Not fixed* (its own branch).
+
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
 Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
@@ -47516,14 +47626,310 @@ override does NOT reset every update, as a first draft of this entry said: `SetM
 `m_nModelIndex`, `c_baseentity.cpp:1775-1780`, so `OnDataChanged`'s `modelchanged` is false — B871 review 2, Fable and the
 cavecrew reviewer.) *Not fixed*.
 
-## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
+## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — FIXED
 
 Found in B870 review 2 (the cavecrew reviewer), *read*. The probes (over ninety files under `tools/Tf2DemoSalvage.Probe`)
 call `DemoTimeline.Build(file)` with neither `classes`
 (B437) nor `models` (B870), where the viewer passes both from the install. So a probe that reports a pose, a cycle or an
 anim-state answer reads a timeline the viewer never builds — against the rule that probes run the production path.
 Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
-builds as `DecodedDemo.Read` does, and the probes call it. *Not fixed*.
+builds as `DecodedDemo.Read` does, and the probes call it.
+
+**Fixed.** `ProbeInstall` (`tools/Tf2DemoSalvage.Probe/ProbeInstall.cs`) finds the game as the viewer does —
+`MapProvider.Installed().GameFolder()`: `TF2_FOLDER`, then the saved `cl_game_folder` (the picker's choice), then
+Steam's library, with that method's catch of an `IOException` — where the first version used the probes' `MapLocator`,
+which reads only Steam's library (review 1). It opens the install once per process and builds the class scripts and the
+model facts object on opening, as `LevelSystems.Opened.Of` does before the viewer's first demo. It builds with
+`game.ClassAnimation`, `game.ModelFacts` and the watcher's interp, which is what `ViewerPresenter.LoadDemoAsync` hands
+`DecodedDemo.Read`. The interp is the viewer's as it stands before a demo loads: the saved settings, then the watcher's
+TF2 configs run over them (`ViewerSession` attaches the console, then `LoadUserConfig`), unless `TF2VIEW_NO_CONFIGS=1`.
+**Three things the viewer has and a probe cannot**: a `+cl_interp` on the viewer's command line; a config in the
+program's own `custom/` folder, which is beside the viewer's executable, not the probe's; and an `autoexec.cfg` that sets
+`cl_game_folder`, which moves the viewer's folder after the configs ran, where the probe found its folder once, before
+running them. Opening matches `LevelSystems.Opened.Of`'s order: the weapon scripts precached
+(`game.MuzzleFlashes.Precache()`, B595 part 6), then the class scripts built (review 2). With no install it builds as the
+viewer does with no game and tells the first writer that asks — of `Game` or of `Folder` — once per process.
+
+**Maps are found as the viewer finds them**: `ProbeInstall.Map(name)` is `MapProvider.Locate`, which searches the
+install's own `maps` first, then Steam's library, then our downloads (D203). Before review 2, 28 files that built through
+the helper still found their map with `MapLocator`, Steam's library alone, and about 55 more probes that build no
+timeline found the game folder with `MapLocator(...).FindGameFolder()` or opened `GameContent.Open` themselves. **Every
+probe now goes through `ProbeInstall.Game`, `Folder` or `Map`**: no file under `tools/Tf2DemoSalvage.Probe` but the
+helper constructs a `MapLocator` or calls `GameContent.Open`, so every probe finds the folder and the map the viewer
+finds. A probe that reads loose archives (`GameArchives.Open`) opens them on the helper's `Folder` — 31 probes, a second
+opening of the same search path rather than the helper's install (review 3 corrected "finds the install").
+
+Every probe that built a real demo's timeline goes through it: 100 sites in 93 files (counted by reference to the
+helper's three public `Timeline` overloads). Twenty-nine of them used to open a second install of their own beside the
+helper's (review 1), and so did `PovMatch` — not a probe, the helper the recorder probes open their demos through;
+twelve more opened their own through
+`MapLocator` and handed it to the helper's build — `AnimSlotProbe`, `AttachmentProbe`, `BodygroupProbe`, `CarriedProbe`,
+`EconEffectsProbe`, `FlexProbe`, `HudModelLoadsProbe`, `ItemPropProbe`, `PaintProbe`, `TextureReadsProbe`,
+`WeaponModelProbe`, and `PoseResetProbe`, whose facts are its variable. All of them take `ProbeInstall.Game` now, so a
+probe that builds a timeline holds one install, the one the viewer would find. Probes that measure a build's heap or bytes
+(`timeline-cost`, `timeline-heap`, `timeline-holders`, `timeline-windows`, the census) open the install before their
+first reading — `timeline-cost` before its loop, so its GC-pause column no longer includes the open (review 2). **The
+heap probes warm the install first** (`ProbeInstall.Warm`): the model facts cache what each model tells `OnNewModel` on
+the first build that asks, and that cache is the install's, kept after the timeline is gone, so it used to land in "held
+by the timeline". How they warm, what they print and what is timed: the review 3 and 4 bullets below, its one account.
+`timeline-heap --map` says what its map figure is: what reading the map added, the map and whatever it cached in the
+install, which it cannot tell apart. `timeline-windows`' checkpoint walk takes the same install and the watcher's interp
+(B872). **`timeline-resume` compares with the install**: `BuildThroughSnapshot` takes the interp, class scripts and
+model facts as `Build` does (optional, so its tests are unchanged), and the probe compares the resume with the straight
+build the viewer makes; its `cost` mode still measured a bare snapshot until review 3. Left without it on purpose, each with a comment: `pose-reset` (the facts are its
+variable; the class scripts are the install's in all three builds), and `camera-path`'s synthetic views-only demo.
+
+**The instrument, measured:** `TimelineFingerprint` cannot see this. On `z1800` and on the live-build POV, a build with
+the install and one without fingerprint the same, because it hashes stored keyframes and the install acts on the
+interpolation histories (`OnNewModel`'s resize and static-prop flag). Sampling every track's sequence, cycle and pose
+parameters half a tick after each keyframe tells the two apart on the live POV.
+
+Tested by `ProbeInstallTests` (Corpus.Tests), each sabotaged once with an exact inverse edit (2026-11-26):
+
+- `Timeline_WithTheInstall_MatchesTheViewersRead` — the probe's timeline samples and fingerprints as `DecodedDemo.Read`'s
+  with the viewer's arguments; control, a build with the class scripts and no model facts samples differently. Gated on
+  the helper's own answer (`ProbeInstall.Game(null).Archives.IsEmpty` ignores it), not another locator's (review 2).
+  Sabotage: the helper passing `models: null` reddened it at the sample comparison. The helper passing `classes: null`
+  leaves THIS test green, measured: neither this demo nor `z1800` reaches a branch where a class's script differs from
+  the engine's default. That half is the next test's.
+- `Timeline_WithALooseClassScript_TakesTheLegacyJump` (review 2) — a temporary loose install whose `scout.txt` sets
+  `"DontDoNewJump" "1"` uncommented, opened with `ProbeInstall.Open`, and a synthetic scout who jumps: through the
+  helper's `Timeline(file, game)` the jump is `LegacyJump`; control, a `classes: null` build never is. Runs without TF2.
+  Sabotage: the helper passing `classes: null` reddened it at `LegacyJump`. So the class scripts dropped from the helper
+  CAN redden a test, where review 1 recorded that none could.
+- `Timeline_WithANonDefaultInterp_DiffersFromTheDefaultBuild` (review 2) — the same synthetic jump through
+  `Timeline(file, game, interp)` with no interpolation window and with TF2's default answers differently, because the
+  window delays the jump event; control, the jump reaches the timeline at all. Sabotage: the helper building with
+  `new ClientInterp()` in place of the interp handed to it reddened it (and `Timeline_WithTheInstall_MatchesTheViewersRead`
+  with it).
+- `Game_WithTf2FolderSet_OpensThatFolder` — with `TF2_FOLDER` naming a folder no Steam library lists, the helper's
+  `Game` reads a file only that folder holds, `Map` finds a map only its `maps` holds, and `Interp` takes the
+  `cl_interp 0.033` only its `autoexec.cfg` sets (review 2 added the last two; the machine's Steam root and saved settings
+  are hidden). Sabotages: the helper back on `MapLocator(...).FindGameFolder()` reddened it at the marker read (review 1);
+  `Map` back on `MapLocator(...).Find` reddened it at the map; the saved interp taken without the configs reddened it at
+  `Interp()` (0.1, not 0.033).
+- `Folder_WithNoInstall_TellsTheFirstWriterOnceForGameToo` (review 2) — a probe that asks only for the folder is told,
+  once, and a later `Game` ask says nothing. Sabotage: `Folder` not writing the notice reddened it at the first writer.
+- `WatcherInterp_WithAnAutoexec_TakesItsInterpOverTheSaved` — control, no folder keeps the saved interp. Sabotage: the
+  configs not run reddened it at the autoexec's value.
+- `Game_WithNoInstall_TellsTheFirstWriterOnce` — a null first writer does not spend the notice. Sabotage: a null writer
+  spending it reddened it at the first writer's lines.
+- `Open_WithNoFolder_SaysSoAndHasNoClassScripts` — runs in CI. It asserts the notice and the absent class scripts and not
+  a build: with no archives the build is the bare one by construction, so a comparison could not fail. Sabotage: `Open`
+  not saying it reddened it at the notice.
+
+**Review 2 (Fable and Sonnet), 2026-11-27**: the map was still found by Steam's library in 28 timeline probes and about
+55 others found or opened the install themselves; the class scripts and the interp handed to the build had no test that
+could redden; `timeline-cost`'s GC clock started before the install opened; the heap probes charged the facts cache to
+the timeline and `timeline-heap --map` misnamed its figure; `Open` skipped the muzzle-flash precache; the timeline test
+was gated on another locator; `timeline-resume` never checked the install; `Folder` said nothing with no TF2; and this
+entry said two overloads and called `PovMatch` a probe. All ten fixed above. Seen while testing and not fixed here: the
+viewer's map search with no Steam root named — now B890.
+
+*Not verified by looking.*
+
+**Review 3 (Fable, Sonnet, the cavecrew reviewer; Codex none), 2026-11-27.** Fixed on `fix/b874-r3`:
+
+- **The configs ran for every ask.** `Game`, `Folder` and `Map` all went through one cached `Found()` that also ran the
+  watcher's configs, and `ConfigConsole.LoadFrom` catches only the IO family, so a config the console could not read
+  would have killed every install-only probe, again on every call. Now only the folder is found and cached; the interp is
+  computed on `Interp()`'s first ask, so only `Interp()` and the builds pay for the configs. The review's example, a
+  config or VPK that throws `InvalidDataException`/`FormatException`, could not be built from a file: `GameArchives`
+  catches a damaged archive and `LoadFrom` the IO family. Tested by order instead (below).
+- **The map bug is B890**, its own entry; the test's comment and `ProbeInstall.Map`'s remark said the wrong trigger (a
+  missing library FILE, which is tolerated) and that a `TF2_FOLDER` map is always found as the viewer finds it.
+- **What "found" means**: `Game` said "INSTALL not found" when the archives opened empty and `Folder` when no folder was
+  found. Both now say it when no `tf` folder was found, the one rule in `ProbeInstall.Say`.
+- **The heap figure had no control and the wrong name.** `ProbeInstall.Warm` runs the throwaway twice and returns both
+  deltas; the probes print them as "heap a first build leaves … control, a second build leaves …" (`ProbeInstall.Said`,
+  one wording), not as "the install's caches", since the first delta is all a first build left. Skipped, and said, with no
+  install. The census's `install_cache_mb` is now `first_build_heap_mb` and `second_build_heap_mb`, documented in
+  `DecodeCensusReport` as incremental and order-dependent (the install is opened once per run).
+- **Timings**: the census's `timeline_seconds` included the warming builds' time; it no longer does, their time handed
+  back to `Stage` as untimed. `timeline-windows` timed only a warm walk, missing the first reads the viewer's first walk pays:
+  it now times the cold walk (the first of the two warming walks) and the kept warm one, and says which is which; every
+  mode walks three times with an install, once without (review 4 corrected "`cost` mode"), and `cost` keeps its purpose. `timeline-cost` builds each demo once,
+  uncounted, before its counted build, so no row pays the facts' first reads for a later demo; the comment says so.
+- **`timeline-resume cost`** measured a bare snapshot: `MeasureSnapshot` takes the interp, class scripts and model facts
+  as `BuildThroughSnapshot` does, and the probe passes the install's. So the install is on both sides of the resume
+  comparison AND in the cost, where review 2's record said "both sides" of a probe whose cost half had none.
+- **`ModelProbe`'s comment** said `TF2_FOLDER` does not reach the archive lookup. It does now, but only when the folder
+  exists: `SteamInstall.GameFolder` falls through to Steam's library for a missing one, so the comment says that.
+- **Tests that read the machine**: the loose-class-script test built with this machine's interp and its control
+  differed in the model facts too; both builds now take `new ClientInterp()` and the control differs in the class scripts
+  alone. `WatcherInterp_WithAnAutoexec_…` is `[NonParallelizable]` and pins `TF2VIEW_NO_CONFIGS` unset.
+- **Placement** (D38): the snapshot test needs no helper and is in `Core.Tests`. The rest stay in `Corpus.Tests`
+  because they ask `ProbeInstall`, which is in the probe tool, referenced only from there; the synthetic scout is
+  `SyntheticPlayer.ScoutJump` in TestSupport, so the `InternalsVisibleTo` to `Corpus.Tests` stays. Said in the test file.
+- **Not every probe finds the install the viewer finds; every probe finds the FOLDER it finds.** Review 2's "every probe
+  now finds the install and the map the viewer finds" was too wide: 31 probes (35 sites, counted 2026-11-27 by text
+  search for `GameArchives.Open(` under `tools/Tf2DemoSalvage.Probe`) open their own `GameArchives` on
+  `ProbeInstall.Folder` rather than taking the helper's install — `BumpFace`, `ClassActivities`, `ConfigCensus`,
+  `CubeRays`, `DarkMaterials`, `DlightCost`, `GameFile`, `KeyValuesCensus`, `ModelFlag` (without `custom/`),
+  `OutlineMemory`, `OverlayVertexAlpha`, `Particle` (five sites), `PhyCensus`, `PixelFace`, `PropLight`, `PropShade`,
+  `Res`, `SceneImage`, `Scheme`, `ShaderFaces`, `ShaderParity`, `SoundRead`, `StaticPropFlagCensus`, `StyledProps`,
+  `TexelPng`, `TraceCost`, `VertexColourFace`, `VphysicsMaterial`, `WaterBrushEntity`, `WeaponScript` and
+  `WorldCulling`. The same folder, its search path opened a second time; their answers are the viewer's because the
+  folder is, except three that leave `custom/` out by default (review 4 corrected "except `ModelFlag`'s"): `ModelFlag`,
+  on purpose, and `Res` and `Scheme`, which say "stock unless asked" (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
+  Asked with `custom`, those two read the whole `custom/` folder, which is not the viewer's HUD either: the viewer's HUD
+  reads the install's `Archives.WithHud(chosen)`, the saved `ChosenHud` (or a launch `--hud`), and nothing else under
+  `custom/` (review 5 corrected "and its own custom folder through `WithOwnCustom`": only `Tf2ConfigFiles.cs` ~:119 uses
+  that, for configs). `hud` is the third such probe (review 5). Now B893.
+
+New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Interp_AfterFolderAndGame_RunsTheConfigsAsTheyStandWhenAsked` (Corpus) — the autoexec rewritten after `Folder` and
+  `Game` answered; the interp is the rewritten file's. Sabotage: the interp computed with the folder reddened it alone,
+  0.033 where 0.05.
+- `Folder_AfterGameToldTheWriter_SaysNothing` (Corpus) — `Folder`'s `_said` guard. Sabotage: `Say` before `_said`
+  reddened it alone (the second writer was told).
+- `Warm_WithNoInstall_RunsNothing` and `Warm_WithAnInstall_ReadsWhatEachOfTwoRunsLeft` (Corpus) — readings 100, 250,
+  260 are (150, 10). Sabotages: no skip reddened the first, (2, 1) where null; the first delta read across both builds
+  reddened the second, (160, 10).
+- `BuildThroughSnapshot_WithClassScriptsAtEveryCut_EqualsTheStraightBuildAndKeepsTheOldJump` (Core) — the jumping scout
+  with a `DontDoNewJump` scout script, cut at every command. Sabotage: `BuildThroughSnapshot` passing null class scripts
+  reddened it (the frames section of the fingerprint) and the next.
+- `BuildThroughSnapshot_WithTheInstallsInputs_AsksTheSameObjectsInTheResume` (Core) — a straight build asks the scripts
+  31 times (scout) and the facts twice (a prop whose model is set twice); snapshotted before the first command, exactly
+  double. Sabotage: `SharedInputs` not sharing them (a deep copy) reddened it alone, (31, 2) where (62, 4).
+`Precache` (`game.MuzzleFlashes.Precache()` in `Open`) has no test: it moves WHEN the weapon scripts are read, not what
+any probe answers, so no assertion on an answer can redden on its absence; it matters to the timing probes only.
+
+*Not verified by looking.*
+
+**Review 4 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** Fixed on `fix/b874-r4`:
+
+- **`MeasureSnapshot`'s three new inputs had no test.** One now observes each (below).
+- **`timeline-cost`'s rows are warm and said so only in a comment.** The header line says every row is warm, and the
+  first demo's throwaway build — this process's first, the viewer's cold open — is printed once per run on its own
+  labelled `COLD first build` line: its carried total, gc-paused and allocated. The throwaway's garbage is collected
+  (a full blocking collection) before the row's `gcBefore`, so no row's gc-paused collects what the throwaway left.
+  The class remarks no longer say `DecodedDemo` logs "the same split the viewer pays": the same columns, from a cold build.
+- **The census opened the install inside the timeline stage's clock**, so the first row paid it. `DemoCensus.Run` opens
+  it, and reads the interp, before the first stage when the timeline stage is asked. `_untimed` is set in a `finally`
+  around `Warm`, so a warming build that throws leaves none of its time in `timeline_seconds`.
+- **The interp is read before `Warm` in every heap and timing probe** (`timeline-heap`, `timeline-holders`,
+  `timeline-cost`, the census; `timeline-windows` already did), so no first-build figure includes running the configs.
+- **`timeline-windows`' walks do the same work**: with `cost`, the warming walks take a census into a dictionary thrown
+  away, as the kept one does. The cold label names JIT and static initializers beside the install's first reads; the
+  comment says every mode walks three times with archives.
+- **"No install" was the wrong word for what `Warm` skips on** (empty archives; "found" is the folder): `Said` and
+  `timeline-windows` say "no archives", and `Warm`'s remarks say both cases.
+- **B890's trigger and consequences**, rewritten there: only a non-Windows host reaches it; our downloads are missed too;
+  what is read and what is not run.
+- **This entry's body restated review 3's superseded facts** ("one throwaway build", `install_cache_mb`, "costs the stage
+  its time again"): deleted, the review bullets are the one account. The garbled review 3 timing bullet is rewritten, and
+  "except `ModelFlag`'s" now names `Res` and `Scheme` and what they do not read.
+- **Codex: the lazy interp reads the configs when first asked**, the viewer at session start; said in `ProbeInstall`'s
+  remarks (one short process).
+
+New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem` (Core) — walked through every command, the counting
+  scripts are asked 31 times and the facts twice, a straight build's counts; a 100-second interp leaves the scout's jump
+  queued, so the snapshot's `queuedGestures` copy is larger than under TF2's tenth (control: no interp equals TF2's
+  defaults, after one unmeasured snapshot, since the first copy also pays the copier's own reflection: 1,088 against
+  1,032 bytes without it). Sabotages in `MeasureSnapshot`'s `Start` call: `new ClientInterp()` for the interp reddened it
+  at `late`; `null` scripts at `(scripts.Asked, facts.Asked)`; `null` facts at the same, `(31, 0)` where `(31, 2)`.
+- `Said_WithAndWithoutFigures_NamesTheArchivesAndPrintsMegabytes` (Corpus) — the exact line for nothing warmed and for
+  1.5 MB and 0.5 MB. Sabotages: the null branch back on "no install" reddened it alone; the control's figure printed
+  from `First` reddened it alone.
+
+The census's `finally` had no test here; review 5 found it testable and added one (below).
+
+*Not verified by looking.*
+
+**Numbering (review 5).** "Review N" in this entry and in B890 is the Nth review of a B874 fix, the number in its commit
+subject (`fix: B874 review N, …`): review 1 reviewed `502fb9561`, review 4 reviewed `9ebae95a3` and was fixed in
+`3f3093d3d`. The reviewers' own round numbers ran one ahead — they called review 4 "round 5" — so a citation "(review
+N, X)" here is this numbering, not theirs.
+
+**Review 5 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** Fixed on `fix/b874-r5`:
+
+- **The install open escaped the census.** Review 4 moved `ProbeInstall.Game` and `Interp` into `DemoCensus.Run`,
+  outside `Stage`'s catch, so an unreadable config or an out-of-memory opening the install under the heap limit ended the
+  whole census — the masking half of B440. `Stage`'s catch is now `Guarded`, and `Run` opens the install through
+  `Guarded("timeline", …)`: a throw is the timeline's recorded failure (an out-of-memory its budget skip), its time is no
+  column, the timeline stage then returns without overwriting it, and every other stage runs.
+- **The warming `finally` was untested but testable.** `DemoCensus` takes its build as a seam (`Build`, beside `OpenGame`
+  and `ReadInterp`), the warming throwaways' and the measured build's alike, so a test throws from it. The reachable case
+  is named in the code: an `OutOfMemoryException` under the census heap limit, which `Guarded` records as a budget skip
+  with the stage's seconds still written. **`_untimed` is reset in a `finally`** in `Stage`, so time one stage hands back
+  can never come off another's, whatever threw.
+- **B890's record** corrected: a downloaded map is not fetched again (`TryDownloadAsync` returns the cached file), only
+  falsely announced; on today's code it is a probe bug on a non-Windows host (the viewer is `net10.0-windows`), priority
+  lowered; the failing-first test needs no seam and now exists, `[Explicit]`; ~~`ProgramFilesX86` is empty on 32-bit
+  Windows~~ (withdrawn in review 6: it is `%SystemDrive%\Program Files` there); an empty `ownMapsFolder` also throws, but `DefaultFolder` is never empty. The checksum-named download
+  `MapLocator` never finds is its own finding, with the larger one under it — no production caller asks for a version —
+  **B894**.
+- **`scheme`, `hud` and `res` said `custom` reads what the viewer reads.** It reads whichever HUD sorts first; the viewer
+  reads `WithHud(ChosenHud)`. Comments fixed; the probes not following the saved HUD is **B893**.
+- **Cold labels**: `timeline-cost`'s COLD line and `timeline-windows`' cold walk are "this probe's first", the process's
+  first only when nothing built before it; with no archives `timeline-cost`'s line says only JIT and static initializers
+  are paid; both name the OS file cache as a third cold cost. "Differ by warmth alone" softened. **Open**: z1800's cold
+  gap is 32.4 s in `timeline-cost` (89.68 against 57.26) and 46.6 s in `timeline-windows` (150.6 against 104.0), and
+  nothing here explains the difference. `timeline-resume cost` labels its snapshot as including the copier's first
+  reflection, rather than walking to `at` a second time to warm it.
+- **`MeasureSnapshot`'s test** warms with the `late` interp before measuring, so the copier's reflection over the queued
+  element type — done on the first copy whose queue holds one, which was `late` — is not in `late`, and `late > tenth` is
+  the queued jump alone.
+
+New and changed tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Run_WhenOpeningTheInstallThrows_FailsTheTimelineAndRunsTheRest` (Corpus) — the interp read throws
+  `InvalidDataException`; the row's timeline is `fail` with that detail, the container still passes, and no build ran.
+  Sabotage: `Run` calling `OpenInstall()` unguarded reddened it alone (the exception left `Run`).
+- `Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds` (Corpus) — the injected build spins one second
+  and then allocates past `Array.MaxLength`, the runtime's own `OutOfMemoryException`; the timeline is a `budget` skip
+  (control) and `timeline_seconds` is under 0.5. Sabotage: the `_untimed` assignment moved out of the `finally` reddened
+  it alone, 1.009.
+- `MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem` (Core), warmed with `late`'s interp. Sabotage:
+  `MeasureSnapshot`'s `Start` given `new ClientInterp()` for the interp reddened it alone at `late`, 1,032 where more
+  than `tenth`'s 1,032 — so with the copier warm, the comparison still sees the interp.
+- `Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` (Presentation, `[Explicit]`, B890) — run explicitly it
+  fails on today's code (null where the game folder's map). Not sabotaged: it is red now, which is its point.
+
+*Not verified by looking.*
+
+**Review 6 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** No code defect; a test seam and records. Fixed
+on `fix/b874-r6`:
+
+- **The install-open test opened this machine's TF2.** It stubbed `ReadInterp` and `Build` but not `OpenGame`, so
+  `ProbeInstall.Game` opened the real install and kept it in `ProbeInstall`'s statics, where `ProbeInstallTests` could
+  race it. `OpenGame` is now stubbed with the no-install answer, and the test is renamed for what throws in it:
+  `Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest`. `OpenGame` itself throwing is its own test.
+- **The out-of-memory test's precondition is asserted.** `ProbeInstall.Warm` warms only over non-empty archives; over
+  empty ones the spinning build would be the measured one. The test now asserts that an existing folder with no
+  `gameinfo.txt` opens as one loose-file source — non-empty archives (review 7 corrected "the folder holding one loose
+  file": the file was removed in the same commit, as the sabotage below records).
+- **`Stage`'s `finally` was dead and is removed.** `Guarded` swallows every throw of the body, so only `_row.Set` could
+  leave `Stage` early, and that ends the demo's census, whose `DemoCensus` is not used again (one per demo,
+  `DecodeCensusProbe.cs` ~:272). The warming `finally` in `Timeline`, which review 5 tested, stays.
+- **Recorded in the code**: a failed install open leaves `timeline_seconds` about 0, written by `Stage` as for any failed
+  or skipped stage, and the summary's per-stage sum adds it as nothing; a persistent failure is retried on every demo,
+  because `ProbeInstall` keeps only what opened, never a throw.
+- **B890**: review 5's "32-bit Windows" trigger withdrawn (`FOLDERID_ProgramFilesX86` is `%SystemDrive%\Program Files`
+  on a 32-bit OS), so the viewer never meets B890 on Windows; "every later open costs a false log line" corrected — a
+  host that reaches it fetches the map and then draws no world, since `ReadMapNamed` never takes `prepared.Path`.
+- **B894**: the same not-drawn consequence for a versioned download; what a user sees (an old demo on a changed Valve map
+  draws today's geometry silently); severity medium; the fix shape completed (installed maps checked, `prepared.Path`
+  taken, the header-versus-signon order against B507, the demo's own `sv_downloadurl`). **D162** names `MapCrc`; a
+  pointer there now says `MapHash`.
+
+New and changed tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest` (renamed from `…WhenOpeningTheInstallThrows…`) and
+  `Run_WhenOpeningTheGameThrows_FailsTheTimelineAndRunsTheRest` (new) (Corpus). Sabotage: `Run` calling `OpenInstall()`
+  unguarded reddened both and nothing else. Sabotage: `OpenInstall` opening `ProbeInstall.Open(null, …)` in place of the
+  `OpenGame` seam reddened both, and the out-of-memory test too, since an empty install skips the warming and the
+  spinning build becomes the measured one.
+- `Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds`, its new precondition. A first sabotage, the
+  loose file not written, left it GREEN: an existing folder with no `gameinfo.txt` is one source whether or not it holds
+  a file (`GameArchives.Open`), so the file was never what the precondition needed, and it was removed. Sabotage: the
+  install opened from a folder that does not exist reddened it alone, on the precondition's message.
+
+*Not verified by looking.*
 
 ## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
 

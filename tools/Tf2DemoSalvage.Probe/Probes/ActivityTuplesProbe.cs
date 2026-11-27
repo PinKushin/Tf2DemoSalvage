@@ -42,11 +42,10 @@ public sealed class ActivityTuplesProbe : IProbe
         }
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(file).MapName;
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
@@ -60,7 +59,6 @@ public sealed class ActivityTuplesProbe : IProbe
         timeline.PropsAt(tick, props);
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 

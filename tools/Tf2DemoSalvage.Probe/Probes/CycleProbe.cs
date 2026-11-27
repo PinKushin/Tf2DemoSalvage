@@ -73,7 +73,7 @@ public sealed class CycleProbe : IProbe
 
         int entity = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         double from = arguments.Count > 2
             ? double.Parse(arguments[2], CultureInfo.InvariantCulture)
@@ -141,7 +141,6 @@ public sealed class CycleProbe : IProbe
         // computes and the cycle it hands the skeleton. Read back through `CycleOf`
         // — carried, not recomputed — after driving the production pipeline exactly as the viewer
         // does: players into props, the activity selection, then `Instances`.
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader
             .Parse(File.ReadAllBytes(path)).MapName;
@@ -151,10 +150,10 @@ public sealed class CycleProbe : IProbe
         Func<string, PropModels.ModelFrames?>? geometry = null;
 
         if (mapName.Length > 0
-            && locator.Find(mapName) is { } mapPath
-            && locator.FindGameFolder() is { } folder)
+            && ProbeInstall.Map(mapName) is { } mapPath
+            && ProbeInstall.Game(output) is { Archives.IsEmpty: false } installed)
         {
-            game = GameContent.Open(folder, NullLoggerFactory.Instance);
+            game = installed;
 
             LoadedMap map = LoadedMap.Read(
                 File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);

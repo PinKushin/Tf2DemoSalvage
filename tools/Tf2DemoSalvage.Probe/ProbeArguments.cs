@@ -101,7 +101,7 @@ internal static class ProbeArguments
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(output);
 
-        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder(output);
         string? named = arguments.Count > 0 ? arguments[0] : null;
 
         named ??= folder is null ? null : Path.Combine(folder, "tf2_misc_dir.vpk");

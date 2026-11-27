@@ -60,12 +60,11 @@ public sealed class WorldGeometryProbe : IProbe
         float z = Number(arguments[3]);
         float radius = arguments.Count > 4 ? Number(arguments[4]) : DefaultRadius;
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        string? path = locator.Find(
+        string? path = ProbeInstall.Map(
             map.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? map[..^4] : map);
 
-        if (path is null || locator.FindGameFolder() is not { } folder)
+        if (path is null || ProbeInstall.Folder(output) is null)
         {
             output.WriteLine($"No map named '{map}', or the game is not installed.");
             return;
@@ -73,7 +72,7 @@ public sealed class WorldGeometryProbe : IProbe
 
         byte[] bytes = File.ReadAllBytes(path);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         LoadedMap loaded = LoadedMap.Read(bytes, game, timeline: null, 0, NullLoggerFactory.Instance, path);
 
         if (loaded.Assets is not { } assets)
