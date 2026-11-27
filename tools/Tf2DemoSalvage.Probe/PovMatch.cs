@@ -34,12 +34,13 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
             return Refused(output, "error: control failed: the demo has no recorder (SourceTV?), so there is nothing to measure.");
         }
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        // The install the timeline was built with (B874), not a second one found by Steam's library alone.
+        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath ||
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             return Refused(output, "error: the demo's map or the game could not be found.");
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
         if (map.Assets is not { } assets)

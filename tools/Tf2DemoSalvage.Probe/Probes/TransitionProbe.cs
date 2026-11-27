@@ -203,7 +203,7 @@ public sealed class TransitionProbe : IProbe
 
         if (mapName.Length == 0 ||
             locator.Find(mapName) is not { } mapPath ||
-            locator.FindGameFolder() is not { } folder)
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine(
                 $"{Path.GetFileName(path)}: no game install or map '{mapName}' — " +
@@ -211,7 +211,6 @@ public sealed class TransitionProbe : IProbe
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         LoadedMap map = LoadedMap.Read(
             File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);

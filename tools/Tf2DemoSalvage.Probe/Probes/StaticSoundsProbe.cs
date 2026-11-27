@@ -33,13 +33,12 @@ public sealed class StaticSoundsProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count == 0 || new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } game)
+        if (arguments.Count == 0 || ProbeInstall.Game(output).Archives is not { IsEmpty: false } archives)
         {
             output.WriteLine("usage: static-sounds <demo>, with TF2 installed");
             return;
         }
 
-        GameArchives archives = GameArchives.Open(game);
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), output);
         Dictionary<string, SoundSample?> read = new(StringComparer.OrdinalIgnoreCase);
         HashSet<(int Entity, string Name)> live = [];

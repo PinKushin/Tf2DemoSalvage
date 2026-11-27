@@ -32,7 +32,7 @@ public sealed class PaintKitsProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        GameArchives archives = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder()).WithoutCustom();
+        GameArchives archives = ProbeInstall.Game(output).Archives.WithoutCustom();
 
         if (archives.Read(PaintKitDefinitions.FilePath) is not { } file)
         {

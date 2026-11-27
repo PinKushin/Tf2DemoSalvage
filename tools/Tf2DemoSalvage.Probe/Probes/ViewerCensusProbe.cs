@@ -90,14 +90,12 @@ public sealed class ViewerCensusProbe : IProbe
             $"{timeline.Props.Count:N0} prop tracks, {timeline.PlayerTracks.Count:N0} player tracks, " +
             $"sampling every {stride}"));
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("No TF2 install, so nothing can be resolved. This is not a finding.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         IPlayerAppearance appearance = DemoAppearance.Ensure(
             DemoAppearance.None, timeline, game, NullLogger.Instance);

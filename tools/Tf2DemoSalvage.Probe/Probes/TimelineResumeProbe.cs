@@ -50,7 +50,9 @@ public sealed class TimelineResumeProbe : IProbe
         if (arguments.Count < 3 || arguments[2] != "cost")
         {
             // Without the install on both sides, deliberately: `BuildThroughSnapshot` takes none, and this compares the
-            // resume against a straight build, so the straight build must take what the resume takes (B874).
+            // resume against a straight build, so the straight build must take what the resume takes (B874). So the resume is
+            // never checked against a straight build WITH the install, the one the viewer makes: what the class scripts and
+            // model facts do across a snapshot is not measured here.
             TimelineFingerprint straight = TimelineFingerprint.Of(DemoTimeline.Build(demo));
             TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(demo, at));
 

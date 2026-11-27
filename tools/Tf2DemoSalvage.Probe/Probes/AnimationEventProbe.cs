@@ -71,13 +71,11 @@ public sealed class AnimationEventProbe : IProbe
 
         if (mapName.Length == 0
             || locator.Find(mapName) is not { } mapPath
-            || locator.FindGameFolder() is not { } folder)
+            || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
         }
-
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // **Through the map's loaded assets, because the sequence list has to be the MERGED one.**
         // A TF2 player model declares no events of its own — they live in the included

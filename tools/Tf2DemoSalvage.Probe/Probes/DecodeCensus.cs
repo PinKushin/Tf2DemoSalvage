@@ -760,7 +760,9 @@ internal sealed class DemoCensus
         // The one stage that still holds the file (B439, out of B449's scope), read only once its budget allows it.
         byte[] bytes = File.ReadAllBytes(_path);
 
-        // Opened before the first heap reading, so the held figure is the timeline's and not the install's (B874).
+        // The install opened before the first heap reading, its class scripts and model facts object with it, as the
+        // viewer's are before a demo loads (B874). What the facts read per model during the build is in the held figure,
+        // because the viewer's build holds it too.
         GameContent game = ProbeInstall.Game(_log);
         long before = LiveHeap();
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);

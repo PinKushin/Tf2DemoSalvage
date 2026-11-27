@@ -152,9 +152,9 @@ public sealed class CycleProbe : IProbe
 
         if (mapName.Length > 0
             && locator.Find(mapName) is { } mapPath
-            && locator.FindGameFolder() is { } folder)
+            && ProbeInstall.Game(output) is { Archives.IsEmpty: false } installed)
         {
-            game = GameContent.Open(folder, NullLoggerFactory.Instance);
+            game = installed;
 
             LoadedMap map = LoadedMap.Read(
                 File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);

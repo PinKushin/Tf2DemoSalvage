@@ -61,13 +61,12 @@ public sealed class WeaponModelProbe : IProbe
             return;
         }
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder();
 
         output.WriteLine($"{Path.GetFileName(path)} stride {stride}");
         output.WriteLine($"game folder: {folder ?? "NOT FOUND — every lookup will answer null"}");
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
         WeaponPropModels resolver = new();
 

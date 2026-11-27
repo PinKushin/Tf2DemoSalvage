@@ -73,7 +73,7 @@ public sealed class BoneFlagProbe : IProbe
 
         if (mapName.Length == 0 ||
             locator.Find(mapName) is not { } mapPath ||
-            locator.FindGameFolder() is not { } folder)
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
@@ -89,7 +89,6 @@ public sealed class BoneFlagProbe : IProbe
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // **Players are not props, and IK lives on nothing else.** `PropsAt` reports entities with
         // models — weapons, cosmetics, buildings — and a PLAYER becomes a prop only when

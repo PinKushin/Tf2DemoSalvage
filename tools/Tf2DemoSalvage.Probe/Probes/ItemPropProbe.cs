@@ -68,11 +68,10 @@ public sealed class ItemPropProbe : IProbe
         bool strided = int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int stride) && stride > 0;
         stride = strided ? stride : DefaultStride;
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder();
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         output.WriteLine($"game {folder ?? "NOT FOUND - every schema lookup answers null"}, every {stride.ToString(CultureInfo.InvariantCulture)} ticks");
 
         foreach (string demo in arguments.Skip(strided ? 2 : 1))

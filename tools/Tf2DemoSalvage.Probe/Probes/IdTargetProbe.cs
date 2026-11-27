@@ -51,7 +51,7 @@ public sealed class IdTargetProbe : IProbe
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         if (DemoCorpus.Find(arguments[0], output) is not { } path ||
-            locator.FindGameFolder() is not { } folder ||
+            ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game ||
             locator.Find(arguments[1]) is not { } mapPath)
         {
             output.WriteLine("Demo, game or map not found.");
@@ -66,7 +66,6 @@ public sealed class IdTargetProbe : IProbe
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
         IdTargets targets = new(new BulletStrikes(new EntityModelSet(), NullLogger.Instance), NullLogger.Instance);
 

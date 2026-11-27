@@ -52,11 +52,10 @@ public sealed class AnimSlotProbe : IProbe
             return;
         }
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder();
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         foreach (string demo in arguments)
         {

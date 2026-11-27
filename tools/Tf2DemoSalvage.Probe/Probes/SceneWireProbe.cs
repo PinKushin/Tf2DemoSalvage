@@ -212,9 +212,7 @@ public sealed class SceneWireProbe : IProbe
         // Every earlier measurement resolved paths out of `items_game.txt`; these come from this
         // recording's own string table, carry the game's own mixed case, and include the `workshop/`
         // prefix community taunts use — none of which the schema paths exercised.
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .FindGameFolder() is not { } folder ||
-            GameArchives.Open(folder).Read("scenes/scenes.image") is not { } image ||
+        if (ProbeInstall.Game(output).Archives.Read("scenes/scenes.image") is not { } image ||
             SceneImage.Read(image) is not { } archive)
         {
             output.WriteLine("  No scene archive, so the wire's names cannot be resolved here.");

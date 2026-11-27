@@ -78,7 +78,7 @@ public sealed class BodygroupProbe : IProbe
         // has nothing to do with the code under test.**
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder() is not { } folder)
         {
             output.WriteLine(
                 "No TF2 install found. Every bodygroup lookup would answer zero, which says "
@@ -89,7 +89,7 @@ public sealed class BodygroupProbe : IProbe
 
         byte[] bytes = File.ReadAllBytes(path);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
 
         // **The map is loaded for its GEOMETRY LOADER, which is the only route to a `.mdl`.**

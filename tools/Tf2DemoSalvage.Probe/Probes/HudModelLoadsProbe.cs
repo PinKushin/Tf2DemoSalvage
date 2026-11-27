@@ -65,8 +65,7 @@ public sealed class HudModelLoadsProbe : IProbe
         }
 
         int stride = arguments.Count >= 2 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 33;
-        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         game.ChosenHud = null;
         GameArchives archives = game.HudArchives;
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), game);

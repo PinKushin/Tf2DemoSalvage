@@ -75,7 +75,7 @@ public sealed class PoseParameterProbe : IProbe
 
         if (mapName.Length == 0
             || locator.Find(mapName) is not { } mapPath
-            || locator.FindGameFolder() is not { } folder)
+            || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;
@@ -93,7 +93,6 @@ public sealed class PoseParameterProbe : IProbe
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         // The production resolution step, for the same reason `props` runs it: a model named only
         // by an item is absent until this happens (B263).

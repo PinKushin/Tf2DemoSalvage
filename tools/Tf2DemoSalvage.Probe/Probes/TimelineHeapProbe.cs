@@ -59,8 +59,9 @@ public sealed class TimelineHeapProbe : IProbe
             return;
         }
 
-        // The control: the heap before anything is built, so the difference is the timeline's — the install opened
-        // first, so it is not counted as the timeline's (B874).
+        // The control: the heap before anything is built. The install is opened first, its class scripts and model facts
+        // object with it, as the viewer's are before a demo loads (B874); what the facts read per model during the build
+        // is counted, because the viewer's build pays it too.
         GameContent install = ProbeInstall.Game(output);
         long before = Live();
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), install);
@@ -78,10 +79,9 @@ public sealed class TimelineHeapProbe : IProbe
 
         if (arguments.Contains("--map")
             && locator.Find(mapName) is { } mapPath
-            && locator.FindGameFolder() is { } folder)
+            && !install.Archives.IsEmpty)
         {
-            GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-            map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
+            map = LoadedMap.Read(File.ReadAllBytes(mapPath), install, timeline, 0, NullLoggerFactory.Instance, mapPath);
             // What the viewer's "memory after load" line read before D199: the heap as the LAST collection left it, of
             // whatever kind, counting every dead object no full collection had reached. The viewer now collects first.
             GCMemoryInfo asLogged = GC.GetGCMemoryInfo();
@@ -90,7 +90,7 @@ public sealed class TimelineHeapProbe : IProbe
                 + $"(committed {Mb(asLogged.TotalCommittedBytes):0} MB, last GC gen{asLogged.Generation})");
 
             long withMap = Live();
-            output.WriteLine($"with {mapName}: live heap {Mb(withMap):0} MB (map and game content hold {Mb(withMap - after):0} MB)");
+            output.WriteLine($"with {mapName}: live heap {Mb(withMap):0} MB (the map holds {Mb(withMap - after):0} MB; the install was counted before the timeline)");
 
             // What the viewer does once the world is on the device (B407): the textures' pixels go.
             map.Assets?.ReleaseUploaded();

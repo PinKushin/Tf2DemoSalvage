@@ -55,7 +55,9 @@ public sealed class TimelineHoldersProbe : IProbe
             return;
         }
 
-        // The install opened before the first reading, so the total is the timeline's and not the install's (B874).
+        // The install opened before the first reading, its class scripts and model facts object with it, as the viewer's
+        // are before a demo loads (B874). What the facts read per model during the build is in the total, because the
+        // viewer's build holds it too.
         GameContent game = ProbeInstall.Game(output);
         long before = Live();
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);

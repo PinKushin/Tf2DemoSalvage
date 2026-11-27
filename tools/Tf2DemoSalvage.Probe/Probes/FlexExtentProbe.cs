@@ -65,13 +65,12 @@ public sealed class FlexExtentProbe : IProbe
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
 
-        if (locator.FindGameFolder() is not { } folder || mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game || mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
         {
             output.WriteLine("The game or the demo's map was not found. Not a finding.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         IPlayerAppearance appearance = DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 

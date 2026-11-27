@@ -31,7 +31,7 @@ public sealed class HudProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Contains("custom");
-        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+        GameArchives all = ProbeInstall.Game(output).Archives;
         GameArchives archives = custom ? all : all.WithoutCustom();
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
         IReadOnlyList<HudGameEvent> events = [];

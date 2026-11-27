@@ -47525,26 +47525,56 @@ anim-state answer reads a timeline the viewer never builds — against the rule 
 Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
 builds as `DecodedDemo.Read` does, and the probes call it.
 
-**Fixed.** `ProbeInstall` (`tools/Tf2DemoSalvage.Probe/ProbeInstall.cs`) finds the game as the probes' `MapLocator`
-already did, opens it once per process with `GameContent.Open`, and builds with `game.ClassAnimation` and
-`game.ModelFacts`, which is what `ViewerPresenter.LoadDemoAsync` hands `DecodedDemo.Read`. With no install it builds as
-the viewer does with no game and says so once. Every probe that built a real demo's timeline goes through it (100 sites);
-a probe that already held its own `GameContent` passes that. Probes that measure a build's heap or bytes
+**Fixed.** `ProbeInstall` (`tools/Tf2DemoSalvage.Probe/ProbeInstall.cs`) finds the game as the viewer does —
+`MapProvider.Installed().GameFolder()`: `TF2_FOLDER`, then the saved `cl_game_folder` (the picker's choice), then
+Steam's library, with that method's catch of an `IOException` — where the first version used the probes' `MapLocator`,
+which reads only Steam's library (review 1). It opens the install once per process and builds the class scripts and the
+model facts object on opening, as `LevelSystems.Opened.Of` does before the viewer's first demo. It builds with
+`game.ClassAnimation`, `game.ModelFacts` and the watcher's interp, which is what `ViewerPresenter.LoadDemoAsync` hands
+`DecodedDemo.Read`. The interp is the viewer's as it stands before a demo loads: the saved settings, then the watcher's
+TF2 configs run over them (`ViewerSession` attaches the console, then `LoadUserConfig`), unless `TF2VIEW_NO_CONFIGS=1`.
+**Two inputs the viewer has and a probe cannot**: a `+cl_interp` on the viewer's command line, and a config in the
+program's own `custom/` folder, which is beside the viewer's executable, not the probe's. With no install it builds as the
+viewer does with no game and tells the first writer that asks, once per process.
+
+Every probe that built a real demo's timeline goes through it: 100 sites in 93 files (counted by reference to the
+helper's two public build overloads). Twenty-nine of them used to open a second install of their own beside the
+helper's (review 1), and so did `PovMatch`, the recorder probes' opener; twelve more opened their own through
+`MapLocator` and handed it to the helper's build — `AnimSlotProbe`, `AttachmentProbe`, `BodygroupProbe`, `CarriedProbe`,
+`EconEffectsProbe`, `FlexProbe`, `HudModelLoadsProbe`, `ItemPropProbe`, `PaintProbe`, `TextureReadsProbe`,
+`WeaponModelProbe`, and `PoseResetProbe`, whose facts are its variable. All of them take `ProbeInstall.Game` now, so a
+probe that builds a timeline holds one install, the one the viewer would find. Probes that measure a build's heap or bytes
 (`timeline-cost`, `timeline-heap`, `timeline-holders`, `timeline-windows`, the census) open the install before their
-first reading, so the install is not counted as the timeline's; `timeline-windows`' checkpoint walk takes the same
-install (B872). Left without it on purpose, each with a comment: `timeline-resume` (`BuildThroughSnapshot` takes no
-install, so its straight build must not either), `pose-reset` (the facts are its variable; the class scripts are now
-the install's in all three builds), and `camera-path`'s synthetic views-only demo.
+first reading; what the model facts read per model during the build is counted, because the viewer's build pays it too.
+`timeline-windows`' checkpoint walk takes the same install and the watcher's interp (B872). Left without it on purpose,
+each with a comment: `timeline-resume` (`BuildThroughSnapshot` takes no install, so its straight build must not either —
+which means the resume is never checked against a straight build WITH the install, the one the viewer makes),
+`pose-reset` (the facts are its variable; the class scripts are the install's in all three builds), and `camera-path`'s
+synthetic views-only demo.
 
 **The instrument, measured:** `TimelineFingerprint` cannot see this. On `z1800` and on the live-build POV, a build with
 the install and one without fingerprint the same, because it hashes stored keyframes and the install acts on the
 interpolation histories (`OnNewModel`'s resize and static-prop flag). Sampling every track's sequence, cycle and pose
 parameters half a tick after each keyframe tells the two apart on the live POV.
 
-Tested by `ProbeInstallTests` (Corpus.Tests): `Timeline_WithTheInstall_MatchesTheViewersRead` — the probe's timeline
-samples and fingerprints as `DecodedDemo.Read`'s with the viewer's arguments; control, a build without the install
-samples differently (skips without TF2) — and `Open_WithNoFolder_SaysSoAndBuildsAsTheViewer`, which runs in CI.
-Sabotage: the helper passing `models: null` reddened the first at its sample comparison. *Not verified by looking.*
+Tested by `ProbeInstallTests` (Corpus.Tests), each sabotaged once with an exact inverse edit (2026-11-26):
+
+- `Timeline_WithTheInstall_MatchesTheViewersRead` — the probe's timeline samples and fingerprints as `DecodedDemo.Read`'s
+  with the viewer's arguments; control, a build with the class scripts and no model facts samples differently (skips
+  without TF2). Sabotage: the helper passing `models: null` reddened it at the sample comparison. **The helper passing
+  `classes: null` leaves it green**, measured: neither this demo nor `z1800` reaches a branch where a class's script
+  differs from the engine's default, so no test here can see the class scripts dropped.
+- `Game_WithTf2FolderSet_OpensThatFolder` — calls `ProbeInstall.Game` itself with `TF2_FOLDER` naming a folder no Steam
+  library lists. Sabotage: the helper back on `MapLocator(...).FindGameFolder()` reddened it at the marker read.
+- `WatcherInterp_WithAnAutoexec_TakesItsInterpOverTheSaved` — control, no folder keeps the saved interp. Sabotage: the
+  configs not run reddened it at the autoexec's value.
+- `Game_WithNoInstall_TellsTheFirstWriterOnce` — a null first writer does not spend the notice. Sabotage: a null writer
+  spending it reddened it at the first writer's lines.
+- `Open_WithNoFolder_SaysSoAndHasNoClassScripts` — runs in CI. It asserts the notice and the absent class scripts and not
+  a build: with no archives the build is the bare one by construction, so a comparison could not fail. Sabotage: `Open`
+  not saying it reddened it at the notice.
+
+*Not verified by looking.*
 
 ## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
 

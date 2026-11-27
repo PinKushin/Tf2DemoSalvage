@@ -61,8 +61,8 @@ public sealed class EconEffectsProbe : IProbe
 
         int stride = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 660;
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-        string? folder = locator.FindGameFolder();
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        string? folder = ProbeInstall.Folder();
+        GameContent game = ProbeInstall.Game(output);
         byte[] bytes = File.ReadAllBytes(path);
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
 

@@ -41,7 +41,7 @@ public sealed class FlexProbe : IProbe
             return;
         }
 
-        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? folder = ProbeInstall.Folder();
 
         if (folder is null)
         {
@@ -49,7 +49,7 @@ public sealed class FlexProbe : IProbe
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (arguments[0] == "sentence" && arguments.Count > 2)
         {
