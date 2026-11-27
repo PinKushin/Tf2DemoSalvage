@@ -34,9 +34,8 @@ public sealed class PakProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments.Count > 0 ? arguments[0] : "koth_harvest_final") is not { } map)
+        if (ProbeInstall.Map(arguments.Count > 0 ? arguments[0] : "koth_harvest_final") is not { } map)
         {
             output.WriteLine("Map not found.");
             return;

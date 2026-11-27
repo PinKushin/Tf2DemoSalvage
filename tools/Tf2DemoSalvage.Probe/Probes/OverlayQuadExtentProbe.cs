@@ -51,7 +51,7 @@ public sealed class OverlayQuadExtentProbe : IProbe
         string map = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
         string wanted = arguments.Count > 1 ? arguments[1] : "stripe";
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(map) is not { } mapPath)
+        if (ProbeInstall.Map(map) is not { } mapPath)
         {
             output.WriteLine($"No map named '{map}'.");
             return;

@@ -52,11 +52,10 @@ public sealed class MapModelProbe : IProbe
         string map = arguments[0];
         string filter = arguments.Count > 1 ? arguments[1] : string.Empty;
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         // `Find` takes the name a demo header carries and appends the extension itself, and it
         // refuses anything with a path separator in it. Passing "cp_fulgur.bsp" searches for
         // "cp_fulgur.bsp.bsp" and reports the map as missing.
-        string? path = locator.Find(
+        string? path = ProbeInstall.Map(
             map.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? map[..^4] : map);
 
         if (path is null)

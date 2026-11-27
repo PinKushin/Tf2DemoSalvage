@@ -38,10 +38,9 @@ public sealed class WorldCullingProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string name = arguments.Count > 0 ? arguments[0] : "cp_process_final";
 
-        if (locator.Find(name) is not { } path || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(name) is not { } path || ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine($"No map named '{name}', or no game.");
             return;

@@ -86,7 +86,7 @@ public sealed class DrawnPropProbe : IProbe
         // skipping it "cannot report a weapon named only by its item". Same rule, applied here:
         // **a probe runs the production path or it is worthless.**
         output.WriteLine(
-            $"game {ProbeInstall.Folder() ?? "NOT FOUND - every schema-named model will read as absent"}");
+            $"game {ProbeInstall.Folder(output) ?? "NOT FOUND - every schema-named model will read as absent"}");
 
         GameContent game = ProbeInstall.Game(output);
 

@@ -46,7 +46,7 @@ public sealed class AttachmentProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (ProbeInstall.Folder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("The game folder could not be found, so there is no schema to read.");
             return;

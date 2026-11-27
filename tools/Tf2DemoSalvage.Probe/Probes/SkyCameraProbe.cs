@@ -50,9 +50,8 @@ public sealed class SkyCameraProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path)
+        if (ProbeInstall.Map(arguments[0]) is not { } path)
         {
             output.WriteLine($"No map named '{arguments[0]}'.");
             return;

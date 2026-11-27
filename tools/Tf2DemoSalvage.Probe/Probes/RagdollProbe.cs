@@ -51,14 +51,13 @@ public sealed class RagdollProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed, so no model can be read.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         string wanted = arguments[0];
 

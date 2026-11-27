@@ -52,7 +52,7 @@ public sealed class AnimSlotProbe : IProbe
             return;
         }
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
         GameContent game = ProbeInstall.Game(output);

@@ -54,9 +54,8 @@ public sealed class PhysicsSolidLoadProbe : IProbe
 
         string mode = arguments.Count > 0 ? arguments[0] : "all";
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("The game folder could not be found.");
             return;
@@ -69,7 +68,7 @@ public sealed class PhysicsSolidLoadProbe : IProbe
 
         if (mode is "maps" or "all")
         {
-            Maps(output, locator);
+            Maps(output);
         }
     }
 
@@ -149,9 +148,9 @@ public sealed class PhysicsSolidLoadProbe : IProbe
     }
 
     /// <summary>Every solid in every installed map's collision lump.</summary>
-    private static void Maps(TextWriter output, MapLocator locator)
+    private static void Maps(TextWriter output)
     {
-        if (locator.Find("koth_harvest_final") is not { } anyMap)
+        if (ProbeInstall.Map("koth_harvest_final") is not { } anyMap)
         {
             output.WriteLine("No installed maps found.");
             return;

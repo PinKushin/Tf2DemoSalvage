@@ -43,13 +43,13 @@ public sealed class EnvMapUndefinedCensusProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         PakFile noMap = PakFile.Read(EmptyZip());
         SortedDictionary<string, Tally> rows = new(StringComparer.Ordinal);
 

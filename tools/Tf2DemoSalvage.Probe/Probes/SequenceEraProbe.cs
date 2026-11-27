@@ -73,16 +73,13 @@ public sealed class SequenceEraProbe : IProbe
 
         List<string> table = [];
 
-        string? folder = new MapLocator(
-            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
-
-        if (folder is null)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed, so there is nothing to compare against.");
             return;
         }
 
-        GameContent today = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent today = ProbeInstall.Game(output);
         (IEnumerable<string> paths, Func<string, byte[]?> read) = Open(source);
 
         int compared = 0;

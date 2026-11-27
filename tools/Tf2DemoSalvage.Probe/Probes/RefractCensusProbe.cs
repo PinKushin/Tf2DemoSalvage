@@ -40,13 +40,13 @@ public sealed class RefractCensusProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         bool list = arguments.Count > 0 && arguments[0] == "list";
         int materials = 0;
         int refract = 0;

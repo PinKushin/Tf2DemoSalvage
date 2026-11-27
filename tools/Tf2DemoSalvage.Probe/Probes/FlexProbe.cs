@@ -41,7 +41,7 @@ public sealed class FlexProbe : IProbe
             return;
         }
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         if (folder is null)
         {

@@ -66,7 +66,6 @@ public sealed class PoseParameterProbe : IProbe
 
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         // The map is named in the demo's HEADER, and it is needed because the geometry loader —
         // the production one, which is the only one worth asking — comes off the loaded map.
@@ -74,7 +73,7 @@ public sealed class PoseParameterProbe : IProbe
             .Parse(File.ReadAllBytes(path)).MapName;
 
         if (mapName.Length == 0
-            || locator.Find(mapName) is not { } mapPath
+            || ProbeInstall.Map(mapName) is not { } mapPath
             || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");

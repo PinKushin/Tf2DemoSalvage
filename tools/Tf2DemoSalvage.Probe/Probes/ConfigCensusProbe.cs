@@ -45,7 +45,7 @@ public sealed class ConfigCensusProbe : IProbe
         {
             files.AddRange(Loose(arguments[0]));
         }
-        else if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is { } game)
+        else if (ProbeInstall.Folder(output) is { } game)
         {
             GameArchives archives = GameArchives.Open(game);
 

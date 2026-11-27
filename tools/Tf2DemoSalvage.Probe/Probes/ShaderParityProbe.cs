@@ -42,10 +42,9 @@ public sealed class ShaderParityProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string name = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
 
-        if (locator.Find(name) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Map(name) is not { } mapPath || ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine($"No map named '{name}', or no game.");
             return;

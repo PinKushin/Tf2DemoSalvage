@@ -76,9 +76,8 @@ public sealed class BodygroupProbe : IProbe
 
         // **Said out loud, because without an install every answer below is zero for a reason that
         // has nothing to do with the code under test.**
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (ProbeInstall.Folder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine(
                 "No TF2 install found. Every bodygroup lookup would answer zero, which says "
@@ -99,7 +98,7 @@ public sealed class BodygroupProbe : IProbe
         // for all 24 requests on its first run, which was a fact about the probe.
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine($"Map '{mapName}' is not installed, so no model can be read.");
             return;

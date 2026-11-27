@@ -63,15 +63,14 @@ public sealed class VertexColourFaceProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments[0]) is not { } path)
+        if (ProbeInstall.Map(arguments[0]) is not { } path)
         {
             output.WriteLine($"No map named '{arguments[0]}'.");
             return;
         }
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is not { } folder)
         {
             output.WriteLine("No TF2 install, so no material can be read.");
             return;

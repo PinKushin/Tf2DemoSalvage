@@ -53,10 +53,14 @@ public sealed class TimelineWindowsProbe : IProbe
         int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
         // The walk and the whole timeline both build with the install, as the viewer's do (B872, B874). It is opened before
-        // the heap reading, its class scripts and model facts object with it, as the viewer's are before a demo loads; what
-        // the facts read per model during the walk is the walk's, as it is in the viewer.
+        // the heap reading, its class scripts and model facts object with it, as the viewer's are before a demo loads, and
+        // warmed by a throwaway build: what the facts read per model is the install's cache, kept after the walk, so it is
+        // its own line and the retained heap below is the checkpoints' alone.
         GameContent game = ProbeInstall.Game(output);
+        long heapCold = Live();
+        ProbeInstall.Warm(demo, game);
         long heapBefore = Live();
+        output.WriteLine($"  the install's per-model caches grew {(heapBefore - heapCold) / 1048576d:0.0} MB over a throwaway build (not the checkpoints')");
         Stopwatch walk = Stopwatch.StartNew();
         Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
         WindowSettings settings = new(ProbeInstall.Interp());

@@ -68,7 +68,7 @@ public sealed class ItemPropProbe : IProbe
         bool strided = int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int stride) && stride > 0;
         stride = strided ? stride : DefaultStride;
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Opened once for every demo named: the schema is eight megabytes and the census walks a corpus.
         GameContent game = ProbeInstall.Game(output);

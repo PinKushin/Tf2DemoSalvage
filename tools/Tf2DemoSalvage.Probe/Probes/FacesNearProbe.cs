@@ -33,9 +33,8 @@ public sealed class FacesNearProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (arguments.Count < 5 || locator.Find(arguments[0]) is not { } path)
+        if (arguments.Count < 5 || ProbeInstall.Map(arguments[0]) is not { } path)
         {
             output.WriteLine(Summary);
             return;

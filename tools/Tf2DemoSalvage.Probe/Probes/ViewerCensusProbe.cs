@@ -107,8 +107,7 @@ public sealed class ViewerCensusProbe : IProbe
             .Parse(File.ReadAllBytes(path)).MapName;
 
         if (mapName.Length == 0 ||
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-                .Find(mapName) is not { } mapPath)
+            ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine("  The demo's map was not found, so geometry cannot resolve. Not a finding.");
             return;

@@ -80,7 +80,7 @@ public sealed class CarriedProbe : IProbe
             ? int.Parse(arguments[2], CultureInfo.InvariantCulture)
             : null;
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         // **Said out loud rather than assumed**, because every model path below comes from the
         // item schema in this folder — with no install, every weapon reads as "no model" and the

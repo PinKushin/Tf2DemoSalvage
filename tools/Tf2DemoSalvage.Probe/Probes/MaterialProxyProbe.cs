@@ -55,14 +55,13 @@ public sealed class MaterialProxyProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         string? wanted = arguments.Count > 0 ? arguments[0] : null;
 

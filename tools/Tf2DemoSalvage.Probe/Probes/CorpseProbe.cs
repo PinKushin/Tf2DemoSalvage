@@ -539,7 +539,7 @@ public sealed class CorpseProbe : IProbe
         // and silently changes nothing — a feature that runs, counts, and draws the same pose. The
         // engine has the same dependency: `GetSequenceForDeath` returns whatever
         // `LookupSequence( "primary_death_headshot" )` gives, including -1.
-        if (ProbeInstall.Folder() is { } where &&
+        if (ProbeInstall.Folder(output) is { } where &&
             File.Exists(Path.Combine(where, "tf2_misc_dir.vpk")))
         {
             VpkArchive models = VpkArchive.Open(Path.Combine(where, "tf2_misc_dir.vpk"));

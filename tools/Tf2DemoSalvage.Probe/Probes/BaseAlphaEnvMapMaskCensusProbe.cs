@@ -41,13 +41,13 @@ public sealed class BaseAlphaEnvMapMaskCensusProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
         PakFile noMap = PakFile.Read(EmptyZip());
 
         Dictionary<string, Tally> byShader = new(StringComparer.OrdinalIgnoreCase);

@@ -36,7 +36,7 @@ public sealed class ResProbe : IProbe
         }
 
         GameArchives all = GameArchives.Open(
-            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+            ProbeInstall.Folder(output));
         GameArchives archives = arguments.Count > 1 && arguments[1] == "custom" ? all : all.WithoutCustom();
         string path = arguments[0].Replace('\\', '/');
 

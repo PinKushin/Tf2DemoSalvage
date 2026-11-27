@@ -26,7 +26,7 @@ internal static class VphysicsLibrary
     {
         module = 0;
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder ||
+        if (ProbeInstall.Folder(output) is not { } folder ||
             Path.GetDirectoryName(folder) is not { } root)
         {
             output.WriteLine("The game folder could not be found.");

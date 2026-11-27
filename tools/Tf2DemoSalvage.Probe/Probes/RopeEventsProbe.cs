@@ -62,9 +62,8 @@ public sealed class RopeEventsProbe : IProbe
 
     private static void Maps(TextWriter output)
     {
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find("koth_harvest_final") is not { } anyMap)
+        if (ProbeInstall.Map("koth_harvest_final") is not { } anyMap)
         {
             output.WriteLine("No installed maps found.");
             return;

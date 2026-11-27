@@ -27,16 +27,15 @@ public sealed class HitboxProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
         string model = arguments.Count > 0 ? arguments[0] : "models/player/scout.mdl";
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (game.Archives.Read(model) is not { } bytes)
         {

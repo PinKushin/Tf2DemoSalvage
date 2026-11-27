@@ -62,7 +62,6 @@ public sealed class InstanceProbe : IProbe
 
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         // The map from the demo's HEADER, which is where a demo names it — the timeline carries the
         // CRC for identity (a demo names a map VERSION) but not the name.
@@ -70,7 +69,7 @@ public sealed class InstanceProbe : IProbe
             .Parse(File.ReadAllBytes(demo)).MapName;
 
         if (mapName.Length == 0
-            || locator.Find(mapName) is not { } mapPath
+            || ProbeInstall.Map(mapName) is not { } mapPath
             || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");

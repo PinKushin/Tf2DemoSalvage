@@ -31,9 +31,8 @@ public sealed class OverlayFadesProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(arguments.Count > 0 ? arguments[0] : "cp_process_final") is not { } anyMap)
+        if (ProbeInstall.Map(arguments.Count > 0 ? arguments[0] : "cp_process_final") is not { } anyMap)
         {
             output.WriteLine("No map found.");
             return;

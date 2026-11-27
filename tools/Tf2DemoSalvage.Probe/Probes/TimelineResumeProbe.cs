@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -49,12 +50,12 @@ public sealed class TimelineResumeProbe : IProbe
         // "cost" as a third argument measures one snapshot and skips the two full builds.
         if (arguments.Count < 3 || arguments[2] != "cost")
         {
-            // Without the install on both sides, deliberately: `BuildThroughSnapshot` takes none, and this compares the
-            // resume against a straight build, so the straight build must take what the resume takes (B874). So the resume is
-            // never checked against a straight build WITH the install, the one the viewer makes: what the class scripts and
-            // model facts do across a snapshot is not measured here.
-            TimelineFingerprint straight = TimelineFingerprint.Of(DemoTimeline.Build(demo));
-            TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(demo, at));
+            // Both sides with the install and the watcher's interp, as the viewer builds (B874): the resume is checked
+            // against the straight build the viewer makes, and the snapshot carries the class scripts and model facts.
+            GameContent game = ProbeInstall.Game(output);
+            TimelineFingerprint straight = TimelineFingerprint.Of(ProbeInstall.Timeline(demo, game));
+            TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(
+                demo, at, client: ProbeInstall.Interp(), classes: game.ClassAnimation, models: game.ModelFacts));
 
             output.WriteLine($"{Path.GetFileName(path)}: snapshot after {at} of {commands} commands; {straight.Values} values straight, {resumed.Values} resumed");
             output.WriteLine($"  frames      {Same(straight.Frames, resumed.Frames)}");

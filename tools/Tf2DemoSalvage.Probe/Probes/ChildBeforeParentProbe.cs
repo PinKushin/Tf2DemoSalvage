@@ -58,10 +58,9 @@ public sealed class ChildBeforeParentProbe : IProbe
         int to = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : timeline.LastTick;
         int step = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : 11;
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Core.Container.DemoHeader.Parse(file).MapName;
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath || ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             output.WriteLine("The demo's map or the game could not be found.");
             return;

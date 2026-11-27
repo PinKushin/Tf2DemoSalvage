@@ -60,8 +60,7 @@ public sealed class EconEffectsProbe : IProbe
         }
 
         int stride = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 660;
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
         GameContent game = ProbeInstall.Game(output);
         byte[] bytes = File.ReadAllBytes(path);
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
@@ -69,7 +68,7 @@ public sealed class EconEffectsProbe : IProbe
         // **The map, for its geometry loader — the only route to a `.mdl`** (B69 review I): `EntityModelSet.Geometry` answers
         // nothing until a map sets it, and then every `LookupAttachment` is 0 and every effect "follows its abs origin".
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
-        (MapAssets? assets, string mapState) = ReadMap(mapName, locator, game, timeline);
+        (MapAssets? assets, string mapState) = ReadMap(mapName, game, timeline);
 
         output.WriteLine(
             $"{Path.GetFileName(path)}, recorder {timeline.RecorderEntityIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"}, "
@@ -209,9 +208,9 @@ public sealed class EconEffectsProbe : IProbe
         new EconParticleHolder(true, true, false, false, false, true, false, false, null));
 
     /// <summary>The demo's map as the viewer reads it, or null with why: not named, not installed, or failing to parse.</summary>
-    private static (MapAssets? Assets, string State) ReadMap(string mapName, MapLocator locator, GameContent game, DemoTimeline timeline)
+    private static (MapAssets? Assets, string State) ReadMap(string mapName, GameContent game, DemoTimeline timeline)
     {
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath)
         {
             return (null, "NOT LOADED - not installed, so no model can be read");
         }

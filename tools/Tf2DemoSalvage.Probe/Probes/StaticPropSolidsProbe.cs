@@ -33,9 +33,8 @@ public sealed class StaticPropSolidsProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         string mapName = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine($"No map named '{mapName}'.");
             return;

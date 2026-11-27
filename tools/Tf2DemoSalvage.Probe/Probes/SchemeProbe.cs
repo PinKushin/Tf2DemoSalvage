@@ -26,7 +26,7 @@ public sealed class SchemeProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         bool custom = arguments.Count > 0 && arguments[^1] == "custom";
-        GameArchives all = GameArchives.Open(new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder());
+        GameArchives all = GameArchives.Open(ProbeInstall.Folder(output));
         GameArchives archives = custom ? all : all.WithoutCustom();
         const string Path = "resource/clientscheme.res";
 

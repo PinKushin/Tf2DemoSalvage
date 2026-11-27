@@ -62,7 +62,7 @@ public sealed class PaintProbe : IProbe
 
         int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         // Said out loud: the paint attribute is looked up by NAME in items_game.txt, so with no
         // install every item reads as unpainted and the report would blame the demo.

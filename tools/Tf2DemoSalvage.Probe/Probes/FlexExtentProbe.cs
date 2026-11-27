@@ -62,10 +62,9 @@ public sealed class FlexExtentProbe : IProbe
         double seconds = double.Parse(arguments[2], CultureInfo.InvariantCulture);
 
         DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
 
-        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game || mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
+        if (ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game || mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath)
         {
             output.WriteLine("The game or the demo's map was not found. Not a finding.");
             return;

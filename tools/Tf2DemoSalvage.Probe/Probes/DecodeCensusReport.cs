@@ -32,7 +32,7 @@ internal sealed class CensusRow
         ("entities", ["snapshots", "snapshots_exact", "entities", "snapshot_throws", "slack_bits"]),
         ("trace", ["trace_lines", "trace_chars", "trace_packets", "trace_stopped", "trace_undecoded", "trace_anonymous"]),
         ("assembly", ["assembly_bytes", "rebuilt_bytes", "first_difference"]),
-        ("timeline", ["timeline_frames", "timeline_props", "timeline_players", "timeline_events", "timeline_mb", "timeline_ratio"]),
+        ("timeline", ["timeline_frames", "timeline_props", "timeline_players", "timeline_events", "timeline_mb", "timeline_ratio", "install_cache_mb"]),
         ("voice", ["voice_codec", "voice_packets", "voice_frames", "voice_silent", "voice_speakers", "voice_bad"]),
     ];
 

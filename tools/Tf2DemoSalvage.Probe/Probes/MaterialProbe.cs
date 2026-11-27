@@ -48,14 +48,13 @@ public sealed class MaterialProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         string name = arguments[0].Replace('\\', '/').Trim('/');
 

@@ -56,11 +56,15 @@ public sealed class TimelineHoldersProbe : IProbe
         }
 
         // The install opened before the first reading, its class scripts and model facts object with it, as the viewer's
-        // are before a demo loads (B874). What the facts read per model during the build is in the total, because the
-        // viewer's build holds it too.
+        // are before a demo loads (B874), and warmed by a throwaway build: what the facts read per model is the install's
+        // cache, kept after a timeline is gone, so it is printed apart and the total is the timeline's alone.
         GameContent game = ProbeInstall.Game(output);
+        byte[] file = File.ReadAllBytes(path);
+        long cold = Live();
+        ProbeInstall.Warm(file, game);
         long before = Live();
-        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
+        output.WriteLine($"  the install's per-model caches grew {Mb(before - cold):0} MB over a throwaway build (not the timeline's)");
+        DemoTimeline timeline = ProbeInstall.Timeline(file, game);
         long total = Live() - before;
         output.WriteLine($"{Path.GetFileName(path)}: {new FileInfo(path).Length / 1048576d:0.0} MB file, timeline {Mb(total):0} MB");
         output.WriteLine(

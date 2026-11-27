@@ -761,12 +761,17 @@ internal sealed class DemoCensus
         byte[] bytes = File.ReadAllBytes(_path);
 
         // The install opened before the first heap reading, its class scripts and model facts object with it, as the
-        // viewer's are before a demo loads (B874). What the facts read per model during the build is in the held figure,
-        // because the viewer's build holds it too.
+        // viewer's are before a demo loads (B874), then warmed by a throwaway build: what the facts read per model is the
+        // install's cache, kept after a timeline is gone, so it is its own column and the held figure is the timeline's
+        // alone. The throwaway doubles this stage's time, not its peak: it is collected before the measured build.
         GameContent game = ProbeInstall.Game(_log);
+        long cold = LiveHeap();
+        ProbeInstall.Warm(bytes, game);
         long before = LiveHeap();
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
         long held = LiveHeap() - before;
+
+        _row.Set("install_cache_mb", (double)(before - cold) / Megabyte);
 
         _row.Set("timeline_frames", timeline.Frames.Count);
         _row.Set("timeline_props", timeline.Props.Count);

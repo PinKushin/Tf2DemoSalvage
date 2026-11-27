@@ -73,13 +73,13 @@ public sealed class IvpPhyDropProbe : IProbe
             : DefaultDropHeight;
         int every = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : PrintEveryTicks;
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (LoadProp(output, game, staticModel) is not { } staticBody ||
             LoadProp(output, game, dynamicModel) is not { } dynamicBody)

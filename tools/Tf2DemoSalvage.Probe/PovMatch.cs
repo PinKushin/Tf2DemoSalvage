@@ -26,7 +26,6 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
 
         byte[] file = File.ReadAllBytes(path);
         DemoTimeline timeline = ProbeInstall.Timeline(file, output);
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Core.Container.DemoHeader.Parse(file).MapName;
 
         if (timeline.RecorderEntityIndex is not { } recorder)
@@ -35,7 +34,7 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
         }
 
         // The install the timeline was built with (B874), not a second one found by Steam's library alone.
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath ||
+        if (mapName.Length == 0 || ProbeInstall.Map(mapName) is not { } mapPath ||
             ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game)
         {
             return Refused(output, "error: the demo's map or the game could not be found.");

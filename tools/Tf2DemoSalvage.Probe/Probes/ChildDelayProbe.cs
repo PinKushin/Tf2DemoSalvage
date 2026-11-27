@@ -34,15 +34,14 @@ public sealed partial class ChildDelayProbe : IProbe
     {
         ArgumentNullException.ThrowIfNull(output);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (game.Archives.Read("particles/particles_manifest.txt") is not { } manifest)
         {

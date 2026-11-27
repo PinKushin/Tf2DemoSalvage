@@ -63,16 +63,13 @@ public sealed class ModelProbe : IProbe
 
         if (bytes is null)
         {
-            string? folder = new MapLocator(
-                MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
-
-            if (folder is null)
+            if (ProbeInstall.Folder(output) is null)
             {
                 output.WriteLine("The game is not installed, so no model can be read.");
                 return;
             }
 
-            GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+            GameContent game = ProbeInstall.Game(output);
 
             if (game.Archives.Read(path) is not { } found)
             {

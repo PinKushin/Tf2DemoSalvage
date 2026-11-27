@@ -47,7 +47,7 @@ public sealed class DetailBuildHashProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(arguments[0]) is not { } path)
+        if (ProbeInstall.Map(arguments[0]) is not { } path)
         {
             output.WriteLine($"No map named '{arguments[0]}'.");
             return;

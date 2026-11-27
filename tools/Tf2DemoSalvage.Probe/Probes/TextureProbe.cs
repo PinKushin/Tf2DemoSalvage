@@ -49,14 +49,13 @@ public sealed class TextureProbe : IProbe
             return;
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
-            .FindGameFolder() is not { } folder)
+        if (ProbeInstall.Folder(output) is null)
         {
             output.WriteLine("The game is not installed.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+        GameContent game = ProbeInstall.Game(output);
 
         if (arguments[0].Equals("census", StringComparison.OrdinalIgnoreCase))
         {

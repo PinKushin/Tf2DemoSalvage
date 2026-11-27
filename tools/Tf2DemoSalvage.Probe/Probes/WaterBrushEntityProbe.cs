@@ -47,9 +47,8 @@ public sealed class WaterBrushEntityProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.FindGameFolder() is not { } game || locator.Find("ctf_2fort") is not { } anyMap)
+        if (ProbeInstall.Folder(output) is not { } game || ProbeInstall.Map("ctf_2fort") is not { } anyMap)
         {
             output.WriteLine("No TF2 install found.");
             return;
@@ -59,7 +58,7 @@ public sealed class WaterBrushEntityProbe : IProbe
         Dictionary<string, bool> isWater = new(StringComparer.OrdinalIgnoreCase);
 
         IEnumerable<string> maps = arguments.Count > 0
-            ? [locator.Find(arguments[0]) ?? throw new ArgumentException($"no map named '{arguments[0]}'")]
+            ? [ProbeInstall.Map(arguments[0]) ?? throw new ArgumentException($"no map named '{arguments[0]}'")]
             : Directory.EnumerateFiles(Path.GetDirectoryName(anyMap)!, "*.bsp").Order(StringComparer.Ordinal);
 
         int mapsRead = 0;

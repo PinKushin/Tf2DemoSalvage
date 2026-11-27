@@ -47,11 +47,10 @@ public sealed class BeamViewProbe : IProbe
             return;
         }
 
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
         if (DemoCorpus.Find(arguments[0], output) is not { } path ||
             ProbeInstall.Game(output) is not { Archives.IsEmpty: false } game ||
-            locator.Find(arguments[1]) is not { } mapPath)
+            ProbeInstall.Map(arguments[1]) is not { } mapPath)
         {
             output.WriteLine("Demo, game or map not found.");
             return;

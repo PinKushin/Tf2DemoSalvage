@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
+    <!-- Corpus.Tests, for ProbeInstallTests: the probe helper's class-script and interp wiring proved on a synthetic demo,
+         which needs no install (B874). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Corpus.Tests" />
     <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
     <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />

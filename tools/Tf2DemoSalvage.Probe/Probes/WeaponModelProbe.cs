@@ -61,7 +61,7 @@ public sealed class WeaponModelProbe : IProbe
             return;
         }
 
-        string? folder = ProbeInstall.Folder();
+        string? folder = ProbeInstall.Folder(output);
 
         output.WriteLine($"{Path.GetFileName(path)} stride {stride}");
         output.WriteLine($"game folder: {folder ?? "NOT FOUND — every lookup will answer null"}");

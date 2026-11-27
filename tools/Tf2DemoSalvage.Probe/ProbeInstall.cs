@@ -18,14 +18,18 @@ namespace Tf2DemoSalvage.Probe;
 ///
 /// **Found as the viewer finds it**: <see cref="MapProvider.Installed"/>'s <see cref="MapProvider.GameFolder"/> —
 /// `TF2_FOLDER`, then the saved `cl_game_folder` (the picker's choice), then Steam's library — with its catch of a disk that
-/// fails underneath the search. **Opened as the viewer opens it**: `LevelSystems.Opened.Of` builds the class scripts before
-/// the install is used, and the model facts object is made here too, so neither lazy is counted by a probe that measures the
-/// build. What the facts read per model during the build stays in the build, as it does in the viewer.
+/// fails underneath the search. Maps are found by <see cref="Map"/>, the viewer's <see cref="MapProvider.Locate"/>, which
+/// searches that folder's <c>maps</c> first. **Opened as the viewer opens it**: `LevelSystems.Opened.Of` precaches the weapon
+/// scripts and builds the class scripts before the install is used, and the model facts object is made here too, so no lazy
+/// is counted by a probe that measures the build. What the facts read per model during a build is cached by the install;
+/// a heap probe warms it first (<see cref="Warm"/>) and prints it apart from the timeline.
 ///
 /// **The watcher's interp, as the viewer has it before any demo loads**: the saved settings, then the watcher's TF2 configs
 /// run over them (`ViewerSession` attaches the console to the settings and then runs `LoadUserConfig`), unless
-/// `TF2VIEW_NO_CONFIGS=1`. **Two things the viewer reads that a probe cannot**: a `+cl_interp` on the viewer's own command
-/// line, and a config in the program's own `custom/` folder, which sits beside the viewer's executable rather than this one.
+/// `TF2VIEW_NO_CONFIGS=1`. **Three things the viewer reads that a probe cannot**: a `+cl_interp` on the viewer's own command
+/// line; a config in the program's own `custom/` folder, which sits beside the viewer's executable rather than this one;
+/// and an `autoexec.cfg` that sets `cl_game_folder`, which moves the viewer's folder after the configs ran, where this
+/// finds its folder once, before running them.
 ///
 /// **No install is not a failure**: the build is the viewer's with no game, and the first writer that asks is told once,
 /// because a probe on a machine without TF2 still answers every question the demo alone can. Once per process, which is a
@@ -35,7 +39,7 @@ public static class ProbeInstall
 {
     /// <summary>What is said when the game is not found.</summary>
     public const string NoInstall =
-        "INSTALL not found: timelines build without the class scripts or model facts, as the viewer builds with no game";
+        "INSTALL not found: no game content is read, and timelines build without the class scripts or model facts, as the viewer builds with no game";
 
     private static readonly System.Threading.Lock Gate = new();
     private static (string? Folder, ClientInterp Interp)? _found;
@@ -56,14 +60,52 @@ public static class ProbeInstall
     }
 
     /// <summary>The <c>tf</c> folder the viewer would use, or null when it finds none.</summary>
+    /// <param name="output">Where an absent folder is said: the first non-null writer to ask, of this or <see cref="Game"/>, is told, once.</param>
     /// <returns>The folder <see cref="Game"/> opens.</returns>
-    public static string? Folder()
+    public static string? Folder(TextWriter? output)
     {
         lock (Gate)
         {
-            return Found().Folder;
+            string? folder = Found().Folder;
+
+            if (folder is null && output is not null && !_said)
+            {
+                output.WriteLine(NoInstall);
+                _said = true;
+            }
+
+            return folder;
         }
     }
+
+    /// <summary>Where the viewer would find a map: the install's own <c>maps</c> first, then Steam's library, then our downloads.</summary>
+    /// <param name="name">The map, without extension.</param>
+    /// <returns>Its path, or null when no search root holds it.</returns>
+    /// <remarks>
+    /// <see cref="MapProvider.Locate"/>, the viewer's own search, so a map under <c>TF2_FOLDER</c>'s <c>maps</c> that no
+    /// Steam library lists is found here as the viewer finds it (D203). It searches what <see cref="Folder"/> found.
+    /// </remarks>
+    public static string? Map(string name)
+    {
+        using MapProvider maps = new(
+            MapProvider.SteamLibraryFile,
+            MapProvider.OwnMapsFolder,
+            () => MapDownloader.Create(MapProvider.OwnMapsFolder),
+            () => Folder(output: null));
+
+        return maps.Locate(name);
+    }
+
+    /// <summary>Builds one timeline and drops it, so the install's per-model caches already hold what this demo reads.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="game">The install.</param>
+    /// <remarks>
+    /// **For a heap reading**: the model facts cache what each model tells `OnNewModel` (B870) the first time a build asks,
+    /// and that cache is the install's, kept after the timeline is gone. A probe that reads the heap before and after one
+    /// build counts it as "held by the timeline"; a reading taken after this counts the timeline alone, and the difference
+    /// across this call is the cache, which the probe prints as its own line.
+    /// </remarks>
+    public static void Warm(ReadOnlyMemory<byte> file, GameContent game) => _ = Timeline(file, game);
 
     /// <summary>The watcher's interp: the saved settings with the TF2 configs of <see cref="Folder"/> run over them.</summary>
     /// <returns>The interp every timeline here is built with; finding it opens no install.</returns>
@@ -108,7 +150,10 @@ public static class ProbeInstall
     {
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
-        // `LevelSystems.Opened.Of` builds the class scripts before the install escapes; both are plain lazy fields.
+        // `LevelSystems.Opened.Of`'s order: the weapon scripts read before play (B595 part 6), then the class scripts built
+        // before the install escapes. The model facts object is the viewer's first decode's, made here so a probe that
+        // measures a build does not count it; what it reads per model stays in the build (see `Warm`).
+        game.MuzzleFlashes.Precache();
         _ = game.ClassAnimation;
         _ = game.ModelFacts;
 

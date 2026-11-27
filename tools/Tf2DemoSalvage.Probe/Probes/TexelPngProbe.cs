@@ -155,7 +155,7 @@ public sealed class TexelPngProbe : IProbe
             return (image.Width, image.Height, image.Rgba);
         }
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } game ||
+        if (ProbeInstall.Folder(output) is not { } game ||
             GameArchives.Open(game).Read(path) is not { Length: > 0 } file)
         {
             output.WriteLine($"'{path}' was not read.");
