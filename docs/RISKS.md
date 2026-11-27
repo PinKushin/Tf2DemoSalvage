@@ -47377,8 +47377,13 @@ argument walks `DemoCorpus.Files` (gcor and top-level lcor; gcor alone in a work
 of either case (B881). *Not verified by looking.*
 
 Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in code or tests, wording on the record —
-fixed). Frame cost against main: measurements/2026-11-26-b878-frame.md (a first single run each could not resolve
-a difference and is withdrawn, review 11). *Not verified by looking.*
+fixed). Frame cost against main: measurements/2026-11-26-b878-frame.md. *Not verified by looking.*
+
+Reviews 11-12 (Codex, Fable, Sonnet, the cavecrew reviewer): a first single run each could not resolve a difference,
+picked intervals inconsistently and explained its cost by a count nobody took, so it was withdrawn; the measurement was
+redone from a committed pre-run record (six alternating runs), and its verdict corrected to what that rule allows —
+nothing resolved, the `sample` phase leaning up. The handoff memory on the branch now says FIXED. *Not verified by
+looking.*
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
