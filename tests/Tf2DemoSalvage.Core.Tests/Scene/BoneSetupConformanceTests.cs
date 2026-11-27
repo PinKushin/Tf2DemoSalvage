@@ -176,8 +176,8 @@ public sealed class BoneSetupConformanceTests
     /// parity 5 from 100 to 104 (one run of consecutive updates), 6 at 110, then eight starts at 120 to 190 (7, 0, 1, …, 5,
     /// 6), with 190's 6 restated every tick to 195. A setup at 104 saw 5, so 195's 6 differs: the reset is 195. A setup at
     /// 110 saw 6: after eight starts the parity is 6 again, so the newest reset is the end of the run before (180). A setup
-    /// at 185 saw 180's, so nothing is new and its kept anchor stands. Trimmed at 192, inside the last run, the run before
-    /// survives only through the trim's tail — and the answer stands.
+    /// at 192 saw 190's 6 (review 4: a setup the parity history can produce), so nothing is new and its kept anchor stands.
+    /// Trimmed at 192, inside the last run, the run before survives — and the answer stands.
     /// </summary>
     [Test]
     public void UnseenResetAt_RunsWrapsAndATrim_FindTheNewestUnseenReset()
@@ -204,11 +204,66 @@ public sealed class BoneSetupConformanceTests
 
         track.UnseenResetAt(195, new BoneSetup(104, 5, null)).ShouldBe(195, "parity 6 differs from the setup's 5");
         track.UnseenResetAt(195, new BoneSetup(110, 6, null)).ShouldBe(180, "back at 6 after eight starts: the run before");
-        track.UnseenResetAt(195, new BoneSetup(185, 6, 150)).ShouldBe(150, "the control: the run before was seen; the kept anchor");
+        track.UnseenResetAt(195, new BoneSetup(192, 6, 150)).ShouldBe(150, "the control: the run before was seen; the kept anchor");
 
         track.TrimBefore(192);
 
         track.UnseenResetAt(195, new BoneSetup(110, 6, null)).ShouldBe(180, "the run before survives the trim's tail");
+    }
+
+    /// <summary>
+    /// **Updates a fixed number of ticks apart are one run, and a query inside it reads the newest by then** (B878 review 4,
+    /// Fable, Sonnet): parity 0 at 90, then parity 1 every two ticks from 100 to 110 — a SourceTV snapshot cadence. A setup
+    /// at 95 saw 0, so asked at 105 the reset is 104, the newest update by then; a setup at 104 saw it.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_UpdatesTwoTicksApart_IsTheNewestByTheQuery()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(90, new ScenePose { NewSequenceParity = 0 }, appliedAt: 90, animationAppliedAt: 87);
+
+        for (int tick = 100; tick <= 110; tick += 2)
+        {
+            track.Add(tick, new ScenePose { NewSequenceParity = 1, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        track.UnseenResetAt(105, new BoneSetup(95, 0, null)).ShouldBe(104);
+        track.UnseenResetAt(111, new BoneSetup(95, 0, null)).ShouldBe(110, "past the run: its last");
+        track.UnseenResetAt(105, new BoneSetup(104, 1, null)).ShouldBeNull("the control: a setup at 104 saw it");
+    }
+
+    /// <summary>
+    /// **A trim keeps the run before a wrapped parity however many runs back it is** (B878 review 4, the cavecrew reviewer):
+    /// a setup at 100 saw 0; eight starts at 110 to 180 (1 to 7, then 0); 0 then restated at 180, 181, 183, 184, … 207, 208 —
+    /// gaps of one and two, so ten runs. The newest reset is 170, the run before the count. Trimmed at 207, ten runs past
+    /// it, a tail of eight runs would have dropped it.
+    /// </summary>
+    [Test]
+    public void TrimBefore_ManyRunsAfterAWrap_KeepsTheRunBeforeTheCount()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+
+        for (int step = 1; step <= 7; step++)
+        {
+            int tick = 100 + (step * 10);
+            track.Add(tick, new ScenePose { NewSequenceParity = step, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        for (int run = 0; run < 10; run++)
+        {
+            foreach (int tick in new[] { 180 + (run * 3), 181 + (run * 3) })
+            {
+                track.Add(tick, new ScenePose { NewSequenceParity = 0, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+            }
+        }
+
+        BoneSetup seen = new(100, 0, null);
+        track.UnseenResetAt(208, seen).ShouldBe(170, "the control: before the trim");
+
+        track.TrimBefore(207);
+
+        track.UnseenResetAt(208, seen).ShouldBe(170);
     }
 
     /// <summary>

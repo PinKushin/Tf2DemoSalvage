@@ -47290,6 +47290,27 @@ frame loop, the anchor taken only from cycle entries, and never-posed props neve
 engine too. Filed: B879 (the delay rise's floor read off the plain history), B880 (the transition
 forced by the same stale parity). *Not verified by looking.*
 
+Review 4 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **A run is now a stride, not consecutive ticks**:
+updates a fixed number of ticks apart (a SourceTV snapshot cadence, a POV demo at a low update rate) are one run, so
+the record costs one entry per parity or cadence change rather than one per update; a query inside a run reads the newest
+update by then (`UnseenResetAt_UpdatesTwoTicksApart_IsTheNewestByTheQuery`). An irregular updater — gaps that change
+every update — still costs one run per update (*not measured* on the corpus). **A trim keeps the run before the cut's
+count of starts** however many runs back it lies, which a wrapped parity looks back to — a tail of eight runs did not
+(`TrimBefore_ManyRunsAfterAWrap_KeepsTheRunBeforeTheCount`). `BracketAnchored`'s list past 64 entries is rented from
+the shared pool rather than allocated: a target near a reset with many latches since walks every one, because any later
+latch can flush the reset's entries (`BracketAnchored_NearTheResetWithManyLatchesAfter_WalksWithoutAllocating`; Fable's
+proposed early return for a hold past the newest entry was already covered by the third-sample test). A source change
+drops the presenter's held build, so the old source's tick is never reported as a setup of the new one. The trim test's
+control setup is one the parity history can produce (192, which saw 190's 6; 185 would have stored 180's 5); the corpus
+test asserts props born in the window joined the comparison. **Corrected, the eight-start wrap at the output** (Fable):
+`UnseenResetAt` names the right reset, but the update that brings the parity back to the setup's is a stored
+`SequenceRestarted` reset in the timeline — a newer generation than the anchor — so `BracketAnchored` returns the plain
+answer from there, where the engine, whose parity then equals the stored one, does not reset. *Not modelled*: it needs
+eight sequence starts unseen by any setup. Also *untested*: the branch where a trim dropped the reset's keyframe
+(`CycleAnchor` returns null — a trim keeps a keyframe before every cut, so no current caller reaches it), and the half of
+the players-only rule that never takes a players-only pose's own builds — only prop tracks read a report and that pose
+draws no props, so nothing can observe it. *Not verified by looking.*
+
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
 
 Found in B878 review 1 (the cavecrew reviewer), *read*. `ScenePropTrack.At` computes the cycle's target and its

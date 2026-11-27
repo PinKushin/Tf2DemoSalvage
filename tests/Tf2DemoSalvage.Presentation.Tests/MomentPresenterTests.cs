@@ -125,6 +125,29 @@ public sealed class MomentPresenterTests
         source.SetUpReports.ShouldBe([(10d, 0), (10d, 1)]);
     }
 
+    /// <summary>
+    /// **A new source is never told the old one's setups** (B878 review 4, the cavecrew reviewer): shown at 10 under one
+    /// source, then a second source is set and a pose is asked for before its first `Show`. The held build is the old
+    /// source's, so nothing is posed, and the new source's first frame reports nothing set up — not a setup at 10.
+    /// </summary>
+    [Test]
+    public void Source_ChangedWithABuildHeld_ReportsNothingOfTheOldSource()
+    {
+        StubSource first = new();
+        StubSource second = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = first;
+        presenter.Show(10d, View());
+
+        presenter.Source = second;
+        presenter.PoseNow();
+        presenter.NextFrame(null);
+        presenter.Show(20d, View());
+
+        second.SetUpReports.ShouldBe([(20d, 0)]);
+        first.SetUpReports.ShouldBe([(10d, 0)], "the control: the first source's own first frame");
+    }
+
     [Test]
     public void Show_WhilePlaying_LeavesInterpolationOn()
     {

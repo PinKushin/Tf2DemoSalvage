@@ -40,6 +40,7 @@ public sealed class BoneSetupCorpusTests
         int compared = 0;
         int mismatched = 0;
         int differentUnposed = 0;
+        int joined = 0;
         HashSet<int>? continuous = null;
 
         // A prop created inside the window is set up from its creation too, so it joins the compared props there (review 3,
@@ -59,7 +60,9 @@ public sealed class BoneSetupCorpusTests
             drawn.UnionWith(posedProps.Select(prop => prop.EntityIndex));
             continuous ??= [.. drawn];
             continuous.IntersectWith(drawn);
+            int joinedBefore = continuous.Count;
             continuous.UnionWith(drawn.Where(entity => !drawnBefore.Contains(entity) && births.Contains((entity, tick))));
+            joined += continuous.Count - joinedBefore;
 
             foreach (SceneProp prop in posedProps.Where(prop => continuous.Contains(prop.EntityIndex)))
             {
@@ -82,9 +85,10 @@ public sealed class BoneSetupCorpusTests
         }
 
         TestContext.Out.WriteLine($"B878 z1800 {start}..{start + Window}: {compared} compared, {mismatched} mismatched, " +
-            $"{differentUnposed} differ never posed, {continuous?.Count} props drawn throughout");
+            $"{differentUnposed} differ never posed, {continuous?.Count} props drawn throughout, {joined} joined at birth");
 
         compared.ShouldBeGreaterThan(0, "the control: the window holds props drawn throughout");
+        joined.ShouldBeGreaterThan(0, "the control: props born in the window joined the comparison (review 4, Fable)");
         mismatched.ShouldBe(0);
         differentUnposed.ShouldBeGreaterThan(0, "the control: never posed, some cycle reset the stored history did not");
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
@@ -668,8 +669,29 @@ public sealed class InterpolatedHistory
             return plain;
         }
 
+        // **Every entry since the reset**, since any later latch can flush the ones before it; a long stretch rents rather
+        // than allocates (review 4, Fable: a target near a reset with many latches after it allocated on every sample).
         int capacity = available - anchor.Seed + ResetEntries;
-        Span<int> list = capacity <= 64 ? stackalloc int[64] : new int[capacity];
+        int[]? rented = capacity <= 64 ? null : ArrayPool<int>.Shared.Rent(capacity);
+
+        try
+        {
+            Span<int> list = rented is null ? stackalloc int[64] : rented;
+
+            return WalkAnchored(target, available, anchor, list, first, count);
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<int>.Shared.Return(rented);
+            }
+        }
+    }
+
+    /// <summary><see cref="BracketAnchored"/>'s list built in <paramref name="list"/> and walked.</summary>
+    private Bracketing WalkAnchored(double target, int available, HistoryAnchor anchor, Span<int> list, int first, int count)
+    {
         int length = 0;
 
         for (; length < ResetEntries; length++)

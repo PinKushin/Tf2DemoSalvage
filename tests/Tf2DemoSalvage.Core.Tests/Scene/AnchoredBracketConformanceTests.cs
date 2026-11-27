@@ -176,4 +176,35 @@ public sealed class AnchoredBracketConformanceTests
         history.BracketAnchored(56, 60, At50(history)).ShouldBe(plain);
         (plain.Older, plain.Oldest).ShouldBe((5, 5), "the control: the older entry has no live predecessor in its run");
     }
+
+    /// <summary>
+    /// **A target just after a reset with a hundred latches since walks them all without allocating** (B878 review 4,
+    /// Fable): any later latch can flush the reset's entries, so the list holds every entry since it — past 64, rented.
+    /// At 52 the pair is still the reset to 57, as with nothing after it. Allocation is the minimum over five calls (the
+    /// first can count the runtime's own, and the pool's first rent).
+    /// </summary>
+    [Test]
+    public void BracketAnchored_NearTheResetWithManyLatchesAfter_WalksWithoutAllocating()
+    {
+        InterpolatedHistory history = Three();
+
+        for (int step = 1; step <= 100; step++)
+        {
+            history.Add(57 + (step * 10), 60 + (step * 10), [step / 100f]);
+        }
+
+        HistoryAnchor reset = At50(history);
+        long fewest = long.MaxValue;
+        Bracketing? pair = null;
+
+        for (int call = 0; call < 5; call++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            pair = history.BracketAnchored(52, 1060, reset);
+            fewest = System.Math.Min(fewest, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        (pair!.Value.Older, pair.Value.Newer).ShouldBe((InterpolatedHistory.AnchorSlot, 2), "the reset to 57");
+        fewest.ShouldBe(0L);
+    }
 }
