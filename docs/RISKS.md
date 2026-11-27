@@ -47378,8 +47378,8 @@ Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in cod
 fixed). **Frame cost, measured 2026-11-26** (`--measure 20`, f12 `demostf-cp_process_f12-2026-08-08-2207` at tick
 20000, first person, `+fps_max 0`, Debug, one run each): `origin/main` (`dbe8b702c`) 149 fps, moment cost 3.6-3.7 ms
 with sample 0.3-0.4 ms; this branch 144-170 fps across its intervals, moment cost 2.7-4.0 ms with sample 0.3-0.5 ms. No
-difference above the run-to-run spread of one run; the anchored walk runs only for a prop whose setup missed a reset,
-which f12 at that tick rarely has. *Not verified by looking.*
+difference above the run-to-run spread of one run (measurements/2026-11-26-b878-frame.md); the anchored walk runs only
+for a prop whose setup missed a reset, which f12 at that tick rarely has. *Not verified by looking.*
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
