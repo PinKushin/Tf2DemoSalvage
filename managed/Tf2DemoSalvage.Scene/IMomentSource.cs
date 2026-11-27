@@ -82,6 +82,17 @@ public interface IMomentSource
         int? viewEntity = null,
         bool interpolating = true);
 
+    /// <summary>Which entities a drawn frame set bones up for (B878), told after that frame was posed.</summary>
+    /// <param name="entities">Their indices.</param>
+    /// <param name="tick">The frame's tick.</param>
+    /// <remarks>
+    /// **The engine sets bones up on demand, so which updates reset a cycle history depends on what was drawn**
+    /// (`docs/RISKS.md` B878). A source with no cycle histories has nothing to do.
+    /// </remarks>
+    public void BonesSetUp(IReadOnlySet<int> entities, double tick)
+    {
+    }
+
     /// <summary>The round the game rules were in, or null when the demo does not say.</summary>
     /// <param name="tick">The moment being shown.</param>
     /// <returns><c>m_iRoundState</c>; <c>GR_STATE_TEAM_WIN</c> is 5.</returns>
@@ -309,6 +320,19 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public void FrameStart(double lastRead, double frameTick) => timeline.FrameStart(lastRead, frameTick);
 
+    /// <summary>
+    /// The drawing view's bone setups (B878), made at the first report: until then nothing has said what is drawn, and a
+    /// reader that never reports samples as before.
+    /// </summary>
+    private BoneSetups? _setups;
+
+    /// <inheritdoc />
+    public void BonesSetUp(IReadOnlySet<int> entities, double tick)
+    {
+        _setups ??= new BoneSetups();
+        timeline.NoteBonesSetUp(_setups, entities, tick);
+    }
+
     /// <inheritdoc />
     public void PropsAt(
         double tick,
@@ -318,7 +342,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     {
         ArgumentNullException.ThrowIfNull(into);
 
-        timeline.PropsAt(tick, into, viewEntity, interpolating);
+        timeline.PropsAt(tick, into, viewEntity, interpolating, _setups);
         InformOccupants(tick, into);
 
         // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`

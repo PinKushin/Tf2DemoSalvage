@@ -47156,7 +47156,7 @@ instrument for the first, the simulation-lag histogram (`DemoTimeline.Simulation
 conformance test of each worked case, then the branch in `ScenePropTrack`'s sample for a target past a head no later
 packet has followed, with the settle holding the result. *Not fixed*.
 
-## B878 — a created entity's parity compares against −1 until its first bone setup, so a server-animated entity's cycle history resets on every update before it is drawn (2026-11-26) — OPEN
+## B878 — a server-animated entity's cycle history resets on every update whose parity differs from the one at its last bone setup, which is a view-time event (2026-11-26) — FIXED
 
 Found in B871 reviews 5-6 (Fable, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` restarts an animation only
 when `m_nNewSequenceParity` or `m_bClientSideFrameReset` DIFFERS from the value its track last held, and a track's first
@@ -47185,7 +47185,8 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
   a sapper, `:483-495`), is not reached: the server's toggle is flipped only by `CBaseAnimating::ResetClientsideFrame`
   (`server/baseanimating.cpp:3052-3056`), whose callers (clangd) are props, vehicles and `tf_taunt_prop.cpp:55`, no
   building — so a building's toggle stays 0 in the SDK (live TF *not read*).
-- **The cycle history resets on every update until the first bone setup** — open. `m_nPrevNewSequenceParity` is
+- **The cycle history resets on every update until the first bone setup** — open when filed; fixed below.
+  `m_nPrevNewSequenceParity` is
   written only at `:716`, `:1824` and `:1835`, never in `PostDataUpdate`, so the compare at `:4738` stays true and
   `m_iv_flCycle.Reset()` runs (non-static-prop model, `:4745-4747`) on every update until `MaintainSequenceTransitions`
   first runs — its one caller, `StandardBlendingRules` (`:1990`), returns earlier without a studio header
@@ -47202,10 +47203,236 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
   implementations, review 10, Fable) call the base first: `client/c_baseflex.cpp:227-229`,
   `shared/tf/tf_weapon_grenadelauncher.cpp:610-612`, `shared/tf/tf_weapon_minigun.cpp:1068-1070`,
   `shared/econ/econ_entity.cpp:890-892`, `shared/tf/tf_viewmodel.cpp:313-315`, `client/hl2/c_barnacle.cpp:203-205`
-  (paths under `game/`). *Not read*: when the engine first sets up a never-drawn entity's bones in a demo.
+  (paths under `game/`).
 
-Fix shape: read when a demo entity's bones are first set up, then reset a server-animated entity's cycle history at
-every update before it, with a conformance test.
+**When bones are set up — read 2026-11-26 (clangd references to `C_BaseAnimating::SetupBones`, 45, a sub-agent's
+read; `SetupBones` itself `c_baseanimating.cpp:2796-3033`).** Only on demand, never in a pass over every entity:
+drawing the model (`InternalDrawModel`, `:3388`, hands `DrawModelSetup` a bone array, `:3496` — the engine's closed
+model render; that it calls `SetupBones` back is *interpolated* from the out-parameter), an attachment
+(`CalcAttachments`, `:2094`, from `GetAttachment`/`GetAttachmentVelocity` and `C_BaseFlex::OnThreadedDrawSetup`),
+hitboxes (`GetBoneCache`, `:2343`), a bone-merged child (`CBoneMergeCache`, `bone_merge_cache.cpp:131`, `:245`, `:270`),
+and ragdoll / death-pose paths. The per-frame passes do not reach it: `InvalidateBoneCaches` only bumps the counter
+(`:3151-3154`), `UpdateClientSideAnimations` walks the client-animated list, and the threaded and shadow bone passes
+are off (`cl_threaded_bone_setup` 0, `:2743`; `m_bThreaded = false`, `clientshadowmgr.cpp:4008`;
+`if ( 0 && … )`, `viewrender.cpp:4183`). So the first bone setup is the first frame the entity is DRAWN (in the
+view, not culled) or something asks it for an attachment or merges onto it — a VIEW-time event.
+
+**It is not only creation.** `m_nPrevNewSequenceParity` holds the parity seen at the LAST bone setup, so every update
+whose parity differs from it resets the cycle history (`:4738-4747`) — after a creation (−1) and after any sequence
+change while the entity is not set up. While it is drawn every frame the setup follows each update and only the
+changing update resets, which `SequenceRestarted` already does. The divergence is an entity that becomes drawn after
+a stretch undrawn across a parity change: the engine's history starts at the last such arrival (three entries, no
+blend), the viewer's blends. It lasts one interpolation window at most.
+
+Fix shape: the pose pass (`Presentation`, where props are posed and attachments asked for) reports each server-animated
+prop's bone setup to its track (playback time and the parity then held); the track's cycle sampler takes, as an
+extra generation floor, the last arrival after that setup whose parity differs — computed at view time, since the
+camera decides it. A seek starts with no setup recorded (*our choice*: the engine's demo seek is not read — reversed in
+the fix below, which keeps the setups across a seek). A
+conformance test: a prop updated across a parity change while unposed, then posed, draws the latest arrival's cycle
+for that window; posed every frame, it draws today's blend.
+
+**Fixed (2026-11-26, `fix/b878-predraw-cycle-reset`).** `BoneSetups` is one view's record per track: the tick of its
+last setup, the parity its newest update stated then (`ScenePose.NewSequenceParity`, 0 when never sent; −1 before any
+update), and the newest reset that setup had not seen. **The reset is the newest update after the setup, if its parity
+differs** (`ScenePropTrack.UnseenResetAt`; the wrap after eight starts is review 2's): the parity only counts up (`:5574`), so once one update differs every later
+one does — one keyframe read, and every update counts, not only those that latch the cycle, since the test runs in each
+`PostDataUpdate`. `InterpolatedHistory.BracketAnchored` builds the engine's list after that reset — three entries at its
+tick holding the newest cycle received by then, then each later latch with `AddToHead`'s flush — and walks it as
+`GetInterpolationInfo` does, including "Didn't find any" holding the OLDEST walked (`interpolatedvar.h:877-882`); once
+the pair's third sample arrived after the reset it returns the plain answer without building anything. Only for a
+server-animated, non-static studio model (`:892-896`, `:4745`). `Motion` settles on that anchored answer's own
+`NoMoreChanges`, so a never-posed prop leaves the lerp list as the engine's does. `DemoTimeline.PropsAt(…, setups)`
+samples under it and `NoteBonesSetUp` records the setups; `MomentPresenter` reports a posed frame's
+(`EntityModelSet.BonesSetUpSinceWorldPass`: every skeleton built since the world pass began — viewmodel, undrawn and
+attachment builds included) at the next `Show`, before sampling, the engine's order; `TimelineMoments` makes its record
+at the first report, so a reader that never reports samples as before. Setups are kept across a seek (*our choice*: a
+setup after the tick played names no update after it until playback passes it again, and a rewind plays backwards frame
+by frame). **And the plain history's own walk**: a target before every entry held the run's first entry even when a later
+latch had flushed it; it now holds the oldest live entry walked, as the engine does (fingerprint re-recorded).
+
+Tested by `AnchoredBracketConformanceTests` (8: past the reset, before it holding the reset's value, a flushing latch,
+nothing after, the reset as third sample, out of reach, superseded, the plain walk's flushed first entry),
+`BoneSetupConformanceTests` (6: unposed across 40 holds 0.8 where posed every frame blends from 30; posed every frame
+equals no view at every tick with an update inside the window; never posed; a reset kept after posing again; a seek
+keeps the setups; an origin-only update is the reset), `BoneSetupsReportTests`, `TimelineMomentsBoneSetupTests`,
+`Show_AfterAPosedFrame_ReportsItsSetupsBeforeSampling` (through `NextFrame`, which cleared the flag the first cut read),
+and on a real demo `BoneSetupCorpusTests`: z1800's first 3,000 ticks, every prop drawn continuously from the first tick
+(or its creation) posed every frame equals the no-view props on every one compared (figures under review 3) (a view begun mid-demo
+holds a prop alive then from its newest update for a window — the engine's answer for a view just begun, measured as one
+sentry for 13 ticks — so the test starts at the first tick rather than masking it). Each sabotage reddened its test.
+
+Review 2 (Codex, Fable, Sonnet, the cavecrew reviewer): every update is recorded before `Add` collapses a restatement
+(`_updates`: tick, parity, a running count of sequence starts), so a restated update resets too, and eight starts unseen
+that wrap the 3-bit parity back to the setup's leave the newest update before that run as the reset; the reset seeds the
+update's networked cycle and sequence from its keyframe (`m_pValue`), not the last latched entry; `MomentPresenter`
+unions the builds of every pose before a report (a paused view re-poses one build), counts no players-only pose (the
+decal replay's, at earlier ticks), and reports nothing set up at a source's first frame so it samples under the view
+from the start. Tests added for each: `UnseenResetAt_ARestatedUpdateAfterAParityChange_IsTheReset`,
+`UnseenResetAt_EightStartsUnseen_IsTheLastUpdateBeforeTheParityCameBack`,
+`PropsAt_AResetWhoseUpdateLatchedNoCycle_SeedsTheUpdatesCycle`, `PropsAt_ANeverPosedProp_LerpsUntilItsResetIsPassed`
+(`Motion`'s settle under a view), `BracketAnchored_AnEqualNewestAfterTheReset_IsSettled` (the engine's second settle
+site), and the presenter test's players-only pose; each sabotage reddened its test.
+
+Review 3 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer): the updates are stored as runs of consecutive
+ticks stating one parity (an animating prop updates every tick, so one record per update cost twelve bytes an update
+for the whole recording); a reset whose keyframe a trim dropped gives no anchor rather than a later update's seed; the
+seed's values sit in a per-track buffer, so sampling does not allocate; a players-only pose takes the real pose's builds
+before starting its own world pass and never counts its own — `Show_AfterAPlayersOnlyPose_StillReportsTheRealPosesBuilds`
+reads the reported entities through a real scene; `UnseenResetAt_RunsWrapsAndATrim_FindTheNewestUnseenReset` covers runs,
+a wrap with trailing restatements, a nonzero first parity, a seen run and a trim whose cut falls inside the last run; the
+corpus test compares props created inside the window from their creation too and takes its never-posed control on the
+same props (629,112 compared, 0 mismatched; 5,013 differ never posed). Each sabotage reddened its test. On seeks: TF2's
+way back reloads, so every entity is new and has no setups (B676, `FramePresenter.Seek.cs`); keeping the setups is the
+viewer's continuous answer, chosen because the reload's other half — every history recreated — is not modelled either. Review 1 (Codex:
+no findings; Fable, Sonnet, the cavecrew reviewer) found the hold-before-the-reset reading wrong, the report dead in the
+frame loop, the anchor taken only from cycle entries, and never-posed props never settling — all fixed above. Left,
+*not modelled*: an attachment asked of an entity the frame did not pose sets its bones up in the engine
+(`CalcAttachments`) and answers null here, so it is not a setup; eight starts between two updates are invisible to the
+engine too. Filed: B879 (the delay rise's floor read off the plain history), B880 (the transition
+forced by the same stale parity). *Not verified by looking.*
+
+Review 4 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **A run is now a stride, not consecutive ticks**:
+updates a fixed number of ticks apart (a SourceTV snapshot cadence, a POV demo at a low update rate) are one run, so
+the record costs one entry per parity or cadence change rather than one per update; a query inside a run reads the newest
+update by then (`UnseenResetAt_UpdatesTwoTicksApart_IsTheNewestByTheQuery`). An irregular updater — gaps that change
+every update — still costs one run per update (*not measured* on the corpus). **A trim keeps the run before the cut's
+count of starts** however many runs back it lies, which a wrapped parity looks back to — a tail of eight runs did not
+(superseded in review 5: each run carries that update, and the trim keeps only the tail)
+(`TrimBefore_ManyRunsAfterAWrap_StillAnswersTheUpdateBeforeTheWrap`, renamed in review 6). `BracketAnchored`'s list past 64 entries is rented from
+the shared pool rather than allocated: a target near a reset with many latches since walks every one, because any later
+latch can flush the reset's entries (`BracketAnchored_NearTheResetWithManyLatchesAfter_WalksWithoutAllocating`; Fable's
+proposed early return for a hold past the newest entry was already covered by the third-sample test). A source change
+drops the presenter's held build, so the old source's tick is never reported as a setup of the new one. The trim test's
+control setup is one the parity history can produce (192, which saw 190's 6; 185 would have stored 180's 5); the corpus
+test asserts props born in the window joined the comparison. **Corrected, the eight-start wrap at the output** (Fable):
+`UnseenResetAt` names the right reset, but the update that brings the parity back to the setup's is a stored
+`SequenceRestarted` reset in the timeline — a newer generation than the anchor — so `BracketAnchored` returns the plain
+answer from there, where the engine, whose parity then equals the stored one, does not reset. *Not modelled*: it needs
+eight sequence starts unseen by any setup. Also *untested*: the branch where a trim dropped the reset's keyframe
+(`CycleAnchor` returns null — a trim keeps a keyframe before every cut, so no current caller reaches it), and the half of
+the players-only rule that never takes a players-only pose's own builds — only prop tracks read a report and that pose
+draws no props, so nothing can observe it. *Not verified by looking.*
+
+Review 5 (Codex, Fable, Sonnet, the cavecrew reviewer). **Review 4's trim kept every run when none had fewer starts**
+— every run of a prop that never starts a sequence, and every run since the last start otherwise (Sonnet, Fable, the
+cavecrew reviewer). The count of starts is gone: each run carries `Before`, the newest update of a different parity
+before its stretch of the parity, which is all a wrapped parity looks back to, so a trim keeps the cut's run and a tail
+of eight and nothing else (`TrimBefore_AParityThatNeverChanges_KeepsOnlyTheTail`). **Updates count in arrival order**,
+the engine's — `PostDataUpdate` runs as each arrives, so one stamped before the newest counts at the newest's tick and
+the runs stay ordered in a release build, where the order was only asserted (Codex;
+`UnseenResetAt_AnUpdateStampedBeforeTheNewest_CountsAtTheNewest`). Two updates at one tick with different parities: the
+newer is the parity a setup stores (`UnseenResetAt_AParityChangeAtTheTickOfTheUpdateBefore_IsAtThatTick`). A gap off
+a run's stride starts a new run, now pinned by a value (Fable; `UnseenResetAt_AGapOffTheStride_StartsANewRun`). The
+source-change clearing is the held build alone; the two other fields it cleared were unreachable behind it (Fable).
+Each sabotage reddened its test. *Not verified by looking.*
+
+Review 6 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **Review 5's arrival clamp is reversed** (Fable):
+it covered the update runs alone, while the keyframes and histories the anchor reads keep each update's own tick, so an
+out-of-order update left the runs and the seed disagreeing. The track's contract is tick order, held by every store
+alike: the timeline passes each packet's tick in stream order (`DemoTimeline`'s `track.Add(tick, …)`), and `Add`
+asserts it as before. A demo whose ticks went backwards is unsupported in every store, not in one — *not traced* whether
+any demo does. A parity that goes back without wrapping (a recreated counter, 0, 1, 0) is compared with each setup's,
+as the engine does (`UnseenResetAt_AParityGoingBackWithoutWrapping_ComparesWithTheSetups`, Sonnet). Docs on the runs
+and `UnseenResetAt` no longer describe the removed starts count; the wrap trim test is renamed for what it now proves.
+Recorded, *not modelled*: (a) a setup older than a trim's cut whose reset keyframe the trim dropped gives no anchor — the
+viewer's timeline is never trimmed, so no current path reaches it, and the output equals the plain answer by reading,
+only the third sample differing (Fable, the cavecrew reviewer); (b) a reset whose update is not the last at its tick
+seeds from the keyframe kept at that tick, the last — two updates at one tick are possible (a POV demo's packets repeat
+a tick, finding 106), but the parity must also return to the setup's within that tick (review 7, Fable, the cavecrew
+reviewer, correcting "not traced"); (c) `BoneSetups` is keyed by track and never pruned, so a view held
+across a builder trim or a checkpoint copy keeps dead tracks and reads the copies as never set up — `Source` is set once
+per open, so not reachable until windowed timelines reach the viewer (Fable). *Not verified by looking.*
+
+Review 7 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **Review 6's tick-order assert is reversed**: its
+premise, that the timeline feeds a track rising ticks, is wrong by this repo's own record. `RecordProp` takes
+`command.Tick` for signon commands too, whose tick is the server's (70,718 on z1800 against a first packet at 6;
+146,124 on etf2l-12025), and `DemoPlayer` notes that packet ticks are not monotonic in every file. A `Debug.Assert`
+fails fast in a Debug viewer or test host, and `HeldValues.Set` was already made tolerant for the same reason ("one
+must not end a build"). **The update runs count each update at its arrival**: the player delivers a packet once the
+running maximum of packet ticks reaches it (`DemoPlayer.FirstPacketPast`), which is when `PostDataUpdate` runs, so an
+update stamped below a track's newest counts at that newest's tick
+(`UnseenResetAt_AnUpdateStampedBelowTheNewest_CountsAtItsArrival`; removing the clamp reddened it). Two approximations
+remain, filed as B881: a track's own newest is not the running maximum of every packet, and the keyframes and
+histories keep the raw stamp, so an anchor's seed on such a demo can come from a keyframe out of order — *not traced*
+whether any demo's signon carries entity updates or any real file's packets run backwards. Also recorded, *not
+modelled*: under `--windows`, `WindowCheck` samples the whole timeline between a posed frame and its report, and
+`NoteBonesSetUp` resolves the posed indices through the live set at report time, so a reused index can record a setup
+on the wrong track — a debug flag only; normal playback reports at the tick it posed (Fable). Cases (a) and (c)
+confirmed: `Builder.Trim` runs only in the checkpoint walk, windows reach only `WindowCheck`, which samples with no
+setups, and `Source` is set in one place (`DemoSystems.cs:262`) (Fable). *Not verified by looking.*
+
+Review 8 (Codex, Fable, Sonnet, the cavecrew reviewer). The clamp's other direction — a signon's update stamped above
+the packets after it — is B881's too, and on the corpus neither direction occurs: 161 demos, no signon entity
+snapshot, no packet below the running maximum (B881, measured; Fable's own z1800 trace agrees). A late update of a new
+parity starts its run at its arrival, now pinned where the run's stride reads it
+(`UnseenResetAt_ALateUpdateOfANewParity_StartsItsRunAtItsArrival`; the run begun at its stamp reddened it — a first
+version without a later update in the run did not, the binary search masking the one misplaced run). *Not verified by
+looking.*
+
+Review 9 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in the branch's code or test). The probe behind
+B881's census took its running maximum over snapshot packets only and had no control that the comparison could fire;
+it now takes every packet, counts the packets repeating the maximum as that control, labels what it prints, and with no
+argument walks `DemoCorpus.Files` (gcor and top-level lcor; gcor alone in a worktree). Rerun: unchanged, 161 demos, none
+of either case (B881). *Not verified by looking.*
+
+Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in code or tests, wording on the record —
+fixed). Frame cost against main: measurements/2026-11-26-b878-frame.md. *Not verified by looking.*
+
+Reviews 11-12 (Codex, Fable, Sonnet, the cavecrew reviewer): a first single run each could not resolve a difference,
+picked intervals inconsistently and explained its cost by a count nobody took, so it was withdrawn; the measurement was
+redone from a committed pre-run record (six alternating runs), and its verdict corrected to what that rule allows —
+nothing resolved, the `sample` phase leaning up. The handoff memory on the branch now says FIXED. *Not verified by
+looking.*
+
+## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
+
+Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
+`ScenePropTrack.Add` the command's own tick, for signon commands as well as packets. A signon's tick is the server's
+(70,718 on z1800 against a first packet at 6; 146,124 on etf2l-12025, findings 01 and 97), and `DemoPlayer` reads
+packets up to the running maximum of their ticks because a file's packet ticks need not rise
+(`DemoPlayer.FirstPacketPast`, the backwards case of `ParseAheadForInterval`). The engine runs `PostDataUpdate` when a
+packet is read, so an update's arrival is that running maximum, not its stamp. The keyframes (`PoseKeyframes`, no order
+check) and the interpolated histories' received ticks take the raw stamp, so an update stamped below the newest lands
+out of order in lists searched as sorted; B878's update runs clamp to the track's newest, which is the running maximum
+only for that track. **A signon's update goes the other way** (B878 review 8, Sonnet, Fable, the cavecrew reviewer): it
+arrives before every packet but is stamped with the server's tick, so every store of the track — keyframes included —
+starts there and the track is not alive before it; B878's runs agree, so B878 is off for such a track rather than
+wrong.
+
+**Measured, 2026-11-26** (`packet-tick-order`, the 161 demos in gcor and the main checkout's top-level lcor, each named
+by its full path on the command line, so `DemoCorpus.Find` takes it as that file; with no argument the probe walks `DemoCorpus.Files`, gcor alone in a worktree): **no signon carries an
+entity snapshot, and no packet — snapshot or not — is stamped below the running maximum of every packet before it**, the
+maximum `DemoPlayer.FirstPacketPast` reads to. Controls: every one of the 161 has signon commands, read on the same
+stream and with the same type test (z1800's first at 70,718, etf2l-12025's at 146,124); and the comparison is seen
+firing on its other side — 76 demos have packets EQUAL to the running maximum, the repeated ticks of a POV demo (finding
+106; 19,196 on etf2l-12025, none on any SourceTV recording). No real file drives the "below" branch itself; the only
+backwards file known is synthetic (`DemoPlayerConformanceTests.Backwards`). Review 9 (Fable, Sonnet, the cavecrew
+reviewer) found the first run's maximum taken over snapshot packets only — narrower than the player's — and its labels
+wrong; both fixed before this run. Not covered: lcor's other locations (D81), and a snapshot behind a message the reader
+does not implement, which production cannot read either. Fix shape, if one turns up: give every store of the track the
+arrival beside the stamp — the running maximum of packet ticks for a packet, and for a signon what the convars take
+(`lastPacketTick + 1`, or the start before any packet, `DemoTimeline`'s `SetConVarMessage` case). *Not verified by
+looking.*
+
+## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
+
+Found in B878 review 1 (the cavecrew reviewer), *read*. `ScenePropTrack.At` computes the cycle's target and its
+pruned floor (`TargetFor`, `oldestHeld`, the B860 rise machinery) from the stored history, while B878's anchored walk
+reads the engine's list after an unseen reset — three entries at the reset where the stored history has older ones. A
+rise inside the window after such a reset can then hold or floor the target against entries the engine's list does not
+hold. No test combines the two. Fix shape: derive the cycle's target and floor from the anchored list when an anchor is
+in force; a conformance test of a rise across an unseen reset.
+
+## B880 — a sequence transition forced at bone setup by a parity the last setup did not see (2026-11-26) — OPEN
+
+Found in B878 review 1 (Fable, the cavecrew reviewer), *not read beyond the call*. `MaintainSequenceTransitions` calls
+`CheckForSequenceChange( hdr, GetSequence(), m_nNewSequenceParity != m_nPrevNewSequenceParity, … )`
+(`c_baseanimating.cpp:1828-1835`) — the same view-time parity B878 is about, so an entity that started a sequence while
+unseen gets a forced transition at its first setup after. Players included: their cycle is client-side, but the
+transitioner is not. `EntityModels.Autoplay.cs` records the forced transition as not reproduced. Fix shape: read
+`CSequenceTransitioner` with a non-empty queue, then drive the viewer's transition from `BoneSetups` as the cycle's reset
+is.
 
 ## B877 — a full (non-delta) packet keeps every entity it omits, and each restated entity's track memory, where the engine recreates all (2026-11-26) — OPEN
 

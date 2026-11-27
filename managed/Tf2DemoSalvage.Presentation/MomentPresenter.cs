@@ -111,6 +111,32 @@ public sealed class MomentPresenter
     /// <summary>Whether the held build has already been posed, so a repaint does not pose it again.</summary>
     private bool _posed;
 
+    /// <summary>
+    /// The entities set up since the last report (B878): every pose's, because a paused view re-poses one build as the
+    /// camera turns, and each re-pose starts a new world pass whose builds alone the scene names.
+    /// </summary>
+    private readonly HashSet<int> _bonesSetUp = [];
+
+    /// <summary>One pose's builds, taken before the next pose starts a new world pass.</summary>
+    private readonly HashSet<int> _posedOnce = [];
+
+    /// <summary>The tick of a frame posed since the last report, which the next <see cref="Show"/> reports (B878).</summary>
+    private double? _setUpAt;
+
+    /// <summary>Whether the last pose was a real one whose builds are not yet taken (B878).</summary>
+    private bool _untaken;
+
+    /// <summary>Adds the last pose's builds to what the next report names (B878).</summary>
+    private void TakeSetUps()
+    {
+        _moment.BonesSetUp(_posedOnce);
+        _bonesSetUp.UnionWith(_posedOnce);
+        _untaken = false;
+    }
+
+    /// <summary>Whether this source has been told anything, so its first frame is already under this view (B878).</summary>
+    private bool _viewReported;
+
     // **`_rebuilt` was here until B385**, guarding the first frame against an empty interpolation set
     // so that a cold start interpolated everything. There is no set to be empty any more: the source
     // answers `ShouldInterpolate` from the recording, and a freshly created entity answers it the same
@@ -173,6 +199,15 @@ public sealed class MomentPresenter
             _source = value;
             _moment.EarlierPlayer = value is null ? null : value.ActivityPlayerAt;
             _framedAt = null;
+
+            // A new source has seen no setups of this view (B878), and the held build is the old source's: posing it would
+            // name the old source's tick as a setup of the new one (review 4, the cavecrew reviewer). With none held,
+            // `NextFrame` and `PoseNow` return first, and `Show` resets the rest.
+            _builtFor = null;
+            _setUpAt = null;
+            _bonesSetUp.Clear();
+            _viewReported = false;
+            _untaken = false;
         }
     }
 
@@ -301,6 +336,31 @@ public sealed class MomentPresenter
         }
         else
         {
+            // **The last posed frame's bone setups, before this frame's sample** (B878): the engine's frame interpolates and
+            // then sets bones up, so what a frame posed is what the next sample's cycle resets are judged against.
+            // **Its own record of the posed frame, because `_posed` does not survive to here**: the frame loop calls
+            // `NextFrame` before every `Show`, which clears it (B878 review 1, Fable).
+            // **And the first frame of a source reports nothing set up**, so it samples under this view too rather than
+            // blending once and snapping on the second (B878 review 2, Fable).
+            if (_setUpAt is { } setUp)
+            {
+                _setUpAt = null;
+
+                if (_untaken)
+                {
+                    TakeSetUps();
+                }
+
+                source.BonesSetUp(_bonesSetUp, setUp);
+                _bonesSetUp.Clear();
+                _viewReported = true;
+            }
+            else if (!_viewReported)
+            {
+                source.BonesSetUp(_bonesSetUp, tick);
+                _viewReported = true;
+            }
+
             source.PropsAt(tick, _props, view.Followed, view.Playing);
         }
 
@@ -447,6 +507,21 @@ public sealed class MomentPresenter
         }
 
         _posed = true;
+
+        // **Every pose starts a world pass whose builds alone the scene then names**, so a real pose's are taken before the
+        // next pose of any kind (B878 reviews 2-3). **A players-only pose draws no props** (the decal replay's, at earlier
+        // ticks): it sets nothing up that a prop's cycle reads, so its own builds are never taken.
+        if (_untaken)
+        {
+            TakeSetUps();
+        }
+
+        _untaken = !PlayersOnly;
+
+        if (!PlayersOnly)
+        {
+            _setUpAt = info.Tick;
+        }
 
         // A re-pose of the held build (B744): the frame's real time, and no rebuild to report.
         if (_reposing)
