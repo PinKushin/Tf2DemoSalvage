@@ -55,6 +55,26 @@ public sealed class MapProviderTests
         maps.Locate("cp_badlands").ShouldBeNull();
     }
 
+    /// <summary>
+    /// **B890's failing-first test, `[Explicit]` until B890's branch**: with no Steam root named,
+    /// <see cref="MapProvider.SteamLibraryFile"/> is the empty string, which is passed here as the plain string it is
+    /// (no seam for <c>ProgramFilesX86</c> needed). The game folder's own <c>maps</c> holds the map, so the viewer's
+    /// search must find it (D203); today `MapLocator`'s constructor refuses the empty library path and `Locate`
+    /// answers null before that folder is searched. Run explicitly, this fails on today's code.
+    /// </summary>
+    [Test]
+    [Explicit("B890: fails until the game folder's maps are searched with no Steam library named")]
+    public void Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder()
+    {
+        string tf = TempFolder();
+        string expected = Path.Combine(Directory.CreateDirectory(Path.Combine(tf, "maps")).FullName, "cp_badlands.bsp");
+        File.WriteAllBytes(expected, BspHeader);
+
+        using MapProvider maps = new(steamLibraryFile: string.Empty, TempFolder(), () => Downloader(TempFolder()), () => tf);
+
+        maps.Locate("cp_badlands").ShouldBe(expected);
+    }
+
     [Test]
     public async Task FetchAsync_WhenTheDownloadFails_ReportsTheDownloadersOwnDescription()
     {

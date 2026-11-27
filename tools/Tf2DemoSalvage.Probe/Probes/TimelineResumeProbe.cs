@@ -74,7 +74,9 @@ public sealed class TimelineResumeProbe : IProbe
         // The install's class scripts and model facts are shared by a snapshot, never copied, so they are in no field below.
         (long total, IReadOnlyList<(string Field, long Bytes)> fields) = DemoTimeline.MeasureSnapshot(
             demo, at, client: ProbeInstall.Interp(), classes: game.ClassAnimation, models: game.ModelFacts);
-        output.WriteLine($"  one snapshot allocates {total / 1048576d:0.0} MB; by field, each copied alone:");
+        // Review 5: this is the process's first measured snapshot, so a type the copier meets here for the first time is
+        // reflected over inside the count — labelled rather than warmed, since a warming snapshot is a second walk to `at`.
+        output.WriteLine($"  one snapshot allocates {total / 1048576d:0.0} MB, including the copier's reflection over any type it had not yet copied (not warmed); by field, each copied alone:");
 
         foreach ((string field, long bytes) in fields.Take(12))
         {

@@ -12,8 +12,9 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **The HUD's instrument.** Every VGUI layout is one of these, layered by `#base`, and a question about where a panel
 /// is starts with what the merged tree says. Stock by default — `tf/custom` left out, because the owner's install carries
-/// his own HUD (`docs/memory/modern-tf2-is-not-a-stock-reference.md`); `custom` as a second argument reads what the viewer
-/// would, custom first.
+/// a HUD of its own (`docs/memory/modern-tf2-is-not-a-stock-reference.md`); `custom` as a second argument searches all of
+/// `tf/custom` first, so the file comes from whichever HUD sorts first. **Neither is what the viewer reads**: it reads
+/// `Archives.WithHud(ChosenHud)` (`GameContent`), the saved HUD's folder and no other under `custom/` (B893).
 /// </remarks>
 public sealed class ResProbe : IProbe
 {

@@ -93,11 +93,16 @@ public sealed class TimelineCostProbe : IProbe
             if (!coldSaid)
             {
                 coldSaid = true;
+                // Review 5: "this probe's first", which is the process's first only when nothing built before it; and with no
+                // archives the facts read nothing, so only JIT and static initializers are paid, as `timeline-windows` says.
+                string pays = game.Archives.IsEmpty
+                    ? "no archives, so only JIT and static initializers"
+                    : "the model facts' first reads, JIT and static initializers";
                 output.WriteLine(
                     $"COLD first build, {Path.GetFileNameWithoutExtension(path)}: {Seconds(coldTotal):0.00}s, "
-                    + $"gc-paused {coldGcPaused.TotalSeconds:0.00}s, allocated {coldAllocated / (1024d * 1024d):0}MB: this process's "
-                    + "first build, paying the model facts' first reads, JIT and static initializers, as the viewer's first open does; "
-                    + "not a row");
+                    + $"gc-paused {coldGcPaused.TotalSeconds:0.00}s, allocated {coldAllocated / (1024d * 1024d):0}MB: this probe's "
+                    + $"first build (the process's first unless another build ran before it), paying {pays}, as the viewer's "
+                    + "first open does, and any file the OS had not cached; not a row");
             }
 
             // The throwaway's garbage collected before the row's counts start (review 4), so no row's gc-paused is

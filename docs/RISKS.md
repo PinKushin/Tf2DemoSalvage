@@ -47396,25 +47396,65 @@ is empty when NO Steam root is named at all (`SteamInstall.Root` null) — not m
 before the install's own `maps` — the first search root, `TF2_FOLDER`'s or the picker's (D203) — is searched, so
 `Find` returns `NotInstalled` because `GameFolder()` still answers. Defeats D203's "the game folder's own maps come
 first". **Our downloads are not searched either**: `MapLocator.Find` reaches `OwnMapsFolder` last, after the library, and
-the constructor threw before any of it, so a map downloaded once is not found on the next open and is fetched again
-(review 4, Sonnet).
+the constructor threw before any of it. **But a downloaded map is NOT fetched again** (review 5 corrected review 4's
+"fetched again on every open", *read*): `PrepareAsync` falls to `FetchAsync`, and `MapDownloader.TryDownloadAsync`
+returns the cached file when it exists (`MapDownloader.cs` ~:193-200) before any request. So a map `TF2_FOLDER` holds is
+downloaded once into our folder, and every later open costs a false "is not installed; fetching it" log line and one
+`File.Exists`. `MapLocator`'s constructor also refuses an empty `ownMapsFolder`, but `MapDownloader.DefaultFolder` is
+never empty: with `LocalApplicationData` empty, `Path.Combine` makes it the relative `Tf2DemoSalvage/maps`, resolved
+against the working directory — an oddity of its own, not a second trigger of this one (review 5 asked; *read*).
 
 **Where it is reachable — a non-Windows host only** (review 4 corrected review 3's triggers, Fable and the cavecrew
 reviewer, *read*). `SteamInstall.Machine` takes `TF2VIEW_STEAM_ROOT` only when it is `{ Length: > 0 }`: set empty, it
 falls through to the registry and `ProgramFilesX86`, so "a probe run under `TF2VIEW_STEAM_ROOT` naming nothing" cannot
-happen; set non-empty, the root is named. And on Windows `Environment.SpecialFolder.ProgramFilesX86` always names a
-folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not. Only where
-the registry answers nothing AND `ProgramFilesX86` is empty — Linux or macOS: Linux CI, and the probes or the CLI run
-there — is `Root` null and the library path empty.
+happen; set non-empty, the root is named. And on 64-bit Windows `Environment.SpecialFolder.ProgramFilesX86` names a
+folder, so `Root` (its third candidate, `ProgramFilesX86\Steam`) is never null there, Steam installed or not; on 32-bit
+Windows it is documented empty (review 5 qualified "always"). Only where the registry answers nothing AND
+`ProgramFilesX86` is empty — Linux or macOS, or 32-bit Windows — is `Root` null and the library path empty.
+
+**On today's code it is a probe bug, not a viewer one — priority lowered** (review 5, *read*). The viewer is
+`net10.0-windows` (`Tf2DemoSalvage.Viewer3D.csproj`), and the only callers of `PrepareAsync` and `Find` are
+`ViewerPresenter.cs` ~:805 and ~:1039; `Presentation` is `net10.0`, but nothing else reaches it, and the CLI constructs no
+`MapProvider`. So the reachable form is **`ProbeInstall.Map` answers null on a non-Windows host** (Linux CI, a probe run
+there); the viewer meets it only on 32-bit Windows with no Steam registry key.
 
 **What is verified and what is not.** Verified, *read*: `Locate` answers null and `Find` answers `NotInstalled` (the
 code path above, `MapProvider.cs` ~:152-200, and `MapLocator`'s constructor guard). The download is *read, not run*:
 `PrepareAsync` (~:307-345) calls `Locate`, and on null tells `fetching` and awaits `FetchAsync`, so the viewer's map load
-downloads a map `TF2_FOLDER` holds — and, by the paragraph above, again on every open. No test runs `PrepareAsync` on a
-host with no Steam root; none can on Windows. The probes inherit it through `ProbeInstall.Map`, as they should. Fix
-shape: search the game folder's `maps` and our downloads whether or not a library file is named — `MapLocator` taking a
-null library, or `Locate` searching those before constructing it — with a test that names `TF2_FOLDER` and no Steam root
-(which needs a seam for `ProgramFilesX86`, since Windows always has one). *Not fixed* (its own branch).
+downloads a map `TF2_FOLDER` holds, once. **The failing-first test exists** (review 5 corrected "none can on Windows"
+and "needs a seam for `ProgramFilesX86`"): `MapProvider`'s constructor takes `steamLibraryFile` as a plain string
+(`MapProvider.cs` ~:82-94), so `MapProviderTests.Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` passes `""`
+with a game folder whose `maps` holds the map, and asserts it is found. It is `[Explicit]` until this branch — it fails on
+today's code, seen 2026-11-27 — and B890's fix removes the attribute. The probes inherit the bug through
+`ProbeInstall.Map`, as they should. Fix shape: search the game folder's `maps` and our downloads whether or not a library
+file is named — `MapLocator` taking a null library, or `Locate` searching those before constructing it. *Not fixed* (its
+own branch).
+
+## B894 — the viewer never asks for the map version a demo recorded, and a versioned download is never found again (2026-11-27) — OPEN
+
+Found in B874 review 5 (asked by the reviewers whether it is a viewer bug), *read*. D162 settled that "an old demo gets
+the map … it was recorded against": `MapProvider.Find(mapName, checksum)` reports a `VersionMismatch`, and
+`FetchAsync(MapWanted)` fetches by `MapWanted.Checksum` and keeps the file under `MapDownloader.CacheName(wanted)`,
+`<name>.<HEX>.bsp`, so two versions sit side by side. **No production caller passes a checksum**: `ViewerPresenter`
+calls `_maps.Find(mapName)` (~:805) and `_maps.PrepareAsync`, which fetches through `FetchAsync(string)`, a `MapWanted`
+with no checksum; `MapWanted.From` has no caller outside `MapDownloaderTests`. So the viewer draws whichever copy of a
+Valve map it finds by name, never the version the demo recorded, and the D162 path runs only in tests. **And once it is
+wired, a versioned download is never found by `Locate`**: `MapLocator.Find` looks for `<name>.bsp` alone in every root,
+ours included, on every host, so the `<name>.<HEX>.bsp` the downloader kept is missed and only `TryDownloadAsync`'s own
+`File.Exists` on the same name finds it again — a false "fetching" every open, and `Find` reporting `NotInstalled` for a
+map that is here. Fix shape: hand the demo's `MapHash` and server ConVars to the prepare and the find
+(`MapWanted.From`), and have `Locate` try the checksum's cache name in our folder first. *Not fixed* (its own branch).
+
+## B893 — the `res`, `scheme` and `hud` probes do not read the viewer's chosen HUD (2026-11-27) — OPEN
+
+Found in B874 review 5 (Fable, Sonnet, the cavecrew reviewer, Codex), *read*. The viewer reads its HUD files through
+`Archives.WithHud(ChosenHud)` (`GameContent.cs` ~:108), the saved `ChosenHud` (or a launch `--hud`): that HUD's folder
+under `custom/` and no other. The three probes read stock (`WithoutCustom`) by default, and with `custom` the whole
+`custom/` search path, so a file comes from whichever HUD sorts first — neither is the viewer's answer when more than
+one HUD is installed or the chosen one is not first. Probes run the production path (CLAUDE.md, D126). Fix shape: a
+`chosen` mode, or the default, that reads `ProbeInstall.Game(…).Archives.WithHud(` the saved choice `)`, keeping stock
+as an explicit mode since a stock answer is what `res` and `scheme` were written for. Their comments now say what each
+mode reads (review 5). *Not fixed* (its own branch).
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
@@ -47694,8 +47734,9 @@ viewer's map search with no Steam root named — now B890.
   folder is, except three that leave `custom/` out by default (review 4 corrected "except `ModelFlag`'s"): `ModelFlag`,
   on purpose, and `Res` and `Scheme`, which say "stock unless asked" (`docs/memory/modern-tf2-is-not-a-stock-reference.md`).
   Asked with `custom`, those two read the whole `custom/` folder, which is not the viewer's HUD either: the viewer's HUD
-  reads the install's `Archives.WithHud(chosen)`, the saved `ChosenHud` (or a launch `--hud`), and its own custom folder
-  through `WithOwnCustom`; neither probe reads either. Recorded, not changed: a stock answer is what those two exist for.
+  reads the install's `Archives.WithHud(chosen)`, the saved `ChosenHud` (or a launch `--hud`), and nothing else under
+  `custom/` (review 5 corrected "and its own custom folder through `WithOwnCustom`": only `Tf2ConfigFiles.cs` ~:119 uses
+  that, for configs). `hud` is the third such probe (review 5). Now B893.
 
 New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
 
@@ -47756,8 +47797,59 @@ New tests, each sabotaged with an exact inverse edit and seen to redden, then re
   1.5 MB and 0.5 MB. Sabotages: the null branch back on "no install" reddened it alone; the control's figure printed
   from `First` reddened it alone.
 
-The census's `finally` has no test: making a warming build throw needs a demo the build throws on, and the decode is
-total by design (`docs/memory/decode-must-be-total.md`), so it is read, not run.
+The census's `finally` had no test here; review 5 found it testable and added one (below).
+
+*Not verified by looking.*
+
+**Numbering (review 5).** "Review N" in this entry and in B890 is the Nth review of a B874 fix, the number in its commit
+subject (`fix: B874 review N, …`): review 1 reviewed `502fb9561`, review 4 reviewed `9ebae95a3` and was fixed in
+`3f3093d3d`. The reviewers' own round numbers ran one ahead — they called review 4 "round 5" — so a citation "(review
+N, X)" here is this numbering, not theirs.
+
+**Review 5 (Fable, Sonnet, the cavecrew reviewer, Codex), 2026-11-27.** Fixed on `fix/b874-r5`:
+
+- **The install open escaped the census.** Review 4 moved `ProbeInstall.Game` and `Interp` into `DemoCensus.Run`,
+  outside `Stage`'s catch, so an unreadable config or an out-of-memory opening the install under the heap limit ended the
+  whole census — the masking half of B440. `Stage`'s catch is now `Guarded`, and `Run` opens the install through
+  `Guarded("timeline", …)`: a throw is the timeline's recorded failure (an out-of-memory its budget skip), its time is no
+  column, the timeline stage then returns without overwriting it, and every other stage runs.
+- **The warming `finally` was untested but testable.** `DemoCensus` takes its build as a seam (`Build`, beside `OpenGame`
+  and `ReadInterp`), the warming throwaways' and the measured build's alike, so a test throws from it. The reachable case
+  is named in the code: an `OutOfMemoryException` under the census heap limit, which `Guarded` records as a budget skip
+  with the stage's seconds still written. **`_untimed` is reset in a `finally`** in `Stage`, so time one stage hands back
+  can never come off another's, whatever threw.
+- **B890's record** corrected: a downloaded map is not fetched again (`TryDownloadAsync` returns the cached file), only
+  falsely announced; on today's code it is a probe bug on a non-Windows host (the viewer is `net10.0-windows`), priority
+  lowered; the failing-first test needs no seam and now exists, `[Explicit]`; `ProgramFilesX86` is empty on 32-bit
+  Windows; an empty `ownMapsFolder` also throws, but `DefaultFolder` is never empty. The checksum-named download
+  `MapLocator` never finds is its own finding, with the larger one under it — no production caller asks for a version —
+  **B894**.
+- **`scheme`, `hud` and `res` said `custom` reads what the viewer reads.** It reads whichever HUD sorts first; the viewer
+  reads `WithHud(ChosenHud)`. Comments fixed; the probes not following the saved HUD is **B893**.
+- **Cold labels**: `timeline-cost`'s COLD line and `timeline-windows`' cold walk are "this probe's first", the process's
+  first only when nothing built before it; with no archives `timeline-cost`'s line says only JIT and static initializers
+  are paid; both name the OS file cache as a third cold cost. "Differ by warmth alone" softened. **Open**: z1800's cold
+  gap is 32.4 s in `timeline-cost` (89.68 against 57.26) and 46.6 s in `timeline-windows` (150.6 against 104.0), and
+  nothing here explains the difference. `timeline-resume cost` labels its snapshot as including the copier's first
+  reflection, rather than walking to `at` a second time to warm it.
+- **`MeasureSnapshot`'s test** warms with the `late` interp before measuring, so the copier's reflection over the queued
+  element type — done on the first copy whose queue holds one, which was `late` — is not in `late`, and `late > tenth` is
+  the queued jump alone.
+
+New and changed tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Run_WhenOpeningTheInstallThrows_FailsTheTimelineAndRunsTheRest` (Corpus) — the interp read throws
+  `InvalidDataException`; the row's timeline is `fail` with that detail, the container still passes, and no build ran.
+  Sabotage: `Run` calling `OpenInstall()` unguarded reddened it alone (the exception left `Run`).
+- `Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds` (Corpus) — the injected build spins one second
+  and then allocates past `Array.MaxLength`, the runtime's own `OutOfMemoryException`; the timeline is a `budget` skip
+  (control) and `timeline_seconds` is under 0.5. Sabotage: the `_untimed` assignment moved out of the `finally` reddened
+  it alone, 1.009.
+- `MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem` (Core), warmed with `late`'s interp. Sabotage:
+  `MeasureSnapshot`'s `Start` given `new ClientInterp()` for the interp reddened it alone at `late`, 1,032 where more
+  than `tenth`'s 1,032 — so with the copier warm, the comparison still sees the interp.
+- `Locate_WithNoSteamLibraryNamed_StillSearchesTheGameFolder` (Presentation, `[Explicit]`, B890) — run explicitly it
+  fails on today's code (null where the game folder's map). Not sabotaged: it is red now, which is its point.
 
 *Not verified by looking.*
 

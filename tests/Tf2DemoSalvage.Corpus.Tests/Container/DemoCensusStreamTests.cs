@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Probe;
 using Tf2DemoSalvage.Probe.Probes;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Corpus.Tests.Container;
 
@@ -131,7 +135,69 @@ public sealed class DemoCensusStreamTests
             .ShouldBe((CensusRow.Shape("tail not carried: bytes after dem_stop"), "1188", "byte 1188"));
     }
 
-    private DemoCensus Census(string path, out CensusRow row)
+    /// <summary>
+    /// **A failure opening the install is a recorded row failure, not the end of the census** (review 5): the interp
+    /// reading throws as an unreadable config would, and the row says so under the timeline, the one stage that needs
+    /// the install, while every other stage still runs. Control: the container passes after it, and no build ran.
+    /// </summary>
+    [Test]
+    public void Run_WhenOpeningTheInstallThrows_FailsTheTimelineAndRunsTheRest()
+    {
+        string path = WriteDemo();
+        int builds = 0;
+        DemoCensus census = Census(path, out CensusRow row, "timeline", Megabyte(64));
+        census.ReadInterp = () => throw new InvalidDataException("an unreadable config");
+        census.Build = (_, _, _) =>
+        {
+            builds++;
+            throw new InvalidOperationException("no build runs when the install did not open");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_detail"], row.Status("container"), builds)
+            .ShouldBe(("fail", "InvalidDataException: an unreadable config", "pass", 0));
+    }
+
+    /// <summary>
+    /// **A warming build that throws leaves none of its time in `timeline_seconds`** (review 5). The reachable case: an
+    /// <see cref="OutOfMemoryException"/> under the census heap limit, which the stage records as a budget skip and still
+    /// writes its seconds. The warming build spins a full second first, so a column that kept it reads at least 1.0; one
+    /// that left it out reads the file read and nothing else. Control: the stage did take the budget skip.
+    /// </summary>
+    [Test]
+    public void Run_WhenTheWarmingBuildRunsOutOfMemory_LeavesItsTimeOutOfTheSeconds()
+    {
+        string install = Directory.CreateDirectory(Path.Combine(_folder, "tf")).FullName;
+        File.WriteAllText(Path.Combine(install, "census-marker.txt"), "here");
+        GameContent game = ProbeInstall.Open(install, output: null);
+
+        DemoCensus census = Census(WriteDemo(), out CensusRow row, "timeline", Megabyte(64));
+        census.OpenGame = _ => game;
+        census.ReadInterp = () => new ClientInterp();
+        census.Build = (_, _, _) =>
+        {
+            long started = Stopwatch.GetTimestamp();
+
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1))
+            {
+                // Spinning: the time a warming build spends before it runs out.
+            }
+
+            // The runtime's own OutOfMemoryException: an array past Array.MaxLength is refused before anything is allocated.
+            _ = new byte[int.MaxValue];
+            throw new InvalidOperationException("unreachable: the allocation above throws");
+        };
+
+        census.Run();
+
+        (row.Status("timeline"), row["timeline_skip"]).ShouldBe(("skip", "budget"), "the control: the warming build threw");
+        double.Parse(row["timeline_seconds"], System.Globalization.CultureInfo.InvariantCulture).ShouldBeLessThan(0.5);
+    }
+
+    private static long Megabyte(int count) => count * 1048576L;
+
+    private DemoCensus Census(string path, out CensusRow row, string stage = "assembly", long budget = 1)
     {
         row = new CensusRow();
         row["path"] = path;
@@ -142,9 +208,9 @@ public sealed class DemoCensusStreamTests
             Roots = [path],
             CsvPath = Path.Combine(_folder, "census.csv"),
             SummaryPath = Path.Combine(_folder, "census.md"),
-            Stages = new HashSet<string>(["assembly"], StringComparer.Ordinal),
+            Stages = new HashSet<string>([stage], StringComparer.Ordinal),
             TempDirectory = _folder,
-            BudgetBytes = 1,
+            BudgetBytes = budget,
         };
 
         byte[] header = new byte[DemoHeader.SizeBytes];

@@ -14,7 +14,9 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <summary>The viewer's HUD viewport built from the install: its panels, and every quad one frame of it draws.</summary>
 /// <remarks>
 /// Runs <see cref="VguiHud"/> itself — the production path — on a 1920 × 1080 surface, with a GDI that makes no fonts,
-/// so text is absent and every fill and texture is present. Stock files by default; `custom` reads what the viewer does.
+/// so text is absent and every fill and texture is present. Stock files by default; `custom` searches all of `tf/custom`,
+/// so each file comes from whichever HUD sorts first. **Neither is what the viewer reads**: it reads
+/// `Archives.WithHud(ChosenHud)` (`GameContent`), the saved HUD's folder and no other under `custom/` (B893).
 /// </remarks>
 public sealed class HudProbe : IProbe
 {

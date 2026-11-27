@@ -123,6 +123,11 @@ public sealed class TimelineBuilderSnapshotTests
     /// in the builder's own state: the scout's one jump is queued to fire an interpolation window after it arrives (B437), so
     /// under TF2's tenth of a second it has fired before the demo ends and the queue holds nothing, while under a hundred
     /// seconds it is still waiting, and a snapshot copies it. Control: no interp at all is TF2's defaults.
+    ///
+    /// **Warmed with the `late` configuration first** (review 5): the copier reflects over a queue's element type on the
+    /// first copy that holds an element, and only `late`'s queue holds one, so an unwarmed `late` counted that setup too
+    /// and `late > tenth` was partly the copier's first look. With it warmed, the two differ by the queued jump alone:
+    /// what the interp left waiting, copied.
     /// </remarks>
     [Test]
     public void MeasureSnapshot_WithTheInstallsInputs_WalksWithEachOfThem()
@@ -137,7 +142,8 @@ public sealed class TimelineBuilderSnapshotTests
         CountingFacts facts = new();
 
         // A first copy also allocates the copier's own reflection over each type, which the counter sees; not measured.
-        _ = DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout));
+        // The `late` interp's, without the counted scripts, so the queue's element type is reflected here too.
+        _ = DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout), client: new ClientInterp(Interp: 100f));
         long defaults = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout)));
         long tenth = Queued(DemoTimeline.MeasureSnapshot(scout, DemoTimeline.CommandCount(scout), client: new ClientInterp()));
         long late = Queued(DemoTimeline.MeasureSnapshot(
