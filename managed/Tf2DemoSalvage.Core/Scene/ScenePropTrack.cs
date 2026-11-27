@@ -2255,28 +2255,30 @@ public sealed class ScenePropTrack
     {
         // **Every update, before any of it is collapsed** (B878): the parity test runs in each update's `PostDataUpdate`
         // (`c_baseanimating.cpp:4738`), a restatement included.
-        // **In tick order, the contract of every store here**: the timeline passes each packet's tick in stream order
-        // (`DemoTimeline`'s `track.Add(tick, …)`), and the keyframes and histories assume it as the runs do. Clamping the
-        // runs alone left them disagreeing with the keyframes the anchor reads (review 6, Fable, reversing review 5's).
+        // **At its arrival, not its stamp**: packet ticks do not always rise — a signon carries the server's tick, and a
+        // file's packets can run backwards — and the player delivers a packet once the running maximum of their ticks is
+        // reached (`DemoPlayer.FirstPacketPast`), where `PostDataUpdate` runs. So an update stamped below the newest counts
+        // at the newest's tick, the runs stay ordered for their searches, and nothing ends a build (as `HeldValues.Set`,
+        // B878 review 7 — reversing review 6's assert). The keyframes keep the raw stamp: B881.
         UpdateRun? previous = _updates.Count > 0 ? _updates[^1] : null;
-        System.Diagnostics.Debug.Assert(previous is not { } newest || tick >= newest.Last, "updates arrive in tick order");
+        int arrived = previous is { } newest ? Math.Max(tick, newest.Last) : tick;
 
-        if (previous is { } same && same.Parity == pose.NewSequenceParity && tick == same.Last)
+        if (previous is { } same && same.Parity == pose.NewSequenceParity && arrived == same.Last)
         {
             // A second update at one tick: the run already names it.
         }
         else if (previous is { } run && run.Parity == pose.NewSequenceParity &&
-            (run.Stride == 0 || tick - run.Last == run.Stride))
+            (run.Stride == 0 || arrived - run.Last == run.Stride))
         {
             // A single update's run takes the first gap as its stride; a longer one extends only by it.
-            _updates[^1] = run with { Last = tick, Stride = tick - run.Last };
+            _updates[^1] = run with { Last = arrived, Stride = arrived - run.Last };
         }
         else
         {
             // A gap off the stride continues the stretch, and keeps its `Before`; a new parity's begins after this one.
             int? differed = previous is { } last && last.Parity == pose.NewSequenceParity ? last.Before : previous?.Last;
 
-            _updates.Add(new UpdateRun(tick, tick, 0, pose.NewSequenceParity, differed));
+            _updates.Add(new UpdateRun(arrived, arrived, 0, pose.NewSequenceParity, differed));
         }
 
         // **The engine's three changed-tests, against the previous NETWORKED values** (B382).

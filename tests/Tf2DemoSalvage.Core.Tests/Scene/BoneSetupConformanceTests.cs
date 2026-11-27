@@ -252,6 +252,27 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **An update stamped below the newest counts at its arrival, and ends nothing** (B878 review 7, Fable, Sonnet, the
+    /// cavecrew reviewer): a signon carries the server's tick (70,718 on z1800, against a first packet at 6), and the
+    /// player delivers a packet at the running maximum of packet ticks. Parity 0 at 100, parity 1 at 110, then one
+    /// stamped 108 — counted at 110, so a setup at 105 that saw 0 has its reset at 110, and the runs stay searchable: a
+    /// later update at 120 that states 0 again is the reset for a setup at 115 that saw 1.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_AnUpdateStampedBelowTheNewest_CountsAtItsArrival()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(108, new ScenePose { NewSequenceParity = 1, X = 2 }, appliedAt: 108, animationAppliedAt: 105);
+        track.Add(120, new ScenePose { NewSequenceParity = 0, X = 3 }, appliedAt: 120, animationAppliedAt: 117);
+
+        track.UnseenResetAt(112, new BoneSetup(105, 0, null)).ShouldBe(110);
+        track.UnseenResetAt(125, new BoneSetup(115, 1, null)).ShouldBe(120);
+        track.UnseenResetAt(112, new BoneSetup(110, 1, null)).ShouldBeNull("the control: a setup at 110 saw parity 1");
+    }
+
+    /// <summary>
     /// **A run extends only by its stride** (B878 review 5, Fable): parity 0 at 90; parity 1 at 100, 102, 104, then 107.
     /// A setup at 95 saw 0. Asked at 106 the newest update is 104 — had 107 joined the two-tick run as a three-tick one,
     /// the answer would be 106, a tick with no update.

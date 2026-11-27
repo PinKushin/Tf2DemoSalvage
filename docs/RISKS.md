@@ -47296,6 +47296,7 @@ the record costs one entry per parity or cadence change rather than one per upda
 update by then (`UnseenResetAt_UpdatesTwoTicksApart_IsTheNewestByTheQuery`). An irregular updater — gaps that change
 every update — still costs one run per update (*not measured* on the corpus). **A trim keeps the run before the cut's
 count of starts** however many runs back it lies, which a wrapped parity looks back to — a tail of eight runs did not
+(superseded in review 5: each run carries that update, and the trim keeps only the tail)
 (`TrimBefore_ManyRunsAfterAWrap_StillAnswersTheUpdateBeforeTheWrap`, renamed in review 6). `BracketAnchored`'s list past 64 entries is rented from
 the shared pool rather than allocated: a target near a reset with many latches since walks every one, because any later
 latch can flush the reset's entries (`BracketAnchored_NearTheResetWithManyLatchesAfter_WalksWithoutAllocating`; Fable's
@@ -47334,11 +47335,45 @@ as the engine does (`UnseenResetAt_AParityGoingBackWithoutWrapping_ComparesWithT
 and `UnseenResetAt` no longer describe the removed starts count; the wrap trim test is renamed for what it now proves.
 Recorded, *not modelled*: (a) a setup older than a trim's cut whose reset keyframe the trim dropped gives no anchor — the
 viewer's timeline is never trimmed, so no current path reaches it, and the output equals the plain answer by reading,
-only the third sample differing (Fable, the cavecrew reviewer); (b) updates at one tick with parities 0, 1, 0 seed from
-the keyframe kept at that tick, the last, where the reset was the middle one's (the cavecrew reviewer; *not traced*
-whether one entity gets two updates at one tick); (c) `BoneSetups` is keyed by track and never pruned, so a view held
+only the third sample differing (Fable, the cavecrew reviewer); (b) a reset whose update is not the last at its tick
+seeds from the keyframe kept at that tick, the last — two updates at one tick are possible (a POV demo's packets repeat
+a tick, finding 106), but the parity must also return to the setup's within that tick (review 7, Fable, the cavecrew
+reviewer, correcting "not traced"); (c) `BoneSetups` is keyed by track and never pruned, so a view held
 across a builder trim or a checkpoint copy keeps dead tracks and reads the copies as never set up — `Source` is set once
 per open, so not reachable until windowed timelines reach the viewer (Fable). *Not verified by looking.*
+
+Review 7 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **Review 6's tick-order assert is reversed**: its
+premise, that the timeline feeds a track rising ticks, is wrong by this repo's own record. `RecordProp` takes
+`command.Tick` for signon commands too, whose tick is the server's (70,718 on z1800 against a first packet at 6;
+146,124 on etf2l-12025), and `DemoPlayer` notes that packet ticks are not monotonic in every file. A `Debug.Assert`
+fails fast in a Debug viewer or test host, and `HeldValues.Set` was already made tolerant for the same reason ("one
+must not end a build"). **The update runs count each update at its arrival**: the player delivers a packet once the
+running maximum of packet ticks reaches it (`DemoPlayer.FirstPacketPast`), which is when `PostDataUpdate` runs, so an
+update stamped below a track's newest counts at that newest's tick
+(`UnseenResetAt_AnUpdateStampedBelowTheNewest_CountsAtItsArrival`; removing the clamp reddened it). Two approximations
+remain, filed as B881: a track's own newest is not the running maximum of every packet, and the keyframes and
+histories keep the raw stamp, so an anchor's seed on such a demo can come from a keyframe out of order — *not traced*
+whether any demo's signon carries entity updates or any real file's packets run backwards. Also recorded, *not
+modelled*: under `--windows`, `WindowCheck` samples the whole timeline between a posed frame and its report, and
+`NoteBonesSetUp` resolves the posed indices through the live set at report time, so a reused index can record a setup
+on the wrong track — a debug flag only; normal playback reports at the tick it posed (Fable). Cases (a) and (c)
+confirmed: `Builder.Trim` runs only in the checkpoint walk, windows reach only `WindowCheck`, which samples with no
+setups, and `Source` is set in one place (`DemoSystems.cs:262`) (Fable). *Not verified by looking.*
+
+## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
+
+Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
+`ScenePropTrack.Add` the command's own tick, for signon commands as well as packets. A signon's tick is the server's
+(70,718 on z1800 against a first packet at 6; 146,124 on etf2l-12025, findings 01 and 97), and `DemoPlayer` reads
+packets up to the running maximum of their ticks because a file's packet ticks need not rise
+(`DemoPlayer.FirstPacketPast`, the backwards case of `ParseAheadForInterval`). The engine runs `PostDataUpdate` when a
+packet is read, so an update's arrival is that running maximum, not its stamp. The keyframes (`PoseKeyframes`, no order
+check) and the interpolated histories' received ticks take the raw stamp, so an update stamped below the newest lands
+out of order in lists searched as sorted; B878's update runs clamp to the track's newest, which is the running maximum
+only for that track. **To read first**: whether any signon in the corpus carries `svc_PacketEntities` for a prop, and
+whether any real file's packets run backwards (only a synthetic one is known, `DemoPlayerConformanceTests.Backwards`).
+Fix shape, if either does: pass the running maximum of packet ticks as the arrival into `Add`, beside the stamp, for
+every store that answers "arrived by". *Not verified by looking.*
 
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
 
