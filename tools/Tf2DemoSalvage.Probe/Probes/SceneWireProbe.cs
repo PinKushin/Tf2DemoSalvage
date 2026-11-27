@@ -186,7 +186,7 @@ public sealed class SceneWireProbe : IProbe
         // 4,431 names is precache: every scene the map could play, sent whether or not one does.
         // Only an entity carrying `m_bIsPlayingBack` says a taunt happened, and only its
         // `m_hActorList` says to whom.
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, output);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

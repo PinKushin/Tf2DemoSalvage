@@ -69,7 +69,7 @@ public sealed class HudModelLoadsProbe : IProbe
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         game.ChosenHud = null;
         GameArchives archives = game.HudArchives;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), game);
 
         // The level's two lists as a load runs them (review 21 item 6, one method): a FRESH timeline each run, so `Needed`
         // walks the carried items as a load's does and `ToPack` takes the held walk; one discarded warm-up, then the median
@@ -83,7 +83,7 @@ public sealed class HudModelLoadsProbe : IProbe
 
         for (int run = 0; run < 4; run++)
         {
-            DemoTimeline fresh = DemoTimeline.Build(demoBytes);
+            DemoTimeline fresh = ProbeInstall.Timeline(demoBytes, game);
             clock.Restart();
             DemoModels.Needed(fresh, game);
             double neededRun = clock.Elapsed.TotalMilliseconds;

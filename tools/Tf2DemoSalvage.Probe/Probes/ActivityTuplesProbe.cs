@@ -42,7 +42,7 @@ public sealed class ActivityTuplesProbe : IProbe
         }
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(file).MapName;
 

@@ -75,7 +75,7 @@ public sealed class CameraPathProbe : IProbe
         }
 
         byte[] bytes = File.ReadAllBytes(path);
-        DemoTimeline subject = DemoTimeline.Build(bytes);
+        DemoTimeline subject = ProbeInstall.Timeline(bytes, output);
         int[] stamps = ViewPackets(subject);
 
         // A SourceTV demo, or any with no recorded view: what the setting places, and whether either setting answers a view.
@@ -551,6 +551,7 @@ public sealed class CameraPathProbe : IProbe
 
         commands.Add(SyntheticViews.Stop(LineStart + ticks[^1]));
 
+        // A synthetic demo of views alone: no player, prop or model for the install to act on (B874).
         return DemoTimeline.Build(SyntheticViews.Demo(24, commands));
     }
 

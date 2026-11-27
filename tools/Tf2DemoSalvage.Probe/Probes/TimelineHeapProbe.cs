@@ -59,9 +59,11 @@ public sealed class TimelineHeapProbe : IProbe
             return;
         }
 
-        // The control: the heap before anything is built, so the difference is the timeline's.
+        // The control: the heap before anything is built, so the difference is the timeline's — the install opened
+        // first, so it is not counted as the timeline's (B874).
+        GameContent install = ProbeInstall.Game(output);
         long before = Live();
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), install);
         long after = Live();
 
         output.WriteLine(

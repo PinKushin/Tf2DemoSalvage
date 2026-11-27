@@ -41,7 +41,7 @@ public sealed class SeekScanProbe : IProbe
 
         int seeks = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 40;
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(file).MapName;
 

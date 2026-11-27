@@ -39,7 +39,7 @@ public sealed class CloakProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         float interval = timeline.IntervalPerTick;
         HashSet<int> spies = [];
         Dictionary<int, string> watchesOf = [];

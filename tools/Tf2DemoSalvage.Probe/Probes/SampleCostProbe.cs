@@ -67,7 +67,7 @@ public sealed class SampleCostProbe : IProbe
                 ? asked
                 : 500;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         List<SceneProp> props = [];
 
@@ -108,7 +108,7 @@ public sealed class SampleCostProbe : IProbe
         // list along, so this steps a quarter tick per call, which at 66.7 ticks a second is
         // roughly a 270 fps cadence. Fresh timeline so the first probe's sampling state does not
         // pre-pay this one's wakes.
-        DemoTimeline advancing = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline advancing = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         advancing.PropsAt(tick, props);
 

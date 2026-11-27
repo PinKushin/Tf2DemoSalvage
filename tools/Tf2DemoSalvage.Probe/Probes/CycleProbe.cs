@@ -73,7 +73,7 @@ public sealed class CycleProbe : IProbe
 
         int entity = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         double from = arguments.Count > 2
             ? double.Parse(arguments[2], CultureInfo.InvariantCulture)

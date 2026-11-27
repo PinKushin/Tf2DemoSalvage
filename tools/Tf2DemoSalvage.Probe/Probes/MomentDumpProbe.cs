@@ -39,7 +39,7 @@ public sealed class MomentDumpProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         double tick = double.Parse(arguments[1], CultureInfo.InvariantCulture);
         HashSet<int> wanted = [.. arguments.Skip(2).Select(text => int.Parse(text, CultureInfo.InvariantCulture))];
 

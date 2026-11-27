@@ -43,7 +43,7 @@ public sealed class HudProbe : IProbe
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
             AttributeHooks? hooks = items is null ? null : new AttributeHooks(items);
-            Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+            Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), output);
             int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
 
             state = HudStates.For(timeline, tick, new TfWeaponData(archives.Read), hooks);

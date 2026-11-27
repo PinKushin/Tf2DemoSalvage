@@ -77,7 +77,7 @@ public sealed class AutoExposureProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         foreach ((int tick, SceneTonemap tonemap) in timeline.Tonemap.Samples)
         {

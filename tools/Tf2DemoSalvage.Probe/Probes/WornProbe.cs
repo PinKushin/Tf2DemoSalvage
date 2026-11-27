@@ -39,7 +39,7 @@ public sealed class WornProbe : IProbe
         }
 
         int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         List<ScenePlayer> players = [];
         List<SceneProp> props = [];
         timeline.PlayersAt(tick, players);

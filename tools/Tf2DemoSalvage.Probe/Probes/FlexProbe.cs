@@ -69,7 +69,7 @@ public sealed class FlexProbe : IProbe
 
         if (arguments[0] == "voices" && arguments.Count > 2 && DemoCorpus.Find(arguments[1], output) is { } demo)
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), game);
 
             foreach (SceneSound sound in timeline.Sounds.Where(s => s.Name.Contains(arguments[2], StringComparison.OrdinalIgnoreCase)).Take(40))
             {
@@ -94,7 +94,7 @@ public sealed class FlexProbe : IProbe
             }
 
             output.WriteLine($"{sentences.Count} cached sentences");
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(spoken));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(spoken), game);
 
             foreach (SceneSound sound in timeline.Sounds.Where(s => !s.IsStop &&
                 sentences.ContainsKey(SoundCacheFile.Normalise("sound/" + s.Name.TrimStart('*', '#', '@', '>', '<', '^', ')', '}', '$', '!', '?', '&', '~', '`', '+', '%', '(')))).Take(40))
@@ -111,7 +111,7 @@ public sealed class FlexProbe : IProbe
         if (arguments[0] == "played" && arguments.Count > 1 && DemoCorpus.Find(arguments[1], output) is { } played &&
             game.Archives.Read("scenes/scenes.image") is { } imageBytes && SceneImage.Read(imageBytes) is { } image)
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(played));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(played), game);
             output.WriteLine($"{timeline.Scenes.Count} scene runs");
             Dictionary<int, List<(int Start, int? Stop)>> byActor = [];
 
@@ -253,7 +253,7 @@ public sealed class FlexProbe : IProbe
         // Sounds whose message names a speaker entity — the control is the total sound count beside it.
         if (arguments[0] == "speakers" && arguments.Count > 1 && DemoCorpus.Find(arguments[1], output) is { } heard)
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(heard));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(heard), game);
             List<SceneSound> named = [.. timeline.Sounds.Where(s => s.SpeakerEntity >= 0)];
 
             output.WriteLine($"{timeline.Sounds.Count} sounds, {named.Count} naming a speaker");

@@ -56,7 +56,7 @@ public sealed class MoveYawProbe : IProbe
 
         byte[] file = File.ReadAllBytes(path);
         Dictionary<int, UserCommand> commands = Commands(file);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
 
         if (timeline.RecorderEntityIndex is not { } recorder)
         {

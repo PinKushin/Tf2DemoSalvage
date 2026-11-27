@@ -69,7 +69,7 @@ public sealed class PoseLayerProbe : IProbe
         int? only = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : null;
 
         byte[] bytes = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, output);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -75,8 +76,10 @@ public sealed class TimelineCostProbe : IProbe
             // of it. Two things still land in it: static initializers the build runs for the first time in this process
             // (the first demo asked pays them, later ones do not), and a few MB that move with timing — the process-wide
             // count read 30,163 to 30,182 MB for one binary (measurements/2026-11-14-f12-decode-allocation.md).
+            // The install opened before the count, so the bytes are the build's and not the install's (B874).
+            GameContent game = ProbeInstall.Game(output);
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
-            DemoTimeline timeline = DemoTimeline.Build(file);
+            DemoTimeline timeline = ProbeInstall.Timeline(file, game);
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
             TimelinePhases phases = timeline.Phases;

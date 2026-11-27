@@ -61,7 +61,7 @@ public sealed class FlexExtentProbe : IProbe
         int start = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         double seconds = double.Parse(arguments[2], CultureInfo.InvariantCulture);
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
 

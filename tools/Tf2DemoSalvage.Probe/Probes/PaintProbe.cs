@@ -72,7 +72,7 @@ public sealed class PaintProbe : IProbe
             + $"game {folder ?? "NOT FOUND — every item will read as unpainted"}");
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);

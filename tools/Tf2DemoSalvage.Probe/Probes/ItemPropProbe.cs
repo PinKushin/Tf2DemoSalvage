@@ -98,7 +98,7 @@ public sealed class ItemPropProbe : IProbe
     /// <summary>One demo's census.</summary>
     private static void Census(TextWriter output, string path, HashSet<int> wanted, int stride, GameContent game)
     {
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<ScenePropTrack> withItem = [.. timeline.Props.Where(track => track.ItemDefinitionIndex is not null)];
         List<ScenePropTrack> named = [.. withItem.Where(track => wanted.Contains(track.ItemDefinitionIndex ?? -1))];

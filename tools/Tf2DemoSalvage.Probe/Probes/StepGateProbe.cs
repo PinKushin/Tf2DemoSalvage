@@ -101,7 +101,7 @@ public sealed class StepGateProbe : IProbe
         }
 
         int every = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 3;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         StepGateCounts counts = Measure(timeline, every);
 
         output.WriteLine(string.Create(

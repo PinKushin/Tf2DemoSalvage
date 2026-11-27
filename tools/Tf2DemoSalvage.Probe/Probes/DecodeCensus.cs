@@ -13,6 +13,7 @@ using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Text;
+using Tf2DemoSalvage.Scene;
 
 using static System.FormattableString;
 
@@ -758,8 +759,11 @@ internal sealed class DemoCensus
 
         // The one stage that still holds the file (B439, out of B449's scope), read only once its budget allows it.
         byte[] bytes = File.ReadAllBytes(_path);
+
+        // Opened before the first heap reading, so the held figure is the timeline's and not the install's (B874).
+        GameContent game = ProbeInstall.Game(_log);
         long before = LiveHeap();
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
         long held = LiveHeap() - before;
 
         _row.Set("timeline_frames", timeline.Frames.Count);

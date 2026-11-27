@@ -47289,14 +47289,35 @@ override does NOT reset every update, as a first draft of this entry said: `SetM
 `m_nModelIndex`, `c_baseentity.cpp:1775-1780`, so `OnDataChanged`'s `modelchanged` is false — B871 review 2, Fable and the
 cavecrew reviewer.) *Not fixed*.
 
-## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — OPEN
+## B874 — the probes build without the install's class scripts or model facts (2026-11-26) — FIXED
 
 Found in B870 review 2 (the cavecrew reviewer), *read*. The probes (over ninety files under `tools/Tf2DemoSalvage.Probe`)
 call `DemoTimeline.Build(file)` with neither `classes`
 (B437) nor `models` (B870), where the viewer passes both from the install. So a probe that reports a pose, a cycle or an
 anim-state answer reads a timeline the viewer never builds — against the rule that probes run the production path.
 Pre-existing for the class scripts. Fix shape: one helper beside `DemoCorpus` that opens the install when present and
-builds as `DecodedDemo.Read` does, and the probes call it. *Not fixed*.
+builds as `DecodedDemo.Read` does, and the probes call it.
+
+**Fixed.** `ProbeInstall` (`tools/Tf2DemoSalvage.Probe/ProbeInstall.cs`) finds the game as the probes' `MapLocator`
+already did, opens it once per process with `GameContent.Open`, and builds with `game.ClassAnimation` and
+`game.ModelFacts`, which is what `ViewerPresenter.LoadDemoAsync` hands `DecodedDemo.Read`. With no install it builds as
+the viewer does with no game and says so once. Every probe that built a real demo's timeline goes through it (100 sites);
+a probe that already held its own `GameContent` passes that. Probes that measure a build's heap or bytes
+(`timeline-cost`, `timeline-heap`, `timeline-holders`, `timeline-windows`, the census) open the install before their
+first reading, so the install is not counted as the timeline's; `timeline-windows`' checkpoint walk takes the same
+install (B872). Left without it on purpose, each with a comment: `timeline-resume` (`BuildThroughSnapshot` takes no
+install, so its straight build must not either), `pose-reset` (the facts are its variable; the class scripts are now
+the install's in all three builds), and `camera-path`'s synthetic views-only demo.
+
+**The instrument, measured:** `TimelineFingerprint` cannot see this. On `z1800` and on the live-build POV, a build with
+the install and one without fingerprint the same, because it hashes stored keyframes and the install acts on the
+interpolation histories (`OnNewModel`'s resize and static-prop flag). Sampling every track's sequence, cycle and pose
+parameters half a tick after each keyframe tells the two apart on the live POV.
+
+Tested by `ProbeInstallTests` (Corpus.Tests): `Timeline_WithTheInstall_MatchesTheViewersRead` — the probe's timeline
+samples and fingerprints as `DecodedDemo.Read`'s with the viewer's arguments; control, a build without the install
+samples differently (skips without TF2) — and `Open_WithNoFolder_SaysSoAndBuildsAsTheViewer`, which runs in CI.
+Sabotage: the helper passing `models: null` reddened the first at its sample comparison. *Not verified by looking.*
 
 ## B873 — two kinds of model reach the build with no facts: an item's, and a map pakfile's (2026-11-26) — OPEN
 

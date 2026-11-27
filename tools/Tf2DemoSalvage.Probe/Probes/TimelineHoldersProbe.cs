@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -54,8 +55,10 @@ public sealed class TimelineHoldersProbe : IProbe
             return;
         }
 
+        // The install opened before the first reading, so the total is the timeline's and not the install's (B874).
+        GameContent game = ProbeInstall.Game(output);
         long before = Live();
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
         long total = Live() - before;
         output.WriteLine($"{Path.GetFileName(path)}: {new FileInfo(path).Length / 1048576d:0.0} MB file, timeline {Mb(total):0} MB");
         output.WriteLine(

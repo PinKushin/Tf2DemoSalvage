@@ -58,7 +58,7 @@ public sealed class DrawnPropProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         // **The demo's own ticks, not zero.** A recording starts wherever the server was, so a
         // hardcoded tick reports a plausible count of nothing at all.

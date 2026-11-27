@@ -64,7 +64,7 @@ public sealed class EconEffectsProbe : IProbe
         string? folder = locator.FindGameFolder();
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         byte[] bytes = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
 
         // **The map, for its geometry loader — the only route to a `.mdl`** (B69 review I): `EntityModelSet.Geometry` answers
         // nothing until a map sets it, and then every `LookupAttachment` is 0 and every effect "follows its abs origin".

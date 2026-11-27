@@ -45,7 +45,7 @@ public sealed class SpeechDuckProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         VoicePlanResult plan = VoicePlan.From(timeline.VoiceInits, timeline.Voice, timeline.IntervalPerTick);
         output.WriteLine($"{Path.GetFileName(path)}: {plan.Spurts.Count} spurts{(plan.Refusal is { } r ? "; " + r : string.Empty)}");
 

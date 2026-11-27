@@ -61,7 +61,7 @@ public sealed class PortalWindowProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         int tick = arguments.Count > 1
             ? int.Parse(arguments[1], CultureInfo.InvariantCulture)

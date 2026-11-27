@@ -41,7 +41,7 @@ public sealed class TimelineFingerprintProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         TimelineFingerprint fingerprint = TimelineFingerprint.Of(timeline);
 
         output.WriteLine($"{Path.GetFileName(path)}: {timeline.Frames.Count} frames, {fingerprint.Values} values");

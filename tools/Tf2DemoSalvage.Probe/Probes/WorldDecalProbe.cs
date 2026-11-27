@@ -59,7 +59,7 @@ public sealed class WorldDecalProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         int shown = 0;
 
         // Control: the whole feed's size, so an empty window is told apart from an empty feed.

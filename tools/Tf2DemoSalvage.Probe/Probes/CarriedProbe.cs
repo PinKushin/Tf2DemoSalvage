@@ -91,7 +91,7 @@ public sealed class CarriedProbe : IProbe
             + $"game {folder ?? "NOT FOUND — every model lookup will answer null"}");
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);

@@ -46,7 +46,7 @@ public sealed class RopeEventsProbe : IProbe
 
         foreach (string demo in demos)
         {
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
             int shakes = timeline.Dispatches.All.Count(dispatch =>
                 string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ShakeRopes", StringComparison.Ordinal));
             int ropes = timeline.Props.Count(track => track.ClassName == RopeImpulseFeed.RopeClassName);

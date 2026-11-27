@@ -59,7 +59,7 @@ public sealed class AnimationProbe : IProbe
             ? int.Parse(arguments[2], CultureInfo.InvariantCulture)
             : DefaultEntities;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         List<ScenePropTrack> tracks =
         [

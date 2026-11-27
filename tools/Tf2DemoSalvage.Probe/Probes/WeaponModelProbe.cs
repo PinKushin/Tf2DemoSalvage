@@ -68,7 +68,7 @@ public sealed class WeaponModelProbe : IProbe
         output.WriteLine($"game folder: {folder ?? "NOT FOUND — every lookup will answer null"}");
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
         WeaponPropModels resolver = new();
 
         // Keyed on what the ANSWER depends on, which is Valve's own invalidation tuple: the item

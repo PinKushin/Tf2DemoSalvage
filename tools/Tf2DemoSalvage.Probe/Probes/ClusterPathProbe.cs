@@ -52,7 +52,7 @@ public sealed class ClusterPathProbe : IProbe
         ReadOnlyMemory<byte> file = File.ReadAllBytes(map);
         BspLeafTree tree = BspLeafTree.Read(file);
         BspVisibility pvs = BspVisibility.Read(file);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
 
         List<(int Tick, int Cluster, (float X, float Y, float Z) Eye)> path = [];
 

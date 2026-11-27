@@ -43,7 +43,7 @@ public sealed class PlayerChurnProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         PropertyInfo[] properties = typeof(ScenePlayer).GetProperties(BindingFlags.Instance | BindingFlags.Public);
         Dictionary<string, long> changes = properties.ToDictionary(property => property.Name, _ => 0L);
         Dictionary<int, ScenePlayer> last = [];

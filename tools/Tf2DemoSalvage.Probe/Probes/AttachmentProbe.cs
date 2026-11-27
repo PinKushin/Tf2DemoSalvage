@@ -79,7 +79,7 @@ public sealed class AttachmentProbe : IProbe
             }
 
             GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+            DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), game);
 
             List<string> attachments = [.. game.Weapons.AllAttachmentsIn(timeline)];
 

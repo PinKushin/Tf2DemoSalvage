@@ -60,7 +60,7 @@ public sealed class WireCycleProbe : IProbe
         }
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         int from = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : timeline.FirstTick;
         int to = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : timeline.LastTick;
         int step = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : 33;

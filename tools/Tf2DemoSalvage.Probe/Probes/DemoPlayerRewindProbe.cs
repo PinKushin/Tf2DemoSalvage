@@ -37,7 +37,7 @@ public sealed class DemoPlayerRewindProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         int span = timeline.LastTick - timeline.FirstTick;
         double end = timeline.LastTick - 0.5d;
         int[] landings = [.. Enumerable.Range(0, rewinds).Select(at => timeline.FirstTick + (int)((long)span * ((at * 7919L) % rewinds) / rewinds))];

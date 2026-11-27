@@ -29,7 +29,7 @@ public sealed class ObjectivesProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), output);
         int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         SceneObjectives? objectives = timeline.ObjectivesAt(tick);
 

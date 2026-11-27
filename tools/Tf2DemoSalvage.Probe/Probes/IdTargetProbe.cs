@@ -58,7 +58,7 @@ public sealed class IdTargetProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         if (timeline.RecorderEntityIndex is not { } recorder || !timeline.HasRecordedView)
         {

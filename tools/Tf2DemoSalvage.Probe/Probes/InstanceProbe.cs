@@ -60,7 +60,7 @@ public sealed class InstanceProbe : IProbe
         int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         string filter = arguments[2];
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(demo), output);
 
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 

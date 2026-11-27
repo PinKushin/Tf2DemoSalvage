@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -51,11 +52,15 @@ public sealed class TimelineWindowsProbe : IProbe
         // 133.33 ticks and checkpoints fall every 133, so spacing is never longer than asked.
         int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
+        // The walk and the whole timeline both build with the install, as the viewer's do (B872, B874); opened before the
+        // heap reading, so the install is not counted as the walk's.
+        GameContent game = ProbeInstall.Game(output);
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();
         Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
         WindowSettings settings = new();
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, settings, created)!;
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(
+            demo, everyTicks, settings, created, game.ClassAnimation, game.ModelFacts)!;
         walk.Stop();
         long heapAfter = Live();
 
@@ -131,7 +136,7 @@ public sealed class TimelineWindowsProbe : IProbe
             return;
         }
 
-        DemoTimeline whole = DemoTimeline.Build(demo);
+        DemoTimeline whole = ProbeInstall.Timeline(demo, game);
         int first = whole.FirstTick;
         int last = whole.LastTick;
         List<double> at = [.. Enumerable.Range(0, samples).Select(index => first + ((last - first) * (index + 0.5) / samples) + 0.37)];

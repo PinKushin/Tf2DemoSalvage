@@ -56,7 +56,7 @@ public sealed class MoveParentProbe : IProbe
         }
 
         int samples = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 20;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         // class -> (props seen, deep, attachment, nonzero local, worst one-level error)
         Dictionary<string, (int Seen, int Deep, int Attached, int Offset, float Worst)> rows = [];

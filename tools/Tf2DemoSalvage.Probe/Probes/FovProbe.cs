@@ -33,7 +33,7 @@ public sealed class FovProbe : IProbe
         }
 
         int? only = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : null;
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         Dictionary<int, (int?, int?, float?, float?, int?)> last = [];
         HashSet<int> seen = [];
         HashSet<int> withDefault = [];

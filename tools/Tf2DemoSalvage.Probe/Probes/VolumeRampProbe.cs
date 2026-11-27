@@ -65,7 +65,7 @@ public sealed class VolumeRampProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         SoundCache sounds = new(NullLogger.Instance);
         sounds.Level(GameArchives.Open(game).Read);
         ActiveLoops loops = new();

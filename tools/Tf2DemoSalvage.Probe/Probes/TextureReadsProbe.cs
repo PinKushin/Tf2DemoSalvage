@@ -50,7 +50,7 @@ public sealed class TextureReadsProbe : IProbe
         }
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline? timeline = arguments.Count > 1 && arguments[1] != "-" ? DemoTimeline.Build(File.ReadAllBytes(arguments[1])) : null;
+        DemoTimeline? timeline = arguments.Count > 1 && arguments[1] != "-" ? ProbeInstall.Timeline(File.ReadAllBytes(arguments[1]), game) : null;
         TextureReadTally tally = new();
         MapAssets.TextureReads = tally;
 

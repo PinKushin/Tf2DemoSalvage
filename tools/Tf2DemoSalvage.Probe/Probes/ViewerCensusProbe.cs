@@ -82,7 +82,7 @@ public sealed class ViewerCensusProbe : IProbe
                 ? Math.Max(1, every)
                 : 50;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

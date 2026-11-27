@@ -53,7 +53,7 @@ public sealed class TracerProbe : IProbe
 
         int shown = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 5;
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
         LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
 

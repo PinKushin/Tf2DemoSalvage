@@ -63,7 +63,7 @@ public sealed class TransitionProbe : IProbe
         }
 
         byte[] bytes = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, output);
 
         int from = arguments.Count > 1
             ? int.Parse(arguments[1], CultureInfo.InvariantCulture)

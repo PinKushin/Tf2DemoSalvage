@@ -57,7 +57,7 @@ public sealed class JitterProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         // **A model substring rather than an index, because a door has no index anybody knows.**
         // A brush entity's model is `*NN` and its edict slot is whatever the server handed out, so

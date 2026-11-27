@@ -40,7 +40,7 @@ public sealed class StaticSoundsProbe : IProbe
         }
 
         GameArchives archives = GameArchives.Open(game);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(arguments[0]), output);
         Dictionary<string, SoundSample?> read = new(StringComparer.OrdinalIgnoreCase);
         HashSet<(int Entity, string Name)> live = [];
         int oneShots = 0;

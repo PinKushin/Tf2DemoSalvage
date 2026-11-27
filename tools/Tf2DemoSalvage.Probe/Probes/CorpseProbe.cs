@@ -61,7 +61,7 @@ public sealed class CorpseProbe : IProbe
 
         try
         {
-            timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+            timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         }
         catch (InvalidDataException truncated)
         {

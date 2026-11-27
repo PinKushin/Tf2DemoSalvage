@@ -33,7 +33,7 @@ public sealed class RoundTimerProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         string last = string.Empty;
         int named = 0;
         int found = 0;

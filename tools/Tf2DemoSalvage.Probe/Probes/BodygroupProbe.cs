@@ -90,7 +90,7 @@ public sealed class BodygroupProbe : IProbe
         byte[] bytes = File.ReadAllBytes(path);
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(bytes);
+        DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
 
         // **The map is loaded for its GEOMETRY LOADER, which is the only route to a `.mdl`.**
         // `EntityModelSet.Geometry` answers nothing until a map sets it, so a set built without one

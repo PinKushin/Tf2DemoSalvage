@@ -73,8 +73,8 @@ public sealed class SampleHistoryProbe : IProbe
 
         byte[] bytes = File.ReadAllBytes(path);
 
-        DemoTimeline stepped = DemoTimeline.Build(bytes);
-        DemoTimeline cold = DemoTimeline.Build(bytes);
+        DemoTimeline stepped = ProbeInstall.Timeline(bytes, output);
+        DemoTimeline cold = ProbeInstall.Timeline(bytes, output);
 
         int from = Whole(arguments, 1, (stepped.FirstTick + stepped.LastTick) / 2);
         int ticks = Whole(arguments, 2, 2000);

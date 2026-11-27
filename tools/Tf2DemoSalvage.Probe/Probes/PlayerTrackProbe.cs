@@ -34,7 +34,7 @@ public sealed class PlayerTrackProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         int entity = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         int from = int.Parse(arguments[2], CultureInfo.InvariantCulture);
         int to = int.Parse(arguments[3], CultureInfo.InvariantCulture);

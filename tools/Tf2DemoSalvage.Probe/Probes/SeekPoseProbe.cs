@@ -60,7 +60,7 @@ public sealed class SeekPoseProbe : IProbe
         string[] spreads = arguments.Count > 2 ? [.. arguments.Skip(2)] : ["1", "5", "6", "0"];
 
         byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
+        DemoTimeline timeline = ProbeInstall.Timeline(file, output);
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
         string mapName = Core.Container.DemoHeader.Parse(file).MapName;
 

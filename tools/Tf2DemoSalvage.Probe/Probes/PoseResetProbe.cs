@@ -59,9 +59,11 @@ public sealed class PoseResetProbe : IProbe
         Counting facts = new(game.ModelFacts);
         byte[] file = File.ReadAllBytes(path);
 
-        DemoTimeline with = DemoTimeline.Build(file, models: facts);
-        DemoTimeline again = DemoTimeline.Build(file, models: game.ModelFacts);
-        DemoTimeline without = DemoTimeline.Build(file);
+        // Built here rather than through `ProbeInstall.Timeline`, because the facts are the variable — counted, the install's,
+        // none; the class scripts are the viewer's in all three, so only the facts differ (B874).
+        DemoTimeline with = DemoTimeline.Build(file, classes: game.ClassAnimation, models: facts);
+        DemoTimeline again = DemoTimeline.Build(file, classes: game.ClassAnimation, models: game.ModelFacts);
+        DemoTimeline without = DemoTimeline.Build(file, classes: game.ClassAnimation);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,

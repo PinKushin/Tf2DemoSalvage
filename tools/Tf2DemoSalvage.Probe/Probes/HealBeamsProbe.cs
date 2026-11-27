@@ -37,7 +37,7 @@ public sealed class HealBeamsProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
         int from = int.Parse(arguments[1], CultureInfo.InvariantCulture);
         int to = int.Parse(arguments[2], CultureInfo.InvariantCulture);
         int shown = 0;

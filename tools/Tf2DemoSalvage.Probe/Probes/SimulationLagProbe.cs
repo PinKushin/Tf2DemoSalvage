@@ -61,7 +61,7 @@ public sealed class SimulationLagProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), output);
 
         output.WriteLine(Path.GetFileName(path));
 

@@ -81,7 +81,7 @@ public sealed class AnimSlotProbe : IProbe
     /// <summary>One demo's census.</summary>
     private static void Census(TextWriter output, string path, string? folder, GameContent game)
     {
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = ProbeInstall.Timeline(File.ReadAllBytes(path), game);
 
         // Built exactly as the viewer builds it, so the roles and the schema are the ones production reads.
         if (DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance) is not GameAppearance
