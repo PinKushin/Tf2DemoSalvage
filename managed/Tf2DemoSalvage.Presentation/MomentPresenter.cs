@@ -201,10 +201,9 @@ public sealed class MomentPresenter
             _framedAt = null;
 
             // A new source has seen no setups of this view (B878), and the held build is the old source's: posing it would
-            // name the old source's tick as a setup of the new one (review 4, the cavecrew reviewer).
+            // name the old source's tick as a setup of the new one (review 4, the cavecrew reviewer). With none held,
+            // `NextFrame` and `PoseNow` return first, and `Show` resets the rest.
             _builtFor = null;
-            _posed = false;
-            _reposing = false;
             _setUpAt = null;
             _bonesSetUp.Clear();
             _viewReported = false;

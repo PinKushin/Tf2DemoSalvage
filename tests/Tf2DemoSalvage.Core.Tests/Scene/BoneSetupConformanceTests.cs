@@ -233,6 +233,86 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **A run extends only by its stride** (B878 review 5, Fable): parity 0 at 90; parity 1 at 100, 102, 104, then 107.
+    /// A setup at 95 saw 0. Asked at 106 the newest update is 104 — had 107 joined the two-tick run as a three-tick one,
+    /// the answer would be 106, a tick with no update.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_AGapOffTheStride_StartsANewRun()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(90, new ScenePose { NewSequenceParity = 0 }, appliedAt: 90, animationAppliedAt: 87);
+
+        foreach (int tick in new[] { 100, 102, 104, 107 })
+        {
+            track.Add(tick, new ScenePose { NewSequenceParity = 1, X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+        }
+
+        track.UnseenResetAt(106, new BoneSetup(95, 0, null)).ShouldBe(104);
+        track.UnseenResetAt(108, new BoneSetup(95, 0, null)).ShouldBe(107, "the control: 107 is an update");
+    }
+
+    /// <summary>
+    /// **A trim bounds the runs of a prop that never starts a sequence** (B878 review 5, Sonnet, the cavecrew reviewer):
+    /// parity 0 throughout, at gaps of one and two ticks, so fifty runs. Trimmed inside the last, it keeps that run and a
+    /// tail of eight — a search for the run before the parity kept all fifty, since none differs.
+    /// </summary>
+    [Test]
+    public void TrimBefore_AParityThatNeverChanges_KeepsOnlyTheTail()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+
+        for (int run = 0; run < 50; run++)
+        {
+            foreach (int tick in new[] { 100 + (run * 3), 101 + (run * 3) })
+            {
+                track.Add(tick, new ScenePose { X = tick }, appliedAt: tick, animationAppliedAt: tick - 3);
+            }
+        }
+
+        track.UpdateRunCount.ShouldBe(50, "the control: one run per pair");
+
+        track.TrimBefore(248);
+
+        track.UpdateRunCount.ShouldBe(9);
+    }
+
+    /// <summary>
+    /// **Updates count in arrival order, the engine's** (B878 review 5, Codex): `PostDataUpdate` runs as each arrives. A
+    /// setup at 105 saw 0; parity 1 arrives at 110, then an update stamped 108 arrives after it. It counts at 110, so the
+    /// reset is 110 — read as its stamp it would have run the 110 run backwards and answered 108.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_AnUpdateStampedBeforeTheNewest_CountsAtTheNewest()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(108, new ScenePose { NewSequenceParity = 1, X = 2 }, appliedAt: 108, animationAppliedAt: 105);
+
+        track.UnseenResetAt(112, new BoneSetup(105, 0, null)).ShouldBe(110);
+        track.SequenceParityAt(109).ShouldBe(0, "the control: nothing of parity 1 had arrived by 109");
+    }
+
+    /// <summary>
+    /// **Two updates at one tick with different parities** (B878 review 5, Codex): 0 at 100 and 110, then 1 at 110 as
+    /// well. The newer states the parity a setup then stores, and a setup at 105 that saw 0 has a reset at 110; one at 110
+    /// saw 1.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_AParityChangeAtTheTickOfTheUpdateBefore_IsAtThatTick()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, new ScenePose { NewSequenceParity = 0, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 2 }, appliedAt: 110, animationAppliedAt: 107);
+
+        track.SequenceParityAt(110).ShouldBe(1, "the newer of the two");
+        track.UnseenResetAt(112, new BoneSetup(105, 0, null)).ShouldBe(110);
+        track.UnseenResetAt(112, new BoneSetup(110, 1, null)).ShouldBeNull("the control: a setup at 110 saw it");
+    }
+
+    /// <summary>
     /// **A trim keeps the run before a wrapped parity however many runs back it is** (B878 review 4, the cavecrew reviewer):
     /// a setup at 100 saw 0; eight starts at 110 to 180 (1 to 7, then 0); 0 then restated at 180, 181, 183, 184, … 207, 208 —
     /// gaps of one and two, so ten runs. The newest reset is 170, the run before the count. Trimmed at 207, ten runs past

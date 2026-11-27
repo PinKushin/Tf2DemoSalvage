@@ -47311,6 +47311,19 @@ eight sequence starts unseen by any setup. Also *untested*: the branch where a t
 the players-only rule that never takes a players-only pose's own builds — only prop tracks read a report and that pose
 draws no props, so nothing can observe it. *Not verified by looking.*
 
+Review 5 (Codex, Fable, Sonnet, the cavecrew reviewer). **Review 4's trim kept every run when none had fewer starts**
+— every run of a prop that never starts a sequence, and every run since the last start otherwise (Sonnet, Fable, the
+cavecrew reviewer). The count of starts is gone: each run carries `Before`, the newest update of a different parity
+before its stretch of the parity, which is all a wrapped parity looks back to, so a trim keeps the cut's run and a tail
+of eight and nothing else (`TrimBefore_AParityThatNeverChanges_KeepsOnlyTheTail`). **Updates count in arrival order**,
+the engine's — `PostDataUpdate` runs as each arrives, so one stamped before the newest counts at the newest's tick and
+the runs stay ordered in a release build, where the order was only asserted (Codex;
+`UnseenResetAt_AnUpdateStampedBeforeTheNewest_CountsAtTheNewest`). Two updates at one tick with different parities: the
+newer is the parity a setup stores (`UnseenResetAt_AParityChangeAtTheTickOfTheUpdateBefore_IsAtThatTick`). A gap off
+a run's stride starts a new run, now pinned by a value (Fable; `UnseenResetAt_AGapOffTheStride_StartsANewRun`). The
+source-change clearing is the held build alone; the two other fields it cleared were unreachable behind it (Fable).
+Each sabotage reddened its test. *Not verified by looking.*
+
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
 
 Found in B878 review 1 (the cavecrew reviewer), *read*. `ScenePropTrack.At` computes the cycle's target and its
