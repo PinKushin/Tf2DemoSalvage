@@ -224,8 +224,9 @@ internal sealed class DemoCensus
     /// the stage. **The seconds are written for a failed or skipped stage too**: one the install's failed open stopped
     /// at its first line carries about 0 (review 6), which the summary's per-stage sum adds as nothing. `_untimed` is
     /// zeroed after, so time one stage hands back is never taken off the next's. No `finally` (review 6 removed review
-    /// 5's): `Guarded` swallows every throw of the body, so only `_row.Set` could leave here early, and that ends the
-    /// census of this demo, whose `DemoCensus` is not used again.
+    /// 5's): `Guarded` swallows every throw of the body, so only what runs outside it — the log line before, `_row.Skip`
+    /// or `_row.Fail` in its own handlers, `_row.Set` after — could leave here early, and any of those ends the census of
+    /// this demo, whose `DemoCensus` is not used again.
     /// </remarks>
     private void Stage(string stage, Action body)
     {

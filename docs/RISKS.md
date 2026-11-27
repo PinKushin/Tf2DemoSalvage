@@ -47448,9 +47448,12 @@ Valve map it finds by name, never the version the demo recorded, and the D162 pa
 wired, a versioned download is never found by `Locate`**: `MapLocator.Find` looks for `<name>.bsp` alone in every root,
 ours included, on every host, so the `<name>.<HEX>.bsp` the downloader kept is missed and only `TryDownloadAsync`'s own
 `File.Exists` on the same name finds it again — a false "fetching" every open, and `Find` reporting `NotInstalled` for a
-map that is here. **And the fetched file is then not drawn** (review 6 corrected "a false fetching", *read*):
+map that is here. **And, once wired, the fetched file is then not drawn** (review 6 corrected "a false fetching"; review
+7 made the condition explicit — today `FetchAsync(string)` passes no checksum, so no `<name>.<HEX>.bsp` is produced):
 `ReadMapNamed` (`ViewerPresenter.cs` ~:799-845) draws from `_maps.Find(mapName).Path` and takes only `prepared.Status`,
-never `prepared.Path`, so a `<name>.<HEX>.bsp` the prepare fetched is followed by "Map X is not installed" and no world.
+never `prepared.Path`, so a `<name>.<HEX>.bsp` the prepare fetched is followed by "Map X is not installed" and no world —
+when no plain `<name>.bsp` exists in any root. For an installed Valve map, `Find(mapName)` finds the installed copy and
+draws it silently, which is today's case below.
 
 **What a user sees today** (review 6): an old demo on a Valve map that has changed since draws today's geometry, silently
 — no `VersionMismatch` status, because nothing asks. **Medium**: D162 is the owner's direction and it is unimplemented in
@@ -47461,15 +47464,23 @@ production. D162 names the field `MapCrc`; it is `MapHash` (finding 43), and D16
 1. **Hand the version to the prepare and the find.** The demo's `MapHash` and server ConVars, through `MapWanted.From`.
 2. **An installed Valve map must be checked, not taken.** `PrepareAsync` returns at `Locate(mapName) is { }`
    (`MapProvider.cs` ~:327), so an installed map is never fetched, checksum or not. It must go through
-   `Find(name, checksum)` and fetch on a `VersionMismatch`.
-3. **`ReadMapNamed` must take `prepared.Path`** when the prepare found or fetched one, rather than searching again.
+   `Find(name, checksum)` and fetch on a `VersionMismatch`. **When no source has the recorded version**, draw the
+   installed copy and surface the `VersionMismatch` status — the fallback `MapProvider.Find`'s own comment names
+   (~:207-209) — never no world (review 7). A changed Valve map will usually fail every root today:
+   `MapDownloader.Roots` (~:238-254) asks only the demo's `sv_downloadurl` and the FastDL mirror; D162's Steam-by-version
+   source (D161) is in neither the downloader nor this shape — wire it or record why not.
+3. **`ReadMapNamed` must take `prepared.Path`** when the prepare found or fetched one, rather than searching again. The
+   synchronous `LoadDemo` and a reload have no `prepared` (`ViewerPresenter.cs` ~:791-793): they need the checksum
+   passed to `Find`/`Locate` directly.
 4. **The order conflicts with B507.** `PrepareAsync` runs from the 1,072-byte header, in parallel with the decode, so the
    map is ready when the decode is. `MapHash` and `sv_downloadurl` come from signon (`svc_ServerInfo` and the server's
    ConVars), not the header. The fix either decodes the signon first (a short read, then the fetch) or prepares by name
    as now and re-checks the version once the decode has it.
 5. **Ask the demo's own server first.** `FetchAsync(string)` builds a `MapWanted` with no `DemoDownloadUrl`, so the
    demo's `sv_downloadurl`, which D162 puts first for a community map, is never asked.
-6. **`Locate` tries the checksum's cache name in our folder first**, so a versioned download is found again.
+6. **`Locate` tries the checksum's cache name in our folder first**, so a versioned download is found again — it takes
+   no checksum today, and the versioned name must beat the game folder's `<name>.bsp`, which `Locate` searches first
+   (`MapProvider.cs` ~:156-160).
 
 *Not fixed* (its own branch).
 
@@ -47889,8 +47900,9 @@ on `fix/b874-r6`:
   race it. `OpenGame` is now stubbed with the no-install answer, and the test is renamed for what throws in it:
   `Run_WhenReadingTheInterpThrows_FailsTheTimelineAndRunsTheRest`. `OpenGame` itself throwing is its own test.
 - **The out-of-memory test's precondition is asserted.** `ProbeInstall.Warm` warms only over non-empty archives; over
-  empty ones the spinning build would be the measured one. The test now asserts that the folder holding one loose file
-  opens non-empty archives.
+  empty ones the spinning build would be the measured one. The test now asserts that an existing folder with no
+  `gameinfo.txt` opens as one loose-file source — non-empty archives (review 7 corrected "the folder holding one loose
+  file": the file was removed in the same commit, as the sabotage below records).
 - **`Stage`'s `finally` was dead and is removed.** `Guarded` swallows every throw of the body, so only `_row.Set` could
   leave `Stage` early, and that ends the demo's census, whose `DemoCensus` is not used again (one per demo,
   `DecodeCensusProbe.cs` ~:272). The warming `finally` in `Timeline`, which review 5 tested, stays.
