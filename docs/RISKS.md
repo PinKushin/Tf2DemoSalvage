@@ -47370,8 +47370,16 @@ looking.*
 
 Review 9 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in the branch's code or test). The probe behind
 B881's census took its running maximum over snapshot packets only and had no control that the comparison could fire;
-it now takes every packet, counts the packets repeating the maximum as that control, labels what it prints, and walks
-the whole corpus with no argument. Rerun: unchanged, 161 demos, none of either case (B881). *Not verified by looking.*
+it now takes every packet, counts the packets repeating the maximum as that control, labels what it prints, and with no
+argument walks `DemoCorpus.Files` (gcor and top-level lcor; gcor alone in a worktree). Rerun: unchanged, 161 demos, none
+of either case (B881). *Not verified by looking.*
+
+Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in code or tests, wording on the record —
+fixed). **Frame cost, measured 2026-11-26** (`--measure 20`, f12 `demostf-cp_process_f12-2026-08-08-2207` at tick
+20000, first person, `+fps_max 0`, Debug, one run each): `origin/main` (`dbe8b702c`) 149 fps, moment cost 3.6-3.7 ms
+with sample 0.3-0.4 ms; this branch 144-170 fps across its intervals, moment cost 2.7-4.0 ms with sample 0.3-0.5 ms. No
+difference above the run-to-run spread of one run; the anchored walk runs only for a prop whose setup missed a reset,
+which f12 at that tick rarely has. *Not verified by looking.*
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
@@ -47388,8 +47396,8 @@ arrives before every packet but is stamped with the server's tick, so every stor
 starts there and the track is not alive before it; B878's runs agree, so B878 is off for such a track rather than
 wrong.
 
-**Measured, 2026-11-26** (`packet-tick-order`, the 161 demos in gcor and the main checkout's top-level lcor, named on
-the command line; with no argument the probe walks `DemoCorpus.Files`, gcor alone in a worktree): **no signon carries an
+**Measured, 2026-11-26** (`packet-tick-order`, the 161 demos in gcor and the main checkout's top-level lcor, each named
+by its full path on the command line, so `DemoCorpus.Find` takes it as that file; with no argument the probe walks `DemoCorpus.Files`, gcor alone in a worktree): **no signon carries an
 entity snapshot, and no packet — snapshot or not — is stamped below the running maximum of every packet before it**, the
 maximum `DemoPlayer.FirstPacketPast` reads to. Controls: every one of the 161 has signon commands, read on the same
 stream and with the same type test (z1800's first at 70,718, etf2l-12025's at 146,124); and the comparison is seen
