@@ -47185,7 +47185,8 @@ different (all *read*, reviews 7-8, Fable, Sonnet, the cavecrew reviewer):
   a sapper, `:483-495`), is not reached: the server's toggle is flipped only by `CBaseAnimating::ResetClientsideFrame`
   (`server/baseanimating.cpp:3052-3056`), whose callers (clangd) are props, vehicles and `tf_taunt_prop.cpp:55`, no
   building — so a building's toggle stays 0 in the SDK (live TF *not read*).
-- **The cycle history resets on every update until the first bone setup** — open. `m_nPrevNewSequenceParity` is
+- **The cycle history resets on every update until the first bone setup** — open when filed; fixed below.
+  `m_nPrevNewSequenceParity` is
   written only at `:716`, `:1824` and `:1835`, never in `PostDataUpdate`, so the compare at `:4738` stays true and
   `m_iv_flCycle.Reset()` runs (non-static-prop model, `:4745-4747`) on every update until `MaintainSequenceTransitions`
   first runs — its one caller, `StandardBlendingRules` (`:1990`), returns earlier without a studio header
@@ -47226,7 +47227,8 @@ blend), the viewer's blends. It lasts one interpolation window at most.
 Fix shape: the pose pass (`Presentation`, where props are posed and attachments asked for) reports each server-animated
 prop's bone setup to its track (playback time and the parity then held); the track's cycle sampler takes, as an
 extra generation floor, the last arrival after that setup whose parity differs — computed at view time, since the
-camera decides it. A seek starts with no setup recorded (*our choice*: the engine's demo seek is not read). A
+camera decides it. A seek starts with no setup recorded (*our choice*: the engine's demo seek is not read — reversed in
+the fix below, which keeps the setups across a seek). A
 conformance test: a prop updated across a parity change while unposed, then posed, draws the latest arrival's cycle
 for that window; posed every frame, it draws today's blend.
 
@@ -47375,11 +47377,8 @@ argument walks `DemoCorpus.Files` (gcor and top-level lcor; gcor alone in a work
 of either case (B881). *Not verified by looking.*
 
 Review 10 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in code or tests, wording on the record —
-fixed). **Frame cost, measured 2026-11-26** (`--measure 20`, f12 `demostf-cp_process_f12-2026-08-08-2207` at tick
-20000, first person, `+fps_max 0`, Debug, one run each): `origin/main` (`dbe8b702c`) 149 fps, moment cost 3.6-3.7 ms
-with sample 0.3-0.4 ms; this branch 144-170 fps across its intervals, moment cost 2.7-4.0 ms with sample 0.3-0.5 ms. No
-difference above the run-to-run spread of one run (measurements/2026-11-26-b878-frame.md); the anchored walk runs only
-for a prop whose setup missed a reset, which f12 at that tick rarely has. *Not verified by looking.*
+fixed). Frame cost against main: measurements/2026-11-26-b878-frame.md (a first single run each could not resolve
+a difference and is withdrawn, review 11). *Not verified by looking.*
 
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
