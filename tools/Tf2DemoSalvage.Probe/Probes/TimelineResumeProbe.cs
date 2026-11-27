@@ -47,12 +47,14 @@ public sealed class TimelineResumeProbe : IProbe
         int commands = DemoTimeline.CommandCount(demo);
         int at = (int)(commands * fraction);
 
+        // Every build here, the cost's included, with the install and the watcher's interp, as the viewer builds (B874).
+        GameContent game = ProbeInstall.Game(output);
+
         // "cost" as a third argument measures one snapshot and skips the two full builds.
         if (arguments.Count < 3 || arguments[2] != "cost")
         {
-            // Both sides with the install and the watcher's interp, as the viewer builds (B874): the resume is checked
-            // against the straight build the viewer makes, and the snapshot carries the class scripts and model facts.
-            GameContent game = ProbeInstall.Game(output);
+            // The resume is checked against the straight build the viewer makes, and the snapshot carries the class
+            // scripts and model facts.
             TimelineFingerprint straight = TimelineFingerprint.Of(ProbeInstall.Timeline(demo, game));
             TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(
                 demo, at, client: ProbeInstall.Interp(), classes: game.ClassAnimation, models: game.ModelFacts));
@@ -69,7 +71,9 @@ public sealed class TimelineResumeProbe : IProbe
             output.WriteLine($"{Path.GetFileName(path)}: snapshot after {at} of {commands} commands ({demo.Length / 1048576d:0.0} MB file)");
         }
 
-        (long total, IReadOnlyList<(string Field, long Bytes)> fields) = DemoTimeline.MeasureSnapshot(demo, at);
+        // The install's class scripts and model facts are shared by a snapshot, never copied, so they are in no field below.
+        (long total, IReadOnlyList<(string Field, long Bytes)> fields) = DemoTimeline.MeasureSnapshot(
+            demo, at, client: ProbeInstall.Interp(), classes: game.ClassAnimation, models: game.ModelFacts);
         output.WriteLine($"  one snapshot allocates {total / 1048576d:0.0} MB; by field, each copied alone:");
 
         foreach ((string field, long bytes) in fields.Take(12))

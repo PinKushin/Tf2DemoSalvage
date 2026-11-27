@@ -47385,6 +47385,22 @@ redone from a committed pre-run record (six alternating runs), and its verdict c
 nothing resolved, the `sample` phase leaning up. The handoff memory on the branch now says FIXED. *Not verified by
 looking.*
 
+## B890 — with no Steam root named, the viewer's map search answers null before it searches `TF2_FOLDER`'s `maps` (2026-11-27) — OPEN
+
+Found testing B874 review 2, moved out of B874 in review 3 (Fable, Sonnet, the cavecrew reviewer), *read*.
+`MapProvider.Locate` (`managed/Tf2DemoSalvage.Presentation/MapProvider.cs`, ~:152-166) builds
+`new MapLocator(_steamLibraryFile, _ownMapsFolder, game)`, and `MapLocator`'s constructor refuses an empty library path
+(`ThrowIfNullOrWhiteSpace`). `MapProvider.SteamLibraryFile` is `SteamInstall.Machine.LibraryFile ?? string.Empty`, which
+is empty when NO Steam root is named at all (`SteamInstall.Root` null) — not merely when the named root has no
+`libraryfolders.vdf`, which the constructor tolerates (Fable). `Locate` catches the `ArgumentException` and answers null
+before the install's own `maps` — the first search root, `TF2_FOLDER`'s or the picker's (D203) — is searched, so
+`Find` returns `NotInstalled` because `GameFolder()` still answers, and the viewer downloads a map that is installed.
+Defeats D203's "the game folder's own maps come first". Reachable wherever Windows' `ProgramFilesX86\Steam` fallback
+does not name a root: Linux CI, a machine with no Steam and `TF2_FOLDER` set, a probe run under `TF2VIEW_STEAM_ROOT`
+naming nothing. The probes inherit it through `ProbeInstall.Map`, as they should. Fix shape: search the game folder's
+`maps` whether or not a library file is named — `MapLocator` taking a null library, or `Locate` searching the game root
+before constructing it — with a test that names `TF2_FOLDER` and no Steam root. *Not fixed* (its own branch).
+
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
 Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
@@ -47545,8 +47561,9 @@ install's own `maps` first, then Steam's library, then our downloads (D203). Bef
 the helper still found their map with `MapLocator`, Steam's library alone, and about 55 more probes that build no
 timeline found the game folder with `MapLocator(...).FindGameFolder()` or opened `GameContent.Open` themselves. **Every
 probe now goes through `ProbeInstall.Game`, `Folder` or `Map`**: no file under `tools/Tf2DemoSalvage.Probe` but the
-helper constructs a `MapLocator` or calls `GameContent.Open`, so every probe finds the install and the map the viewer
-finds. A probe that reads loose archives (`GameArchives.Open`) opens them on the helper's `Folder`.
+helper constructs a `MapLocator` or calls `GameContent.Open`, so every probe finds the folder and the map the viewer
+finds. A probe that reads loose archives (`GameArchives.Open`) opens them on the helper's `Folder` — 31 probes, a second
+opening of the same search path rather than the helper's install (review 3 corrected "finds the install").
 
 Every probe that built a real demo's timeline goes through it: 100 sites in 93 files (counted by reference to the
 helper's three public `Timeline` overloads). Twenty-nine of them used to open a second install of their own beside the
@@ -47564,9 +47581,9 @@ used to land in "held by the timeline". Each now prints that growth as its own l
 and "held by the timeline" is the timeline's alone; the throwaway costs the stage its time again, not its peak.
 `timeline-heap --map` says what its map figure is: what reading the map added, the map and whatever it cached in the
 install, which it cannot tell apart. `timeline-windows`' checkpoint walk takes the same install and the watcher's interp
-(B872). **`timeline-resume` now has the install on both sides**: `BuildThroughSnapshot` takes the interp, class scripts
-and model facts as `Build` does (optional, so its tests are unchanged), and the probe compares the resume with the
-straight build the viewer makes. Left without it on purpose, each with a comment: `pose-reset` (the facts are its
+(B872). **`timeline-resume` compares with the install**: `BuildThroughSnapshot` takes the interp, class scripts and
+model facts as `Build` does (optional, so its tests are unchanged), and the probe compares the resume with the straight
+build the viewer makes; its `cost` mode still measured a bare snapshot until review 3. Left without it on purpose, each with a comment: `pose-reset` (the facts are its
 variable; the class scripts are the install's in all three builds), and `camera-path`'s synthetic views-only demo.
 
 **The instrument, measured:** `TimelineFingerprint` cannot see this. On `z1800` and on the live-build POV, a build with
@@ -47613,10 +47630,73 @@ Tested by `ProbeInstallTests` (Corpus.Tests), each sabotaged once with an exact 
 could redden; `timeline-cost`'s GC clock started before the install opened; the heap probes charged the facts cache to
 the timeline and `timeline-heap --map` misnamed its figure; `Open` skipped the muzzle-flash precache; the timeline test
 was gated on another locator; `timeline-resume` never checked the install; `Folder` said nothing with no TF2; and this
-entry said two overloads and called `PovMatch` a probe. All ten fixed above. **Seen while testing, not fixed here**:
-`MapProvider.Locate` — the viewer's own — answers null on a machine with no Steam library file at all, because
-`MapLocator`'s constructor refuses an empty library path before the `TF2_FOLDER` `maps` folder is searched; a probe
-inherits that, as it should, and the test names a bare Steam root to stay clear of it.
+entry said two overloads and called `PovMatch` a probe. All ten fixed above. Seen while testing and not fixed here: the
+viewer's map search with no Steam root named — now B890.
+
+*Not verified by looking.*
+
+**Review 3 (Fable, Sonnet, the cavecrew reviewer; Codex none), 2026-11-27.** Fixed on `fix/b874-r3`:
+
+- **The configs ran for every ask.** `Game`, `Folder` and `Map` all went through one cached `Found()` that also ran the
+  watcher's configs, and `ConfigConsole.LoadFrom` catches only the IO family, so a config the console could not read
+  would have killed every install-only probe, again on every call. Now only the folder is found and cached; the interp is
+  computed on `Interp()`'s first ask, so only `Interp()` and the builds pay for the configs. The review's example, a
+  config or VPK that throws `InvalidDataException`/`FormatException`, could not be built from a file: `GameArchives`
+  catches a damaged archive and `LoadFrom` the IO family. Tested by order instead (below).
+- **The map bug is B890**, its own entry; the test's comment and `ProbeInstall.Map`'s remark said the wrong trigger (a
+  missing library FILE, which is tolerated) and that a `TF2_FOLDER` map is always found as the viewer finds it.
+- **What "found" means**: `Game` said "INSTALL not found" when the archives opened empty and `Folder` when no folder was
+  found. Both now say it when no `tf` folder was found, the one rule in `ProbeInstall.Say`.
+- **The heap figure had no control and the wrong name.** `ProbeInstall.Warm` runs the throwaway twice and returns both
+  deltas; the probes print them as "heap a first build leaves … control, a second build leaves …" (`ProbeInstall.Said`,
+  one wording), not as "the install's caches", since the first delta is all a first build left. Skipped, and said, with no
+  install. The census's `install_cache_mb` is now `first_build_heap_mb` and `second_build_heap_mb`, documented in
+  `DecodeCensusReport` as incremental and order-dependent (the install is opened once per run).
+- **Timings**: the census's `timeline_seconds` excluded the warming builds' time no longer — it does now, handed back to
+  `Stage` as untimed. `timeline-windows` timed only a warm walk, missing the first reads the viewer's first walk pays:
+  it now times the cold walk (the first of the two warming walks) and the kept warm one, and says which is which; `cost`
+  mode walks three times with an install, once without, and keeps its purpose. `timeline-cost` builds each demo once,
+  uncounted, before its counted build, so no row pays the facts' first reads for a later demo; the comment says so.
+- **`timeline-resume cost`** measured a bare snapshot: `MeasureSnapshot` takes the interp, class scripts and model facts
+  as `BuildThroughSnapshot` does, and the probe passes the install's. So the install is on both sides of the resume
+  comparison AND in the cost, where review 2's record said "both sides" of a probe whose cost half had none.
+- **`ModelProbe`'s comment** said `TF2_FOLDER` does not reach the archive lookup. It does now, but only when the folder
+  exists: `SteamInstall.GameFolder` falls through to Steam's library for a missing one, so the comment says that.
+- **Tests that read the machine**: the loose-class-script test built with this machine's interp and its control
+  differed in the model facts too; both builds now take `new ClientInterp()` and the control differs in the class scripts
+  alone. `WatcherInterp_WithAnAutoexec_…` is `[NonParallelizable]` and pins `TF2VIEW_NO_CONFIGS` unset.
+- **Placement** (D38): the snapshot test needs no helper and is in `Core.Tests`. The rest stay in `Corpus.Tests`
+  because they ask `ProbeInstall`, which is in the probe tool, referenced only from there; the synthetic scout is
+  `SyntheticPlayer.ScoutJump` in TestSupport, so the `InternalsVisibleTo` to `Corpus.Tests` stays. Said in the test file.
+- **Not every probe finds the install the viewer finds; every probe finds the FOLDER it finds.** Review 2's "every probe
+  now finds the install and the map the viewer finds" was too wide: 31 probes (35 sites, counted 2026-11-27 by text
+  search for `GameArchives.Open(` under `tools/Tf2DemoSalvage.Probe`) open their own `GameArchives` on
+  `ProbeInstall.Folder` rather than taking the helper's install — `BumpFace`, `ClassActivities`, `ConfigCensus`,
+  `CubeRays`, `DarkMaterials`, `DlightCost`, `GameFile`, `KeyValuesCensus`, `ModelFlag` (without `custom/`),
+  `OutlineMemory`, `OverlayVertexAlpha`, `Particle` (five sites), `PhyCensus`, `PixelFace`, `PropLight`, `PropShade`,
+  `Res`, `SceneImage`, `Scheme`, `ShaderFaces`, `ShaderParity`, `SoundRead`, `StaticPropFlagCensus`, `StyledProps`,
+  `TexelPng`, `TraceCost`, `VertexColourFace`, `VphysicsMaterial`, `WaterBrushEntity`, `WeaponScript` and
+  `WorldCulling`. The same folder, its search path opened a second time; their answers are the viewer's because the
+  folder is, except `ModelFlag`'s, which leaves `custom/` out on purpose.
+
+New tests, each sabotaged with an exact inverse edit and seen to redden, then restored (2026-11-27):
+
+- `Interp_AfterFolderAndGame_RunsTheConfigsAsTheyStandWhenAsked` (Corpus) — the autoexec rewritten after `Folder` and
+  `Game` answered; the interp is the rewritten file's. Sabotage: the interp computed with the folder reddened it alone,
+  0.033 where 0.05.
+- `Folder_AfterGameToldTheWriter_SaysNothing` (Corpus) — `Folder`'s `_said` guard. Sabotage: `Say` before `_said`
+  reddened it alone (the second writer was told).
+- `Warm_WithNoInstall_RunsNothing` and `Warm_WithAnInstall_ReadsWhatEachOfTwoRunsLeft` (Corpus) — readings 100, 250,
+  260 are (150, 10). Sabotages: no skip reddened the first, (2, 1) where null; the first delta read across both builds
+  reddened the second, (160, 10).
+- `BuildThroughSnapshot_WithClassScriptsAtEveryCut_EqualsTheStraightBuildAndKeepsTheOldJump` (Core) — the jumping scout
+  with a `DontDoNewJump` scout script, cut at every command. Sabotage: `BuildThroughSnapshot` passing null class scripts
+  reddened it (the frames section of the fingerprint) and the next.
+- `BuildThroughSnapshot_WithTheInstallsInputs_AsksTheSameObjectsInTheResume` (Core) — a straight build asks the scripts
+  31 times (scout) and the facts twice (a prop whose model is set twice); snapshotted before the first command, exactly
+  double. Sabotage: `SharedInputs` not sharing them (a deep copy) reddened it alone, (31, 2) where (62, 4).
+`Precache` (`game.MuzzleFlashes.Precache()` in `Open`) has no test: it moves WHEN the weapon scripts are read, not what
+any probe answers, so no assertion on an answer can redden on its absence; it matters to the timing probes only.
 
 *Not verified by looking.*
 

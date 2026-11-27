@@ -56,8 +56,7 @@ public sealed class TimelineCostProbe : IProbe
             + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused  allocated");
 
         // The install opened before any count or clock, its class scripts and model facts object with it, as the viewer's
-        // are before a demo loads (B874), so neither the GC pauses nor the bytes include opening it. What the facts read
-        // per model during a build is counted: the viewer's build allocates it too.
+        // are before a demo loads (B874), so neither the GC pauses nor the bytes include opening it.
         GameContent game = ProbeInstall.Game(output);
 
         foreach (string asked in arguments)
@@ -72,15 +71,23 @@ public sealed class TimelineCostProbe : IProbe
 
             byte[] file = File.ReadAllBytes(path);
 
+            // **Every row is a WARM build** (review 3): a throwaway build of the same demo first, uncounted. The model facts
+            // cache what each model tells `OnNewModel` (B870) the first time any build in this process asks, so without it
+            // the first demo listed paid every model's read and a later demo sharing those models paid none — rows that
+            // differed by their order on the command line. So no row counts the facts' first reads, which the viewer's
+            // first open of a demo does pay (`timeline-heap` prints the heap they leave), nor the build's first-run static
+            // initializers and JIT.
+            _ = ProbeInstall.Timeline(file, game);
+
             // GC pauses land in whichever column allocates; this says how much of the total they are.
             TimeSpan gcBefore = GC.GetTotalPauseDuration();
 
             // **Bytes allocated are the build's steadiest cost** (B613): seconds move with whatever else the machine is
             // doing, while bytes move only with the code. Counted on THIS thread, because the build runs on the calling
             // thread and Core starts none of its own, so the runtime's background threads (tiered JIT, finalizer) stay out
-            // of it. Two things still land in it: static initializers the build runs for the first time in this process
-            // (the first demo asked pays them, later ones do not), and a few MB that move with timing — the process-wide
-            // count read 30,163 to 30,182 MB for one binary (measurements/2026-11-14-f12-decode-allocation.md).
+            // of it. Still in it: a few MB that move with timing — the process-wide count read 30,163 to 30,182 MB for one
+            // binary (measurements/2026-11-14-f12-decode-allocation.md). The first-run static initializers no longer are:
+            // the warming build above ran them.
             long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             DemoTimeline timeline = ProbeInstall.Timeline(file, game);
             long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;

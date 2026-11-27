@@ -473,6 +473,27 @@ internal static class SyntheticPlayer
         public byte RecorderSlot { get; init; }
     }
 
+    /// <summary>`TF_CLASS_SCOUT`, the class whose script is <c>scout.txt</c>.</summary>
+    public const int ScoutClass = 1;
+
+    /// <summary>
+    /// A red scout who jumps at tick 101 and rises one unit a tick, too slowly to air-walk, until tick 130: a jump whose
+    /// activity the class script decides (`DontDoNewJump`, B437) and the interpolation window delays.
+    /// </summary>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] ScoutJump() =>
+        DemoOfGestures(
+            0.015f,
+            SceneTeams.Red,
+            ScoutClass,
+            rules: null,
+            alwaysLoser: false,
+            [
+                new GestureSnapshot(100, 0f, PlayerActivityState.OnGround),
+                new GestureSnapshot(101, 1f, 0) { Events = [PlayerAnimEvent.Jump] },
+                .. Enumerable.Range(102, 29).Select(tick => new GestureSnapshot(tick, tick - 100f, 0)),
+            ]);
+
     /// <summary>
     /// A player whose height, flags and state change over several snapshots and who raises gesture events,
     /// beside a game rules entity (B112).

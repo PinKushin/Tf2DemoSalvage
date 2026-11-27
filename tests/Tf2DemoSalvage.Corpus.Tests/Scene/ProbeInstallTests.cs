@@ -14,6 +14,13 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>A probe's timeline is the viewer's: its install, found as the viewer finds it, and the watcher's interp (B874).</summary>
+/// <remarks>
+/// **Here and not in `Core.Tests`, synthetic ones included** (D38, review 3): every test here asks <see cref="ProbeInstall"/>,
+/// which is in the probe tool, and only this assembly references it — `Core.Tests` references Core alone, and the tool
+/// brings Content, Scene, Presentation and Render. What needs no helper moved: the snapshot's class scripts are
+/// `TimelineBuilderSnapshotTests`'. The synthetic scout comes from TestSupport, hence its `InternalsVisibleTo` to this
+/// assembly.
+/// </remarks>
 public sealed class ProbeInstallTests
 {
     /// <summary>
@@ -102,8 +109,9 @@ public sealed class ProbeInstallTests
     /// finds a map only its <c>maps</c> holds, and <see cref="ProbeInstall.Interp"/> takes the <c>cl_interp</c> only its
     /// <c>autoexec.cfg</c> sets. `MapLocator`, which the probes used, never reads the variable. The machine is hidden: the
     /// Steam root is the same bare folder, which lists no library, and the settings file does not exist, so the interp is
-    /// the config's. (The Steam root is named rather than absent because `MapProvider.Locate`, the viewer's, answers null
-    /// with no Steam library file at all, before it reads the install's <c>maps</c>.)
+    /// the config's. (A Steam root is NAMED, though its library file is absent, which `MapProvider.Locate` tolerates:
+    /// with no Steam root named at all, `Locate` answers null before it reads the install's <c>maps</c> — B890, the
+    /// viewer's own, which Windows' Program Files fallback hides and a root naming nothing would reach.)
     /// </summary>
     [Test]
     [NonParallelizable]
@@ -148,7 +156,7 @@ public sealed class ProbeInstallTests
     public void Timeline_WithANonDefaultInterp_DiffersFromTheDefaultBuild()
     {
         GameContent none = ProbeInstall.Open(folder: null, output: null);
-        byte[] demo = ScoutJump();
+        byte[] demo = SyntheticPlayer.ScoutJump();
 
         List<PlayerActivity?> noWindow = JumpActivities(ProbeInstall.Timeline(demo, none, new ClientInterp(0f, 0f, 66f)));
         List<PlayerActivity?> byDefault = JumpActivities(ProbeInstall.Timeline(demo, none, new ClientInterp()));
@@ -161,7 +169,8 @@ public sealed class ProbeInstallTests
     /// **The class scripts the helper opens reach the build**: a loose install whose scout script sets
     /// <c>"DontDoNewJump" "1"</c> uncommented makes a scout's jump the single old <see cref="PlayerActivity.LegacyJump"/>
     /// (`HandleJumping`, B437, B523), where a build with no class scripts takes the engine's default new jump. No TF2: the
-    /// install is a temporary folder of one file.
+    /// install is a temporary folder of one file. The control differs from the helper's build in the class scripts alone:
+    /// the same interp, TF2's default rather than this machine's, and the same model facts.
     /// </summary>
     [Test]
     public void Timeline_WithALooseClassScript_TakesTheLegacyJump()
@@ -173,32 +182,18 @@ public sealed class ProbeInstallTests
         try
         {
             GameContent game = ProbeInstall.Open(folder, output: null);
-            byte[] demo = ScoutJump();
+            byte[] demo = SyntheticPlayer.ScoutJump();
 
             game.ClassAnimation.ShouldNotBeNull("the loose script was read as the install's class scripts");
-            JumpActivities(DemoTimeline.Build(demo, client: ProbeInstall.Interp(), classes: null))
+            JumpActivities(DemoTimeline.Build(demo, client: new ClientInterp(), classes: null, models: game.ModelFacts))
                 .ShouldNotContain(PlayerActivity.LegacyJump, "the control: with no scripts the engine's new jump holds");
-            JumpActivities(ProbeInstall.Timeline(demo, game)).ShouldContain(PlayerActivity.LegacyJump);
+            JumpActivities(ProbeInstall.Timeline(demo, game, new ClientInterp())).ShouldContain(PlayerActivity.LegacyJump);
         }
         finally
         {
             Directory.Delete(folder, recursive: true);
         }
     }
-
-    /// <summary>A red scout who jumps at tick 101 and rises one unit a tick, too slowly to air-walk, until tick 130.</summary>
-    private static byte[] ScoutJump() =>
-        SyntheticPlayer.DemoOfGestures(
-            0.015f,
-            SceneTeams.Red,
-            ScoutClass,
-            rules: null,
-            alwaysLoser: false,
-            [
-                new SyntheticPlayer.GestureSnapshot(100, 0f, PlayerActivityState.OnGround),
-                new SyntheticPlayer.GestureSnapshot(101, 1f, 0) { Events = [PlayerAnimEvent.Jump] },
-                .. Enumerable.Range(102, 29).Select(tick => new SyntheticPlayer.GestureSnapshot(tick, tick - 100f, 0)),
-            ]);
 
     /// <summary>The one player's jump activity on every frame, in tick order.</summary>
     private static List<PlayerActivity?> JumpActivities(DemoTimeline timeline) =>
@@ -207,8 +202,10 @@ public sealed class ProbeInstallTests
     /// <summary>
     /// **The watcher's interp, as the viewer has it**: the saved settings, then the TF2 configs over them, where
     /// `autoexec.cfg` wins (D264). Control: with no game folder there are no configs, and the saved value stands.
+    /// `TF2VIEW_NO_CONFIGS` is pinned unset, since a machine with it set would skip the configs.
     /// </summary>
     [Test]
+    [NonParallelizable]
     public void WatcherInterp_WithAnAutoexec_TakesItsInterpOverTheSaved()
     {
         ViewerSettings saved = new() { Interp = new ClientInterp(0.05f, 1f, 66f) };
@@ -218,8 +215,13 @@ public sealed class ProbeInstallTests
 
         try
         {
-            ProbeInstall.WatcherInterp(folder: null, saved).ShouldBe(saved.Interp);
-            ProbeInstall.WatcherInterp(folder, saved).ShouldBe(new ClientInterp(0.033f, 1f, 66f));
+            WithEnvironment(
+                [(ViewerSession.NoConfigsVariable, null)],
+                () =>
+                {
+                    ProbeInstall.WatcherInterp(folder: null, saved).ShouldBe(saved.Interp);
+                    ProbeInstall.WatcherInterp(folder, saved).ShouldBe(new ClientInterp(0.033f, 1f, 66f));
+                });
         }
         finally
         {
@@ -302,6 +304,127 @@ public sealed class ProbeInstallTests
     }
 
     /// <summary>
+    /// **The other order: <see cref="ProbeInstall.Game"/> told the writer, so a later <see cref="ProbeInstall.Folder"/> says
+    /// nothing** — the notice is shared both ways (review 3). Control: the first writer was told. The machine is hidden as
+    /// in <see cref="Game_WithNoInstall_TellsTheFirstWriterOnce"/>.
+    /// </summary>
+    [Test]
+    [NonParallelizable]
+    public void Folder_AfterGameToldTheWriter_SaysNothing()
+    {
+        string steam = TemporaryFolder();
+        using StringWriter first = new();
+        using StringWriter second = new();
+
+        try
+        {
+            WithEnvironment(
+                [
+                    (SteamInstall.OverrideVariable, null),
+                    (SteamInstall.SteamRootVariable, steam),
+                    (ViewerSettings.PathVariable, Path.Combine(steam, "absent.cfg")),
+                ],
+                () =>
+                {
+                    ProbeInstall.Game(first);
+                    ProbeInstall.Folder(second).ShouldBeNull("the control: no install was found");
+                });
+        }
+        finally
+        {
+            Directory.Delete(steam, recursive: true);
+        }
+
+        Lines(first).ShouldBe([ProbeInstall.NoInstall]);
+        Lines(second).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// **Only <see cref="ProbeInstall.Interp"/> runs the configs** (review 3): a probe that asks for the folder or the
+    /// install alone never reads them, so a config the console cannot read costs it nothing. Seen by order: the autoexec
+    /// is rewritten after <see cref="ProbeInstall.Folder"/> and <see cref="ProbeInstall.Game"/> have answered, and the
+    /// interp is the rewritten file's. Run eagerly, as the folder's search, it would be the first file's 0.033.
+    /// </summary>
+    /// <remarks>
+    /// The review's example, a config that throws, could not be built: `ConfigConsole.LoadFrom` catches the IO family and
+    /// `GameArchives` a damaged archive, and no file found throws past both. The order is what the laziness changes.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void Interp_AfterFolderAndGame_RunsTheConfigsAsTheyStandWhenAsked()
+    {
+        string folder = TemporaryFolder();
+        string autoexec = Path.Combine(Directory.CreateDirectory(Path.Combine(folder, "cfg")).FullName, "autoexec.cfg");
+        File.WriteAllText(autoexec, "cl_interp 0.033\n");
+
+        try
+        {
+            WithEnvironment(
+                [
+                    (SteamInstall.OverrideVariable, folder),
+                    (SteamInstall.SteamRootVariable, folder),
+                    (ViewerSettings.PathVariable, Path.Combine(folder, "absent.cfg")),
+                    (ViewerSession.NoConfigsVariable, null),
+                ],
+                () =>
+                {
+                    ProbeInstall.Folder(output: null).ShouldBe(folder, "the control: the folder the configs are read from");
+                    _ = ProbeInstall.Game(output: null);
+                    File.WriteAllText(autoexec, "cl_interp 0.05\n");
+
+                    ProbeInstall.Interp().Interp.ShouldBe(0.05f);
+                });
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// **No install, nothing warmed**: <see cref="ProbeInstall.Warm(GameContent, Func{long}, Action)"/> runs no build and
+    /// reads no heap, and answers null, which the probes print as "nothing warmed".
+    /// </summary>
+    [Test]
+    public void Warm_WithNoInstall_RunsNothing()
+    {
+        GameContent none = ProbeInstall.Open(folder: null, output: null);
+        int builds = 0;
+        int readings = 0;
+
+        ProbeInstall.Warm(none, () => readings++, () => builds++).ShouldBeNull();
+
+        (builds, readings).ShouldBe((0, 0));
+    }
+
+    /// <summary>
+    /// **An install is warmed by two runs, and each figure is the heap its run left**: readings of 100, 250 and 260 before,
+    /// between and after are a first build's 150 and its control's 10. Control: both runs ran. The install is a loose
+    /// folder of one file, so no TF2 is needed.
+    /// </summary>
+    [Test]
+    public void Warm_WithAnInstall_ReadsWhatEachOfTwoRunsLeft()
+    {
+        string folder = TemporaryFolder();
+        File.WriteAllText(Path.Combine(folder, Marker), "here");
+
+        try
+        {
+            GameContent game = ProbeInstall.Open(folder, output: null);
+            Queue<long> heap = new([100L, 250L, 260L]);
+            int builds = 0;
+
+            ProbeInstall.Warm(game, heap.Dequeue, () => builds++).ShouldBe((150L, 10L));
+
+            builds.ShouldBe(2, "the control: both runs ran");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// **No folder opens an empty install and says so**: one line naming what is missing, and no class scripts to build
     /// with. What a build with it makes is not asserted here: with no archives the scripts are null and the facts read
     /// nothing, which is the bare build by construction, so a comparison with one could not fail.
@@ -357,9 +480,6 @@ public sealed class ProbeInstallTests
 
     /// <summary>A map name no Steam library or download folder holds, so only the install's own <c>maps</c> can answer.</summary>
     private const string MarkerMap = "probe_install_marker_map";
-
-    /// <summary>`TF_CLASS_SCOUT`, the class whose script <c>scout.txt</c> is.</summary>
-    private const int ScoutClass = 1;
 
     /// <summary>A 24-minute nine-versus-nine match: players of every class, carrying weapons and buildings.</summary>
     private const string RealMatch = "tf2-live-build11138802-spec-pov-cp_granary";

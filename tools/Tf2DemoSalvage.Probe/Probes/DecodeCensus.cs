@@ -94,6 +94,9 @@ internal sealed class DemoCensus
     /// <summary>The tick of command <see cref="_at"/>, carried from the command itself.</summary>
     private int _atTick;
 
+    /// <summary>Time a stage spent on work that is not its measurement (the timeline's warming builds), left out of its seconds.</summary>
+    private TimeSpan _untimed;
+
     public DemoCensus(CensusRow row, string path, long length, DemoHeader header, CensusOptions options, TextWriter log)
     {
         _row = row;
@@ -234,7 +237,8 @@ internal sealed class DemoCensus
             _at = -1;
         }
 
-        _row.Set(stage + "_seconds", Stopwatch.GetElapsedTime(started).TotalSeconds);
+        _row.Set(stage + "_seconds", (Stopwatch.GetElapsedTime(started) - _untimed).TotalSeconds);
+        _untimed = TimeSpan.Zero;
     }
 
     /// <summary>Skips a stage whose prerequisite failed, and says so.</summary>
@@ -761,17 +765,23 @@ internal sealed class DemoCensus
         byte[] bytes = File.ReadAllBytes(_path);
 
         // The install opened before the first heap reading, its class scripts and model facts object with it, as the
-        // viewer's are before a demo loads (B874), then warmed by a throwaway build: what the facts read per model is the
-        // install's cache, kept after a timeline is gone, so it is its own column and the held figure is the timeline's
-        // alone. The throwaway doubles this stage's time, not its peak: it is collected before the measured build.
+        // viewer's are before a demo loads (B874), then warmed by two throwaway builds: what a first build leaves (the facts'
+        // per-model cache among it) is its own column, with the second build's as its control, and the held figure is the
+        // timeline's alone. The throwaways are not in `timeline_seconds` (review 3: one throwaway doubled it): their time is handed
+        // back to `Stage` as untimed. Nor in the peak, since each is collected before the measured build.
         GameContent game = ProbeInstall.Game(_log);
-        long cold = LiveHeap();
-        ProbeInstall.Warm(bytes, game);
+        long warming = Stopwatch.GetTimestamp();
+        (long First, long Second)? firstBuild = ProbeInstall.Warm(bytes, game, LiveHeap);
+        _untimed = Stopwatch.GetElapsedTime(warming);
         long before = LiveHeap();
         DemoTimeline timeline = ProbeInstall.Timeline(bytes, game);
         long held = LiveHeap() - before;
 
-        _row.Set("install_cache_mb", (double)(before - cold) / Megabyte);
+        if (firstBuild is { } left)
+        {
+            _row.Set("first_build_heap_mb", (double)left.First / Megabyte);
+            _row.Set("second_build_heap_mb", (double)left.Second / Megabyte);
+        }
 
         _row.Set("timeline_frames", timeline.Frames.Count);
         _row.Set("timeline_props", timeline.Props.Count);

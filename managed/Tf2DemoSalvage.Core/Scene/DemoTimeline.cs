@@ -3189,10 +3189,19 @@ public sealed class DemoTimeline
     /// <summary>Walks <paramref name="at"/> commands and measures what a snapshot there allocates (D217).</summary>
     /// <param name="file">The whole demo file.</param>
     /// <param name="at">Where the snapshot is taken.</param>
+    /// <param name="client">The watcher's interp settings, as <see cref="Build"/> takes them; TF2's defaults when null.</param>
+    /// <param name="classes">The install's class scripts, as <see cref="Build"/> takes them, or null for none.</param>
+    /// <param name="models">The install's model facts, as <see cref="Build"/> takes them, or null for none; shared by the
+    /// snapshot, not counted in it.</param>
     /// <returns>The whole snapshot's bytes and each field's.</returns>
-    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(ReadOnlyMemory<byte> file, int at)
+    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(
+        ReadOnlyMemory<byte> file,
+        int at,
+        ClientInterp? client = null,
+        IClassAnimationScripts? classes = null,
+        IModelFacts? models = null)
     {
-        if (Start(file, null, new ClientInterp(), null, null, out List<DemoCommand> commands) is not { } builder)
+        if (Start(file, null, client ?? new ClientInterp(), classes, models, out List<DemoCommand> commands) is not { } builder)
         {
             return (0, []);
         }

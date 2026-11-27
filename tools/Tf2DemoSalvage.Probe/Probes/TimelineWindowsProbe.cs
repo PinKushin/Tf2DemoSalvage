@@ -53,21 +53,35 @@ public sealed class TimelineWindowsProbe : IProbe
         int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
         // The walk and the whole timeline both build with the install, as the viewer's do (B872, B874). It is opened before
-        // the heap reading, its class scripts and model facts object with it, as the viewer's are before a demo loads, and
-        // warmed by a throwaway build: what the facts read per model is the install's cache, kept after the walk, so it is
-        // its own line and the retained heap below is the checkpoints' alone.
+        // the heap reading, its class scripts and model facts object with it, as the viewer's are before a demo loads.
+        //
+        // **Two clocks, because the viewer pays both** (review 3): with an install, the first walk here is the COLD one —
+        // it pays every first read of the install (the model facts' per-model reads, B870), as the viewer's first walk of a
+        // demo does — and it is timed and dropped, then a second warms the heap's control (`ProbeInstall.Warm`), and the
+        // walk KEPT is a third, timed warm. So `cost` walks three times with an install, once without. The cold time is the
+        // viewer's; the warm one is the checkpoints' own work. Neither counts opening the install. The retained heap is the
+        // kept walk's alone: what a first walk left is its own line, with the second walk's as its control.
         GameContent game = ProbeInstall.Game(output);
-        long heapCold = Live();
-        ProbeInstall.Warm(demo, game);
-        long heapBefore = Live();
-        output.WriteLine($"  the install's per-model caches grew {(heapBefore - heapCold) / 1048576d:0.0} MB over a throwaway build (not the checkpoints')");
-        Stopwatch walk = Stopwatch.StartNew();
-        Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
         WindowSettings settings = new(ProbeInstall.Interp());
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(
-            demo, everyTicks, settings, created, game.ClassAnimation, game.ModelFacts)!;
-        walk.Stop();
+        TimeSpan? coldWalk = null;
+        (long, long)? firstWalk = ProbeInstall.Warm(game, Live, () =>
+        {
+            TimeSpan took = Walk(null).Took;
+            coldWalk ??= took;
+        });
+        output.WriteLine("  " + ProbeInstall.Said(firstWalk, "the retained heap (a walk's, here)"));
+        long heapBefore = Live();
+        Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
+        (DemoTimeline.Checkpoints checkpoints, TimeSpan warmWalk) = Walk(created);
         long heapAfter = Live();
+
+        (DemoTimeline.Checkpoints Checkpoints, TimeSpan Took) Walk(Dictionary<Type, (long Objects, long Elements)>? census)
+        {
+            long started = Stopwatch.GetTimestamp();
+            DemoTimeline.Checkpoints walked = DemoTimeline.Checkpoints.Walk(
+                demo, everyTicks, settings, census, game.ClassAnimation, game.ModelFacts)!;
+            return (walked, Stopwatch.GetElapsedTime(started));
+        }
 
         // The reach the walk KEPT, carried from it rather than recomputed here.
         output.WriteLine($"{Path.GetFileName(path)} ({demo.Length / 1048576d:0.0} MB): a checkpoint every {everyTicks} ticks, " +
@@ -81,7 +95,9 @@ public sealed class TimelineWindowsProbe : IProbe
         int[] ticks = [.. checkpoints.Ticks];
         (long total, long largest) = checkpoints.Cost();
 
-        output.WriteLine($"  walk {walk.Elapsed.TotalSeconds:0.0} s; {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB");
+        output.WriteLine(coldWalk is { } cold
+            ? $"  walk {cold.TotalSeconds:0.0} s cold (the first, paying the install's first reads as the viewer's first walk does), {warmWalk.TotalSeconds:0.0} s warm (the walk kept); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB"
+            : $"  walk {warmWalk.TotalSeconds:0.0} s (no install: the only walk); {ticks.Length} checkpoints; retained heap {(heapAfter - heapBefore) / 1048576d:0.0} MB");
         // Retained heap is what the checkpoints HOLD (they share unchanged objects); this is what a resume ALLOCATES.
         output.WriteLine($"  a resume copies {total / ticks.Length / 1048576d:0.0} MB on average, largest {largest / 1048576d:0.0} MB");
 

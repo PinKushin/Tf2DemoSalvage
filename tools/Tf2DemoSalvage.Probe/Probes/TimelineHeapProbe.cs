@@ -60,18 +60,17 @@ public sealed class TimelineHeapProbe : IProbe
         }
 
         // The control: the heap before anything is built. The install is opened first, its class scripts and model facts
-        // object with it, as the viewer's are before a demo loads (B874), then warmed by a throwaway build: what the facts
-        // read per model is the install's cache, kept after a timeline is gone, so it is its own line and "timeline holds"
-        // is the timeline's alone.
+        // object with it, as the viewer's are before a demo loads (B874), then warmed by two throwaway builds: what a first
+        // build leaves (the facts' per-model cache among it) is its own line, with the second build's as its control, and
+        // "timeline holds" is the timeline's alone. With no install nothing is warmed and the line says so.
         GameContent install = ProbeInstall.Game(output);
         byte[] file = File.ReadAllBytes(path);
-        long cold = Live();
-        ProbeInstall.Warm(file, install);
+        (long, long)? firstBuild = ProbeInstall.Warm(file, install, Live);
         long before = Live();
         DemoTimeline timeline = ProbeInstall.Timeline(file, install);
         long after = Live();
 
-        output.WriteLine($"the install's per-model caches grew {Mb(before - cold):0} MB over a throwaway build (not the timeline's)");
+        output.WriteLine(ProbeInstall.Said(firstBuild, "what the timeline holds"));
         output.WriteLine(
             $"{Path.GetFileNameWithoutExtension(path)}: frames {timeline.Frames.Count}, props {timeline.Props.Count}, "
             + $"players {timeline.PlayerTracks.Count}; live heap {Mb(before):0} MB before, {Mb(after):0} MB after "

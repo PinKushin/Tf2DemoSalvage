@@ -22,11 +22,17 @@ namespace Tf2DemoSalvage.Probe;
 /// searches that folder's <c>maps</c> first. **Opened as the viewer opens it**: `LevelSystems.Opened.Of` precaches the weapon
 /// scripts and builds the class scripts before the install is used, and the model facts object is made here too, so no lazy
 /// is counted by a probe that measures the build. What the facts read per model during a build is cached by the install;
-/// a heap probe warms it first (<see cref="Warm"/>) and prints it apart from the timeline.
+/// a heap probe warms it first (<see cref="Warm(GameContent, Func{long}, Action)"/>) and prints what a first build left
+/// apart from the timeline.
+///
+/// **Found means a <c>tf</c> folder was found**, for <see cref="Folder"/> and <see cref="Game"/> alike: either says
+/// <see cref="NoInstall"/> only when there is none. A folder whose archives open empty is still the viewer's folder.
 ///
 /// **The watcher's interp, as the viewer has it before any demo loads**: the saved settings, then the watcher's TF2 configs
 /// run over them (`ViewerSession` attaches the console to the settings and then runs `LoadUserConfig`), unless
-/// `TF2VIEW_NO_CONFIGS=1`. **Three things the viewer reads that a probe cannot**: a `+cl_interp` on the viewer's own command
+/// `TF2VIEW_NO_CONFIGS=1`. **Only <see cref="Interp"/> and the builds run the configs** (review 3): a probe that asks only
+/// for the folder, the install or a map never reads them, so a config the console cannot read costs those nothing.
+/// **Three things the viewer reads that a probe cannot**: a `+cl_interp` on the viewer's own command
 /// line; a config in the program's own `custom/` folder, which sits beside the viewer's executable rather than this one;
 /// and an `autoexec.cfg` that sets `cl_game_folder`, which moves the viewer's folder after the configs ran, where this
 /// finds its folder once, before running them.
@@ -42,19 +48,21 @@ public static class ProbeInstall
         "INSTALL not found: no game content is read, and timelines build without the class scripts or model facts, as the viewer builds with no game";
 
     private static readonly System.Threading.Lock Gate = new();
-    private static (string? Folder, ClientInterp Interp)? _found;
+    private static bool _searched;
+    private static string? _folder;
+    private static ClientInterp? _interp;
     private static GameContent? _game;
     private static bool _said;
 
     /// <summary>The installed game, found and opened on the first ask and kept for the process.</summary>
-    /// <param name="output">Where an absent install is said: the first non-null writer to ask is told, once.</param>
+    /// <param name="output">Where an absent install is said: the first non-null writer to ask, of this or <see cref="Folder"/>, is told, once.</param>
     /// <returns>The install, which answers "cannot say" when the game was not found.</returns>
     public static GameContent Game(TextWriter? output)
     {
         lock (Gate)
         {
-            _game ??= Open(Found().Folder, output: null);
-            _said = _said || Say(_game, output);
+            _game ??= Open(FoundFolder(), output: null);
+            _said = _said || Say(FoundFolder(), output);
             return _game;
         }
     }
@@ -66,14 +74,8 @@ public static class ProbeInstall
     {
         lock (Gate)
         {
-            string? folder = Found().Folder;
-
-            if (folder is null && output is not null && !_said)
-            {
-                output.WriteLine(NoInstall);
-                _said = true;
-            }
-
+            string? folder = FoundFolder();
+            _said = _said || Say(folder, output);
             return folder;
         }
     }
@@ -82,8 +84,10 @@ public static class ProbeInstall
     /// <param name="name">The map, without extension.</param>
     /// <returns>Its path, or null when no search root holds it.</returns>
     /// <remarks>
-    /// <see cref="MapProvider.Locate"/>, the viewer's own search, so a map under <c>TF2_FOLDER</c>'s <c>maps</c> that no
-    /// Steam library lists is found here as the viewer finds it (D203). It searches what <see cref="Folder"/> found.
+    /// <see cref="MapProvider.Locate"/>, the viewer's own search, over what <see cref="Folder"/> found, so a map under
+    /// <c>TF2_FOLDER</c>'s <c>maps</c> that no Steam library lists is found here when the viewer finds it (D203) — and
+    /// missed when the viewer misses it: with no Steam root named at all, <c>Locate</c> answers null before that folder is
+    /// searched (B890).
     /// </remarks>
     public static string? Map(string name)
     {
@@ -96,24 +100,68 @@ public static class ProbeInstall
         return maps.Locate(name);
     }
 
-    /// <summary>Builds one timeline and drops it, so the install's per-model caches already hold what this demo reads.</summary>
+    /// <summary>Builds one timeline twice and drops both, reading the heap a first build leaves and, as its control, a second.</summary>
     /// <param name="file">The whole demo file.</param>
     /// <param name="game">The install.</param>
+    /// <param name="live">The probe's reading of the live heap.</param>
+    /// <returns>What each build left on the heap, or null with no install, when nothing is built.</returns>
+    public static (long First, long Second)? Warm(ReadOnlyMemory<byte> file, GameContent game, Func<long> live) =>
+        Warm(game, live, () => _ = Timeline(file, game));
+
+    /// <summary>Runs <paramref name="build"/> twice, reading the heap before, between and after.</summary>
+    /// <param name="game">The install.</param>
+    /// <param name="live">The probe's reading of the live heap.</param>
+    /// <param name="build">The throwaway work: a build, or whatever the probe measures next.</param>
+    /// <returns>What each run left on the heap, or null with no install, when nothing is run.</returns>
     /// <remarks>
     /// **For a heap reading**: the model facts cache what each model tells `OnNewModel` (B870) the first time a build asks,
-    /// and that cache is the install's, kept after the timeline is gone. A probe that reads the heap before and after one
-    /// build counts it as "held by the timeline"; a reading taken after this counts the timeline alone, and the difference
-    /// across this call is the cache, which the probe prints as its own line.
+    /// and that cache is the install's, kept after the timeline is gone, so a reading across one cold build counts it as
+    /// "held by the timeline". A reading taken after this counts the build alone. **What the first figure is: everything a
+    /// first build left on the heap**, the install's caches and any other state the process keeps, which this cannot tell
+    /// apart — so it is named for what it is (<see cref="Said"/>), not called the install's cache. **The second is its
+    /// control**: a cache is filled once, so a second build must leave about nothing; a figure that does not fall is not a
+    /// cache. **Incremental**: a model an earlier build in this process read is not counted again. **Skipped with no
+    /// install**, where the facts read nothing and there is no install cache to separate.
     /// </remarks>
-    public static void Warm(ReadOnlyMemory<byte> file, GameContent game) => _ = Timeline(file, game);
+    public static (long First, long Second)? Warm(GameContent game, Func<long> live, Action build)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(live);
+        ArgumentNullException.ThrowIfNull(build);
+
+        if (game.Archives.IsEmpty)
+        {
+            return null;
+        }
+
+        long cold = live();
+        build();
+        long once = live();
+        build();
+        long twice = live();
+
+        return (once - cold, twice - once);
+    }
+
+    /// <summary>The line a probe prints for <see cref="Warm(GameContent, Func{long}, Action)"/>'s figures.</summary>
+    /// <param name="heap">The figures, or null when nothing was warmed.</param>
+    /// <param name="measured">What the probe's own figure is of, which these are not part of.</param>
+    /// <returns>The line.</returns>
+    public static string Said((long First, long Second)? heap, string measured) =>
+        heap is not { } left
+            ? $"no install, nothing warmed: {measured} below includes whatever a first build leaves on the heap"
+            : string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"heap a first build leaves {left.First / 1048576d:0.0} MB, not in {measured}: the install's per-model caches and anything else the process keeps; control, a second build leaves {left.Second / 1048576d:0.0} MB (about 0 when the first left a cache); incremental, a model an earlier build read is not counted");
 
     /// <summary>The watcher's interp: the saved settings with the TF2 configs of <see cref="Folder"/> run over them.</summary>
     /// <returns>The interp every timeline here is built with; finding it opens no install.</returns>
+    /// <remarks>Run on the first ask and kept; a config the console cannot read throws here, and again on the next ask.</remarks>
     public static ClientInterp Interp()
     {
         lock (Gate)
         {
-            return Found().Interp;
+            return _interp ??= WatcherInterp(FoundFolder(), ViewerSettings.Load());
         }
     }
 
@@ -122,24 +170,24 @@ public static class ProbeInstall
     {
         lock (Gate)
         {
-            _found = null;
+            _searched = false;
+            _folder = null;
+            _interp = null;
             _game = null;
             _said = false;
         }
     }
 
-    // Under the gate: the folder and the interp it decides, found once.
-    private static (string? Folder, ClientInterp Interp) Found()
+    // Under the gate: the folder, found once. The configs are not run here: only `Interp` pays for them.
+    private static string? FoundFolder()
     {
-        if (_found is not { } found)
+        if (!_searched)
         {
-            string? folder = MapProvider.Installed().GameFolder();
-
-            found = (folder, WatcherInterp(folder, ViewerSettings.Load()));
-            _found = found;
+            _folder = MapProvider.Installed().GameFolder();
+            _searched = true;
         }
 
-        return found;
+        return _folder;
     }
 
     /// <summary>Opens the install at <paramref name="folder"/> as the viewer opens it, saying so when there is none.</summary>
@@ -157,7 +205,7 @@ public static class ProbeInstall
         _ = game.ClassAnimation;
         _ = game.ModelFacts;
 
-        Say(game, output);
+        Say(folder, output);
         return game;
     }
 
@@ -208,9 +256,10 @@ public static class ProbeInstall
         return DemoTimeline.Build(file, client: interp, classes: game.ClassAnimation, models: game.ModelFacts);
     }
 
-    private static bool Say(GameContent game, TextWriter? output)
+    // Says NoInstall when no folder was found; whether it said so.
+    private static bool Say(string? folder, TextWriter? output)
     {
-        if (!game.Archives.IsEmpty || output is null)
+        if (folder is not null || output is null)
         {
             return false;
         }

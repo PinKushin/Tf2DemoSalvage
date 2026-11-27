@@ -56,9 +56,10 @@ public sealed class ModelProbe : IProbe
         int skin = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 0;
 
         // **A file on disk is read as it is** (B380), so a period client's loose model can be set beside
-        // the one TF2 ships today. The archive lookup below only ever answers for the live install, and
-        // `TF2_FOLDER` does not reach it — a run pointed at a folder that does not exist still printed
-        // today's model, which is how a "2008" table that was really today's got read as a refutation.
+        // the one TF2 ships today. The archive lookup below reads the install `ProbeInstall` finds, which
+        // `TF2_FOLDER` names only when that folder EXISTS: one that does not falls through to Steam's library
+        // (`SteamInstall.GameFolder`), so a run pointed at a missing folder still prints today's model — which
+        // is how a "2008" table that was really today's got read as a refutation. So the folder read is printed.
         byte[]? bytes = File.Exists(path) ? File.ReadAllBytes(path) : null;
 
         if (bytes is null)
