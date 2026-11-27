@@ -47296,7 +47296,7 @@ the record costs one entry per parity or cadence change rather than one per upda
 update by then (`UnseenResetAt_UpdatesTwoTicksApart_IsTheNewestByTheQuery`). An irregular updater — gaps that change
 every update — still costs one run per update (*not measured* on the corpus). **A trim keeps the run before the cut's
 count of starts** however many runs back it lies, which a wrapped parity looks back to — a tail of eight runs did not
-(`TrimBefore_ManyRunsAfterAWrap_KeepsTheRunBeforeTheCount`). `BracketAnchored`'s list past 64 entries is rented from
+(`TrimBefore_ManyRunsAfterAWrap_StillAnswersTheUpdateBeforeTheWrap`, renamed in review 6). `BracketAnchored`'s list past 64 entries is rented from
 the shared pool rather than allocated: a target near a reset with many latches since walks every one, because any later
 latch can flush the reset's entries (`BracketAnchored_NearTheResetWithManyLatchesAfter_WalksWithoutAllocating`; Fable's
 proposed early return for a hold past the newest entry was already covered by the third-sample test). A source change
@@ -47323,6 +47323,22 @@ newer is the parity a setup stores (`UnseenResetAt_AParityChangeAtTheTickOfTheUp
 a run's stride starts a new run, now pinned by a value (Fable; `UnseenResetAt_AGapOffTheStride_StartsANewRun`). The
 source-change clearing is the held build alone; the two other fields it cleared were unreachable behind it (Fable).
 Each sabotage reddened its test. *Not verified by looking.*
+
+Review 6 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer). **Review 5's arrival clamp is reversed** (Fable):
+it covered the update runs alone, while the keyframes and histories the anchor reads keep each update's own tick, so an
+out-of-order update left the runs and the seed disagreeing. The track's contract is tick order, held by every store
+alike: the timeline passes each packet's tick in stream order (`DemoTimeline`'s `track.Add(tick, …)`), and `Add`
+asserts it as before. A demo whose ticks went backwards is unsupported in every store, not in one — *not traced* whether
+any demo does. A parity that goes back without wrapping (a recreated counter, 0, 1, 0) is compared with each setup's,
+as the engine does (`UnseenResetAt_AParityGoingBackWithoutWrapping_ComparesWithTheSetups`, Sonnet). Docs on the runs
+and `UnseenResetAt` no longer describe the removed starts count; the wrap trim test is renamed for what it now proves.
+Recorded, *not modelled*: (a) a setup older than a trim's cut whose reset keyframe the trim dropped gives no anchor — the
+viewer's timeline is never trimmed, so no current path reaches it, and the output equals the plain answer by reading,
+only the third sample differing (Fable, the cavecrew reviewer); (b) updates at one tick with parities 0, 1, 0 seed from
+the keyframe kept at that tick, the last, where the reset was the middle one's (the cavecrew reviewer; *not traced*
+whether one entity gets two updates at one tick); (c) `BoneSetups` is keyed by track and never pruned, so a view held
+across a builder trim or a checkpoint copy keeps dead tracks and reads the copies as never set up — `Source` is set once
+per open, so not reachable until windowed timelines reach the viewer (Fable). *Not verified by looking.*
 
 ## B879 — under an unseen reset, the cycle's delay-rise target and pruned floor are read off the plain history (2026-11-26) — OPEN
 

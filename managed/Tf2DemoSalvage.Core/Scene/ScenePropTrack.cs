@@ -1170,15 +1170,15 @@ public sealed class ScenePropTrack
     private readonly List<int> _appliedAt = [];
 
     /// <summary>
-    /// Every update received, as runs of consecutive ticks stating one parity — each with the sequence starts counted to it
-    /// (B878).
+    /// Every update received, as strided runs stating one parity, each carrying the newest update of a different parity
+    /// before its stretch (B878).
     /// </summary>
     /// <remarks>
     /// **Not the keyframes**: `Add` collapses a restatement into the keyframe before it, and the engine resets the cycle
     /// history at a restatement too when its parity differs from the last bone setup's. **Runs, because an animating prop
-    /// updates every tick**: one per tick was twelve bytes an update for the whole recording. **The count unwraps the
-    /// 3-bit parity**, so eight starts unseen — which bring the parity back to the setup's — still leave the newest update
-    /// before that run as a reset.
+    /// updates every tick or every few**: one record per update was twelve bytes an update for the whole recording.
+    /// **`Before`**, so a parity back at the setup's — eight starts unseen, or a recreated counter — still leaves the
+    /// newest update that differed as the reset, however many runs back it lies.
     /// </remarks>
     private readonly List<UpdateRun> _updates = [];
 
@@ -2255,28 +2255,28 @@ public sealed class ScenePropTrack
     {
         // **Every update, before any of it is collapsed** (B878): the parity test runs in each update's `PostDataUpdate`
         // (`c_baseanimating.cpp:4738`), a restatement included.
-        // **In arrival order, which is the engine's**: `PostDataUpdate` runs as each update arrives, so one stamped before the
-        // newest still arrived after it — it counts at the newest's tick, and the runs stay ordered for their searches
-        // (review 5, Codex).
+        // **In tick order, the contract of every store here**: the timeline passes each packet's tick in stream order
+        // (`DemoTimeline`'s `track.Add(tick, …)`), and the keyframes and histories assume it as the runs do. Clamping the
+        // runs alone left them disagreeing with the keyframes the anchor reads (review 6, Fable, reversing review 5's).
         UpdateRun? previous = _updates.Count > 0 ? _updates[^1] : null;
-        int arrived = previous is { } newest ? Math.Max(tick, newest.Last) : tick;
+        System.Diagnostics.Debug.Assert(previous is not { } newest || tick >= newest.Last, "updates arrive in tick order");
 
-        if (previous is { } same && same.Parity == pose.NewSequenceParity && arrived == same.Last)
+        if (previous is { } same && same.Parity == pose.NewSequenceParity && tick == same.Last)
         {
             // A second update at one tick: the run already names it.
         }
         else if (previous is { } run && run.Parity == pose.NewSequenceParity &&
-            (run.Stride == 0 || arrived - run.Last == run.Stride))
+            (run.Stride == 0 || tick - run.Last == run.Stride))
         {
             // A single update's run takes the first gap as its stride; a longer one extends only by it.
-            _updates[^1] = run with { Last = arrived, Stride = arrived - run.Last };
+            _updates[^1] = run with { Last = tick, Stride = tick - run.Last };
         }
         else
         {
             // A gap off the stride continues the stretch, and keeps its `Before`; a new parity's begins after this one.
             int? differed = previous is { } last && last.Parity == pose.NewSequenceParity ? last.Before : previous?.Last;
 
-            _updates.Add(new UpdateRun(arrived, arrived, 0, pose.NewSequenceParity, differed));
+            _updates.Add(new UpdateRun(tick, tick, 0, pose.NewSequenceParity, differed));
         }
 
         // **The engine's three changed-tests, against the previous NETWORKED values** (B382).
@@ -3557,11 +3557,11 @@ public sealed class ScenePropTrack
     /// <returns>The tick the engine's cycle history was last reset at by an update the view did not set up after.</returns>
     /// <remarks>
     /// **Every update whose parity differs from `m_nPrevNewSequenceParity` resets** (`c_baseanimating.cpp:4738-4747`), and
-    /// that member is written only at a setup (`:1835`). **The parity only counts up** (`( m_nNewSequenceParity + 1 ) &amp;
-    /// EF_PARITY_MASK`, `:5574`), so once one update after the setup differs, every later one does until eight starts bring
-    /// the 3-bit counter back to the setup's value — where the engine stops resetting, and the newest update before that
-    /// count is the reset. Every update counts, a restatement included, not only those that latch the cycle: the test runs
-    /// in each update's `PostDataUpdate` (<see cref="_updates"/>).
+    /// that member is written only at a setup (`:1835`). So the newest update after the setup resets if its parity differs
+    /// from the setup's; if it equals it — eight starts wrapped the 3-bit counter (`:5574`), or a recreated entity's
+    /// counter went back — the newest update that differed (the run's <c>Before</c>) is the reset, unless the setup saw
+    /// it. Every update counts, a restatement included, not only those that latch the cycle: the test runs in each
+    /// update's `PostDataUpdate` (<see cref="_updates"/>).
     /// </remarks>
     internal int? UnseenResetAt(int arrivedBy, BoneSetup setup)
     {

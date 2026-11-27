@@ -233,6 +233,25 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
+    /// **A parity that goes back without wrapping** (B878 review 6, Sonnet) — a server that recreated the entity's
+    /// counter: 0 at 100, 1 at 110, 0 at 120. The engine compares each update with the parity at the last setup
+    /// (`c_baseanimating.cpp:4738`), whatever came between. A setup at 105 saw 0, so 120's 0 does not reset and the newest
+    /// that did is 110; one at 115 saw 1, so 120's 0 differs and resets.
+    /// </summary>
+    [Test]
+    public void UnseenResetAt_AParityGoingBackWithoutWrapping_ComparesWithTheSetups()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
+        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
+        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
+        track.Add(120, new ScenePose { NewSequenceParity = 0, X = 2 }, appliedAt: 120, animationAppliedAt: 117);
+
+        track.UnseenResetAt(125, new BoneSetup(105, 0, null)).ShouldBe(110);
+        track.UnseenResetAt(125, new BoneSetup(115, 1, null)).ShouldBe(120);
+        track.UnseenResetAt(125, new BoneSetup(120, 0, null)).ShouldBeNull("the control: a setup at 120 saw it");
+    }
+
+    /// <summary>
     /// **A run extends only by its stride** (B878 review 5, Fable): parity 0 at 90; parity 1 at 100, 102, 104, then 107.
     /// A setup at 95 saw 0. Asked at 106 the newest update is 104 — had 107 joined the two-tick run as a three-tick one,
     /// the answer would be 106, a tick with no update.
@@ -278,23 +297,6 @@ public sealed class BoneSetupConformanceTests
     }
 
     /// <summary>
-    /// **Updates count in arrival order, the engine's** (B878 review 5, Codex): `PostDataUpdate` runs as each arrives. A
-    /// setup at 105 saw 0; parity 1 arrives at 110, then an update stamped 108 arrives after it. It counts at 110, so the
-    /// reset is 110 — read as its stamp it would have run the 110 run backwards and answered 108.
-    /// </summary>
-    [Test]
-    public void UnseenResetAt_AnUpdateStampedBeforeTheNewest_CountsAtTheNewest()
-    {
-        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
-        track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
-        track.Add(110, new ScenePose { NewSequenceParity = 1, X = 1 }, appliedAt: 110, animationAppliedAt: 107);
-        track.Add(108, new ScenePose { NewSequenceParity = 1, X = 2 }, appliedAt: 108, animationAppliedAt: 105);
-
-        track.UnseenResetAt(112, new BoneSetup(105, 0, null)).ShouldBe(110);
-        track.SequenceParityAt(109).ShouldBe(0, "the control: nothing of parity 1 had arrived by 109");
-    }
-
-    /// <summary>
     /// **Two updates at one tick with different parities** (B878 review 5, Codex): 0 at 100 and 110, then 1 at 110 as
     /// well. The newer states the parity a setup then stores, and a setup at 105 that saw 0 has a reset at 110; one at 110
     /// saw 1.
@@ -316,10 +318,10 @@ public sealed class BoneSetupConformanceTests
     /// **A trim keeps the run before a wrapped parity however many runs back it is** (B878 review 4, the cavecrew reviewer):
     /// a setup at 100 saw 0; eight starts at 110 to 180 (1 to 7, then 0); 0 then restated at 180, 181, 183, 184, … 207, 208 —
     /// gaps of one and two, so ten runs. The newest reset is 170, the run before the count. Trimmed at 207, ten runs past
-    /// it, a tail of eight runs would have dropped it.
+    /// it, the run is dropped, and the answer rides on the newest run's `Before` (review 6, Fable).
     /// </summary>
     [Test]
-    public void TrimBefore_ManyRunsAfterAWrap_KeepsTheRunBeforeTheCount()
+    public void TrimBefore_ManyRunsAfterAWrap_StillAnswersTheUpdateBeforeTheWrap()
     {
         ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door.mdl");
         track.Add(100, new ScenePose { NewSequenceParity = 0 }, appliedAt: 100, animationAppliedAt: 97);
