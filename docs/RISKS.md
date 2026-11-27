@@ -47368,6 +47368,11 @@ parity starts its run at its arrival, now pinned where the run's stride reads it
 version without a later update in the run did not, the binary search masking the one misplaced run). *Not verified by
 looking.*
 
+Review 9 (Codex: no findings; Fable, Sonnet, the cavecrew reviewer: none in the branch's code or test). The probe behind
+B881's census took its running maximum over snapshot packets only and had no control that the comparison could fire;
+it now takes every packet, counts the packets repeating the maximum as that control, labels what it prints, and walks
+the whole corpus with no argument. Rerun: unchanged, 161 demos, none of either case (B881). *Not verified by looking.*
+
 ## B881 — a scene track takes each update's packet tick as its arrival, which a signon or a backwards packet breaks (2026-11-26) — OPEN
 
 Found in B878 review 7 (Fable, Sonnet, the cavecrew reviewer), *read*. `DemoTimeline.RecordProp` hands
@@ -47383,11 +47388,17 @@ arrives before every packet but is stamped with the server's tick, so every stor
 starts there and the track is not alive before it; B878's runs agree, so B878 is off for such a track rather than
 wrong.
 
-**Measured, 2026-11-26** (`packet-tick-order`, every gcor and lcor demo, 161): **no signon carries an entity snapshot,
-and no packet is stamped below the running maximum of the packets before it.** The control: every one of the 161 has
-signon commands, read on the same stream (z1800's first at 70,718, etf2l-12025's at 146,124), and each counts 3,874 to
-16,213 snapshots in its packets. So neither case reaches a track on any demo held; the only backwards file known is
-synthetic (`DemoPlayerConformanceTests.Backwards`). Fix shape, if one turns up: give every store of the track the
+**Measured, 2026-11-26** (`packet-tick-order`, the 161 demos in gcor and the main checkout's top-level lcor, named on
+the command line; with no argument the probe walks `DemoCorpus.Files`, gcor alone in a worktree): **no signon carries an
+entity snapshot, and no packet — snapshot or not — is stamped below the running maximum of every packet before it**, the
+maximum `DemoPlayer.FirstPacketPast` reads to. Controls: every one of the 161 has signon commands, read on the same
+stream and with the same type test (z1800's first at 70,718, etf2l-12025's at 146,124); and the comparison is seen
+firing on its other side — 76 demos have packets EQUAL to the running maximum, the repeated ticks of a POV demo (finding
+106; 19,196 on etf2l-12025, none on any SourceTV recording). No real file drives the "below" branch itself; the only
+backwards file known is synthetic (`DemoPlayerConformanceTests.Backwards`). Review 9 (Fable, Sonnet, the cavecrew
+reviewer) found the first run's maximum taken over snapshot packets only — narrower than the player's — and its labels
+wrong; both fixed before this run. Not covered: lcor's other locations (D81), and a snapshot behind a message the reader
+does not implement, which production cannot read either. Fix shape, if one turns up: give every store of the track the
 arrival beside the stamp — the running maximum of packet ticks for a packet, and for a signon what the convars take
 (`lastPacketTick + 1`, or the start before any packet, `DemoTimeline`'s `SetConVarMessage` case). *Not verified by
 looking.*
