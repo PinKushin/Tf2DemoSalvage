@@ -24,7 +24,7 @@ The lookup table; reasoning lives in the sections below, not here. Every path is
 | build everything | `MSBUILDDISABLENODEREUSE=1 dotnet build Tf2DemoSalvage.slnx` |
 | **the merge gate, phase 1** (twelve assemblies, count-floored) | `TF2DEMOSALVAGE_GCOR_ONLY=1 pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -Shared "C:/Program Files/Git/bin/bash.exe" build/gate.sh` — `-Shared`: up to three at once, never beside a UI run |
 | **the merge gate, phase 2** (UI, including the playback test — B408; takes the desktop, so the machine-wide lock) | `pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests` |
-| full corpus superset (~50 min, ~15 GB peak; decode changes only) | `TF2DEMOSALVAGE_GCOR_ONLY=0 bash build/gate.sh` — the script defaults to gcor; in a worktree, junction lcor first (`docs/memory/lcor-is-not-in-a-worktree.md`) |
+| full corpus superset — **never run by an agent or asked for in a brief**: a pass takes days (owner, 2026-11-27); sizes in the memory entry | `TF2DEMOSALVAGE_GCOR_ONLY=0 bash build/gate.sh` — the owner's call only; a decode change is measured on a chosen sample via a probe or `Corpus.Demo("name")` (`docs/memory/full-corpus-at-most-once-a-day.md`) |
 | one test project | `dotnet test tests/Tf2DemoSalvage.Core.Tests` |
 | end leftover dotnet processes (after ad-hoc `dotnet` commands or a run stopped by force) | `pwsh build/reap-dotnet.ps1` — orphans by parentage; `-WhatIf` lists without stopping |
 | one test | `dotnet test tests/<proj> --filter "FullyQualifiedName~<Name>"` — NOTE: any filter silently drops every `[Explicit]` test |
